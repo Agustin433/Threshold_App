@@ -8,7 +8,7 @@ import streamlit as st
 def ensure_state():
     keys = [
         "rpe_df", "wellness_df", "completion_df", "rep_load_df",
-        "raw_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict", "eval_df",
+        "raw_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict",
     ]
     for key in keys:
         if key not in st.session_state:

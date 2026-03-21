@@ -22,18 +22,6 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
 # Importar módulo de evaluaciones
-try:
-    from eval_module import (
-        load_eval_csv, compute_zscores, get_latest_per_player,
-        get_player_history, generate_template_csv,
-        chart_kpi_cards, chart_quadrant_team, chart_bar_comparativa,
-        chart_dj_rsi_grupal, chart_sprint_tendencia, chart_radar_individual,
-        chart_historial_saltos, chart_historial_dj_rsi, chart_historial_eur,
-    )
-    _EVAL_MODULE_OK = True
-except ImportError as _e:
-    _EVAL_MODULE_OK = False
-
 # Regex para detectar fechas con formato Teambuildr: "Feb 03, 2026"
 _DATE_RE = re.compile(
     r'^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}$'
@@ -1030,66 +1018,10 @@ def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _collapse_eval_rows(df: pd.DataFrame | None) -> pd.DataFrame | None:
-    if df is None or df.empty:
-        return df
-    work = df.copy()
-    if "FECHA" in work.columns:
-        work["FECHA"] = pd.to_datetime(work["FECHA"], errors="coerce")
-    key_cols = ["JUGADOR", "FECHA"]
-    value_cols = [c for c in work.columns if c not in key_cols]
-    rows = []
-    for (jugador, fecha), group in work.groupby(key_cols, dropna=False):
-        row = {"JUGADOR": jugador, "FECHA": fecha}
-        for col in value_cols:
-            vals = group[col].dropna()
-            row[col] = vals.iloc[-1] if not vals.empty else np.nan
-        rows.append(row)
-    return pd.DataFrame(rows)
-
-
-def _merge_eval_datasets(base_df: pd.DataFrame | None, new_df: pd.DataFrame | None) -> pd.DataFrame | None:
-    if (new_df is None or new_df.empty) and (base_df is None or base_df.empty):
-        return base_df
-    if new_df is None or new_df.empty:
-        merged = _collapse_eval_rows(base_df.copy())
-    elif base_df is None or base_df.empty:
-        merged = _collapse_eval_rows(new_df.copy())
-    else:
-        base = _collapse_eval_rows(base_df.copy())
-        new = _collapse_eval_rows(new_df.copy())
-        all_cols = sorted(set(base.columns).union(new.columns))
-        for col in all_cols:
-            if col not in base.columns:
-                base[col] = np.nan
-            if col not in new.columns:
-                new[col] = np.nan
-        base = base[all_cols].set_index(["JUGADOR", "FECHA"])
-        new = new[all_cols].set_index(["JUGADOR", "FECHA"])
-        merged = base.combine_first(new)
-        merged.update(new)
-        merged = merged.reset_index()
-
-    if merged is None or merged.empty:
-        return merged
-    if "EUR" in merged.columns:
-        merged["EUR"] = _normalize_eur_series_to_ratio(merged["EUR"])
-    merged = compute_zscores(merged)
-    return merged.sort_values(["JUGADOR", "FECHA"]).reset_index(drop=True)
-
-
-def _records_to_eval_df(records: list[dict]) -> pd.DataFrame:
+def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
+    """Consolida los tests individuales en una fila por atleta y fecha."""
     if not records:
         return pd.DataFrame()
-
-    rename_map = {
-        "CMJ_peak_force_N": "CMJ_PF_N",
-        "SJ_peak_force_N": "SJ_PF_N",
-        "SJ_asym_pct": "SJ_asim_pct",
-        "DRI": "DJ_RSI",
-        "RFD_100": "IMTP_RFD100",
-        "RFD_250": "IMTP_RFD250",
-    }
 
     rows = {}
     for rec in records:
@@ -1097,46 +1029,28 @@ def _records_to_eval_df(records: list[dict]) -> pd.DataFrame:
         date = pd.to_datetime(rec.get("Date"), errors="coerce")
         if not athlete or pd.isna(date):
             continue
+
         key = (athlete, date.normalize())
-        row = rows.setdefault(key, {"JUGADOR": athlete, "FECHA": date.normalize()})
+        row = rows.setdefault(key, {"Athlete": athlete, "Date": date.normalize()})
         for k, v in rec.items():
             if k in {"Athlete", "Date", "test_type"} or k.endswith("_reps"):
                 continue
             if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                row[rename_map.get(k, k)] = v
+                row[k] = v
 
-    eval_df = pd.DataFrame(rows.values())
-    if eval_df.empty:
-        return eval_df
+    jump_df = pd.DataFrame(rows.values())
+    if jump_df.empty:
+        return jump_df
 
-    for col in [c for c in eval_df.columns if c not in {"JUGADOR", "FECHA"}]:
-        eval_df[col] = pd.to_numeric(eval_df[col], errors="coerce")
+    for col in [c for c in jump_df.columns if c not in {"Athlete", "Date"}]:
+        jump_df[col] = pd.to_numeric(jump_df[col], errors="coerce")
 
-    if "DJ_cm" in eval_df.columns and "DJ_tc_ms" in eval_df.columns:
-        mask_dj = eval_df["DJ_cm"].notna() & eval_df["DJ_tc_ms"].notna() & (eval_df["DJ_tc_ms"] != 0)
-        eval_df.loc[mask_dj, "DJ_RSI"] = ((eval_df.loc[mask_dj, "DJ_cm"] / 100) / (eval_df.loc[mask_dj, "DJ_tc_ms"] / 1000)).round(3)
-
-    eval_df = calc_eur(eval_df)
-    return eval_df.sort_values(["JUGADOR", "FECHA"]).reset_index(drop=True)
-
-
-def _eval_to_jump_df(ev_df: pd.DataFrame | None) -> pd.DataFrame | None:
-    if ev_df is None or ev_df.empty:
-        return None
-
-    jdf = ev_df.copy().rename(columns={
-        "JUGADOR": "Athlete",
-        "FECHA": "Date",
-        "DJ_RSI": "DRI",
-    })
-    jdf["Date"] = pd.to_datetime(jdf["Date"], errors="coerce")
-    if "EUR" in jdf.columns:
-        jdf["EUR"] = _normalize_eur_series_to_ratio(jdf["EUR"])
-    jdf = calc_eur(jdf)
-    jdf = calc_dri(jdf)
-    jdf = calc_zscores(jdf)
-    jdf = calc_nm_profile(jdf)
-    return jdf.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+    jump_df["Date"] = pd.to_datetime(jump_df["Date"], errors="coerce")
+    jump_df = calc_eur(jump_df)
+    jump_df = calc_dri(jump_df)
+    jump_df = calc_zscores(jump_df)
+    jump_df = calc_nm_profile(jump_df)
+    return jump_df.sort_values(["Athlete", "Date"]).reset_index(drop=True)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1692,8 +1606,7 @@ def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
 def init_state():
     # Valores por defecto None
     none_keys = ["rpe_df", "wellness_df", "completion_df", "rep_load_df",
-                 "raw_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict",
-                 "eval_df"]
+                 "raw_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict"]
     for k in none_keys:
         if k not in st.session_state:
             st.session_state[k] = None
@@ -1713,7 +1626,6 @@ def _data_loaded():
     return any([
         st.session_state.rpe_df is not None,
         st.session_state.wellness_df is not None,
-        st.session_state.eval_df is not None,
         st.session_state.jump_df is not None,
         st.session_state.raw_df is not None,
     ])
@@ -1748,9 +1660,9 @@ with st.sidebar:
             loaded_items.append(f"📈 RPE ({len(st.session_state.rpe_df)} registros)")
         if st.session_state.wellness_df is not None:
             loaded_items.append(f"💚 Wellness ({len(st.session_state.wellness_df)} registros)")
-        if st.session_state.eval_df is not None:
-            n_j = st.session_state.eval_df["JUGADOR"].nunique()
-            loaded_items.append(f"🦘 Evaluaciones ({n_j} jugadores)")
+        if st.session_state.jump_df is not None:
+            n_j = st.session_state.jump_df["Athlete"].nunique()
+            loaded_items.append(f"🦘 Evaluaciones ({n_j} atletas)")
         if st.session_state.raw_df is not None:
             loaded_items.append("🏋️ Workouts")
         status_html = "".join(
@@ -1812,16 +1724,9 @@ with st.sidebar:
                 st.session_state.eval_records = []
 
         st.markdown("---")
-        st.markdown("**Evaluaciones Físicas (planilla histórica)**")
-        f_eval = st.file_uploader(
-            "Planilla de evaluaciones (CSV o Excel DATOS)",
-            type=["csv", "xlsx"],
-            key="u_eval",
-            help="Formato: JUGADOR, FECHA, CMJ_cm, SJ_cm, DJ_cm, DJ_tc_ms, DJ_RSI, EUR, IMTP_N, Sprint_10m, Sprint_20m, etc."
-        )
         st.info(
-            "💡 Los tests de plataforma de fuerza se integran automáticamente "
-            "al módulo analítico al presionar ▶ PROCESAR TODO."
+            "💡 Las evaluaciones individuales cargadas arriba se consolidan "
+            "automáticamente al presionar ▶ PROCESAR TODO."
         )
         st.markdown("---")
         if st.button("▶ PROCESAR TODO"):
@@ -1840,62 +1745,16 @@ with st.sidebar:
                     st.session_state.raw_df = parse_raw_workouts(f_raw)
                 if f_maxes:
                     st.session_state.maxes_df = parse_maxes_health(f_maxes)
-                # Procesar planilla de evaluaciones
-                if f_eval:
-                    try:
-                        ev_df = load_eval_csv(f_eval)
-                        ev_df = compute_zscores(ev_df)
-                        st.session_state.eval_df = ev_df
-                        n_j = ev_df["JUGADOR"].nunique()
-                        n_r = len(ev_df)
-                        st.success(f"✅ Evaluaciones: {n_r} registros · {n_j} jugadores")
-                    except Exception as e:
-                        st.error(f"❌ Error en evaluaciones: {e}")
 
                 # Procesar evaluaciones de plataforma de fuerza
                 records = st.session_state.get("eval_records", [])
                 if records:
-                    rows = []
-                    for rec in records:
-                        row = {k: v for k, v in rec.items() if not k.endswith("_reps")}
-                        rows.append(row)
-                    jdf = pd.DataFrame(rows)
-                    jdf["Date"] = pd.to_datetime(jdf["Date"])
-                    jdf = jdf.sort_values("Date").reset_index(drop=True)
-                    jdf = _calc_eur_from_records(jdf)
-                    jdf = calc_dri(jdf)
-                    jdf = calc_zscores(jdf)
-                    jdf = calc_nm_profile(jdf)
+                    jdf = _records_to_jump_df(records)
                     st.session_state.jump_df = jdf
-                    st.success(f"✅ {len(records)} test(s) procesados — {len(jdf['Athlete'].unique())} atletas")
-                    if _EVAL_MODULE_OK:
-                        try:
-                            eval_from_records = jdf.copy()
-                            eval_from_records = eval_from_records.rename(columns={
-                                "Athlete": "JUGADOR",
-                                "Date":    "FECHA",
-                                "DRI":     "DJ_RSI",
-                            })
-                            eval_from_records = compute_zscores(eval_from_records)
-                            st.session_state.eval_df = eval_from_records
-                        except Exception as e:
-                            st.warning(f"⚠️ No se pudo actualizar el módulo de evaluaciones: {e}")
-
-                # Reconciliar evaluaciones historicas + tests manuales en una sola fuente
-                base_eval_df = st.session_state.eval_df.copy() if st.session_state.eval_df is not None else None
-                if f_eval:
-                    try:
-                        f_eval.seek(0)
-                        base_eval_df = load_eval_csv(f_eval)
-                    except Exception as e:
-                        st.error(f"No se pudo reconstruir la planilla de evaluaciones: {e}")
-
-                records = st.session_state.get("eval_records", [])
-                records_eval_df = _records_to_eval_df(records)
-                merged_eval_df = _merge_eval_datasets(base_eval_df, records_eval_df)
-                if merged_eval_df is not None and not merged_eval_df.empty:
-                    st.session_state.eval_df = merged_eval_df
-                    st.session_state.jump_df = _eval_to_jump_df(merged_eval_df)
+                    if not jdf.empty:
+                        st.success(f"✅ {len(records)} test(s) procesados — {jdf['Athlete'].nunique()} atletas")
+                    else:
+                        st.warning("No se pudo consolidar ninguna evaluación individual válida.")
 
                 # Pre-calcular ACWR por atleta
                 if st.session_state.rpe_df is not None:
@@ -2140,8 +1999,6 @@ with tab_load:
                 _alert(f"⚠️ Monotonía = {last_mono['Monotonia'].values[0]:.2f} — Por encima del umbral Foster (2.0). "
                        f"Aumentar variabilidad de carga en el microciclo.", "y")
 
-            fecha_sel_ts = pd.to_datetime(fecha_sel, dayfirst=True, errors="coerce")
-            ev_df_context = ev_df[ev_df["FECHA"] <= fecha_sel_ts] if pd.notna(fecha_sel_ts) else ev_df
             st.markdown("---")
 
             # Gráfico ACWR
@@ -2180,11 +2037,10 @@ with tab_load:
 # TAB: EVALUACIONES
 # ─────────────────────────────────────────────────────────────────────
 with tab_eval:
-    ev_df = st.session_state.eval_df
+    jdf = st.session_state.jump_df
 
-    if not _EVAL_MODULE_OK:
-        _alert("⚠️ eval_module.py no encontrado. Asegurate de tener ambos archivos en la misma carpeta.", "r")
-    elif ev_df is None:
+    if jdf is None or jdf.empty:
+        st.caption("Este modulo usa solo evaluaciones individuales.")
         st.markdown(f"""
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
   <div>
@@ -2201,45 +2057,13 @@ with tab_eval:
   <img src="{_LOGO_ICON_SRC}" style="width:40px; height:40px; opacity:0.15; border-radius:50%;"/>
 </div>
 """, unsafe_allow_html=True)
-        _alert("⬜ Cargá la planilla de evaluaciones en el sidebar (CSV o Excel DATOS) y presioná PROCESAR TODO.", "b")
-
-        # Plantilla descargable
-        st.markdown("### 📋 Plantilla CSV")
-        st.markdown("Descargá esta plantilla, completala con tus datos y subila:")
-        tmpl_bytes = generate_template_csv()
-        st.download_button(
-            "⬇ Descargar plantilla evaluaciones.csv",
-            data=tmpl_bytes,
-            file_name="threshold_evaluaciones_template.csv",
-            mime="text/csv",
-        )
-        st.markdown("**Columnas del formato:**")
-        st.markdown("""
-| Columna | Descripción | Unidad |
-|---------|-------------|--------|
-| JUGADOR | Nombre del jugador | Texto |
-| FECHA | Fecha de evaluación | DD/MM/YYYY |
-| CMJ_PF_N | CMJ Peak Force | N |
-| CMJ_RSI | CMJ RSI | — |
-| CMJ_cm | CMJ Altura | cm |
-| SJ_PF_N | SJ Peak Force | N |
-| SJ_asim_pct | SJ Asimetría | % |
-| SJ_cm | SJ Altura | cm |
-| DJ_tc_ms | DJ Tiempo Contacto | ms |
-| DJ_cm | DJ Altura | cm |
-| DJ_RSI | DJ RSI | — |
-| EUR | EUR (CMJ/SJ ratio) | — |
-| IMTP_N | IMTP Peak Force | N |
-| IMTP_RFD100 | IMTP RFD 100ms | N/s |
-| IMTP_RFD250 | IMTP RFD 250ms | N/s |
-| Sprint_10m | Sprint 10m | s |
-| Sprint_20m | Sprint 20m | s |
-""")
+        _alert("⬜ Cargá tests individuales de CMJ, SJ, DJ o IMTP desde el sidebar y presioná PROCESAR TODO.", "b")
     else:
         # ── Header del módulo ──
-        n_j = ev_df["JUGADOR"].nunique()
-        n_r = len(ev_df)
-        fechas = ev_df["FECHA"].dropna()
+        jdf = jdf.copy().sort_values("Date")
+        n_j = jdf["Athlete"].nunique()
+        n_r = len(jdf)
+        fechas = jdf["Date"].dropna()
         fecha_min = fechas.min().strftime("%d/%m/%Y") if not fechas.empty else "—"
         fecha_max = fechas.max().strftime("%d/%m/%Y") if not fechas.empty else "—"
 
@@ -2261,171 +2085,80 @@ with tab_eval:
 """, unsafe_allow_html=True)
 
         # ── Sub-tabs ──────────────────────────────────────────────────
-        ev_tab1, ev_tab2, ev_tab3 = st.tabs([
-            "👤 INDIVIDUAL", "👥 GRUPAL", "📊 COMPARATIVA"
-        ])
+        athletes_eval = sorted(jdf["Athlete"].dropna().unique())
 
         # ─────────────────────────────────────────────────────────────
         # SUB-TAB: INDIVIDUAL
         # ─────────────────────────────────────────────────────────────
-        with ev_tab1:
-            jugadores = sorted(ev_df["JUGADOR"].dropna().unique())
-            with st.expander("⚙️ Opciones de visualización", expanded=True):
-                col_sel, col_fecha = st.columns([2, 1])
-                with col_sel:
-                    jugador_sel = st.selectbox("Seleccionar jugador",
-                                                jugadores, key="ev_jugador")
-                with col_fecha:
-                    hist_j = get_player_history(ev_df, jugador_sel)
-                    fechas_j = sorted(hist_j["FECHA"].dropna().unique(), reverse=True)
-                    ev_df_context = ev_df
-                    fecha_sel = st.selectbox(
-                        "Evaluación",
-                        [f.strftime("%d/%m/%Y") for f in fechas_j],
-                        key="ev_fecha",
-                        help="Última = más reciente"
-                    )
-
-            st.markdown("---")
-
-            # KPI Cards
-            st.markdown("""<div style="font-family:'Barlow Condensed',sans-serif;
-                font-weight:700; font-size:9px; letter-spacing:0.22em;
-                text-transform:uppercase; color:#2A5F8E; margin-bottom:12px;">
-                INDICADORES CLAVE</div>""", unsafe_allow_html=True)
-            chart_kpi_cards(ev_df_context, jugador_sel)
-
-            st.markdown("---")
-
-            # Gráficos históricos individuales
-            c_r1, c_r2 = st.columns([1, 1])
-            with c_r1:
-                st.plotly_chart(chart_radar_individual(ev_df_context, jugador_sel),
-                                width='stretch', key="ev_radar")
-            with c_r2:
-                st.plotly_chart(chart_historial_saltos(ev_df, jugador_sel),
-                                width='stretch', key="ev_hist_saltos")
-
-            c_r3, c_r4 = st.columns([1, 1])
-            with c_r3:
-                st.plotly_chart(chart_historial_dj_rsi(ev_df, jugador_sel),
-                                width='stretch', key="ev_hist_dj_rsi")
-            with c_r4:
-                st.plotly_chart(chart_historial_eur(ev_df, jugador_sel),
-                                width='stretch', key="ev_hist_eur")
-
-            # Tabla histórica del jugador
-            with st.expander("📋 Tabla histórica completa"):
-                display_cols = [c for c in ev_df.columns if not c.startswith("Z_")]
-                st.dataframe(
-                    hist_j[display_cols].sort_values("FECHA", ascending=False)
-                    .style.format({
-                        c: "{:.1f}" for c in ["CMJ_cm","SJ_cm","DJ_cm","DJ_tc_ms","IMTP_N"]
-                        if c in hist_j.columns
-                    }, na_rep="—"),
-                    width='stretch', hide_index=True
+        with st.expander("⚙️ Opciones de visualización", expanded=True):
+            col_sel, col_fecha = st.columns([2, 1])
+            with col_sel:
+                athlete_sel = st.selectbox("Seleccionar atleta", athletes_eval, key="ev_jugador")
+            hist_j = jdf[jdf["Athlete"] == athlete_sel].sort_values("Date")
+            date_options = hist_j["Date"].dropna().drop_duplicates().sort_values(ascending=False).tolist()
+            with col_fecha:
+                selected_date = st.selectbox(
+                    "Evaluación",
+                    date_options,
+                    format_func=lambda x: pd.Timestamp(x).strftime("%d/%m/%Y"),
+                    key="ev_fecha",
                 )
 
-        # ─────────────────────────────────────────────────────────────
-        # SUB-TAB: GRUPAL
-        # ─────────────────────────────────────────────────────────────
-        with ev_tab2:
-            st.plotly_chart(chart_quadrant_team(ev_df),
-                            width='stretch', key="ev_quadrant_team")
+        sel_ts = pd.Timestamp(selected_date)
+        selected_rows = hist_j[hist_j["Date"] == sel_ts].sort_values("Date")
+        selected_row = selected_rows.iloc[-1] if not selected_rows.empty else hist_j.iloc[-1]
+        latest_team = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+        z_keys = ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"]
+        team_mean = {k: latest_team[k].mean() for k in z_keys if k in latest_team.columns}
 
-            st.markdown("---")
-            c_g1, c_g2 = st.columns(2)
-            with c_g1:
-                try:
-                    st.plotly_chart(chart_sprint_tendencia(ev_df),
-                                    width='stretch', key="ev_sprints_group")
-                except Exception as e:
-                    st.warning(f"No se pudo generar grafico de sprints: {e}")
-                st.caption("Sprint grupal disponible cuando hay datos de 10 m / 20 m")
-            with c_g2:
-                try:
-                    st.plotly_chart(chart_dj_rsi_grupal(ev_df),
-                                    width='stretch', key="ev_dj_rsi_group")
-                except Exception as e:
-                    st.warning(f"⚠️ No se pudo generar gráfico DJ/RSI: {e}")
+        st.markdown("---")
+        metric_cols = st.columns(6)
+        metric_config = [
+            ("CMJ", "CMJ_cm", "cm", ".1f"),
+            ("SJ", "SJ_cm", "cm", ".1f"),
+            ("DJ", "DJ_cm", "cm", ".1f"),
+            ("DJ TC", "DJ_tc_ms", "ms", ".0f"),
+            ("EUR", "EUR", "", ".3f"),
+            ("IMTP", "IMTP_N", "N", ".0f"),
+        ]
+        for col, (label, key, unit, fmt) in zip(metric_cols, metric_config):
+            value = selected_row.get(key)
+            if pd.notna(value):
+                suffix = f" {unit}".rstrip()
+                col.metric(label, f"{value:{fmt}}{suffix}")
+            else:
+                col.metric(label, "—")
 
-            # Z-Score heatmap grupal
-            st.markdown("---")
-            latest_all = get_latest_per_player(ev_df)
-            latest_all = compute_zscores(latest_all)
-            z_cols_av = [c for c in ["Z_CMJ","Z_SJ","Z_DJ_RSI","Z_DJ_TC","Z_EUR","Z_IMTP"]
-                         if c in latest_all.columns]
-            if z_cols_av:
-                rank_df = latest_all[["JUGADOR"] + z_cols_av].set_index("JUGADOR")
-                fig_heat = go.Figure(data=go.Heatmap(
-                    z=rank_df.values,
-                    x=[c.replace("Z_","") for c in z_cols_av],
-                    y=[j.split(",")[0] for j in rank_df.index],
-                    colorscale=[
-                        [0.0, "#D94F4F"], [0.4, "#E8C84A"],
-                        [0.5, "#0C1524"], [0.6, "#2A5F8E"],
-                        [1.0, "#4FC97E"]
-                    ],
-                    zmid=0,
-                    text=np.round(rank_df.values, 2),
-                    texttemplate="%{text}σ",
-                    hovertemplate="<b>%{y}</b><br>%{x}: %{z:.2f}σ<extra></extra>",
-                ))
-                fig_heat.update_layout(
-                    **_DARK,
-                    height=max(320, len(rank_df) * 32 + 80),
-                    title=dict(text="<b>Z-SCORES GRUPALES — ÚLTIMA EVALUACIÓN</b>",
-                               font=dict(color="#F0F4F8",
-                                         family="Barlow Condensed", size=13))
-                )
-                st.plotly_chart(fig_heat, width='stretch', key="ev_zscores_heat")
-
-        # ─────────────────────────────────────────────────────────────
-        # SUB-TAB: COMPARATIVA
-        # ─────────────────────────────────────────────────────────────
-        with ev_tab3:
-            st.plotly_chart(chart_bar_comparativa(ev_df),
-                            width='stretch', key="ev_bar_comp")
-
-            # Tabla comparativa última evaluación
-            st.markdown("---")
-            st.markdown("""<div style="font-family:'Barlow Condensed',sans-serif;
-                font-weight:700; font-size:9px; letter-spacing:0.22em;
-                text-transform:uppercase; color:#2A5F8E; margin-bottom:8px;">
-                RANKING GRUPAL — ÚLTIMA EVALUACIÓN</div>""",
-                unsafe_allow_html=True)
-
-            latest_t = get_latest_per_player(ev_df)
-            latest_t = compute_zscores(latest_t)
-            show_cols = [c for c in [
-                "JUGADOR", "FECHA", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms",
-                "DJ_RSI", "EUR", "IMTP_N", "Sprint_10m", "Sprint_20m",
-                "Z_CMJ", "Z_SJ", "Z_DJ_RSI", "Z_IMTP"
-            ] if c in latest_t.columns]
-
-            st.dataframe(
-                latest_t[show_cols].sort_values("Z_CMJ", ascending=False)
-                .style.format({
-                    "CMJ_cm": "{:.1f}", "SJ_cm": "{:.1f}",
-                    "DJ_cm": "{:.1f}", "DJ_tc_ms": "{:.0f}",
-                    "DJ_RSI": "{:.3f}", "EUR": "{:.3f}",
-                    "IMTP_N": "{:,.0f}",
-                    "Sprint_10m": "{:.3f}", "Sprint_20m": "{:.3f}",
-                    "Z_CMJ": "{:+.2f}", "Z_SJ": "{:+.2f}",
-                    "Z_DJ_RSI": "{:+.2f}", "Z_IMTP": "{:+.2f}",
-                }, na_rep="—"),
-                width='stretch', hide_index=True
+        st.markdown("---")
+        c_eval_1, c_eval_2 = st.columns([1.05, 0.95])
+        with c_eval_1:
+            st.plotly_chart(
+                chart_radar(selected_row, athlete_sel, team_mean),
+                width='stretch',
+                key="ev_radar_individual",
             )
+        with c_eval_2:
+            if "CMJ_cm" in hist_j.columns and hist_j["CMJ_cm"].notna().any():
+                st.plotly_chart(
+                    chart_cmj_trend(jdf, athlete_sel),
+                    width='stretch',
+                    key="ev_hist_cmj",
+                )
+            else:
+                _alert("No hay suficientes datos de CMJ para mostrar tendencia.", "b")
 
-            # Descarga
-            buf = BytesIO()
-            latest_t.to_excel(buf, index=False)
-            st.download_button(
-                "⬇ Exportar tabla Excel",
-                data=buf.getvalue(),
-                file_name="threshold_evaluaciones_resumen.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="ev_export"
+        st.markdown("---")
+        st.markdown("### Detalle de la evaluación seleccionada")
+        detail_df = selected_rows if not selected_rows.empty else hist_j.tail(1)
+        detail_cols = [c for c in detail_df.columns if not c.endswith("_reps")]
+        st.dataframe(detail_df[detail_cols], width='stretch', hide_index=True)
+
+        with st.expander("📋 Historial completo del atleta"):
+            display_cols = [c for c in hist_j.columns if not c.endswith("_reps")]
+            st.dataframe(
+                hist_j[display_cols].sort_values("Date", ascending=False),
+                width='stretch',
+                hide_index=True,
             )
 
 with tab_profile:
@@ -2449,6 +2182,7 @@ with tab_profile:
     jdf  = st.session_state.jump_df
     rdf  = st.session_state.rpe_df
     wdf  = st.session_state.wellness_df
+    maxes_df = st.session_state.maxes_df
 
     if jdf is None and rdf is None and maxes_df is None:
         _alert("⬜ Cargá al menos los archivos de evaluaciones o RPE para ver el perfil.", "b")
