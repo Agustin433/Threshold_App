@@ -27,7 +27,7 @@ mono_dict = st.session_state.mono_dict or {}
 if rdf is None or not acwr_dict:
     st.info("Todavia no hay datos de carga procesados. Carga RPE + Tiempo desde la pantalla principal y luego volve a esta pagina.")
 else:
-    athletes = sorted(rdf["Athlete"].dropna().unique())
+    athletes = sorted(rdf["Athlete"].dropna().unique()) or ["Sin atleta"]
     athlete = st.selectbox("Atleta", athletes)
 
     sub_rpe = rdf[rdf["Athlete"] == athlete].sort_values("Date")

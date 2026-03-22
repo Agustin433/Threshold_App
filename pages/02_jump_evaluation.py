@@ -22,7 +22,7 @@ jdf = st.session_state.jump_df
 if jdf is None or jdf.empty:
     st.info("Todavia no hay evaluaciones individuales procesadas.")
 else:
-    athletes = sorted(jdf["Athlete"].dropna().unique())
+    athletes = sorted(jdf["Athlete"].dropna().unique()) or ["Sin atleta"]
     athlete = st.selectbox("Atleta", athletes)
 
     athlete_hist = jdf[jdf["Athlete"] == athlete].sort_values("Date")

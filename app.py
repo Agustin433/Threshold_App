@@ -1127,6 +1127,10 @@ def chart_acwr(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR
 
 
 def chart_monotony_strain(w_df: pd.DataFrame) -> go.Figure:
+    required_cols = {"Semana", "Monotonia", "Strain", "Alerta"}
+    if not required_cols.issubset(w_df.columns):
+        w_df = pd.DataFrame(columns=["Semana", "Monotonia", "Strain", "Alerta"])
+
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         subplot_titles=["Monotonía (umbral > 2.0)", "Strain Semanal"],
                         vertical_spacing=0.12)
@@ -1154,6 +1158,9 @@ def chart_monotony_strain(w_df: pd.DataFrame) -> go.Figure:
 
 
 def chart_wellness(w_df: pd.DataFrame, athlete: str) -> go.Figure:
+    if "Date" not in w_df.columns:
+        w_df = pd.DataFrame(columns=["Date"])
+
     fig = go.Figure()
     cfg = [
         ("Sueno_hs",  "Sueño (hs)", C["blue"]),
@@ -1179,6 +1186,30 @@ def chart_wellness(w_df: pd.DataFrame, athlete: str) -> go.Figure:
 
 
 def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str) -> go.Figure:
+    required_cols = {"Assigned Date", "Category", "Volume_Load"}
+    if not required_cols.issubset(raw_df.columns):
+        fig = go.Figure()
+        fig.update_layout(
+            **_DARK,
+            height=360,
+            title=dict(
+                text="<b>Volumen por patron de movimiento</b>",
+                font=dict(color=C["white"], size=13),
+            ),
+            annotations=[
+                dict(
+                    text="Faltan columnas para graficar volumen.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=C["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
     athlete_col = "Athlete" if "Athlete" in raw_df.columns else "Name"
     a_df = raw_df[raw_df[athlete_col] == athlete] if athlete_col in raw_df.columns else raw_df
     grp = (a_df.groupby(["Assigned Date", "Category"])["Volume_Load"]
@@ -1889,7 +1920,8 @@ with tab_overview:
             last = adf[adf["sRPE_diario"] > 0].tail(1)
             if last.empty:
                 continue
-            mono = st.session_state.mono_dict[ath].tail(1)
+            mono_src = (st.session_state.mono_dict or {}).get(ath)
+            mono = mono_src.tail(1) if mono_src is not None else pd.DataFrame()
             rows_ov.append({
                 "Atleta": ath,
                 "Última sesión sRPE": f"{last['sRPE_diario'].values[0]:.0f} UA",
@@ -1944,7 +1976,11 @@ with tab_load:
     if rdf is None:
         _alert("⬜ Cargá el archivo questionnaire-report.xlsx (RPE + Tiempo) y presioná PROCESAR TODO.", "b")
     else:
-        athletes_load = sorted(rdf["Athlete"].dropna().unique())
+        athletes_load = (
+            sorted(rdf["Athlete"].dropna().unique())
+            if "Athlete" in rdf.columns else
+            ["Sin atleta"]
+        ) or ["Sin atleta"]
 
         with st.expander("⚙️ Opciones de visualización", expanded=True):
             athlete_sel = st.selectbox("Seleccionar atleta", athletes_load, key="sel_load")
@@ -1952,8 +1988,10 @@ with tab_load:
                                    horizontal=True, key="acwr_method")
 
         sub_rpe = rdf[rdf["Athlete"] == athlete_sel]
-        acwr_df = st.session_state.acwr_dict.get(athlete_sel)
-        mono_df = st.session_state.mono_dict.get(athlete_sel)
+        acwr_df = (st.session_state.acwr_dict or {}).get(athlete_sel)
+        mono_df = (st.session_state.mono_dict or {}).get(athlete_sel)
+        if mono_df is None:
+            mono_df = pd.DataFrame(columns=["Semana", "Monotonia", "Strain", "Alerta"])
         acwr_col = "ACWR_EWMA" if method_sel.startswith("EWMA") else "ACWR_Classic"
         acwr_label = "ACWR EWMA" if acwr_col == "ACWR_EWMA" else "ACWR Clasico"
 
@@ -1963,7 +2001,7 @@ with tab_load:
             # ── KPIs ──
             last_sessions = sub_rpe.tail(3)
             last_acwr = acwr_df[acwr_df["sRPE_diario"] > 0].tail(1)
-            last_mono = mono_df.tail(1)
+            last_mono = mono_df.tail(1) if mono_df is not None else pd.DataFrame()
             if not last_acwr.empty and acwr_col != "ACWR_EWMA":
                 last_acwr = last_acwr.copy()
                 last_acwr["ACWR_EWMA"] = last_acwr[acwr_col]
@@ -2009,7 +2047,11 @@ with tab_load:
                 st.plotly_chart(chart_monotony_strain(mono_df), width='stretch', key="monotony_main")
             with c_well:
                 if wdf is not None:
-                    athletes_w = wdf["Athlete"].unique()
+                    athletes_w = (
+                        sorted(wdf["Athlete"].dropna().unique())
+                        if "Athlete" in wdf.columns else
+                        [athlete_sel]
+                    ) or [athlete_sel]
                     w_sel = st.selectbox("Atleta wellness", athletes_w, key="sel_wellness")
                     w_sub = wdf[wdf["Athlete"] == w_sel].sort_values("Date")
                     st.plotly_chart(chart_wellness(w_sub, w_sel), width='stretch', key="wellness_main")
@@ -2028,7 +2070,11 @@ with tab_load:
             if raw_df_state is not None:
                 st.markdown("---")
                 st.markdown("### Volumen por Patrón de Movimiento (Tags)")
-                athletes_raw = sorted(raw_df_state[("Athlete" if "Athlete" in raw_df_state.columns else "Name")].dropna().unique())
+                athletes_raw = (
+                    sorted(raw_df_state["Athlete"].dropna().unique()) if "Athlete" in raw_df_state.columns else
+                    sorted(raw_df_state["Name"].dropna().unique()) if "Name" in raw_df_state.columns else
+                    [athlete_sel]
+                ) or [athlete_sel]
                 ath_raw = st.selectbox("Atleta", athletes_raw, key="sel_raw_vol")
                 st.plotly_chart(chart_volume_by_tag(raw_df_state, ath_raw), width='stretch', key="volume_tag")
 
@@ -2196,7 +2242,7 @@ with tab_profile:
             athletes_all.update(maxes_df["Athlete"].dropna().unique())
 
         with st.expander("⚙️ Opciones de visualización", expanded=True):
-            ath_p = st.selectbox("Atleta", sorted(athletes_all), key="sel_profile")
+            ath_p = st.selectbox("Atleta", sorted(athletes_all) or ["Sin atleta"], key="sel_profile")
 
         col_radar, col_info = st.columns([1.2, 0.8])
 
@@ -2314,7 +2360,8 @@ with tab_team:
         team_rows = []
         for ath, adf in st.session_state.acwr_dict.items():
             last = adf[adf["sRPE_diario"] > 0].tail(1)
-            mono = st.session_state.mono_dict[ath].tail(1)
+            mono_src = (st.session_state.mono_dict or {}).get(ath)
+            mono = mono_src.tail(1) if mono_src is not None else pd.DataFrame()
             if last.empty: continue
             acwr_val = last["ACWR_EWMA"].values[0]
             team_rows.append({
