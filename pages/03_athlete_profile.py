@@ -54,7 +54,7 @@ else:
         st.markdown("### Evaluaciones")
         st.dataframe(
             jdf[jdf["Athlete"] == athlete].sort_values("Date", ascending=False),
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -62,7 +62,7 @@ else:
         st.markdown("### Carga")
         st.dataframe(
             rdf[rdf["Athlete"] == athlete].sort_values("Date", ascending=False).head(12),
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -70,7 +70,7 @@ else:
         st.markdown("### Wellness")
         st.dataframe(
             wdf[wdf["Athlete"] == athlete].sort_values("Date", ascending=False).head(12),
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -78,6 +78,7 @@ else:
         st.markdown("### Maximos")
         st.dataframe(
             maxes_df[maxes_df["Athlete"] == athlete].sort_values("Added Date", ascending=False),
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
+

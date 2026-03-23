@@ -29,11 +29,12 @@ else:
     latest_eval = athlete_hist.tail(1)
 
     st.markdown("### Ultima evaluacion")
-    st.dataframe(latest_eval, width="stretch", hide_index=True)
+    st.dataframe(latest_eval, use_container_width=True, hide_index=True)
 
     st.markdown("### Historial completo")
     st.dataframe(
         athlete_hist.sort_values("Date", ascending=False),
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
+

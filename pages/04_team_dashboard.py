@@ -43,20 +43,20 @@ if acwr_dict:
             "Strain": round(float(mono_last["Strain"].iloc[-1]), 0) if not mono_last.empty else None,
         })
     if rows:
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 if jdf is not None and not jdf.empty:
     st.markdown("### Ultima evaluacion por atleta")
     latest = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
     show_cols = [c for c in ["Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "EUR", "DRI", "IMTP_N", "NM_Profile"] if c in latest.columns]
-    st.dataframe(latest[show_cols], width="stretch", hide_index=True)
+    st.dataframe(latest[show_cols], use_container_width=True, hide_index=True)
 
 if maxes_df is not None and not maxes_df.empty:
     st.markdown("### Maximos")
     show_cols = [c for c in ["Athlete", "Exercise Name", "Added Date", "Max Value"] if c in maxes_df.columns]
     st.dataframe(
         maxes_df[show_cols].sort_values("Added Date", ascending=False),
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -64,6 +64,7 @@ if completion_df is not None and not completion_df.empty:
     st.markdown("### Completion")
     st.dataframe(
         completion_df.sort_values("Date", ascending=False),
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
+

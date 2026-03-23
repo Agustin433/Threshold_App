@@ -109,3 +109,4 @@ if st.button("Generar reporte Excel"):
             file_name=f"Threshold_SC_Reporte_{report_athlete.replace(' ', '_')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+

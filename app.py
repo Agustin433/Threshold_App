@@ -1932,7 +1932,7 @@ with tab_overview:
             })
         if rows_ov:
             df_ov = pd.DataFrame(rows_ov)
-            st.dataframe(df_ov, width='stretch', hide_index=True)
+            st.dataframe(df_ov, use_container_width=True, hide_index=True)
 
     if cdf is not None:
         c1, c2 = st.columns(2)
@@ -1940,7 +1940,7 @@ with tab_overview:
             avg_comp = cdf["Pct"].mean()
             _alert(f"✅ Completion rate promedio: **{avg_comp:.0f}%**",
                    "g" if avg_comp >= 90 else "y")
-            st.plotly_chart(chart_completion(cdf), width='stretch', key="completion_overview")
+            st.plotly_chart(chart_completion(cdf), use_container_width=True, key="completion_overview")
         with c2:
             if rldf is not None:
                 total_load = rldf["Load_kg"].sum()
@@ -2040,11 +2040,11 @@ with tab_load:
             st.markdown("---")
 
             # Gráfico ACWR
-            st.plotly_chart(chart_acwr(acwr_df, athlete_sel, acwr_col), width='stretch', key="acwr_main")
+            st.plotly_chart(chart_acwr(acwr_df, athlete_sel, acwr_col), use_container_width=True, key="acwr_main")
 
             c_mono, c_well = st.columns(2)
             with c_mono:
-                st.plotly_chart(chart_monotony_strain(mono_df), width='stretch', key="monotony_main")
+                st.plotly_chart(chart_monotony_strain(mono_df), use_container_width=True, key="monotony_main")
             with c_well:
                 if wdf is not None:
                     athletes_w = (
@@ -2054,7 +2054,7 @@ with tab_load:
                     ) or [athlete_sel]
                     w_sel = st.selectbox("Atleta wellness", athletes_w, key="sel_wellness")
                     w_sub = wdf[wdf["Athlete"] == w_sel].sort_values("Date")
-                    st.plotly_chart(chart_wellness(w_sub, w_sel), width='stretch', key="wellness_main")
+                    st.plotly_chart(chart_wellness(w_sub, w_sel), use_container_width=True, key="wellness_main")
                 else:
                     _alert("Cargá questionnaire-report_wellness.xlsx para ver wellness.", "b")
 
@@ -2063,7 +2063,7 @@ with tab_load:
                 display_cols = ["Date", "RPE", "Duration_min", "sRPE"]
                 disp = sub_rpe[[c for c in display_cols if c in sub_rpe.columns]].sort_values("Date", ascending=False)
                 st.dataframe(disp.style.format({"RPE": "{:.1f}", "sRPE": "{:.0f}", "Duration_min": "{:.0f}"}),
-                             width='stretch', hide_index=True)
+                             use_container_width=True, hide_index=True)
 
             # Volumen por patrón
             raw_df_state = st.session_state.raw_df
@@ -2076,7 +2076,7 @@ with tab_load:
                     [athlete_sel]
                 ) or [athlete_sel]
                 ath_raw = st.selectbox("Atleta", athletes_raw, key="sel_raw_vol")
-                st.plotly_chart(chart_volume_by_tag(raw_df_state, ath_raw), width='stretch', key="volume_tag")
+                st.plotly_chart(chart_volume_by_tag(raw_df_state, ath_raw), use_container_width=True, key="volume_tag")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -2180,14 +2180,14 @@ with tab_eval:
         with c_eval_1:
             st.plotly_chart(
                 chart_radar(selected_row, athlete_sel, team_mean),
-                width='stretch',
+                use_container_width=True,
                 key="ev_radar_individual",
             )
         with c_eval_2:
             if "CMJ_cm" in hist_j.columns and hist_j["CMJ_cm"].notna().any():
                 st.plotly_chart(
                     chart_cmj_trend(jdf, athlete_sel),
-                    width='stretch',
+                    use_container_width=True,
                     key="ev_hist_cmj",
                 )
             else:
@@ -2197,13 +2197,13 @@ with tab_eval:
         st.markdown("### Detalle de la evaluación seleccionada")
         detail_df = selected_rows if not selected_rows.empty else hist_j.tail(1)
         detail_cols = [c for c in detail_df.columns if not c.endswith("_reps")]
-        st.dataframe(detail_df[detail_cols], width='stretch', hide_index=True)
+        st.dataframe(detail_df[detail_cols], use_container_width=True, hide_index=True)
 
         with st.expander("📋 Historial completo del atleta"):
             display_cols = [c for c in hist_j.columns if not c.endswith("_reps")]
             st.dataframe(
                 hist_j[display_cols].sort_values("Date", ascending=False),
-                width='stretch',
+                use_container_width=True,
                 hide_index=True,
             )
 
@@ -2253,7 +2253,7 @@ with tab_profile:
                 z_keys = ["CMJ_Z","SJ_Z","DJtc_Z","EUR_Z","DRI_Z","IMTP_Z"]
                 team_mean = {k: jdf[k].mean() for k in z_keys if k in jdf.columns}
                 st.plotly_chart(chart_radar(ath_row, ath_p, team_mean),
-                                width='stretch', key="radar_profile")
+                                use_container_width=True, key="radar_profile")
             else:
                 _alert("Sin datos de evaluaciones para este atleta. El radar requiere datos de saltos.", "b")
 
@@ -2295,7 +2295,7 @@ with tab_profile:
                         rows_kpi.append({"KPI": label, "Valor": f"{last_j[col]:{fmt}} {unit}".strip()})
                 if rows_kpi:
                     st.dataframe(pd.DataFrame(rows_kpi), hide_index=True,
-                                 width='stretch')
+                                 use_container_width=True)
 
                 if "NM_Profile" in last_j.index:
                     st.markdown(f"**Perfil NM:** {last_j['NM_Profile']}")
@@ -2310,7 +2310,7 @@ with tab_profile:
                         max_ex = st.selectbox("Ejercicio maximo", exercises_ath, key="sel_profile_max_ex")
                         st.plotly_chart(
                             chart_maxes_trend(maxes_ath, max_ex),
-                            width='stretch',
+                            use_container_width=True,
                             key="profile_max_trend"
                         )
 
@@ -2322,10 +2322,10 @@ with tab_profile:
             with c_q1:
                 latest_jdf = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
                 if "CMJ_cm" in latest_jdf.columns and "IMTP_N" in latest_jdf.columns:
-                    st.plotly_chart(chart_quadrant_cmj_imtp(latest_jdf), width='stretch', key="quad_cmj_imtp_profile")
+                    st.plotly_chart(chart_quadrant_cmj_imtp(latest_jdf), use_container_width=True, key="quad_cmj_imtp_profile")
             with c_q2:
                 if "DRI" in latest_jdf.columns and "SJ_cm" in latest_jdf.columns:
-                    st.plotly_chart(chart_quadrant_dri_sj(latest_jdf), width='stretch', key="quad_dri_sj_profile")
+                    st.plotly_chart(chart_quadrant_dri_sj(latest_jdf), use_container_width=True, key="quad_dri_sj_profile")
         elif jdf is not None:
             _alert("Los gráficos de cuadrante requieren datos de múltiples atletas para comparar.", "b")
 
@@ -2383,7 +2383,7 @@ with tab_team:
                 return [colors.get(v, "") if col == "Zona" else "" for col, v in row.items()]
 
             st.dataframe(team_table.style.apply(color_zona, axis=1),
-                         width='stretch', hide_index=True)
+                         use_container_width=True, hide_index=True)
 
     maxes_df_team = st.session_state.maxes_df
     if maxes_df_team is not None and "Exercise Name" in maxes_df_team.columns:
@@ -2394,7 +2394,7 @@ with tab_team:
             ex_team = st.selectbox("Ejercicio", exercises_team, key="sel_team_max_ex")
             st.plotly_chart(
                 chart_maxes_trend(maxes_df_team, ex_team),
-                width='stretch',
+                use_container_width=True,
                 key="team_max_trend"
             )
 
@@ -2407,10 +2407,10 @@ with tab_team:
         c_q1, c_q2 = st.columns(2)
         with c_q1:
             if "CMJ_cm" in latest.columns and "IMTP_N" in latest.columns:
-                st.plotly_chart(chart_quadrant_cmj_imtp(latest), width='stretch', key="quad_cmj_imtp_team")
+                st.plotly_chart(chart_quadrant_cmj_imtp(latest), use_container_width=True, key="quad_cmj_imtp_team")
         with c_q2:
             if "DRI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_dri_sj(latest), width='stretch', key="quad_dri_sj_team")
+                st.plotly_chart(chart_quadrant_dri_sj(latest), use_container_width=True, key="quad_dri_sj_team")
 
         # Z-scores grupales
         st.markdown("---")
@@ -2436,7 +2436,7 @@ with tab_team:
             fig_heat.update_layout(**_DARK, height=max(300, len(rank_df)*45+80),
                                    title=dict(text="<b>Heatmap Z-scores — Evaluación Grupal</b>",
                                               font=dict(color=C["white"], size=13)))
-            st.plotly_chart(fig_heat, width='stretch', key="zscores_heatmap")
+            st.plotly_chart(fig_heat, use_container_width=True, key="zscores_heatmap")
     else:
         if jdf is None:
             _alert("Cargá datos de evaluaciones para ver el team dashboard de rendimiento.", "b")
@@ -2448,7 +2448,7 @@ with tab_team:
         st.markdown("---")
         st.markdown("### Adherencia y Completion")
         st.plotly_chart(chart_completion(st.session_state.completion_df),
-                        width='stretch', key="completion_team")
+                        use_container_width=True, key="completion_team")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -2595,3 +2595,4 @@ with tab_report:
     for label, ok in checklist:
         icon = "✅" if ok else "⬜"
         st.markdown(f"{icon} {label}")
+

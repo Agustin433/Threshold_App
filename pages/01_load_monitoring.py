@@ -48,7 +48,7 @@ else:
     display_cols = [c for c in ["Date", "RPE", "Duration_min", "sRPE"] if c in sub_rpe.columns]
     st.dataframe(
         sub_rpe[display_cols].sort_values("Date", ascending=False).head(12),
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -58,7 +58,7 @@ else:
             acwr_df[["Date", "sRPE_diario", "ACWR_EWMA", "ACWR_Classic", "Zona"]]
             .sort_values("Date", ascending=False)
             .head(20),
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -66,11 +66,12 @@ else:
         st.markdown("### Monotonia y Strain")
         st.dataframe(
             mono_df.sort_values("Semana", ascending=False).head(12),
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
     if wdf is not None and athlete in wdf["Athlete"].values:
         st.markdown("### Wellness")
         w_sub = wdf[wdf["Athlete"] == athlete].sort_values("Date", ascending=False)
-        st.dataframe(w_sub.head(12), width="stretch", hide_index=True)
+        st.dataframe(w_sub.head(12), use_container_width=True, hide_index=True)
+
