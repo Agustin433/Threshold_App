@@ -12,9 +12,14 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import json
+import os
 import zipfile
 import xml.etree.ElementTree as ET
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 from io import BytesIO
 import warnings
 # Solo ignorar warnings específicos, no todos
@@ -656,6 +661,19 @@ _IMTP_MAP = {
 
 TEST_MAPS = {"CMJ": _CMJ_MAP, "SJ": _SJ_MAP, "DJ": _DJ_MAP, "IMTP": _IMTP_MAP}
 
+RAW_EVALUATION_COLUMNS = sorted({
+    metric_name
+    for test_map in TEST_MAPS.values()
+    for metric_name, _ in test_map.values()
+})
+EVALUATION_PERSIST_COLUMNS = ["Athlete", "Date"] + RAW_EVALUATION_COLUMNS
+EVALUATION_DB_COLUMN_MAP = {
+    "Athlete": "athlete",
+    "Date": "date",
+    **{col: col.lower() for col in RAW_EVALUATION_COLUMNS},
+}
+SUPABASE_EVALUATIONS_TABLE = "evaluations"
+
 
 def _read_forceplate_xlsx(file_bytes: bytes) -> dict:
     """
@@ -1018,6 +1036,35 @@ def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza y recalcula metricas derivadas para la fuente unica de evaluaciones."""
+    if jump_df is None or jump_df.empty:
+        return pd.DataFrame()
+
+    jump_df = jump_df.copy()
+    if "Athlete" in jump_df.columns:
+        jump_df["Athlete"] = jump_df["Athlete"].astype(str).str.strip().str.title()
+    if "Date" in jump_df.columns:
+        jump_df["Date"] = pd.to_datetime(jump_df["Date"], errors="coerce").dt.normalize()
+
+    for col in [c for c in jump_df.columns if c not in {"Athlete", "Date", "NM_Profile"}]:
+        jump_df[col] = pd.to_numeric(jump_df[col], errors="coerce")
+
+    jump_df = jump_df.dropna(subset=[c for c in ["Athlete", "Date"] if c in jump_df.columns])
+    if jump_df.empty:
+        return pd.DataFrame()
+
+    jump_df = jump_df.sort_values(["Athlete", "Date"]).drop_duplicates(
+        subset=["Athlete", "Date"],
+        keep="last",
+    )
+    jump_df = calc_eur(jump_df)
+    jump_df = calc_dri(jump_df)
+    jump_df = calc_zscores(jump_df)
+    jump_df = calc_nm_profile(jump_df)
+    return jump_df.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+
+
 def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
     """Consolida los tests individuales en una fila por atleta y fecha."""
     if not records:
@@ -1038,19 +1085,191 @@ def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
             if v is not None and not (isinstance(v, float) and np.isnan(v)):
                 row[k] = v
 
-    jump_df = pd.DataFrame(rows.values())
-    if jump_df.empty:
-        return jump_df
+    return _prepare_jump_df(pd.DataFrame(rows.values()))
 
-    for col in [c for c in jump_df.columns if c not in {"Athlete", "Date"}]:
-        jump_df[col] = pd.to_numeric(jump_df[col], errors="coerce")
 
-    jump_df["Date"] = pd.to_datetime(jump_df["Date"], errors="coerce")
-    jump_df = calc_eur(jump_df)
-    jump_df = calc_dri(jump_df)
-    jump_df = calc_zscores(jump_df)
-    jump_df = calc_nm_profile(jump_df)
-    return jump_df.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+def _get_secret_or_env(name: str, default=None):
+    try:
+        if name in st.secrets:
+            return st.secrets[name]
+    except Exception:
+        pass
+    return os.getenv(name, default)
+
+
+def _supabase_evaluations_config() -> tuple[str | None, str | None, str]:
+    url = (
+        _get_secret_or_env("SUPABASE_URL")
+        or _get_secret_or_env("THRESHOLD_SUPABASE_URL")
+    )
+    key = (
+        _get_secret_or_env("SUPABASE_SERVICE_ROLE_KEY")
+        or _get_secret_or_env("SUPABASE_KEY")
+        or _get_secret_or_env("SUPABASE_ANON_KEY")
+        or _get_secret_or_env("THRESHOLD_SUPABASE_KEY")
+    )
+    table = (
+        _get_secret_or_env("SUPABASE_EVALUATIONS_TABLE")
+        or SUPABASE_EVALUATIONS_TABLE
+    )
+    return url, key, table
+
+
+def supabase_evaluations_enabled() -> bool:
+    url, key, table = _supabase_evaluations_config()
+    return bool(url and key and table)
+
+
+def _supabase_request(method: str, table: str, query: dict | None = None,
+                      payload: list[dict] | dict | None = None,
+                      prefer: str | None = None):
+    url, key, _ = _supabase_evaluations_config()
+    if not url or not key:
+        raise RuntimeError("Supabase no configurado")
+
+    endpoint = f"{url.rstrip('/')}/rest/v1/{table}"
+    if query:
+        qs = urllib.parse.urlencode(query, doseq=True, safe="*,():")
+        endpoint = f"{endpoint}?{qs}"
+
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+    }
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    if prefer:
+        headers["Prefer"] = prefer
+
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+
+    request = urllib.request.Request(endpoint, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = response.read().decode("utf-8", errors="ignore")
+            if not body:
+                return None
+            return json.loads(body)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"{exc.code} {exc.reason}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"No se pudo conectar a Supabase: {exc.reason}") from exc
+
+
+def _jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
+    if df is None or df.empty:
+        return []
+
+    records = []
+    for _, row in df.iterrows():
+        record = {}
+        for app_col in EVALUATION_PERSIST_COLUMNS:
+            if app_col not in row.index:
+                continue
+            value = row[app_col]
+            if pd.isna(value):
+                continue
+            db_col = EVALUATION_DB_COLUMN_MAP[app_col]
+            if app_col == "Date":
+                record[db_col] = pd.Timestamp(value).date().isoformat()
+            elif app_col == "Athlete":
+                record[db_col] = str(value).strip().title()
+            elif isinstance(value, (np.integer, int)):
+                record[db_col] = int(value)
+            elif isinstance(value, (np.floating, float)):
+                record[db_col] = float(value)
+            else:
+                record[db_col] = value
+
+        if record.get("athlete") and record.get("date"):
+            records.append(record)
+    return records
+
+
+def save_evaluation(df: pd.DataFrame) -> dict:
+    """Guarda evaluaciones en Supabase haciendo upsert por atleta+fecha."""
+    if not supabase_evaluations_enabled():
+        return {"enabled": False, "inserted": 0, "updated": 0, "total": 0}
+
+    payload = _jump_df_to_db_records(df)
+    if not payload:
+        return {"enabled": True, "inserted": 0, "updated": 0, "total": 0}
+
+    _, _, table = _supabase_evaluations_config()
+    inserted = 0
+    updated = 0
+
+    for record in payload:
+        filters = {
+            "select": "athlete,date",
+            "athlete": f"eq.{record['athlete']}",
+            "date": f"eq.{record['date']}",
+        }
+        updated_rows = _supabase_request(
+            "PATCH",
+            table,
+            query=filters,
+            payload=record,
+            prefer="return=representation",
+        )
+        if updated_rows:
+            updated += len(updated_rows)
+            continue
+
+        inserted_rows = _supabase_request(
+            "POST",
+            table,
+            payload=record,
+            prefer="return=representation",
+        )
+        inserted += len(inserted_rows or [record])
+
+    return {
+        "enabled": True,
+        "inserted": inserted,
+        "updated": updated,
+        "total": inserted + updated,
+    }
+
+
+def load_evaluations() -> pd.DataFrame:
+    """Carga historial de evaluaciones desde Supabase como unica fuente de verdad."""
+    if not supabase_evaluations_enabled():
+        return pd.DataFrame()
+
+    _, _, table = _supabase_evaluations_config()
+    rows = []
+    offset = 0
+    page_size = 1000
+
+    while True:
+        batch = _supabase_request(
+            "GET",
+            table,
+            query={
+                "select": "*",
+                "order": "date.asc,athlete.asc",
+                "limit": page_size,
+                "offset": offset,
+            },
+        ) or []
+        if not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+
+    if not rows:
+        return pd.DataFrame()
+
+    rename_map = {db_col: app_col for app_col, db_col in EVALUATION_DB_COLUMN_MAP.items()}
+    df = pd.DataFrame(rows).rename(columns=rename_map)
+    keep_cols = [c for c in rename_map.values() if c in df.columns]
+    return _prepare_jump_df(df[keep_cols])
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1647,9 +1866,44 @@ def init_state():
     # Flag: se procesaron datos al menos una vez
     if "data_processed" not in st.session_state:
         st.session_state.data_processed = False
+    if "evaluations_loaded_from_store" not in st.session_state:
+        st.session_state.evaluations_loaded_from_store = False
+    if "eval_sync_notice" not in st.session_state:
+        st.session_state.eval_sync_notice = None
+    if "eval_sync_notice_kind" not in st.session_state:
+        st.session_state.eval_sync_notice_kind = "info"
 
 
 init_state()
+
+
+def hydrate_evaluations_from_store(force: bool = False, show_success: bool = False):
+    if not supabase_evaluations_enabled():
+        return
+    if st.session_state.evaluations_loaded_from_store and not force:
+        return
+
+    try:
+        remote_df = load_evaluations()
+        if not remote_df.empty:
+            st.session_state.jump_df = remote_df
+            if show_success:
+                st.session_state.eval_sync_notice = (
+                    f"Historial de evaluaciones cargado desde Supabase "
+                    f"({len(remote_df)} registros)."
+                )
+                st.session_state.eval_sync_notice_kind = "success"
+        elif force and show_success:
+            st.session_state.eval_sync_notice = "No hay evaluaciones guardadas en Supabase todavia."
+            st.session_state.eval_sync_notice_kind = "info"
+    except Exception as exc:
+        st.session_state.eval_sync_notice = f"No se pudo sincronizar evaluaciones con Supabase: {exc}"
+        st.session_state.eval_sync_notice_kind = "warning"
+    finally:
+        st.session_state.evaluations_loaded_from_store = True
+
+
+hydrate_evaluations_from_store()
 
 
 def _data_loaded():
@@ -1759,6 +2013,24 @@ with st.sidebar:
             "💡 Las evaluaciones individuales cargadas arriba se consolidan "
             "automáticamente al presionar ▶ PROCESAR TODO."
         )
+        if supabase_evaluations_enabled():
+            st.caption("☁️ Historial de evaluaciones conectado a Supabase.")
+            if st.button("↻ Sincronizar historial", key="btn_sync_eval_store"):
+                hydrate_evaluations_from_store(force=True, show_success=True)
+                st.rerun()
+        else:
+            st.caption("☁️ Historial de evaluaciones en modo local. Configurá SUPABASE_URL y SUPABASE_KEY para persistir.")
+
+        if st.session_state.eval_sync_notice:
+            notice = st.session_state.eval_sync_notice
+            kind = st.session_state.eval_sync_notice_kind
+            if kind == "success":
+                st.success(notice)
+            elif kind == "warning":
+                st.warning(notice)
+            else:
+                st.info(notice)
+            st.session_state.eval_sync_notice = None
         st.markdown("---")
         if st.button("▶ PROCESAR TODO"):
             with st.spinner("Procesando..."):
@@ -1782,6 +2054,40 @@ with st.sidebar:
                 if records:
                     jdf = _records_to_jump_df(records)
                     st.session_state.jump_df = jdf
+                    if not jdf.empty and supabase_evaluations_enabled():
+                        try:
+                            sync_stats = save_evaluation(jdf)
+                            st.session_state.evaluations_loaded_from_store = False
+                            hydrate_evaluations_from_store(force=True, show_success=False)
+                            remote_df = st.session_state.jump_df
+                            total_rows = len(remote_df) if remote_df is not None else len(jdf)
+                            total_athletes = (
+                                remote_df["Athlete"].nunique()
+                                if remote_df is not None and not remote_df.empty else
+                                jdf["Athlete"].nunique()
+                            )
+                            st.session_state.eval_sync_notice = (
+                                f"Evaluaciones sincronizadas con Supabase: "
+                                f"{sync_stats['inserted']} nuevas, {sync_stats['updated']} actualizadas. "
+                                f"Historial activo: {total_rows} registros / {total_athletes} atletas."
+                            )
+                            st.session_state.eval_sync_notice_kind = "success"
+                        except Exception as exc:
+                            st.session_state.eval_sync_notice = (
+                                f"Evaluaciones procesadas en local, pero no se pudieron guardar en Supabase: {exc}"
+                            )
+                            st.session_state.eval_sync_notice_kind = "warning"
+                    elif not jdf.empty:
+                        st.session_state.eval_sync_notice = (
+                            f"{len(records)} test(s) procesados en local — "
+                            f"{jdf['Athlete'].nunique()} atletas."
+                        )
+                        st.session_state.eval_sync_notice_kind = "success"
+                    else:
+                        st.session_state.eval_sync_notice = (
+                            "No se pudo consolidar ninguna evaluación individual válida."
+                        )
+                        st.session_state.eval_sync_notice_kind = "warning"
                     if not jdf.empty:
                         st.success(f"✅ {len(records)} test(s) procesados — {jdf['Athlete'].nunique()} atletas")
                     else:
