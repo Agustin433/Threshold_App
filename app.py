@@ -22,6 +22,17 @@ import urllib.parse
 import urllib.request
 from io import BytesIO
 import warnings
+from local_store import (
+    RECENT_WEEKS,
+    build_load_models,
+    collect_athlete_names,
+    load_athlete_registry,
+    load_recent_dataset,
+    load_recent_state,
+    normalize_athlete_name,
+    persist_athlete_names,
+    save_dataset,
+)
 # Solo ignorar warnings específicos, no todos
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
@@ -1877,6 +1888,34 @@ def init_state():
 init_state()
 
 
+def known_athlete_names() -> list[str]:
+    live_names = collect_athlete_names(
+        st.session_state.rpe_df,
+        st.session_state.wellness_df,
+        st.session_state.rep_load_df,
+        st.session_state.raw_df,
+        st.session_state.maxes_df,
+        st.session_state.jump_df,
+    )
+    return sorted(set(load_athlete_registry()) | set(live_names))
+
+
+def rebuild_load_state():
+    acwr_dict, mono_dict = build_load_models(st.session_state.rpe_df)
+    st.session_state.acwr_dict = acwr_dict or None
+    st.session_state.mono_dict = mono_dict or None
+
+
+def hydrate_local_store(force: bool = True):
+    stored_state = load_recent_state(weeks=RECENT_WEEKS)
+    for key, df in stored_state.items():
+        current = st.session_state.get(key)
+        should_replace = force or current is None or (hasattr(current, "empty") and current.empty)
+        if should_replace:
+            st.session_state[key] = df
+    rebuild_load_state()
+
+
 def hydrate_evaluations_from_store(force: bool = False, show_success: bool = False):
     if not supabase_evaluations_enabled():
         return
@@ -1886,11 +1925,14 @@ def hydrate_evaluations_from_store(force: bool = False, show_success: bool = Fal
     try:
         remote_df = load_evaluations()
         if not remote_df.empty:
-            st.session_state.jump_df = remote_df
+            save_dataset("jump_df", remote_df)
+            persist_athlete_names(remote_df["Athlete"].dropna().tolist())
+            recent_jump_df = load_recent_dataset("jump_df", weeks=RECENT_WEEKS)
+            st.session_state.jump_df = recent_jump_df if not recent_jump_df.empty else None
             if show_success:
                 st.session_state.eval_sync_notice = (
                     f"Historial de evaluaciones cargado desde Supabase "
-                    f"({len(remote_df)} registros)."
+                    f"({len(remote_df)} registros, ventana activa de {RECENT_WEEKS} semanas)."
                 )
                 st.session_state.eval_sync_notice_kind = "success"
         elif force and show_success:
@@ -1903,6 +1945,7 @@ def hydrate_evaluations_from_store(force: bool = False, show_success: bool = Fal
         st.session_state.evaluations_loaded_from_store = True
 
 
+hydrate_local_store()
 hydrate_evaluations_from_store()
 
 
@@ -1980,8 +2023,13 @@ with st.sidebar:
                                     type=["csv"], key="u_maxes")
         st.markdown("**Evaluaciones de Saltos e IMTP**")
         st.caption("Subí los archivos de la plataforma de fuerza")
-        eval_athlete = st.text_input("Nombre del atleta", key="eval_athlete",
-                                      placeholder="Ej: Mariano Diaz Romero")
+        athlete_options = ["Escribir nuevo..."] + known_athlete_names()
+        selected_eval_athlete = st.selectbox("Atleta", athlete_options,
+                                             key="eval_athlete_select")
+        eval_athlete = selected_eval_athlete
+        if selected_eval_athlete == "Escribir nuevo...":
+            eval_athlete = st.text_input("Nombre del atleta", key="eval_athlete_text",
+                                          placeholder="Ej: Mariano Diaz Romero")
         eval_date    = st.date_input("Fecha de evaluación", key="eval_date",
                                       value=pd.Timestamp.today())
         eval_type    = st.selectbox("Tipo de test", ["CMJ", "SJ", "DJ", "IMTP"],
@@ -1989,15 +2037,17 @@ with st.sidebar:
         eval_file    = st.file_uploader("Archivo del test", type=["xlsx"],
                                          key="eval_file")
         if st.button("➕ Agregar evaluación", key="btn_add_eval"):
-            if eval_file and eval_athlete:
+            eval_athlete_name = normalize_athlete_name(eval_athlete)
+            if eval_file and eval_athlete_name:
                 record = parse_forceplate_file(eval_file.read(), eval_type)
-                record["Athlete"] = eval_athlete.strip().title()
+                record["Athlete"] = eval_athlete_name
                 record["Date"]    = pd.Timestamp(eval_date)
+                persist_athlete_names([eval_athlete_name])
                 if "eval_records" not in st.session_state:
                     st.session_state.eval_records = []
                 st.session_state.eval_records.append(record)
                 st.success(f"✅ {eval_type} de {eval_athlete} ({eval_date}) agregado")
-            elif not eval_athlete:
+            elif not eval_athlete_name:
                 st.warning("⚠️ Ingresá el nombre del atleta")
             elif not eval_file:
                 st.warning("⚠️ Subí el archivo del test")
@@ -2035,25 +2085,27 @@ with st.sidebar:
         if st.button("▶ PROCESAR TODO"):
             with st.spinner("Procesando..."):
                 if f_rpe:
-                    st.session_state.rpe_df = parse_xlsx_questionnaire(
-                        f_rpe.read(), mode="rpe")
+                    save_dataset("rpe_df", parse_xlsx_questionnaire(
+                        f_rpe.read(), mode="rpe"))
                 if f_wellness:
-                    st.session_state.wellness_df = parse_xlsx_questionnaire(
-                        f_wellness.read(), mode="wellness")
+                    save_dataset("wellness_df", parse_xlsx_questionnaire(
+                        f_wellness.read(), mode="wellness"))
                 if f_completion:
-                    st.session_state.completion_df = parse_completion_report(f_completion)
+                    save_dataset("completion_df", parse_completion_report(f_completion))
                 if f_rep_load:
-                    st.session_state.rep_load_df = parse_rep_load_report(f_rep_load)
+                    save_dataset("rep_load_df", parse_rep_load_report(f_rep_load))
                 if f_raw:
-                    st.session_state.raw_df = parse_raw_workouts(f_raw)
+                    save_dataset("raw_df", parse_raw_workouts(f_raw))
                 if f_maxes:
-                    st.session_state.maxes_df = parse_maxes_health(f_maxes)
+                    save_dataset("maxes_df", parse_maxes_health(f_maxes))
 
                 # Procesar evaluaciones de plataforma de fuerza
                 records = st.session_state.get("eval_records", [])
                 if records:
                     jdf = _records_to_jump_df(records)
-                    st.session_state.jump_df = jdf
+                    if not jdf.empty:
+                        save_dataset("jump_df", jdf)
+                        persist_athlete_names(jdf["Athlete"].dropna().tolist())
                     if not jdf.empty and supabase_evaluations_enabled():
                         try:
                             sync_stats = save_evaluation(jdf)
@@ -2093,16 +2145,7 @@ with st.sidebar:
                     else:
                         st.warning("No se pudo consolidar ninguna evaluación individual válida.")
 
-                # Pre-calcular ACWR por atleta
-                if st.session_state.rpe_df is not None:
-                    rdf = st.session_state.rpe_df.dropna(subset=["sRPE"])
-                    acwr_d, mono_d = {}, {}
-                    for ath in rdf["Athlete"].unique():
-                        sub = rdf[rdf["Athlete"] == ath]
-                        acwr_d[ath] = calc_acwr(sub["sRPE"], pd.DatetimeIndex(sub["Date"]))
-                        mono_d[ath] = calc_monotony_strain(acwr_d[ath])
-                    st.session_state.acwr_dict = acwr_d
-                    st.session_state.mono_dict = mono_d
+                hydrate_local_store(force=True)
 
             st.session_state.data_processed = True
             st.rerun()

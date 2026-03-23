@@ -1,6 +1,7 @@
 """Vista dedicada de dashboard grupal."""
 import pandas as pd
 import streamlit as st
+from local_store import build_load_models, load_recent_state
 
 
 def ensure_state():
@@ -11,6 +12,18 @@ def ensure_state():
     for key in keys:
         if key not in st.session_state:
             st.session_state[key] = None
+
+    stored_state = load_recent_state()
+    for key in keys:
+        if st.session_state[key] is None:
+            st.session_state[key] = stored_state.get(key)
+
+    if st.session_state.rpe_df is not None and (
+        st.session_state.acwr_dict is None or st.session_state.mono_dict is None
+    ):
+        acwr_dict, mono_dict = build_load_models(st.session_state.rpe_df)
+        st.session_state.acwr_dict = acwr_dict or None
+        st.session_state.mono_dict = mono_dict or None
 
 
 ensure_state()

@@ -1,0 +1,168 @@
+User ID,External ID,First Name,Last Name,Exercise Id,Exercise Type,Exercise Name,Max ID,Added Date,Max Value,Manually Entered,Timestamp Complete,Timestamp Updated,Athlete
+3530510,,Celina,Amarillo,22700222,L,Db Front Squat,247321963,2026-02-02,30.0,False,1770065738,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700218,L,Db/Kb 2-Arm Split Squat,247313832,2026-02-02,35.0,False,1770064663,0,Celina Amarillo
+3530510,,Celina,Amarillo,24034966,L,Db/Kb 2-Arm Incline Bench Press,247603615,2026-02-03,25.0,False,1770152889,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700253,L,Barbell Deadlift,247831579,2026-02-04,99.0,False,1770236776,0,Celina Amarillo
+3530510,,Celina,Amarillo,27712659,L,Kb/Db Bird Dog Row,247826520,2026-02-04,12.5,False,1770235947,0,Celina Amarillo
+3530510,,Celina,Amarillo,29580511,L,Barbell Military Press (Eccentric),248064232,2026-02-05,25.0,False,1770320118,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700256,L,Barbell Back Squat,248626544,2026-02-09,66.0,False,1770665061,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700218,L,Db/Kb 2-Arm Split Squat,248634486,2026-02-09,45.0,False,1770666139,0,Celina Amarillo
+3530510,,Celina,Amarillo,27145051,L,Plate Russian Twist,248623668,2026-02-09,10.0,False,1770664672,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700219,L,Kb/Db Bulgarian Split Squat,249392858,2026-02-12,20.0,False,1770924350,0,Celina Amarillo
+3530510,,Celina,Amarillo,27208304,L,Plate Crunch,249651850,2026-02-14,10.0,False,1771083215,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700256,L,Barbell Back Squat,250327806,2026-02-18,72.0,False,1771450265,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700218,L,Db/Kb 2-Arm Split Squat,250333789,2026-02-18,40.0,False,1771451674,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700385,L,DB French Press,250562313,2026-02-19,12.5,False,1771536691,0,Celina Amarillo
+3530510,,Celina,Amarillo,27208304,L,Plate Crunch,250543833,2026-02-19,10.0,False,1771533295,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700256,L,Barbell Back Squat,251025418,2026-02-23,75.0,False,1771874229,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700218,L,Db/Kb 2-Arm Split Squat,251032548,2026-02-23,40.0,False,1771875363,0,Celina Amarillo
+3530510,,Celina,Amarillo,27208304,L,Plate Crunch,251289288,2026-02-24,10.0,False,1771960156,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700219,L,Kb/Db Bulgarian Split Squat,251967129,2026-02-27,12.5,False,1772222582,0,Celina Amarillo
+3530510,,Celina,Amarillo,26032490,L,Weighted 1-Leg Hamstring Bridge (Lying Floor),251967971,2026-02-27,15.0,False,1772222871,0,Celina Amarillo
+3530510,,Celina,Amarillo,28955458,L,1-Leg Weighted Hamstring Bridge (Elveted Feet),252256839,2026-03-02,17.5,False,1772480667,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700256,L,Barbell Back Squat,252242515,2026-03-02,70.0,False,1772478268,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700218,L,Db/Kb 2-Arm Split Squat,252254166,2026-03-02,40.0,False,1772480203,0,Celina Amarillo
+3530510,,Celina,Amarillo,27145051,L,Plate Russian Twist,252240911,2026-03-02,10.0,False,1772477983,0,Celina Amarillo
+3530510,,Celina,Amarillo,27608375,L,Split Squat ISO Hold,252256869,2026-03-02,30.0,False,1772480672,0,Celina Amarillo
+3530510,,Celina,Amarillo,28757387,L,Bar Pull Up (Supinated Grip),252514043,2026-03-03,4.0,False,1772567811,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700385,L,DB French Press,252533733,2026-03-03,12.5,False,1772571060,0,Celina Amarillo
+3530510,,Celina,Amarillo,27208304,L,Plate Crunch,252511691,2026-03-03,10.0,False,1772567336,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700351,L,Barbell Bench Press,252922872,2026-03-05,59.0,False,1772739088,0,Celina Amarillo
+3530510,,Celina,Amarillo,27707706,L,Kb/Db 2-Arm Bent Over Row (Neutral Grip),252933090,2026-03-05,45.0,False,1772741161,0,Celina Amarillo
+3530510,,Celina,Amarillo,23453052,R,Kb/Db 2-Arm Farmer Carry,252935573,2026-03-05,40.0,False,1772741650,0,Celina Amarillo
+3530510,,Celina,Amarillo,28757387,L,Bar Pull Up (Supinated Grip),253394696,2026-03-09,4.0,False,1773083816,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700385,L,DB French Press,253412955,2026-03-09,12.5,False,1773086724,0,Celina Amarillo
+3530510,,Celina,Amarillo,27208304,L,Plate Crunch,253393202,2026-03-09,10.0,False,1773083567,0,Celina Amarillo
+3530510,,Celina,Amarillo,28955458,L,1-Leg Weighted Hamstring Bridge (Elveted Feet),253639623,2026-03-10,17.5,False,1773172846,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700256,L,Barbell Back Squat,253634715,2026-03-10,70.0,False,1773171827,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700218,L,Db/Kb 2-Arm Split Squat,253637782,2026-03-10,40.0,False,1773172431,0,Celina Amarillo
+3530510,,Celina,Amarillo,27608375,L,Split Squat ISO Hold,253639653,2026-03-10,30.0,False,1773172854,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700351,L,Barbell Bench Press,253823053,2026-03-11,55.0,False,1773254172,0,Celina Amarillo
+3530510,,Celina,Amarillo,27707706,L,Kb/Db 2-Arm Bent Over Row (Neutral Grip),253828976,2026-03-11,40.0,False,1773255473,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700256,L,Barbell Back Squat,254419798,2026-03-16,70.0,False,1773685639,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700218,L,Db/Kb 2-Arm Split Squat,254427331,2026-03-16,40.0,False,1773687364,0,Celina Amarillo
+3530510,,Celina,Amarillo,27145051,L,Plate Russian Twist,254417160,2026-03-16,10.0,False,1773685066,0,Celina Amarillo
+3530510,,Celina,Amarillo,28757387,L,Bar Pull Up (Supinated Grip),254644025,2026-03-17,4.0,False,1773776595,0,Celina Amarillo
+3530510,,Celina,Amarillo,27208304,L,Plate Crunch,254639345,2026-03-17,10.0,False,1773775584,0,Celina Amarillo
+3530510,,Celina,Amarillo,22700351,L,Barbell Bench Press,255017917,2026-03-19,55.0,False,1773948609,0,Celina Amarillo
+3530510,,Celina,Amarillo,30598238,L,Standing Mini Band Kick Back,255176991,2026-03-20,15.0,False,1774033189,0,Celina Amarillo
+3530510,,Celina,Amarillo,26032490,L,Weighted 1-Leg Hamstring Bridge (Lying Floor),255174935,2026-03-20,15.0,False,1774032544,0,Celina Amarillo
+4087195,,Exequiel,Heredia Garcia,24483501,L,1-Leg Db Calf Raises Iso-Hold,249468465,2026-02-12,12.0,False,1770943097,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30656978,L,Barbell 1-Leg Hip Thrust,249467250,2026-02-12,40.0,False,1770942393,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27712848,L,Harop Curl,249465674,2026-02-12,4.0,False,1770941513,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31531256,L,Plate Hold 1-Leg Dead Bug,249464141,2026-02-12,15.0,False,1770940537,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),249634598,2026-02-13,25.0,False,1771030284,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27544305,L,Kb/Db 2-Arm Calf Raises,249634609,2026-02-13,15.0,False,1771030295,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27604601,L,Plank Leg Raise,249633116,2026-02-13,10.0,False,1771027920,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,28388592,L,Seated Broad Jump,249633332,2026-02-13,3.0,False,1771028201,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700262,L,Goblet Squat,250091851,2026-02-17,15.0,False,1771361196,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700298,L,Seated Hamstring Cable Curl,250090140,2026-02-17,20.0,False,1771360931,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27608375,L,Split Squat ISO Hold,250097303,2026-02-17,20.0,False,1771362171,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31654155,L,Banded RE Iso Hold,250346871,2026-02-18,20.0,False,1771455452,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22811784,L,Cable Biceps Curl,250356189,2026-02-18,40.0,False,1771458936,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22749581,L,Db/Kb 2-Arm Floor Press,250354524,2026-02-18,25.0,False,1771458123,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),250351852,2026-02-18,30.0,False,1771457157,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22748701,L,Rope Cable Triceps Extension,250356208,2026-02-18,35.0,False,1771458944,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30150168,L,Scapular Push Up,250346919,2026-02-18,10.0,False,1771455471,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,250347604,2026-02-18,12.0,False,1771455714,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24483501,L,1-Leg Db Calf Raises Iso-Hold,250579657,2026-02-19,15.0,False,1771540628,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30656978,L,Barbell 1-Leg Hip Thrust,250577584,2026-02-19,35.0,False,1771540026,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27712848,L,Harop Curl,250575426,2026-02-19,4.0,False,1771539507,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31531256,L,Plate Hold 1-Leg Dead Bug,250571828,2026-02-19,15.0,False,1771538729,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),250781221,2026-02-20,25.0,False,1771636643,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27544305,L,Kb/Db 2-Arm Calf Raises,250781220,2026-02-20,15.0,False,1771636637,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27604601,L,Plank Leg Raise,250778989,2026-02-20,10.0,False,1771632956,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,28388592,L,Seated Broad Jump,250779307,2026-02-20,3.0,False,1771633297,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31654155,L,Banded RE Iso Hold,251109664,2026-02-23,20.0,False,1771890354,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22749631,L,Barbell Biceps Curl,251116071,2026-02-23,20.0,False,1771893031,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22759670,L,Db Biceps Curl,251116015,2026-02-23,20.0,False,1771893001,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22749581,L,Db/Kb 2-Arm Floor Press,251114647,2026-02-23,30.0,False,1771892324,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),251112786,2026-02-23,30.0,False,1771891578,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30503358,L,Ez Barbel Biceps Curl Iso-Hold,251116070,2026-02-23,20.0,False,1771893031,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22748701,L,Rope Cable Triceps Extension,251116079,2026-02-23,25.0,False,1771893037,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30150168,L,Scapular Push Up,251109692,2026-02-23,10.0,False,1771890367,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,251109903,2026-02-23,12.0,False,1771890440,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24483501,L,1-Leg Db Calf Raises Iso-Hold,251362778,2026-02-24,15.0,False,1771973687,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30656978,L,Barbell 1-Leg Hip Thrust,251359673,2026-02-24,30.0,False,1771972827,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27712848,L,Harop Curl,251357644,2026-02-24,4.0,False,1771972320,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31531256,L,Plate Hold 1-Leg Dead Bug,251351714,2026-02-24,22.0,False,1771971040,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),251590548,2026-02-25,30.0,False,1772062061,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27544305,L,Kb/Db 2-Arm Calf Raises,251590471,2026-02-25,15.0,False,1772062033,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27604601,L,Plank Leg Raise,251578133,2026-02-25,10.0,False,1772057976,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,28388592,L,Seated Broad Jump,251578933,2026-02-25,3.0,False,1772058187,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700262,L,Goblet Squat,251819924,2026-02-26,16.0,False,1772149150,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,251815512,2026-02-26,12.0,False,1772147440,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700298,L,Seated Hamstring Cable Curl,251818687,2026-02-26,25.0,False,1772148588,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27608375,L,Split Squat ISO Hold,251823180,2026-02-26,20.0,False,1772150896,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700368,L,Kb 2-Arm Incline Bench Press,252001438,2026-02-27,40.0,False,1772237938,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27712818,L,Kb/Db 1-Leg Goblet Box Squat,252000179,2026-02-27,12.0,False,1772236646,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27707689,L,Kb/Db 2-Arm 1-Leg RDL,252001102,2026-02-27,40.0,False,1772237571,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,251999562,2026-02-27,12.0,False,1772236081,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27608375,L,Split Squat ISO Hold,252001918,2026-02-27,20.0,False,1772238497,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24821772,L,Alternating Db Biceps Curl,252095158,2026-03-02,25.0,False,1772451335,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31654155,L,Banded RE Iso Hold,252090688,2026-03-02,20.0,False,1772448211,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22749581,L,Db/Kb 2-Arm Floor Press,252093493,2026-03-02,40.0,False,1772450445,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),252091604,2026-03-02,30.0,False,1772449081,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700356,L,Incline Barbell Bench Press,252092241,2026-03-02,50.0,False,1772449628,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22748701,L,Rope Cable Triceps Extension,252095684,2026-03-02,20.0,False,1772451600,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30150168,L,Scapular Push Up,252090697,2026-03-02,10.0,False,1772448222,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,252091265,2026-03-02,12.0,False,1772448793,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24483501,L,1-Leg Db Calf Raises Iso-Hold,252370414,2026-03-03,17.5,False,1772537537,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30656978,L,Barbell 1-Leg Hip Thrust,252369159,2026-03-03,20.0,False,1772536696,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27712848,L,Harop Curl,252368545,2026-03-03,4.0,False,1772536190,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31531256,L,Plate Hold 1-Leg Dead Bug,252367572,2026-03-03,20.0,False,1772535104,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),252609584,2026-03-04,30.0,False,1772624634,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27544305,L,Kb/Db 2-Arm Calf Raises,252609569,2026-03-04,15.0,False,1772624625,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27604601,L,Plank Leg Raise,252605826,2026-03-04,10.0,False,1772621593,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,28388592,L,Seated Broad Jump,252606543,2026-03-04,3.0,False,1772622433,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27800403,R,Tempo Run (Value-Min&Sec),252984512,2026-03-05,,False,1772756187,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24821772,L,Alternating Db Biceps Curl,253011920,2026-03-06,25.0,False,1772797047,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144294,L,Band Pull Apart,253009908,2026-03-06,12.0,False,1772795084,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22748655,L,Db Lateral Shoulder Raises,253012247,2026-03-06,18.0,False,1772797315,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,29858433,L,Oscillatory Bodyweigth Split Squat,253010301,2026-03-06,2.0,False,1772795603,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,253009921,2026-03-06,12.0,False,1772795102,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,23279245,L,Slider Eccentric Hamstring Curl ,253012303,2026-03-06,10.0,False,1772797357,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31654155,L,Banded RE Iso Hold,253244071,2026-03-09,20.0,False,1773056064,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22749581,L,Db/Kb 2-Arm Floor Press,253249015,2026-03-09,50.0,False,1773057157,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),253243059,2026-03-09,42.0,False,1773055804,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700356,L,Incline Barbell Bench Press,253240731,2026-03-09,55.0,False,1773055206,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30150168,L,Scapular Push Up,253244043,2026-03-09,15.0,False,1773056057,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,253244146,2026-03-09,12.0,False,1773056084,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24483501,L,1-Leg Db Calf Raises Iso-Hold,253508580,2026-03-10,20.0,False,1773144397,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24821772,L,Alternating Db Biceps Curl,253501029,2026-03-10,30.0,False,1773142147,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30656978,L,Barbell 1-Leg Hip Thrust,253499632,2026-03-10,20.0,False,1773141721,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22811784,L,Cable Biceps Curl,253504424,2026-03-10,45.0,False,1773143173,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27712848,L,Harop Curl,253497491,2026-03-10,5.0,False,1773141034,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31531256,L,Plate Hold 1-Leg Dead Bug,253496501,2026-03-10,20.0,False,1773140601,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22748701,L,Rope Cable Triceps Extension,253504507,2026-03-10,35.0,False,1773143199,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30521903,L,Slider Adductor Squat,253501575,2026-03-10,6.0,False,1773142329,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),253720469,2026-03-11,35.0,False,1773228955,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27544305,L,Kb/Db 2-Arm Calf Raises,253720384,2026-03-11,15.0,False,1773228926,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27604601,L,Plank Leg Raise,253714019,2026-03-11,10.0,False,1773226290,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,28388592,L,Seated Broad Jump,253715065,2026-03-11,3.0,False,1773226917,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27800403,R,Tempo Run (Value-Min&Sec),253917946,2026-03-12,,False,1773314826,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144294,L,Band Pull Apart,254105904,2026-03-13,12.0,False,1773399375,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22759670,L,Db Biceps Curl,254111144,2026-03-13,25.0,False,1773401871,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22748655,L,Db Lateral Shoulder Raises,254111190,2026-03-13,20.0,False,1773401887,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700378,L,High Cable Face pull,254108962,2026-03-13,40.0,False,1773401020,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,23812942,L,Low Cable Triceps Extension,254111509,2026-03-13,30.0,False,1773402016,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,29858433,L,Oscillatory Bodyweigth Split Squat,254105950,2026-03-13,2.0,False,1773399401,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,254105930,2026-03-13,12.0,False,1773399391,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24821772,L,Alternating Db Biceps Curl,254345598,2026-03-16,30.0,False,1773668278,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31654155,L,Banded RE Iso Hold,254311488,2026-03-16,20.0,False,1773659803,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22811784,L,Cable Biceps Curl,254345667,2026-03-16,45.0,False,1773668296,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22749581,L,Db/Kb 2-Arm Floor Press,254314032,2026-03-16,55.0,False,1773660590,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),254311408,2026-03-16,40.0,False,1773659779,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22700356,L,Incline Barbell Bench Press,254308961,2026-03-16,60.0,False,1773658834,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,22748701,L,Rope Cable Triceps Extension,254345699,2026-03-16,35.0,False,1773668306,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30150168,L,Scapular Push Up,254311453,2026-03-16,15.0,False,1773659791,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31611683,L,Seated Bent Over Lateral Raises,254311541,2026-03-16,12.0,False,1773659818,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30656978,L,Barbell 1-Leg Hip Thrust,254528480,2026-03-17,20.0,False,1773746352,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27712848,L,Harop Curl,254526912,2026-03-17,60.0,False,1773745812,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,31531256,L,Plate Hold 1-Leg Dead Bug,254526819,2026-03-17,20.0,False,1773745770,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30521903,L,Slider Adductor Squat,254530864,2026-03-17,6.0,False,1773747133,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,30144091,L,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),254725788,2026-03-18,40.0,False,1773834084,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27544305,L,Kb/Db 2-Arm Calf Raises,254725509,2026-03-18,15.0,False,1773833989,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,27604601,L,Plank Leg Raise,254722501,2026-03-18,10.0,False,1773832992,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,28388592,L,Seated Broad Jump,254722254,2026-03-18,3.0,False,1773832915,0,Exequiel Heredia Garcia
+4087195,,Exequiel,Heredia Garcia,24483501,L,1-Leg Db Calf Raises Iso-Hold,254889958,2026-03-19,20.0,False,1773891599,0,Exequiel Heredia Garcia

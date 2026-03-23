@@ -1,5 +1,6 @@
 """Vista dedicada de evaluaciones individuales."""
 import streamlit as st
+from local_store import load_recent_state
 
 
 def ensure_state():
@@ -10,6 +11,11 @@ def ensure_state():
     for key in keys:
         if key not in st.session_state:
             st.session_state[key] = None
+
+    stored_state = load_recent_state()
+    for key in keys:
+        if st.session_state[key] is None:
+            st.session_state[key] = stored_state.get(key)
 
 
 ensure_state()

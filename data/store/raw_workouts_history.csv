@@ -1,0 +1,1240 @@
+Athlete,Exercise Name,Assigned Date,Completed Date,Set Number,Result,Reps,WorkoutId,Peak Power L,Peak Power R,Average Power,Average Speed,Peak Speed,Tags,Volume_Load,Category
+Celina Amarillo,Ab Whell Roll Out,2026-02-02,2026-02-02,1,,8.0,1235463944,,,,,,,,Sin categoria
+Celina Amarillo,Ab Whell Roll Out,2026-02-02,2026-02-02,2,,8.0,1235463944,,,,,,,,Sin categoria
+Celina Amarillo,Standing Pallof Press,2026-02-02,2026-02-02,1,,8.0,1235463943,,,,,,,,Sin categoria
+Celina Amarillo,Standing Pallof Press,2026-02-02,2026-02-02,2,,8.0,1235463943,,,,,,,,Sin categoria
+Celina Amarillo,Bodyweigth CMJ,2026-02-02,2026-02-02,1,,4.0,1235463937,,,,,,Jump_Ballistic,,Balístico
+Celina Amarillo,Bodyweigth CMJ,2026-02-02,2026-02-02,2,,4.0,1235463937,,,,,,Jump_Ballistic,,Balístico
+Celina Amarillo,Barbell Back Squat,2026-02-02,2026-02-02,1,,,1235463941,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-02,2026-02-02,2,60.0,5.0,1235463941,,,,,,Dominante de Rodilla,300.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-02,2026-02-02,3,60.0,5.0,1235463941,,,,,,Dominante de Rodilla,300.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-02,2026-02-02,4,60.0,5.0,1235463941,,,,,,Dominante de Rodilla,300.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-02,2026-02-02,5,60.0,5.0,1235463941,,,,,,Dominante de Rodilla,300.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-02,2026-02-02,1,35.0,10.0,1235463946,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-02,2026-02-02,2,35.0,10.0,1235463946,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-02,2026-02-02,3,35.0,10.0,1235463946,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Celina Amarillo,Barbell Hip Thrust,2026-02-02,2026-02-02,1,140.0,12.0,1235463949,,,,,,Dominante de Cadera,1680.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-02-02,2026-02-02,2,140.0,12.0,1235463949,,,,,,Dominante de Cadera,1680.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-02-02,2026-02-02,3,140.0,12.0,1235463949,,,,,,Dominante de Cadera,1680.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-02-02,2026-02-02,4,140.0,12.0,1235463949,,,,,,Dominante de Cadera,1680.0,Dom. Cadera
+Celina Amarillo,Db Front Squat,2026-02-02,2026-02-02,1,30.0,10.0,1235463950,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Celina Amarillo,Db Front Squat,2026-02-02,2026-02-02,2,30.0,10.0,1235463950,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Celina Amarillo,Db Front Squat,2026-02-02,2026-02-02,3,30.0,10.0,1235463950,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Celina Amarillo,Db Front Squat,2026-02-02,2026-02-02,4,30.0,10.0,1235463950,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Celina Amarillo,Banded Shoulder Dislocation,2026-02-03,2026-02-03,1,,10.0,1235463961,,,,,,,,Sin categoria
+Celina Amarillo,Banded Shoulder Dislocation,2026-02-03,2026-02-03,2,,10.0,1235463961,,,,,,,,Sin categoria
+Celina Amarillo,Plate Deadbug 2-Arm 1Leg,2026-02-03,2026-02-03,1,10.0,10.0,1235463960,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Deadbug 2-Arm 1Leg,2026-02-03,2026-02-03,2,10.0,10.0,1235463960,,,,,,,100.0,Sin categoria
+Celina Amarillo,Barbell Bench Press,2026-02-03,2026-02-03,1,,,1235463952,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-03,2026-02-03,2,40.0,6.0,1235463952,,,,,,Empuje Horizontal,240.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-03,2026-02-03,3,45.0,6.0,1235463952,,,,,,Empuje Horizontal,270.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-03,2026-02-03,4,45.0,6.0,1235463952,,,,,,Empuje Horizontal,270.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-03,2026-02-03,5,45.0,6.0,1235463952,,,,,,Empuje Horizontal,270.0,Push H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-03,2026-02-03,1,40.0,8.0,1235463953,,,,,,Traccion Horizontal,320.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-03,2026-02-03,2,45.0,8.0,1235463953,,,,,,Traccion Horizontal,360.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-03,2026-02-03,3,45.0,8.0,1235463953,,,,,,Traccion Horizontal,360.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-03,2026-02-03,4,45.0,8.0,1235463953,,,,,,Traccion Horizontal,360.0,Pull H
+Celina Amarillo,Db/Kb 2-Arm Incline Bench Press,2026-02-03,2026-02-03,1,25.0,13.0,1235463958,,,,,,Empuje Horizontal,325.0,Push H
+Celina Amarillo,Db/Kb 2-Arm Incline Bench Press,2026-02-03,2026-02-03,2,25.0,13.0,1235463958,,,,,,Empuje Horizontal,325.0,Push H
+Celina Amarillo,Db/Kb 2-Arm Incline Bench Press,2026-02-03,2026-02-03,3,25.0,13.0,1235463958,,,,,,Empuje Horizontal,325.0,Push H
+Celina Amarillo,Kb/Db Bird Dog Row,2026-02-04,2026-02-04,1,12.5,10.0,1235463979,,,,,,Traccion Horizontal,125.0,Pull H
+Celina Amarillo,Kb/Db Bird Dog Row,2026-02-04,2026-02-04,2,12.5,10.0,1235463979,,,,,,Traccion Horizontal,125.0,Pull H
+Celina Amarillo,Barbell Good Morning,2026-02-04,2026-02-04,1,30.0,10.0,1235463971,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Celina Amarillo,Barbell Good Morning,2026-02-04,2026-02-04,2,30.0,10.0,1235463971,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-04,2026-02-04,1,80.0,4.0,1235463975,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-04,2026-02-04,2,80.0,4.0,1235463975,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-04,2026-02-04,3,90.0,3.0,1235463975,,,,,,Dominante de Cadera,270.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-04,2026-02-04,4,90.0,3.0,1235463975,,,,,,Dominante de Cadera,270.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-04,2026-02-04,5,90.0,3.0,1235463975,,,,,,Dominante de Cadera,270.0,Dom. Cadera
+Celina Amarillo,Barbell Front Squat,2026-02-04,2026-02-04,1,30.0,8.0,1235463974,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Celina Amarillo,Barbell Front Squat,2026-02-04,2026-02-04,2,30.0,8.0,1235463974,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Celina Amarillo,Barbell Front Squat,2026-02-04,2026-02-04,3,30.0,8.0,1235463974,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Celina Amarillo,Barbell RDL,2026-02-04,2026-02-04,1,45.0,8.0,1235463966,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Celina Amarillo,Barbell RDL,2026-02-04,2026-02-04,2,45.0,8.0,1235463966,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Celina Amarillo,Barbell RDL,2026-02-04,2026-02-04,3,45.0,8.0,1235463966,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Celina Amarillo,Barbell RDL,2026-02-04,2026-02-04,4,45.0,8.0,1235463966,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Celina Amarillo,Goblet Squat (Pulse),2026-02-04,2026-02-04,1,20.0,15.0,1235463978,,,,,,Dominante de Rodilla/Accessories MMII,300.0,Sin categoria
+Celina Amarillo,Goblet Squat (Pulse),2026-02-04,2026-02-04,2,20.0,15.0,1235463978,,,,,,Dominante de Rodilla/Accessories MMII,300.0,Sin categoria
+Celina Amarillo,Goblet Squat (Pulse),2026-02-04,2026-02-04,3,20.0,15.0,1235463978,,,,,,Dominante de Rodilla/Accessories MMII,300.0,Sin categoria
+Celina Amarillo,Goblet Squat (Pulse),2026-02-04,2026-02-04,4,20.0,15.0,1235463978,,,,,,Dominante de Rodilla/Accessories MMII,300.0,Sin categoria
+Celina Amarillo,Banded Shoulder Dislocation,2026-02-05,2026-02-05,1,,10.0,1235463981,,,,,,,,Sin categoria
+Celina Amarillo,Banded Shoulder Dislocation,2026-02-05,2026-02-05,2,,10.0,1235463981,,,,,,,,Sin categoria
+Celina Amarillo,Banded Shoulder Dislocation,2026-02-05,2026-02-05,3,,10.0,1235463981,,,,,,,,Sin categoria
+Celina Amarillo,Downward Dog to Spiderman with Rotation,2026-02-05,2026-02-05,1,,6.0,1235463980,,,,,,,,Sin categoria
+Celina Amarillo,Downward Dog to Spiderman with Rotation,2026-02-05,2026-02-05,2,,6.0,1235463980,,,,,,,,Sin categoria
+Celina Amarillo,Downward Dog to Spiderman with Rotation,2026-02-05,2026-02-05,3,,6.0,1235463980,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Military Press (Eccentric),2026-02-05,2026-02-05,1,25.0,8.0,1235463988,,,,,,Empuje Vertical,200.0,Push V
+Celina Amarillo,Barbell Military Press (Eccentric),2026-02-05,2026-02-05,2,25.0,8.0,1235463988,,,,,,Empuje Vertical,200.0,Push V
+Celina Amarillo,Barbell Military Press (Eccentric),2026-02-05,2026-02-05,3,25.0,8.0,1235463988,,,,,,Empuje Vertical,200.0,Push V
+Celina Amarillo,Plate Russian Twist,2026-02-09,2026-02-09,1,10.0,8.0,1255626625,,,,,,,80.0,Sin categoria
+Celina Amarillo,Plate Russian Twist,2026-02-09,2026-02-09,2,10.0,8.0,1255626625,,,,,,,80.0,Sin categoria
+Celina Amarillo,Plate Russian Twist,2026-02-09,2026-02-09,3,10.0,8.0,1255626625,,,,,,,80.0,Sin categoria
+Celina Amarillo,Barbell Back Squat,2026-02-09,2026-02-09,1,50.0,4.0,1255626627,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-09,2026-02-09,2,55.0,3.0,1255626627,,,,,,Dominante de Rodilla,165.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-09,2026-02-09,3,60.0,2.0,1255626627,,,,,,Dominante de Rodilla,120.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-09,2026-02-09,4,60.0,2.0,1255626627,,,,,,Dominante de Rodilla,120.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-09,2026-02-09,5,,,1255626627,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-09,2026-02-09,6,70.0,1.0,1255626627,,,,,,Dominante de Rodilla,70.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-09,2026-02-09,1,40.0,6.0,1255626628,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-09,2026-02-09,2,40.0,6.0,1255626628,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-09,2026-02-09,3,45.0,6.0,1255626628,,,,,,Dominante de Rodilla,270.0,Dom. Rodilla
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-10,2026-02-10,1,30.0,5.0,1255626637,,,,,,,150.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-10,2026-02-10,2,30.0,5.0,1255626637,,,,,,,150.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-10,2026-02-10,3,35.0,5.0,1255626637,,,,,,,175.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-10,2026-02-10,4,35.0,5.0,1255626637,,,,,,,175.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-10,2026-02-10,5,35.0,5.0,1255626637,,,,,,,175.0,Sin categoria
+Celina Amarillo,Barbell Military Press,2026-02-10,2026-02-10,1,30.0,5.0,1255626639,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-02-10,2026-02-10,2,30.0,4.0,1255626639,,,,,,Empuje Vertical,120.0,Push V
+Celina Amarillo,Barbell Military Press,2026-02-10,2026-02-10,3,30.0,4.0,1255626639,,,,,,Empuje Vertical,120.0,Push V
+Celina Amarillo,Barbell Military Press,2026-02-10,2026-02-10,4,30.0,4.0,1255626639,,,,,,Empuje Vertical,120.0,Push V
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-10,2026-02-10,1,45.0,6.0,1255626640,,,,,,Traccion Horizontal,270.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-10,2026-02-10,2,50.0,6.0,1255626640,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-10,2026-02-10,3,50.0,6.0,1255626640,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-10,2026-02-10,4,50.0,6.0,1255626640,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Plyo Push Up,2026-02-10,2026-02-14,1,,5.0,1255626634,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-02-10,2026-02-14,2,,5.0,1255626634,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-02-10,2026-02-14,3,,5.0,1255626634,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plate Crunch,2026-02-10,2026-02-14,1,10.0,10.0,1255626635,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-02-10,2026-02-14,2,10.0,10.0,1255626635,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-02-10,2026-02-14,3,10.0,10.0,1255626635,,,,,,,100.0,Sin categoria
+Celina Amarillo,TRX Archer Row,2026-02-10,2026-02-14,1,,5.0,1255626636,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-02-10,2026-02-14,2,,5.0,1255626636,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-02-10,2026-02-14,3,,5.0,1255626636,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-10,2026-02-14,1,,20.0,1255626638,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-10,2026-02-14,2,,20.0,1255626638,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-10,2026-02-14,3,,20.0,1255626638,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-10,2026-02-14,4,,20.0,1255626638,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-10,2026-02-14,5,,20.0,1255626638,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Kb Hammer Bicep Curl,2026-02-10,2026-02-14,1,15.0,12.0,1255626643,,,,,,Accessories MMSS,180.0,Accesorios MMSS
+Celina Amarillo,Kb Hammer Bicep Curl,2026-02-10,2026-02-14,2,15.0,12.0,1255626643,,,,,,Accessories MMSS,180.0,Accesorios MMSS
+Celina Amarillo,Stir the Pot,2026-02-11,2026-02-11,1,,6.0,1255626652,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-02-11,2026-02-11,2,,6.0,1255626652,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-02-11,2026-02-11,3,,6.0,1255626652,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-11,2026-02-11,1,,10.0,1255626645,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-11,2026-02-11,2,,10.0,1255626645,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-11,2026-02-11,3,,10.0,1255626645,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Deadlift,2026-02-11,2026-02-11,1,65.0,4.0,1255626646,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-11,2026-02-11,2,65.0,4.0,1255626646,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-11,2026-02-11,3,65.0,5.0,1255626646,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-11,2026-02-11,4,65.0,5.0,1255626646,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-11,2026-02-11,5,65.0,5.0,1255626646,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-11,2026-02-11,6,65.0,5.0,1255626646,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Double Db Step Up,2026-02-11,2026-02-11,1,25.0,8.0,1255626648,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-11,2026-02-11,2,25.0,8.0,1255626648,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-11,2026-02-11,3,25.0,8.0,1255626648,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-11,2026-02-11,4,25.0,8.0,1255626648,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-11,2026-02-11,1,50.0,8.0,1255626649,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-11,2026-02-11,2,50.0,8.0,1255626649,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-11,2026-02-11,3,50.0,8.0,1255626649,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-11,2026-02-11,4,50.0,8.0,1255626649,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust Iso-Hold,2026-02-11,2026-02-11,1,80.0,8.0,1255626650,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust Iso-Hold,2026-02-11,2026-02-11,2,80.0,8.0,1255626650,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust Iso-Hold,2026-02-11,2026-02-11,3,80.0,8.0,1255626650,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust Iso-Hold,2026-02-11,2026-02-11,4,80.0,8.0,1255626650,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust Iso-Hold,2026-02-11,2026-02-11,5,80.0,8.0,1255626650,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Celina Amarillo,Barbell Bench Press,2026-02-12,2026-02-12,1,45.0,4.0,1255626656,,,,,,Empuje Horizontal,180.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-12,2026-02-12,2,45.0,4.0,1255626656,,,,,,Empuje Horizontal,180.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-12,2026-02-12,3,45.0,5.0,1255626656,,,,,,Empuje Horizontal,225.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-12,2026-02-12,4,45.0,5.0,1255626656,,,,,,Empuje Horizontal,225.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-12,2026-02-12,5,45.0,5.0,1255626656,,,,,,Empuje Horizontal,225.0,Push H
+Celina Amarillo,Db Bent Over Row,2026-02-12,2026-02-12,1,17.5,6.0,1255626657,,,,,,,105.0,Sin categoria
+Celina Amarillo,Db Bent Over Row,2026-02-12,2026-02-12,2,17.5,6.0,1255626657,,,,,,,105.0,Sin categoria
+Celina Amarillo,Db Bent Over Row,2026-02-12,2026-02-12,3,20.0,6.0,1255626657,,,,,,,120.0,Sin categoria
+Celina Amarillo,Db Bent Over Row,2026-02-12,2026-02-12,4,20.0,6.0,1255626657,,,,,,,120.0,Sin categoria
+Celina Amarillo,Kb/Db Bulgarian Split Squat,2026-02-13,2026-02-12,1,20.0,8.0,1255626667,,,,,,Dominante de Rodilla,160.0,Dom. Rodilla
+Celina Amarillo,Kb/Db Bulgarian Split Squat,2026-02-13,2026-02-12,2,20.0,8.0,1255626667,,,,,,Dominante de Rodilla,160.0,Dom. Rodilla
+Celina Amarillo,Kb/Db Bulgarian Split Squat,2026-02-13,2026-02-12,3,20.0,8.0,1255626667,,,,,,Dominante de Rodilla,160.0,Dom. Rodilla
+Celina Amarillo,Kb/Db Bulgarian Split Squat,2026-02-13,2026-02-12,4,20.0,8.0,1255626667,,,,,,Dominante de Rodilla,160.0,Dom. Rodilla
+Celina Amarillo,Glute Bridge March,2026-02-16,2026-02-18,1,,10.0,1263727601,,,,,,,,Sin categoria
+Celina Amarillo,Glute Bridge March,2026-02-16,2026-02-18,2,,10.0,1263727601,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Back Squat,2026-02-16,2026-02-18,1,45.0,4.0,1263727602,,,,,,Dominante de Rodilla,180.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-16,2026-02-18,2,50.0,3.0,1263727602,,,,,,Dominante de Rodilla,150.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-16,2026-02-18,3,55.0,2.0,1263727602,,,,,,Dominante de Rodilla,110.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-16,2026-02-18,4,55.0,2.0,1263727602,,,,,,Dominante de Rodilla,110.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-16,2026-02-18,5,60.0,3.0,1263727602,,,,,,Dominante de Rodilla,180.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-16,2026-02-18,6,65.0,3.0,1263727602,,,,,,Dominante de Rodilla,195.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-16,2026-02-18,1,40.0,6.0,1263727603,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-16,2026-02-18,2,40.0,6.0,1263727603,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-16,2026-02-18,3,40.0,6.0,1263727603,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Plyo Push Up,2026-02-17,2026-02-19,1,,5.0,1263727613,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-02-17,2026-02-19,2,,5.0,1263727613,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-02-17,2026-02-19,3,,5.0,1263727613,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plate Crunch,2026-02-17,2026-02-19,1,10.0,10.0,1263727614,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-02-17,2026-02-19,2,10.0,10.0,1263727614,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-02-17,2026-02-19,3,10.0,10.0,1263727614,,,,,,,100.0,Sin categoria
+Celina Amarillo,TRX Archer Row,2026-02-17,2026-02-19,1,,6.0,1263727615,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-02-17,2026-02-19,2,,5.0,1263727615,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-02-17,2026-02-19,3,,5.0,1263727615,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-17,2026-02-19,1,40.0,5.0,1263727616,,,,,,,200.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-17,2026-02-19,2,40.0,5.0,1263727616,,,,,,,200.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-17,2026-02-19,3,45.0,5.0,1263727616,,,,,,,225.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-17,2026-02-19,4,45.0,5.0,1263727616,,,,,,,225.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-17,2026-02-19,5,45.0,5.0,1263727616,,,,,,,225.0,Sin categoria
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-17,2026-02-19,1,,20.0,1263727617,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-17,2026-02-19,2,,20.0,1263727617,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-17,2026-02-19,3,,20.0,1263727617,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-17,2026-02-19,4,,20.0,1263727617,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-17,2026-02-19,5,,20.0,1263727617,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Barbell Military Press,2026-02-17,2026-02-19,1,,,1263727618,,,,,,Empuje Vertical,,Push V
+Celina Amarillo,Barbell Military Press,2026-02-17,2026-02-19,2,25.0,6.0,1263727618,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-02-17,2026-02-19,3,25.0,6.0,1263727618,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-02-17,2026-02-19,4,25.0,6.0,1263727618,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-17,2026-02-19,1,45.0,6.0,1263727619,,,,,,Traccion Horizontal,270.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-17,2026-02-19,2,45.0,6.0,1263727619,,,,,,Traccion Horizontal,270.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-17,2026-02-19,3,45.0,6.0,1263727619,,,,,,Traccion Horizontal,270.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-17,2026-02-19,4,45.0,6.0,1263727619,,,,,,Traccion Horizontal,270.0,Pull H
+Celina Amarillo,Kb Hammer Bicep Curl,2026-02-17,2026-02-19,1,15.0,15.0,1263727622,,,,,,Accessories MMSS,225.0,Accesorios MMSS
+Celina Amarillo,Kb Hammer Bicep Curl,2026-02-17,2026-02-19,2,,,1263727622,,,,,,Accessories MMSS,,Accesorios MMSS
+Celina Amarillo,DB French Press,2026-02-17,2026-02-19,1,12.5,7.0,1263727620,,,,,,Triceps,87.5,Sin categoria
+Celina Amarillo,DB French Press,2026-02-17,2026-02-19,2,,,1263727620,,,,,,Triceps,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-02-18,2026-02-20,1,,6.0,1263727636,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-02-18,2026-02-20,2,,6.0,1263727636,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-02-18,2026-02-20,3,,6.0,1263727636,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-18,2026-02-20,1,,10.0,1263727629,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-18,2026-02-20,2,,10.0,1263727629,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-18,2026-02-20,3,,10.0,1263727629,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Deadlift,2026-02-18,2026-02-20,1,65.0,4.0,1263727630,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-18,2026-02-20,2,65.0,4.0,1263727630,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-18,2026-02-20,3,65.0,5.0,1263727630,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-18,2026-02-20,4,65.0,5.0,1263727630,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-18,2026-02-20,5,65.0,5.0,1263727630,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-18,2026-02-20,6,65.0,5.0,1263727630,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Double Db Step Up,2026-02-18,2026-02-20,1,25.0,8.0,1263727632,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-18,2026-02-20,2,25.0,8.0,1263727632,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-18,2026-02-20,3,25.0,8.0,1263727632,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-18,2026-02-20,4,25.0,8.0,1263727632,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-18,2026-02-20,1,50.0,8.0,1263727633,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-18,2026-02-20,2,50.0,8.0,1263727633,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-18,2026-02-20,3,50.0,8.0,1263727633,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-18,2026-02-20,4,40.0,8.0,1263727633,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Celina Amarillo,Glute Bridge March,2026-02-23,2026-02-23,1,,10.0,1265840391,,,,,,,,Sin categoria
+Celina Amarillo,Glute Bridge March,2026-02-23,2026-02-23,2,,10.0,1265840391,,,,,,,,Sin categoria
+Celina Amarillo,Glute Bridge March,2026-02-23,2026-02-23,3,,10.0,1265840391,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Back Squat,2026-02-23,2026-02-23,1,45.0,4.0,1265840392,,,,,,Dominante de Rodilla,180.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-23,2026-02-23,2,50.0,3.0,1265840392,,,,,,Dominante de Rodilla,150.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-23,2026-02-23,3,60.0,2.0,1265840392,,,,,,Dominante de Rodilla,120.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-23,2026-02-23,4,60.0,2.0,1265840392,,,,,,Dominante de Rodilla,120.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-23,2026-02-23,5,65.0,2.0,1265840392,,,,,,Dominante de Rodilla,130.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-02-23,2026-02-23,6,70.0,2.0,1265840392,,,,,,Dominante de Rodilla,140.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-23,2026-02-23,1,40.0,6.0,1265840393,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-23,2026-02-23,2,40.0,6.0,1265840393,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-02-23,2026-02-23,3,40.0,6.0,1265840393,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Plyo Push Up,2026-02-24,2026-02-24,1,,5.0,1265840403,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-02-24,2026-02-24,2,,5.0,1265840403,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-02-24,2026-02-24,3,,5.0,1265840403,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plate Crunch,2026-02-24,2026-02-24,1,10.0,10.0,1265840404,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-02-24,2026-02-24,2,10.0,10.0,1265840404,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-02-24,2026-02-24,3,10.0,10.0,1265840404,,,,,,,100.0,Sin categoria
+Celina Amarillo,TRX Archer Row,2026-02-24,2026-02-24,1,,,1265840405,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-02-24,2026-02-24,2,,,1265840405,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-02-24,2026-02-24,3,,,1265840405,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-24,2026-02-24,1,40.0,5.0,1265840406,,,,,,,200.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-24,2026-02-24,2,45.0,5.0,1265840406,,,,,,,225.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-24,2026-02-24,3,45.0,5.0,1265840406,,,,,,,225.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-24,2026-02-24,4,45.0,5.0,1265840406,,,,,,,225.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-02-24,2026-02-24,5,45.0,5.0,1265840406,,,,,,,225.0,Sin categoria
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-24,2026-02-24,1,,20.0,1265840407,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-24,2026-02-24,2,,20.0,1265840407,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-24,2026-02-24,3,,20.0,1265840407,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-24,2026-02-24,4,,20.0,1265840407,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Eccentric Chin-Up (Box Assisted),2026-02-24,2026-02-24,5,,20.0,1265840407,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Barbell Military Press,2026-02-24,2026-02-24,1,30.0,5.0,1265840408,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-02-24,2026-02-24,2,30.0,5.0,1265840408,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-02-24,2026-02-24,3,30.0,5.0,1265840408,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-02-24,2026-02-24,4,30.0,5.0,1265840408,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-24,2026-02-24,1,50.0,6.0,1265840409,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-24,2026-02-24,2,50.0,6.0,1265840409,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-24,2026-02-24,3,55.0,6.0,1265840409,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-02-24,2026-02-24,4,55.0,6.0,1265840409,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Stir the Pot,2026-02-25,2026-02-25,1,,6.0,1265840426,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-02-25,2026-02-25,2,,6.0,1265840426,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-02-25,2026-02-25,3,,6.0,1265840426,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-25,2026-02-25,1,,10.0,1265840419,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-25,2026-02-25,2,,10.0,1265840419,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-02-25,2026-02-25,3,,10.0,1265840419,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Deadlift,2026-02-25,2026-02-25,1,65.0,4.0,1265840420,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-25,2026-02-25,2,65.0,4.0,1265840420,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-25,2026-02-25,3,65.0,5.0,1265840420,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-25,2026-02-25,4,65.0,5.0,1265840420,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-25,2026-02-25,5,65.0,5.0,1265840420,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-02-25,2026-02-25,6,65.0,5.0,1265840420,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Double Db Step Up,2026-02-25,2026-02-25,1,25.0,8.0,1265840422,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-25,2026-02-25,2,25.0,8.0,1265840422,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-25,2026-02-25,3,25.0,8.0,1265840422,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Double Db Step Up,2026-02-25,2026-02-25,4,25.0,8.0,1265840422,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-25,2026-02-25,1,50.0,8.0,1265840423,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-25,2026-02-25,2,50.0,8.0,1265840423,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-25,2026-02-25,3,50.0,8.0,1265840423,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Rumanian Deadlift,2026-02-25,2026-02-25,4,40.0,8.0,1265840423,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Celina Amarillo,Barbell Bench Press,2026-02-26,2026-02-26,1,45.0,4.0,1265840430,,,,,,Empuje Horizontal,180.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-26,2026-02-26,2,45.0,4.0,1265840430,,,,,,Empuje Horizontal,180.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-26,2026-02-26,3,45.0,5.0,1265840430,,,,,,Empuje Horizontal,225.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-26,2026-02-26,4,,,1265840430,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Barbell Bench Press,2026-02-26,2026-02-26,5,,,1265840430,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Db Bent Over Row,2026-02-26,2026-02-26,1,22.5,6.0,1265840431,,,,,,,135.0,Sin categoria
+Celina Amarillo,Db Bent Over Row,2026-02-26,2026-02-26,2,22.5,6.0,1265840431,,,,,,,135.0,Sin categoria
+Celina Amarillo,Db Bent Over Row,2026-02-26,2026-02-26,3,22.5,6.0,1265840431,,,,,,,135.0,Sin categoria
+Celina Amarillo,Db Bent Over Row,2026-02-26,2026-02-26,4,22.5,6.0,1265840431,,,,,,,135.0,Sin categoria
+Celina Amarillo,Kb/Db 1-Arm Kneeling Press,2026-02-26,2026-02-26,1,12.5,6.0,1265840432,,,,,,Empuje Vertical,75.0,Push V
+Celina Amarillo,Kb/Db 1-Arm Kneeling Press,2026-02-26,2026-02-26,2,12.5,6.0,1265840432,,,,,,Empuje Vertical,75.0,Push V
+Celina Amarillo,Kb/Db 1-Arm Kneeling Press,2026-02-26,2026-02-26,3,12.5,6.0,1265840432,,,,,,Empuje Vertical,75.0,Push V
+Celina Amarillo,Air Bike,2026-02-26,2026-02-26,1,50.0,6.0,1265840434,,,,,,,300.0,Sin categoria
+Celina Amarillo,Barbell Hip Thrust,2026-02-27,2026-02-27,1,160.0,4.0,1265840440,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-02-27,2026-02-27,2,160.0,6.0,1265840440,,,,,,Dominante de Cadera,960.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-02-27,2026-02-27,3,160.0,6.0,1265840440,,,,,,Dominante de Cadera,960.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-02-27,2026-02-27,4,160.0,6.0,1265840440,,,,,,Dominante de Cadera,960.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-02-27,2026-02-27,5,160.0,6.0,1265840440,,,,,,Dominante de Cadera,960.0,Dom. Cadera
+Celina Amarillo,Kb/Db Bulgarian Split Squat,2026-02-27,2026-02-27,1,12.5,8.0,1265840441,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Celina Amarillo,Kb/Db Bulgarian Split Squat,2026-02-27,2026-02-27,2,12.5,8.0,1265840441,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Celina Amarillo,Kb/Db Bulgarian Split Squat,2026-02-27,2026-02-27,3,12.5,8.0,1265840441,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Celina Amarillo,Kb/Db Bulgarian Split Squat,2026-02-27,2026-02-27,4,12.5,8.0,1265840441,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Celina Amarillo,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-02-27,2026-02-27,1,15.0,12.0,1265840443,,,,,,Dominante de Cadera,180.0,Dom. Cadera
+Celina Amarillo,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-02-27,2026-02-27,2,15.0,12.0,1265840443,,,,,,Dominante de Cadera,180.0,Dom. Cadera
+Celina Amarillo,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-02-27,2026-02-27,3,15.0,12.0,1265840443,,,,,,Dominante de Cadera,180.0,Dom. Cadera
+Celina Amarillo,Plate Russian Twist,2026-03-02,2026-03-02,1,10.0,8.0,1265840447,,,,,,,80.0,Sin categoria
+Celina Amarillo,Plate Russian Twist,2026-03-02,2026-03-02,2,10.0,8.0,1265840447,,,,,,,80.0,Sin categoria
+Celina Amarillo,Glute Bridge March,2026-03-02,2026-03-02,1,,10.0,1265840448,,,,,,,,Sin categoria
+Celina Amarillo,Glute Bridge March,2026-03-02,2026-03-02,2,,10.0,1265840448,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Back Squat,2026-03-02,2026-03-02,1,50.0,4.0,1265840449,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-02,2026-03-02,2,55.0,3.0,1265840449,,,,,,Dominante de Rodilla,165.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-02,2026-03-02,3,60.0,2.0,1265840449,,,,,,Dominante de Rodilla,120.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-02,2026-03-02,4,65.0,2.0,1265840449,,,,,,Dominante de Rodilla,130.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-02,2026-03-02,5,70.0,1.0,1265840449,,,,,,Dominante de Rodilla,70.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-02,2026-03-02,6,,,1265840449,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-02,2026-03-02,1,40.0,6.0,1265840450,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-02,2026-03-02,2,40.0,6.0,1265840450,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-02,2026-03-02,3,40.0,6.0,1265840450,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-03-02,2026-03-02,1,17.5,12.0,1265840451,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Celina Amarillo,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-03-02,2026-03-02,2,17.5,12.0,1265840451,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Celina Amarillo,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-03-02,2026-03-02,3,17.5,12.0,1265840451,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Celina Amarillo,Split Squat ISO Hold,2026-03-02,2026-03-02,1,,30.0,1265840452,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Split Squat ISO Hold,2026-03-02,2026-03-02,2,,30.0,1265840452,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Split Squat ISO Hold,2026-03-02,2026-03-02,3,,30.0,1265840452,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Plyo Push Up,2026-03-03,2026-03-03,1,,5.0,1265840459,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-03-03,2026-03-03,2,,5.0,1265840459,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-03-03,2026-03-03,3,,5.0,1265840459,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plate Crunch,2026-03-03,2026-03-03,1,10.0,10.0,1265840460,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-03-03,2026-03-03,2,,,1265840460,,,,,,,,Sin categoria
+Celina Amarillo,Plate Crunch,2026-03-03,2026-03-03,3,,,1265840460,,,,,,,,Sin categoria
+Celina Amarillo,TRX Archer Row,2026-03-03,2026-03-03,1,,,1265840461,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-03-03,2026-03-03,2,,,1265840461,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-03-03,2026-03-03,3,,,1265840461,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-03,2026-03-03,1,,4.0,1265840489,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-03,2026-03-03,2,,4.0,1265840489,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-03,2026-03-03,3,,4.0,1265840489,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-03,2026-03-03,4,,3.0,1265840489,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-03,2026-03-03,5,,3.0,1265840489,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-03,2026-03-03,6,,3.0,1265840489,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Barbell Military Press,2026-03-03,2026-03-03,1,,,1265840464,,,,,,Empuje Vertical,,Push V
+Celina Amarillo,Barbell Military Press,2026-03-03,2026-03-03,2,30.0,5.0,1265840464,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-03-03,2026-03-03,3,30.0,5.0,1265840464,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-03-03,2026-03-03,4,30.0,5.0,1265840464,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-03,2026-03-03,1,50.0,6.0,1265840465,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-03,2026-03-03,2,50.0,6.0,1265840465,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-03,2026-03-03,3,55.0,6.0,1265840465,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-03,2026-03-03,4,55.0,6.0,1265840465,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Kb Hammer Bicep Curl,2026-03-03,2026-03-03,1,15.0,15.0,1265840468,,,,,,Accessories MMSS,225.0,Accesorios MMSS
+Celina Amarillo,Kb Hammer Bicep Curl,2026-03-03,2026-03-03,2,,,1265840468,,,,,,Accessories MMSS,,Accesorios MMSS
+Celina Amarillo,DB French Press,2026-03-03,2026-03-03,1,12.5,10.0,1265840466,,,,,,Triceps,125.0,Sin categoria
+Celina Amarillo,DB French Press,2026-03-03,2026-03-03,2,12.5,10.0,1265840466,,,,,,Triceps,125.0,Sin categoria
+Celina Amarillo,Stir the Pot,2026-03-04,2026-03-04,1,,6.0,1265840482,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-03-04,2026-03-04,2,,6.0,1265840482,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-03-04,2026-03-04,3,,6.0,1265840482,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-04,2026-03-04,1,,10.0,1265840475,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-04,2026-03-04,2,,10.0,1265840475,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-04,2026-03-04,3,,10.0,1265840475,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Deadlift,2026-03-04,2026-03-04,1,65.0,4.0,1265840476,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-04,2026-03-04,2,65.0,4.0,1265840476,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-04,2026-03-04,3,65.0,5.0,1265840476,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-04,2026-03-04,4,65.0,5.0,1265840476,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-04,2026-03-04,5,65.0,5.0,1265840476,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-04,2026-03-04,6,65.0,5.0,1265840476,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-04,2026-03-04,1,80.0,15.0,1265840480,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-04,2026-03-04,2,80.0,15.0,1265840480,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-04,2026-03-04,3,80.0,15.0,1265840480,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-04,2026-03-04,4,80.0,15.0,1265840480,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-04,2026-03-04,5,80.0,15.0,1265840480,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Bench Press,2026-03-05,2026-03-05,1,45.0,4.0,1265840486,,,,,,Empuje Horizontal,180.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-05,2026-03-05,2,45.0,4.0,1265840486,,,,,,Empuje Horizontal,180.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-05,2026-03-05,3,50.0,3.0,1265840486,,,,,,Empuje Horizontal,150.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-05,2026-03-05,4,50.0,3.0,1265840486,,,,,,Empuje Horizontal,150.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-05,2026-03-05,5,55.0,2.0,1265840486,,,,,,Empuje Horizontal,110.0,Push H
+Celina Amarillo,Strict Bar Dips,2026-03-05,2026-03-05,1,,2.0,1265840488,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-05,2026-03-05,2,,2.0,1265840488,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-05,2026-03-05,3,,2.0,1265840488,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-05,2026-03-05,4,,3.0,1265840488,,,,,,,,Sin categoria
+Celina Amarillo,Kb/Db 2-Arm Bent Over Row (Neutral Grip),2026-03-05,2026-03-05,1,,,1265840487,,,,,,Traccion Horizontal,,Pull H
+Celina Amarillo,Kb/Db 2-Arm Bent Over Row (Neutral Grip),2026-03-05,2026-03-05,2,,,1265840487,,,,,,Traccion Horizontal,,Pull H
+Celina Amarillo,Kb/Db 2-Arm Bent Over Row (Neutral Grip),2026-03-05,2026-03-05,3,,,1265840487,,,,,,Traccion Horizontal,,Pull H
+Celina Amarillo,Kb/Db 2-Arm Bent Over Row (Neutral Grip),2026-03-05,2026-03-05,4,45.0,10.0,1265840487,,,,,,Traccion Horizontal,450.0,Pull H
+Celina Amarillo,Kb/Db 2-Arm Farmer Carry,2026-03-05,2026-03-05,1,,,1265840490,,,,,,,,Sin categoria
+Celina Amarillo,Kb/Db 2-Arm Farmer Carry,2026-03-05,2026-03-05,2,40.0,1.0,1265840490,,,,,,,40.0,Sin categoria
+Celina Amarillo,Kb/Db 2-Arm Farmer Carry,2026-03-05,2026-03-05,3,40.0,1.0,1265840490,,,,,,,40.0,Sin categoria
+Celina Amarillo,Kb/Db 2-Arm Farmer Carry,2026-03-05,2026-03-05,4,40.0,1.0,1265840490,,,,,,,40.0,Sin categoria
+Celina Amarillo,Barbell Back Squat,2026-03-09,2026-03-10,1,50.0,4.0,1273617730,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-09,2026-03-10,2,50.0,4.0,1273617730,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-09,2026-03-10,3,,,1273617730,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-09,2026-03-10,4,,,1273617730,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-09,2026-03-10,5,65.0,2.0,1273617730,,,,,,Dominante de Rodilla,130.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-09,2026-03-10,6,70.0,2.0,1273617730,,,,,,Dominante de Rodilla,140.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-09,2026-03-10,1,40.0,6.0,1273617731,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-09,2026-03-10,2,40.0,6.0,1273617731,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-09,2026-03-10,3,40.0,6.0,1273617731,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-03-09,2026-03-10,1,17.5,12.0,1273617732,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Celina Amarillo,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-03-09,2026-03-10,2,17.5,12.0,1273617732,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Celina Amarillo,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-03-09,2026-03-10,3,17.5,12.0,1273617732,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Celina Amarillo,Split Squat ISO Hold,2026-03-09,2026-03-10,1,,30.0,1273617733,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Split Squat ISO Hold,2026-03-09,2026-03-10,2,,30.0,1273617733,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Split Squat ISO Hold,2026-03-09,2026-03-10,3,,30.0,1273617733,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Plyo Push Up,2026-03-10,2026-03-09,1,,5.0,1273617741,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-03-10,2026-03-09,2,,5.0,1273617741,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-03-10,2026-03-09,3,,5.0,1273617741,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plate Crunch,2026-03-10,2026-03-09,1,10.0,10.0,1273617742,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-03-10,2026-03-09,2,,,1273617742,,,,,,,,Sin categoria
+Celina Amarillo,Plate Crunch,2026-03-10,2026-03-09,3,,,1273617742,,,,,,,,Sin categoria
+Celina Amarillo,TRX Archer Row,2026-03-10,2026-03-09,1,,6.0,1273617743,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-03-10,2026-03-09,2,,6.0,1273617743,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-03-10,2026-03-09,3,,6.0,1273617743,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-10,2026-03-09,1,,4.0,1273617754,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-10,2026-03-09,2,,4.0,1273617754,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-10,2026-03-09,3,,4.0,1273617754,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-10,2026-03-09,4,,4.0,1273617754,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-10,2026-03-09,5,,3.0,1273617754,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-10,2026-03-09,6,,3.0,1273617754,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-10,2026-03-09,1,50.0,6.0,1273617746,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-10,2026-03-09,2,50.0,6.0,1273617746,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-10,2026-03-09,3,55.0,6.0,1273617746,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-10,2026-03-09,4,55.0,6.0,1273617746,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Barbell Military Press,2026-03-10,2026-03-09,1,,,1273617745,,,,,,Empuje Vertical,,Push V
+Celina Amarillo,Barbell Military Press,2026-03-10,2026-03-09,2,30.0,5.0,1273617745,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-03-10,2026-03-09,3,30.0,5.0,1273617745,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-03-10,2026-03-09,4,30.0,5.0,1273617745,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Kb Hammer Bicep Curl,2026-03-10,2026-03-09,1,15.0,10.0,1273617749,,,,,,Accessories MMSS,150.0,Accesorios MMSS
+Celina Amarillo,Kb Hammer Bicep Curl,2026-03-10,2026-03-09,2,15.0,10.0,1273617749,,,,,,Accessories MMSS,150.0,Accesorios MMSS
+Celina Amarillo,DB French Press,2026-03-10,2026-03-09,1,12.5,8.0,1273617747,,,,,,Triceps,100.0,Sin categoria
+Celina Amarillo,DB French Press,2026-03-10,2026-03-09,2,12.5,8.0,1273617747,,,,,,Triceps,100.0,Sin categoria
+Celina Amarillo,Stir the Pot,2026-03-11,2026-03-12,1,,6.0,1273617765,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-03-11,2026-03-12,2,,6.0,1273617765,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-03-11,2026-03-12,3,,6.0,1273617765,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-11,2026-03-12,1,,10.0,1273617758,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-11,2026-03-12,2,,10.0,1273617758,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-11,2026-03-12,3,,10.0,1273617758,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Deadlift,2026-03-11,2026-03-12,1,65.0,4.0,1273617759,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-11,2026-03-12,2,65.0,4.0,1273617759,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-11,2026-03-12,3,65.0,5.0,1273617759,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-11,2026-03-12,4,65.0,5.0,1273617759,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-11,2026-03-12,5,65.0,5.0,1273617759,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-11,2026-03-12,6,65.0,5.0,1273617759,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-11,2026-03-12,1,80.0,15.0,1273617763,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-11,2026-03-12,2,80.0,15.0,1273617763,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-11,2026-03-12,3,80.0,15.0,1273617763,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-11,2026-03-12,4,80.0,15.0,1273617763,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-11,2026-03-12,5,80.0,15.0,1273617763,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Bench Press,2026-03-12,2026-03-11,1,45.0,4.0,1273617773,,,,,,Empuje Horizontal,180.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-12,2026-03-11,2,45.0,4.0,1273617773,,,,,,Empuje Horizontal,180.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-12,2026-03-11,3,50.0,4.0,1273617773,,,,,,Empuje Horizontal,200.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-12,2026-03-11,4,50.0,3.0,1273617773,,,,,,Empuje Horizontal,150.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-12,2026-03-11,5,50.0,3.0,1273617773,,,,,,Empuje Horizontal,150.0,Push H
+Celina Amarillo,Strict Bar Dips,2026-03-12,2026-03-11,1,,3.0,1273617775,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-12,2026-03-11,2,,2.0,1273617775,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-12,2026-03-11,3,,2.0,1273617775,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-12,2026-03-11,4,,2.0,1273617775,,,,,,,,Sin categoria
+Celina Amarillo,Kb/Db 2-Arm Bent Over Row (Neutral Grip),2026-03-12,2026-03-11,1,,,1273617774,,,,,,Traccion Horizontal,,Pull H
+Celina Amarillo,Kb/Db 2-Arm Bent Over Row (Neutral Grip),2026-03-12,2026-03-11,2,,,1273617774,,,,,,Traccion Horizontal,,Pull H
+Celina Amarillo,Kb/Db 2-Arm Bent Over Row (Neutral Grip),2026-03-12,2026-03-11,3,40.0,10.0,1273617774,,,,,,Traccion Horizontal,400.0,Pull H
+Celina Amarillo,Kb/Db 2-Arm Bent Over Row (Neutral Grip),2026-03-12,2026-03-11,4,40.0,10.0,1273617774,,,,,,Traccion Horizontal,400.0,Pull H
+Celina Amarillo,Plate Russian Twist,2026-03-16,2026-03-16,1,10.0,8.0,1273618068,,,,,,,80.0,Sin categoria
+Celina Amarillo,Plate Russian Twist,2026-03-16,2026-03-16,2,10.0,8.0,1273618068,,,,,,,80.0,Sin categoria
+Celina Amarillo,Glute Bridge March,2026-03-16,2026-03-16,1,,10.0,1273618069,,,,,,,,Sin categoria
+Celina Amarillo,Glute Bridge March,2026-03-16,2026-03-16,2,,10.0,1273618069,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Back Squat,2026-03-16,2026-03-16,1,45.0,4.0,1273618070,,,,,,Dominante de Rodilla,180.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-16,2026-03-16,2,50.0,3.0,1273618070,,,,,,Dominante de Rodilla,150.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-16,2026-03-16,3,,,1273618070,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-16,2026-03-16,4,,,1273618070,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-16,2026-03-16,5,65.0,2.0,1273618070,,,,,,Dominante de Rodilla,130.0,Dom. Rodilla
+Celina Amarillo,Barbell Back Squat,2026-03-16,2026-03-16,6,70.0,2.0,1273618070,,,,,,Dominante de Rodilla,140.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-16,2026-03-16,1,40.0,6.0,1273618071,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-16,2026-03-16,2,40.0,6.0,1273618071,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Db/Kb 2-Arm Split Squat,2026-03-16,2026-03-16,3,40.0,6.0,1273618071,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Celina Amarillo,Plyo Push Up,2026-03-17,2026-03-17,1,,5.0,1273618081,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-03-17,2026-03-17,2,,5.0,1273618081,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plyo Push Up,2026-03-17,2026-03-17,3,,5.0,1273618081,,,,,,Empuje Horizontal,,Push H
+Celina Amarillo,Plate Crunch,2026-03-17,2026-03-17,1,10.0,10.0,1273618082,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-03-17,2026-03-17,2,10.0,10.0,1273618082,,,,,,,100.0,Sin categoria
+Celina Amarillo,Plate Crunch,2026-03-17,2026-03-17,3,10.0,10.0,1273618082,,,,,,,100.0,Sin categoria
+Celina Amarillo,TRX Archer Row,2026-03-17,2026-03-17,1,,,1273618083,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-03-17,2026-03-17,2,,,1273618083,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,TRX Archer Row,2026-03-17,2026-03-17,3,,,1273618083,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Hang High Pull Clean Grip,2026-03-17,2026-03-17,1,40.0,5.0,1273618084,,,,,,,200.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-03-17,2026-03-17,2,45.0,5.0,1273618084,,,,,,,225.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-03-17,2026-03-17,3,45.0,5.0,1273618084,,,,,,,225.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-03-17,2026-03-17,4,45.0,5.0,1273618084,,,,,,,225.0,Sin categoria
+Celina Amarillo,Hang High Pull Clean Grip,2026-03-17,2026-03-17,5,45.0,5.0,1273618084,,,,,,,225.0,Sin categoria
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-17,2026-03-17,1,,4.0,1273618094,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-17,2026-03-17,2,,4.0,1273618094,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-17,2026-03-17,3,,4.0,1273618094,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-17,2026-03-17,4,,4.0,1273618094,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-17,2026-03-17,5,,3.0,1273618094,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Bar Pull Up (Supinated Grip),2026-03-17,2026-03-17,6,,3.0,1273618094,,,,,,Traccion Vertical,,Pull V
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-17,2026-03-17,1,50.0,6.0,1273618086,,,,,,Traccion Horizontal,300.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-17,2026-03-17,2,55.0,6.0,1273618086,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-17,2026-03-17,3,55.0,6.0,1273618086,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Barbell Bent Over Row (Pronated Grip),2026-03-17,2026-03-17,4,55.0,6.0,1273618086,,,,,,Traccion Horizontal,330.0,Pull H
+Celina Amarillo,Barbell Military Press,2026-03-17,2026-03-17,1,,,1273618085,,,,,,Empuje Vertical,,Push V
+Celina Amarillo,Barbell Military Press,2026-03-17,2026-03-17,2,30.0,5.0,1273618085,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-03-17,2026-03-17,3,30.0,5.0,1273618085,,,,,,Empuje Vertical,150.0,Push V
+Celina Amarillo,Barbell Military Press,2026-03-17,2026-03-17,4,32.5,4.0,1273618085,,,,,,Empuje Vertical,130.0,Push V
+Celina Amarillo,Stir the Pot,2026-03-18,2026-03-18,1,,6.0,1273618105,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-03-18,2026-03-18,2,,6.0,1273618105,,,,,,,,Sin categoria
+Celina Amarillo,Stir the Pot,2026-03-18,2026-03-18,3,,6.0,1273618105,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-18,2026-03-18,1,,10.0,1273618098,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-18,2026-03-18,2,,10.0,1273618098,,,,,,,,Sin categoria
+Celina Amarillo,Hamstring Bridge March,2026-03-18,2026-03-18,3,,10.0,1273618098,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Deadlift,2026-03-18,2026-03-18,1,65.0,4.0,1273618099,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-18,2026-03-18,2,65.0,4.0,1273618099,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-18,2026-03-18,3,65.0,5.0,1273618099,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-18,2026-03-18,4,65.0,5.0,1273618099,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-18,2026-03-18,5,65.0,5.0,1273618099,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Deadlift,2026-03-18,2026-03-18,6,65.0,5.0,1273618099,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-18,2026-03-18,1,80.0,15.0,1273618103,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-18,2026-03-18,2,80.0,15.0,1273618103,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-18,2026-03-18,3,80.0,15.0,1273618103,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-18,2026-03-18,4,80.0,15.0,1273618103,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-18,2026-03-18,5,80.0,15.0,1273618103,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Celina Amarillo,Barbell RDL,2026-03-18,2026-03-18,1,50.0,8.0,1273618102,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell RDL,2026-03-18,2026-03-18,2,50.0,8.0,1273618102,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell RDL,2026-03-18,2026-03-18,3,50.0,8.0,1273618102,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell RDL,2026-03-18,2026-03-18,4,50.0,8.0,1273618102,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Celina Amarillo,Barbell Bench Press,2026-03-19,2026-03-19,1,45.0,3.0,1273618113,,,,,,Empuje Horizontal,135.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-19,2026-03-19,2,45.0,3.0,1273618113,,,,,,Empuje Horizontal,135.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-19,2026-03-19,3,50.0,1.0,1273618113,,,,,,Empuje Horizontal,50.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-19,2026-03-19,4,55.0,1.0,1273618113,,,,,,Empuje Horizontal,55.0,Push H
+Celina Amarillo,Barbell Bench Press,2026-03-19,2026-03-19,5,50.0,5.0,1273618113,,,,,,Empuje Horizontal,250.0,Push H
+Celina Amarillo,Strict Bar Dips,2026-03-19,2026-03-19,1,,3.0,1273618115,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-19,2026-03-19,2,,3.0,1273618115,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-19,2026-03-19,3,,2.0,1273618115,,,,,,,,Sin categoria
+Celina Amarillo,Strict Bar Dips,2026-03-19,2026-03-19,4,,2.0,1273618115,,,,,,,,Sin categoria
+Celina Amarillo,Barbell Hip Thrust,2026-03-20,2026-03-20,1,,,1273618126,,,,,,Dominante de Cadera,,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-20,2026-03-20,2,140.0,6.0,1273618126,,,,,,Dominante de Cadera,840.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-20,2026-03-20,3,140.0,6.0,1273618126,,,,,,Dominante de Cadera,840.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-20,2026-03-20,4,140.0,6.0,1273618126,,,,,,Dominante de Cadera,840.0,Dom. Cadera
+Celina Amarillo,Barbell Hip Thrust,2026-03-20,2026-03-20,5,140.0,6.0,1273618126,,,,,,Dominante de Cadera,840.0,Dom. Cadera
+Celina Amarillo,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-03-20,2026-03-20,1,15.0,12.0,1273618129,,,,,,Dominante de Cadera,180.0,Dom. Cadera
+Celina Amarillo,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-03-20,2026-03-20,2,15.0,12.0,1273618129,,,,,,Dominante de Cadera,180.0,Dom. Cadera
+Celina Amarillo,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-03-20,2026-03-20,3,15.0,12.0,1273618129,,,,,,Dominante de Cadera,180.0,Dom. Cadera
+Celina Amarillo,Banded Lateral Walk,2026-03-20,2026-03-20,1,,15.0,1273618130,,,,,,,,Sin categoria
+Celina Amarillo,Banded Lateral Walk,2026-03-20,2026-03-20,2,,15.0,1273618130,,,,,,,,Sin categoria
+Celina Amarillo,Banded Lateral Walk,2026-03-20,2026-03-20,3,,15.0,1273618130,,,,,,,,Sin categoria
+Celina Amarillo,Standing Mini Band Kick Back,2026-03-20,2026-03-20,1,,15.0,1273618128,,,,,,Accessories MMII,,Sin categoria
+Celina Amarillo,Standing Mini Band Kick Back,2026-03-20,2026-03-20,2,,15.0,1273618128,,,,,,Accessories MMII,,Sin categoria
+Celina Amarillo,Standing Mini Band Kick Back,2026-03-20,2026-03-20,3,,15.0,1273618128,,,,,,Accessories MMII,,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-02-10,2026-02-09,1,,12.0,1256150255,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-02-10,2026-02-09,2,,12.0,1256150255,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-02-10,2026-02-12,1,15.0,8.0,1256154366,,,,,,Core,120.0,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-02-10,2026-02-12,2,15.0,8.0,1256154366,,,,,,Core,120.0,Sin categoria
+Exequiel Heredia Garcia,Zercher Squat,2026-02-10,2026-02-12,1,15.0,8.0,1256150045,,,,,,Dominante de Cadera,120.0,Dom. Cadera
+Exequiel Heredia Garcia,Zercher Squat,2026-02-10,2026-02-12,2,15.0,8.0,1256150045,,,,,,Dominante de Cadera,120.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-10,2026-02-12,1,40.0,5.0,1256139810,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-10,2026-02-12,2,40.0,5.0,1256139810,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-10,2026-02-12,3,40.0,5.0,1256139810,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-10,2026-02-12,4,40.0,5.0,1256139810,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Exequiel Heredia Garcia,Harop Curl,2026-02-10,2026-02-12,1,,4.0,1256140937,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-02-10,2026-02-12,2,,4.0,1256140937,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-02-10,2026-02-12,3,,4.0,1256140937,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-10,2026-02-12,1,40.0,8.0,1256141565,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-10,2026-02-12,2,40.0,8.0,1256141565,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-10,2026-02-12,3,40.0,8.0,1256141565,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-10,2026-02-12,1,,15.0,1256142441,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-10,2026-02-12,2,,20.0,1256142441,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-10,2026-02-12,3,,20.0,1256142441,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-10,2026-02-12,1,,10.0,1256144339,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-10,2026-02-12,2,,10.0,1256144339,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-10,2026-02-12,3,,10.0,1256144339,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-10,2026-02-12,1,12.0,15.0,1256144740,,,,,,,180.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-10,2026-02-12,2,12.0,15.0,1256144740,,,,,,,180.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-10,2026-02-12,3,12.0,15.0,1256144740,,,,,,,180.0,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-02-12,2026-02-13,1,,8.0,1256175663,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-02-12,2026-02-13,2,,8.0,1256175663,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-02-12,2026-02-13,1,,10.0,1256176892,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-02-12,2026-02-13,2,,10.0,1256176892,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-02-12,2026-02-13,1,,10.0,1256173034,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-02-12,2026-02-13,2,,10.0,1256173034,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-12,2026-02-13,1,,3.0,1256159617,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-12,2026-02-13,2,,3.0,1256159617,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-12,2026-02-13,3,,3.0,1256159617,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-12,2026-02-13,4,,3.0,1256159617,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-12,2026-02-13,5,,3.0,1256159617,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-12,2026-02-13,1,40.0,4.0,1256160771,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-12,2026-02-13,2,50.0,4.0,1256160771,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-12,2026-02-13,3,50.0,4.0,1256160771,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-12,2026-02-13,4,50.0,4.0,1256160771,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-12,2026-02-13,1,0.0,7.0,1256163068,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-12,2026-02-13,2,0.0,7.0,1256163068,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-12,2026-02-13,3,0.0,7.0,1256163068,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-12,2026-02-13,4,0.0,7.0,1256163068,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-12,2026-02-13,1,,12.0,1256163616,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-12,2026-02-13,2,,12.0,1256163616,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-12,2026-02-13,3,,12.0,1256163616,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-12,2026-02-13,1,25.0,12.0,1256170569,,,,,,Traccion Horizontal,300.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-12,2026-02-13,2,25.0,12.0,1256170569,,,,,,Traccion Horizontal,300.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-12,2026-02-13,3,25.0,12.0,1256170569,,,,,,Traccion Horizontal,300.0,Pull H
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-12,2026-02-13,1,30.0,15.0,1256167093,,,,,,,450.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-12,2026-02-13,2,30.0,15.0,1256167093,,,,,,,450.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-12,2026-02-13,3,30.0,15.0,1256167093,,,,,,,450.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Press Machine,2026-02-14,2026-02-17,1,20.0,12.0,1256995830,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Exequiel Heredia Garcia,1-Leg Press Machine,2026-02-14,2026-02-17,2,20.0,12.0,1256995830,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Exequiel Heredia Garcia,1-Leg Press Machine,2026-02-14,2026-02-17,3,20.0,12.0,1256995830,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Exequiel Heredia Garcia,Seated Hamstring Cable Curl,2026-02-14,2026-02-17,1,20.0,12.0,1256999209,,,,,,,240.0,Sin categoria
+Exequiel Heredia Garcia,Seated Hamstring Cable Curl,2026-02-14,2026-02-17,2,20.0,12.0,1256999209,,,,,,,240.0,Sin categoria
+Exequiel Heredia Garcia,Seated Hamstring Cable Curl,2026-02-14,2026-02-17,3,20.0,12.0,1256999209,,,,,,,240.0,Sin categoria
+Exequiel Heredia Garcia,Goblet Squat,2026-02-14,2026-02-17,1,15.0,15.0,1257006049,,,,,,Dominante de Cadera,225.0,Dom. Cadera
+Exequiel Heredia Garcia,Goblet Squat,2026-02-14,2026-02-17,2,15.0,15.0,1257006049,,,,,,Dominante de Cadera,225.0,Dom. Cadera
+Exequiel Heredia Garcia,Goblet Squat,2026-02-14,2026-02-17,3,15.0,15.0,1257006049,,,,,,Dominante de Cadera,225.0,Dom. Cadera
+Exequiel Heredia Garcia,Goblet Squat,2026-02-14,2026-02-17,4,15.0,15.0,1257006049,,,,,,Dominante de Cadera,225.0,Dom. Cadera
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-14,2026-02-17,1,,12.0,1257007792,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-14,2026-02-17,2,,12.0,1257007792,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-14,2026-02-17,3,,12.0,1257007792,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-14,2026-02-17,1,,20.0,1257008412,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-14,2026-02-17,2,,20.0,1257008412,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-14,2026-02-17,3,,20.0,1257008412,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-14,2026-02-17,4,,20.0,1257008412,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-14,2026-02-17,1,,20.0,1257008797,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-14,2026-02-17,2,,20.0,1257008797,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-14,2026-02-17,3,,20.0,1257008797,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-14,2026-02-17,4,,20.0,1257008797,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-02-17,2026-02-19,1,,12.0,1261638333,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-02-17,2026-02-19,2,,12.0,1261638333,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-02-17,2026-02-19,1,15.0,8.0,1261638334,,,,,,Core,120.0,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-02-17,2026-02-19,2,15.0,8.0,1261638334,,,,,,Core,120.0,Sin categoria
+Exequiel Heredia Garcia,Zercher Squat,2026-02-17,2026-02-19,1,20.0,8.0,1261638332,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Zercher Squat,2026-02-17,2026-02-19,2,20.0,8.0,1261638332,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-17,2026-02-19,1,45.0,5.0,1261638326,,,,,,Dominante de Rodilla,225.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-17,2026-02-19,2,45.0,5.0,1261638326,,,,,,Dominante de Rodilla,225.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-17,2026-02-19,3,50.0,5.0,1261638326,,,,,,Dominante de Rodilla,250.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-17,2026-02-19,4,50.0,5.0,1261638326,,,,,,Dominante de Rodilla,250.0,Dom. Rodilla
+Exequiel Heredia Garcia,Harop Curl,2026-02-17,2026-02-19,1,,4.0,1261638327,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-02-17,2026-02-19,2,,4.0,1261638327,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-02-17,2026-02-19,3,,4.0,1261638327,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-17,2026-02-19,1,35.0,10.0,1261638328,,,,,,Dominante de Cadera,350.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-17,2026-02-19,2,25.0,10.0,1261638328,,,,,,Dominante de Cadera,250.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-17,2026-02-19,3,25.0,10.0,1261638328,,,,,,Dominante de Cadera,250.0,Dom. Cadera
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-17,2026-02-19,1,15.0,20.0,1261638331,,,,,,,300.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-17,2026-02-19,2,15.0,20.0,1261638331,,,,,,,300.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-17,2026-02-19,3,15.0,20.0,1261638331,,,,,,,300.0,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-17,2026-02-19,1,,10.0,1261638330,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-17,2026-02-19,2,,10.0,1261638330,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-17,2026-02-19,3,,10.0,1261638330,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-17,2026-02-19,1,,20.0,1261638329,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-17,2026-02-19,2,,20.0,1261638329,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-17,2026-02-19,3,,20.0,1261638329,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-17,2026-02-19,4,,20.0,1261638329,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-02-18,2026-02-18,1,,20.0,1263913974,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-02-18,2026-02-18,2,,20.0,1263913974,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-02-18,2026-02-18,3,,20.0,1263913974,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-02-18,2026-02-18,4,,20.0,1263913974,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Scapular Push Up,2026-02-18,2026-02-18,1,,10.0,1263896882,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-02-18,2026-02-18,2,,10.0,1263896882,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-02-18,2026-02-18,3,,10.0,1263896882,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-02-18,2026-02-18,4,,10.0,1263896882,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-18,2026-02-18,1,,12.0,1263899481,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-18,2026-02-18,2,,12.0,1263899481,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-18,2026-02-18,3,,12.0,1263899481,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-18,2026-02-18,4,,12.0,1263899481,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,"Prone Y ""Lift Off""",2026-02-18,2026-02-18,1,,10.0,1263902827,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Y ""Lift Off""",2026-02-18,2026-02-18,2,,10.0,1263902827,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Y ""Lift Off""",2026-02-18,2026-02-18,3,,10.0,1263902827,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Y ""Lift Off""",2026-02-18,2026-02-18,4,,10.0,1263902827,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Lateral ""Lift Off""",2026-02-18,2026-02-18,1,,10.0,1263901646,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Lateral ""Lift Off""",2026-02-18,2026-02-18,2,,10.0,1263901646,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Lateral ""Lift Off""",2026-02-18,2026-02-18,3,,10.0,1263901646,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Lateral ""Lift Off""",2026-02-18,2026-02-18,4,,10.0,1263901646,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-18,2026-02-18,1,25.0,10.0,1263906129,,,,,,Traccion Horizontal,250.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-18,2026-02-18,2,25.0,10.0,1263906129,,,,,,Traccion Horizontal,250.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-18,2026-02-18,3,25.0,10.0,1263906129,,,,,,Traccion Horizontal,250.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-18,2026-02-18,4,30.0,10.0,1263906129,,,,,,Traccion Horizontal,300.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-02-18,2026-02-18,1,25.0,20.0,1263909753,,,,,,Empuje Horizontal,500.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-02-18,2026-02-18,2,25.0,20.0,1263909753,,,,,,Empuje Horizontal,500.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-02-18,2026-02-18,3,25.0,20.0,1263909753,,,,,,Empuje Horizontal,500.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-02-18,2026-02-18,4,25.0,20.0,1263909753,,,,,,Empuje Horizontal,500.0,Push H
+Exequiel Heredia Garcia,Barbell Biceps Curl,2026-02-18,2026-02-18,1,30.0,12.0,1263910469,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Barbell Biceps Curl,2026-02-18,2026-02-18,2,30.0,12.0,1263910469,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Barbell Biceps Curl,2026-02-18,2026-02-18,3,30.0,12.0,1263910469,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-02-18,2026-02-18,1,35.0,12.0,1263910829,,,,,,Biceps/Accessories MMSS,420.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-02-18,2026-02-18,2,40.0,12.0,1263910829,,,,,,Biceps/Accessories MMSS,480.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-02-18,2026-02-18,3,40.0,12.0,1263910829,,,,,,Biceps/Accessories MMSS,480.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-02-18,2026-02-18,1,35.0,15.0,1263911425,,,,,,Triceps/Accessories MMSS,525.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-02-18,2026-02-18,2,30.0,15.0,1263911425,,,,,,Triceps/Accessories MMSS,450.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-02-18,2026-02-18,3,30.0,15.0,1263911425,,,,,,Triceps/Accessories MMSS,450.0,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-02-19,2026-02-20,1,,8.0,1261638348,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-02-19,2026-02-20,2,,8.0,1261638348,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-02-19,2026-02-20,1,,10.0,1261638349,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-02-19,2026-02-20,2,,10.0,1261638349,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-02-19,2026-02-20,1,,10.0,1261638347,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-02-19,2026-02-20,2,,10.0,1261638347,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-19,2026-02-20,1,,3.0,1261638336,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-19,2026-02-20,2,,3.0,1261638336,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-19,2026-02-20,3,,3.0,1261638336,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-19,2026-02-20,4,,3.0,1261638336,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-19,2026-02-20,5,,3.0,1261638336,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-19,2026-02-20,1,60.0,4.0,1261638337,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-19,2026-02-20,2,70.0,4.0,1261638337,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-19,2026-02-20,3,70.0,4.0,1261638337,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-19,2026-02-20,4,70.0,4.0,1261638337,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-19,2026-02-20,1,0.0,7.0,1261638338,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-19,2026-02-20,2,0.0,7.0,1261638338,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-19,2026-02-20,3,0.0,7.0,1261638338,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-19,2026-02-20,4,0.0,7.0,1261638338,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-19,2026-02-20,1,,12.0,1261638343,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-19,2026-02-20,2,,12.0,1261638343,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-19,2026-02-20,3,,12.0,1261638343,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-19,2026-02-20,1,30.0,15.0,1261638344,,,,,,,450.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-19,2026-02-20,2,30.0,15.0,1261638344,,,,,,,450.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-19,2026-02-20,3,30.0,15.0,1261638344,,,,,,,450.0,Sin categoria
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-19,2026-02-20,1,25.0,12.0,1261638345,,,,,,Traccion Horizontal,300.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-19,2026-02-20,2,25.0,12.0,1261638345,,,,,,Traccion Horizontal,300.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-19,2026-02-20,3,25.0,12.0,1261638345,,,,,,Traccion Horizontal,300.0,Pull H
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-02-23,2026-02-23,1,,20.0,1267772449,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-02-23,2026-02-23,2,,20.0,1267772449,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-02-23,2026-02-23,3,,20.0,1267772449,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-02-23,2026-02-23,4,,20.0,1267772449,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Scapular Push Up,2026-02-23,2026-02-23,1,,10.0,1267772450,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-02-23,2026-02-23,2,,10.0,1267772450,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-02-23,2026-02-23,3,,10.0,1267772450,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-02-23,2026-02-23,4,,10.0,1267772450,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-23,2026-02-23,1,,12.0,1267772451,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-23,2026-02-23,2,,12.0,1267772451,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-23,2026-02-23,3,,12.0,1267772451,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-23,2026-02-23,4,,12.0,1267772451,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,"Prone Y ""Lift Off""",2026-02-23,2026-02-23,1,,10.0,1267772454,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Y ""Lift Off""",2026-02-23,2026-02-23,2,,10.0,1267772454,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Y ""Lift Off""",2026-02-23,2026-02-23,3,,10.0,1267772454,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Y ""Lift Off""",2026-02-23,2026-02-23,4,,10.0,1267772454,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Lateral ""Lift Off""",2026-02-23,2026-02-23,1,,10.0,1267772453,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Lateral ""Lift Off""",2026-02-23,2026-02-23,2,,10.0,1267772453,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Lateral ""Lift Off""",2026-02-23,2026-02-23,3,,10.0,1267772453,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,"Prone Lateral ""Lift Off""",2026-02-23,2026-02-23,4,,10.0,1267772453,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-23,2026-02-23,1,30.0,15.0,1267772455,,,,,,Traccion Horizontal,450.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-23,2026-02-23,2,30.0,15.0,1267772455,,,,,,Traccion Horizontal,450.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-23,2026-02-23,3,30.0,15.0,1267772455,,,,,,Traccion Horizontal,450.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-23,2026-02-23,4,30.0,15.0,1267772455,,,,,,Traccion Horizontal,450.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-02-23,2026-02-23,1,25.0,20.0,1267772457,,,,,,Empuje Horizontal,500.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-02-23,2026-02-23,2,25.0,20.0,1267772457,,,,,,Empuje Horizontal,500.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-02-23,2026-02-23,3,30.0,20.0,1267772457,,,,,,Empuje Horizontal,600.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-02-23,2026-02-23,4,30.0,20.0,1267772457,,,,,,Empuje Horizontal,600.0,Push H
+Exequiel Heredia Garcia,Db Biceps Curl,2026-02-23,2026-02-23,1,15.0,15.0,1267772458,,,,,,Biceps/Accessories MMSS,225.0,Sin categoria
+Exequiel Heredia Garcia,Db Biceps Curl,2026-02-23,2026-02-23,2,20.0,15.0,1267772458,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Db Biceps Curl,2026-02-23,2026-02-23,3,15.0,15.0,1267772458,,,,,,Biceps/Accessories MMSS,225.0,Sin categoria
+Exequiel Heredia Garcia,Ez Barbel Biceps Curl Iso-Hold,2026-02-23,2026-02-23,1,20.0,15.0,1267772459,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Ez Barbel Biceps Curl Iso-Hold,2026-02-23,2026-02-23,2,20.0,15.0,1267772459,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Ez Barbel Biceps Curl Iso-Hold,2026-02-23,2026-02-23,3,20.0,15.0,1267772459,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-02-23,2026-02-23,1,25.0,15.0,1267772460,,,,,,Triceps/Accessories MMSS,375.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-02-23,2026-02-23,2,20.0,15.0,1267772460,,,,,,Triceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-02-23,2026-02-23,3,25.0,15.0,1267772460,,,,,,Triceps/Accessories MMSS,375.0,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-02-24,2026-02-24,1,,12.0,1267772858,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-02-24,2026-02-24,2,,12.0,1267772858,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-02-24,2026-02-24,1,15.0,12.0,1267772859,,,,,,Core,180.0,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-02-24,2026-02-24,2,22.0,12.0,1267772859,,,,,,Core,264.0,Sin categoria
+Exequiel Heredia Garcia,Zercher Squat,2026-02-24,2026-02-24,1,20.0,8.0,1267772860,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Zercher Squat,2026-02-24,2026-02-24,2,20.0,8.0,1267772860,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-24,2026-02-24,1,50.0,5.0,1267772862,,,,,,Dominante de Rodilla,250.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-24,2026-02-24,2,50.0,5.0,1267772862,,,,,,Dominante de Rodilla,250.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-24,2026-02-24,3,55.0,5.0,1267772862,,,,,,Dominante de Rodilla,275.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-02-24,2026-02-24,4,55.0,5.0,1267772862,,,,,,Dominante de Rodilla,275.0,Dom. Rodilla
+Exequiel Heredia Garcia,Harop Curl,2026-02-24,2026-02-24,1,,4.0,1267772864,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-02-24,2026-02-24,2,,4.0,1267772864,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-02-24,2026-02-24,3,,4.0,1267772864,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-24,2026-02-24,1,30.0,10.0,1267772865,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-24,2026-02-24,2,20.0,10.0,1267772865,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-02-24,2026-02-24,3,20.0,10.0,1267772865,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-24,2026-02-24,1,,15.0,1267772867,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-24,2026-02-24,2,,15.0,1267772867,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-24,2026-02-24,3,,1.0,1267772867,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-02-24,2026-02-24,4,,1.0,1267772867,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-24,2026-02-24,1,,10.0,1267772868,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-24,2026-02-24,2,,10.0,1267772868,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-02-24,2026-02-24,3,,10.0,1267772868,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-24,2026-02-24,1,12.5,20.0,1267772869,,,,,,,250.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-24,2026-02-24,2,15.0,20.0,1267772869,,,,,,,300.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-02-24,2026-02-24,3,15.0,20.0,1267772869,,,,,,,300.0,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-02-25,2026-02-25,1,,10.0,1267769435,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-02-25,2026-02-25,2,,10.0,1267769435,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-02-25,2026-02-25,1,,8.0,1267769434,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-02-25,2026-02-25,2,,8.0,1267769434,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-02-25,2026-02-25,1,,10.0,1267769433,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-02-25,2026-02-25,2,,10.0,1267769433,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-25,2026-02-25,1,,3.0,1267769422,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-25,2026-02-25,2,,3.0,1267769422,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-25,2026-02-25,3,,3.0,1267769422,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-25,2026-02-25,4,,3.0,1267769422,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-02-25,2026-02-25,5,,3.0,1267769422,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-25,2026-02-25,1,0.0,7.0,1267769424,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-25,2026-02-25,2,0.0,7.0,1267769424,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-25,2026-02-25,3,0.0,7.0,1267769424,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-02-25,2026-02-25,4,0.0,7.0,1267769424,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-25,2026-02-25,1,70.0,4.0,1267769423,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-25,2026-02-25,2,70.0,4.0,1267769423,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-25,2026-02-25,3,70.0,4.0,1267769423,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-02-25,2026-02-25,4,70.0,4.0,1267769423,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-25,2026-02-25,1,,12.0,1267769429,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-25,2026-02-25,2,,12.0,1267769429,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-02-25,2026-02-25,3,,12.0,1267769429,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-25,2026-02-25,1,30.0,15.0,1267769430,,,,,,,450.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-25,2026-02-25,2,30.0,15.0,1267769430,,,,,,,450.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-02-25,2026-02-25,3,40.0,15.0,1267769430,,,,,,,600.0,Sin categoria
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-25,2026-02-25,1,30.0,12.0,1267769431,,,,,,Traccion Horizontal,360.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-25,2026-02-25,2,30.0,12.0,1267769431,,,,,,Traccion Horizontal,360.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-02-25,2026-02-25,3,30.0,12.0,1267769431,,,,,,Traccion Horizontal,360.0,Pull H
+Exequiel Heredia Garcia,Bodyweigth Lateral Raises,2026-02-26,2026-02-26,1,,12.0,1270714901,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Bodyweigth Lateral Raises,2026-02-26,2026-02-26,2,,12.0,1270714901,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-26,2026-02-26,1,,12.0,1270714902,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-26,2026-02-26,2,,12.0,1270714902,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Standing Toe Touches (Stretch),2026-02-26,2026-02-26,1,,10.0,1270714903,,,,,,Stretch MMII,,Sin categoria
+Exequiel Heredia Garcia,Standing Toe Touches (Stretch),2026-02-26,2026-02-26,2,,10.0,1270714903,,,,,,Stretch MMII,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Glute Bridge,2026-02-26,2026-02-26,1,,10.0,1270714904,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Glute Bridge,2026-02-26,2026-02-26,2,,10.0,1270714904,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Press Machine,2026-02-26,2026-02-26,1,40.0,12.0,1270714906,,,,,,Dominante de Rodilla,480.0,Dom. Rodilla
+Exequiel Heredia Garcia,1-Leg Press Machine,2026-02-26,2026-02-26,2,50.0,12.0,1270714906,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Exequiel Heredia Garcia,1-Leg Press Machine,2026-02-26,2026-02-26,3,45.0,12.0,1270714906,,,,,,Dominante de Rodilla,540.0,Dom. Rodilla
+Exequiel Heredia Garcia,Seated Hamstring Cable Curl,2026-02-26,2026-02-26,1,25.0,12.0,1270714907,,,,,,,300.0,Sin categoria
+Exequiel Heredia Garcia,Seated Hamstring Cable Curl,2026-02-26,2026-02-26,2,20.0,12.0,1270714907,,,,,,,240.0,Sin categoria
+Exequiel Heredia Garcia,Seated Hamstring Cable Curl,2026-02-26,2026-02-26,3,25.0,12.0,1270714907,,,,,,,300.0,Sin categoria
+Exequiel Heredia Garcia,Goblet Squat,2026-02-26,2026-02-26,1,15.0,15.0,1270714909,,,,,,Dominante de Cadera,225.0,Dom. Cadera
+Exequiel Heredia Garcia,Goblet Squat,2026-02-26,2026-02-26,2,15.0,15.0,1270714909,,,,,,Dominante de Cadera,225.0,Dom. Cadera
+Exequiel Heredia Garcia,Goblet Squat,2026-02-26,2026-02-26,3,16.0,15.0,1270714909,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Exequiel Heredia Garcia,Goblet Squat,2026-02-26,2026-02-26,4,16.0,15.0,1270714909,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-26,2026-02-26,1,,12.0,1270714910,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-26,2026-02-26,2,,12.0,1270714910,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-26,2026-02-26,3,,12.0,1270714910,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-26,2026-02-26,1,,20.0,1270714912,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-26,2026-02-26,2,,20.0,1270714912,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-26,2026-02-26,3,,20.0,1270714912,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-26,2026-02-26,4,,20.0,1270714912,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-26,2026-02-26,1,,20.0,1270714913,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-26,2026-02-26,2,,20.0,1270714913,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-26,2026-02-26,3,,20.0,1270714913,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-26,2026-02-26,4,,20.0,1270714913,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,Bodyweigth Lateral Raises,2026-02-27,2026-02-27,1,,12.0,1267769450,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Bodyweigth Lateral Raises,2026-02-27,2026-02-27,2,,12.0,1267769450,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-27,2026-02-27,1,,12.0,1267769449,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-02-27,2026-02-27,2,,12.0,1267769449,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Standing Toe Touches (Stretch),2026-02-27,2026-02-27,1,,10.0,1267769447,,,,,,Stretch MMII,,Sin categoria
+Exequiel Heredia Garcia,Standing Toe Touches (Stretch),2026-02-27,2026-02-27,2,,10.0,1267769447,,,,,,Stretch MMII,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Glute Bridge,2026-02-27,2026-02-27,1,,10.0,1267769448,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Glute Bridge,2026-02-27,2026-02-27,2,,10.0,1267769448,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 1-Leg Goblet Box Squat,2026-02-27,2026-02-27,1,12.0,8.0,1267769440,,,,,,Dominante de Rodilla,96.0,Dom. Rodilla
+Exequiel Heredia Garcia,Kb/Db 1-Leg Goblet Box Squat,2026-02-27,2026-02-27,2,12.0,8.0,1267769440,,,,,,Dominante de Rodilla,96.0,Dom. Rodilla
+Exequiel Heredia Garcia,Kb/Db 1-Leg Goblet Box Squat,2026-02-27,2026-02-27,3,12.0,8.0,1267769440,,,,,,Dominante de Rodilla,96.0,Dom. Rodilla
+Exequiel Heredia Garcia,Kb/Db 2-Arm 1-Leg RDL,2026-02-27,2026-02-27,1,40.0,8.0,1267769441,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Exequiel Heredia Garcia,Kb/Db 2-Arm 1-Leg RDL,2026-02-27,2026-02-27,2,40.0,8.0,1267769441,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Exequiel Heredia Garcia,Kb/Db 2-Arm 1-Leg RDL,2026-02-27,2026-02-27,3,40.0,8.0,1267769441,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Exequiel Heredia Garcia,Kb 2-Arm Incline Bench Press,2026-02-27,2026-02-27,1,30.0,15.0,1267769442,,,,,,Empuje Horizontal,450.0,Push H
+Exequiel Heredia Garcia,Kb 2-Arm Incline Bench Press,2026-02-27,2026-02-27,2,30.0,15.0,1267769442,,,,,,Empuje Horizontal,450.0,Push H
+Exequiel Heredia Garcia,Kb 2-Arm Incline Bench Press,2026-02-27,2026-02-27,3,40.0,15.0,1267769442,,,,,,Empuje Horizontal,600.0,Push H
+Exequiel Heredia Garcia,Kb 2-Arm Incline Bench Press,2026-02-27,2026-02-27,4,40.0,15.0,1267769442,,,,,,Empuje Horizontal,600.0,Push H
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-27,2026-02-27,1,,12.0,1267769443,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-27,2026-02-27,2,,12.0,1267769443,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Bodyweight 1-Leg Hip Thrust,2026-02-27,2026-02-27,3,,12.0,1267769443,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-27,2026-02-27,1,,20.0,1267769444,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-27,2026-02-27,2,,20.0,1267769444,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-27,2026-02-27,3,,20.0,1267769444,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Split Squat ISO Hold,2026-02-27,2026-02-27,4,,20.0,1267769444,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-27,2026-02-27,1,,20.0,1267769445,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-27,2026-02-27,2,,20.0,1267769445,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-27,2026-02-27,3,,20.0,1267769445,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-02-27,2026-02-27,4,,20.0,1267769445,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-02,2026-03-02,1,,20.0,1273723939,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-02,2026-03-02,2,,20.0,1273723939,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-02,2026-03-02,3,,20.0,1273723939,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-02,2026-03-02,4,,20.0,1273723939,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-02,2026-03-02,1,,10.0,1273723940,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-02,2026-03-02,2,,10.0,1273723940,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-02,2026-03-02,3,,10.0,1273723940,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-02,2026-03-02,4,,10.0,1273723940,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Banded Face Pull,2026-03-02,2026-03-02,1,,12.0,1273723953,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Banded Face Pull,2026-03-02,2026-03-02,2,,12.0,1273723953,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-02,2026-03-02,1,,12.0,1273723941,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-02,2026-03-02,2,,12.0,1273723941,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-02,2026-03-02,1,30.0,15.0,1273723942,,,,,,Traccion Horizontal,450.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-02,2026-03-02,2,30.0,15.0,1273723942,,,,,,Traccion Horizontal,450.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-02,2026-03-02,3,30.0,15.0,1273723942,,,,,,Traccion Horizontal,450.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-02,2026-03-02,4,30.0,15.0,1273723942,,,,,,Traccion Horizontal,450.0,Pull H
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-02,2026-03-02,1,40.0,6.0,1273723949,,,,,,Empuje Vertical,240.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-02,2026-03-02,2,40.0,6.0,1273723949,,,,,,Empuje Vertical,240.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-02,2026-03-02,3,50.0,6.0,1273723949,,,,,,Empuje Vertical,300.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-02,2026-03-02,4,50.0,6.0,1273723949,,,,,,Empuje Vertical,300.0,Push V
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-02,2026-03-02,1,35.0,12.0,1273723943,,,,,,Empuje Horizontal,420.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-02,2026-03-02,2,40.0,12.0,1273723943,,,,,,Empuje Horizontal,480.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-02,2026-03-02,3,40.0,12.0,1273723943,,,,,,Empuje Horizontal,480.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-02,2026-03-02,4,40.0,12.0,1273723943,,,,,,Empuje Horizontal,480.0,Push H
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-02,2026-03-02,1,20.0,15.0,1273723944,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-02,2026-03-02,2,25.0,15.0,1273723944,,,,,,Biceps/Accessories MMSS,375.0,Sin categoria
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-02,2026-03-02,3,25.0,15.0,1273723944,,,,,,Biceps/Accessories MMSS,375.0,Sin categoria
+Exequiel Heredia Garcia,Banded biceps curl,2026-03-02,2026-03-02,1,0.0,15.0,1273723945,,,,,,Biceps,0.0,Sin categoria
+Exequiel Heredia Garcia,Banded biceps curl,2026-03-02,2026-03-02,2,0.0,15.0,1273723945,,,,,,Biceps,0.0,Sin categoria
+Exequiel Heredia Garcia,Banded biceps curl,2026-03-02,2026-03-02,3,0.0,15.0,1273723945,,,,,,Biceps,0.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-02,2026-03-02,1,15.0,15.0,1273723946,,,,,,Triceps/Accessories MMSS,225.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-02,2026-03-02,2,20.0,15.0,1273723946,,,,,,Triceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-02,2026-03-02,3,20.0,15.0,1273723946,,,,,,Triceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-03,2026-03-03,1,50.0,5.0,1273723960,,,,,,Dominante de Rodilla,250.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-03,2026-03-03,2,50.0,5.0,1273723960,,,,,,Dominante de Rodilla,250.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-03,2026-03-03,3,55.0,5.0,1273723960,,,,,,Dominante de Rodilla,275.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-03,2026-03-03,4,55.0,5.0,1273723960,,,,,,Dominante de Rodilla,275.0,Dom. Rodilla
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-03-03,2026-03-03,1,,12.0,1273723956,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-03-03,2026-03-03,2,,12.0,1273723956,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-03-03,2026-03-03,1,20.0,8.0,1273723957,,,,,,Core,160.0,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-03-03,2026-03-03,2,20.0,8.0,1273723957,,,,,,Core,160.0,Sin categoria
+Exequiel Heredia Garcia,Zercher Squat,2026-03-03,2026-03-03,1,20.0,8.0,1273723958,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Zercher Squat,2026-03-03,2026-03-03,2,20.0,8.0,1273723958,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-03-03,2026-03-03,1,,4.0,1273723962,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-03-03,2026-03-03,2,,4.0,1273723962,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-03-03,2026-03-03,3,,4.0,1273723962,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-03,2026-03-03,1,20.0,10.0,1273723963,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-03,2026-03-03,2,20.0,10.0,1273723963,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-03,2026-03-03,3,20.0,10.0,1273723963,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Copenhagen Plank,2026-03-03,2026-03-03,1,,0.0,1273723965,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-03-03,2026-03-03,2,,0.0,1273723965,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-03-03,2026-03-03,3,,0.0,1273723965,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Copenhagen Plank,2026-03-03,2026-03-03,4,,0.0,1273723965,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-03,2026-03-03,1,,10.0,1273723966,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-03,2026-03-03,2,,10.0,1273723966,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-03,2026-03-03,3,,10.0,1273723966,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-03,2026-03-03,1,12.5,20.0,1273723967,,,,,,,250.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-03,2026-03-03,2,15.0,20.0,1273723967,,,,,,,300.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-03,2026-03-03,3,17.5,20.0,1273723967,,,,,,,350.0,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-03-04,2026-03-04,1,,8.0,1273723971,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-03-04,2026-03-04,2,,8.0,1273723971,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-03-04,2026-03-04,1,,10.0,1273723972,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-03-04,2026-03-04,2,,10.0,1273723972,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-03-04,2026-03-04,1,,10.0,1273723973,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-03-04,2026-03-04,2,,10.0,1273723973,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-04,2026-03-04,1,,15.0,1273723975,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-04,2026-03-04,2,,15.0,1273723975,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-04,2026-03-04,3,,15.0,1273723975,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-04,2026-03-04,1,,3.0,1273723977,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-04,2026-03-04,2,,3.0,1273723977,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-04,2026-03-04,3,,3.0,1273723977,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-04,2026-03-04,4,,3.0,1273723977,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-04,2026-03-04,5,,3.0,1273723977,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-04,2026-03-04,1,70.0,4.0,1273723978,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-04,2026-03-04,2,70.0,4.0,1273723978,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-04,2026-03-04,3,75.0,4.0,1273723978,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-04,2026-03-04,4,75.0,4.0,1273723978,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-04,2026-03-04,1,,12.0,1273723981,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-04,2026-03-04,2,,12.0,1273723981,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-04,2026-03-04,3,,12.0,1273723981,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-04,2026-03-04,1,35.0,15.0,1273723983,,,,,,,525.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-04,2026-03-04,2,40.0,15.0,1273723983,,,,,,,600.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-04,2026-03-04,3,40.0,15.0,1273723983,,,,,,,600.0,Sin categoria
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-04,2026-03-04,1,30.0,12.0,1273723984,,,,,,Traccion Horizontal,360.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-04,2026-03-04,2,30.0,12.0,1273723984,,,,,,Traccion Horizontal,360.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-04,2026-03-04,3,30.0,12.0,1273723984,,,,,,Traccion Horizontal,360.0,Pull H
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-04,2026-03-04,1,0.0,7.0,1273723980,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-04,2026-03-04,2,0.0,7.0,1273723980,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-04,2026-03-04,3,0.0,7.0,1273723980,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-04,2026-03-04,4,0.0,7.0,1273723980,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Lineal/Forward Pogo Jumps,2026-03-05,2026-03-05,1,10.0,1.0,1273723992,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,Lineal/Forward Pogo Jumps,2026-03-05,2026-03-05,2,10.0,1.0,1273723992,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,A Skip,2026-03-05,2026-03-05,1,10.0,1.0,1273723993,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,A Skip,2026-03-05,2026-03-05,2,10.0,1.0,1273723993,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,Dribble Runs (Knees High),2026-03-05,2026-03-05,1,15.0,1.0,1273723994,,,,,,,15.0,Sin categoria
+Exequiel Heredia Garcia,Dribble Runs (Knees High),2026-03-05,2026-03-05,2,15.0,1.0,1273723994,,,,,,,15.0,Sin categoria
+Exequiel Heredia Garcia,Falling Start,2026-03-05,2026-03-05,1,10.0,1.0,1273723995,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,Falling Start,2026-03-05,2026-03-05,2,10.0,1.0,1273723995,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 10mts,2026-03-05,2026-03-05,1,0.0,1.0,1273723997,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 10mts,2026-03-05,2026-03-05,2,0.0,1.0,1273723997,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-05,2026-03-05,1,0.0,1.0,1273723996,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-05,2026-03-05,2,0.0,1.0,1273723996,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-05,2026-03-05,3,0.0,1.0,1273723996,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-05,2026-03-05,1,0.0,1.0,1273724002,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-05,2026-03-05,2,0.0,1.0,1273724002,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 10mts,2026-03-05,2026-03-05,1,0.0,1.0,1273723999,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 10mts,2026-03-05,2026-03-05,2,0.0,1.0,1273723999,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Tempo Run (Value-Min&Sec),2026-03-05,2026-03-05,1,,6.0,1273724000,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Tempo Run (Value-Min&Sec),2026-03-05,2026-03-05,2,,6.0,1273724000,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-05,2026-03-05,1,0.0,1.0,1273724001,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-05,2026-03-05,2,0.0,1.0,1273724001,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-05,2026-03-05,3,0.0,1.0,1273724001,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-05,2026-03-05,4,0.0,1.0,1273724001,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-05,2026-03-05,5,0.0,1.0,1273724001,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-05,2026-03-05,6,0.0,1.0,1273724001,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-05,2026-03-05,7,0.0,1.0,1273724001,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-05,2026-03-05,8,0.0,1.0,1273724001,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Band Pull Apart,2026-03-06,2026-03-06,1,,12.0,1273724008,,,,,,Traccion Horizontal,,Pull H
+Exequiel Heredia Garcia,Band Pull Apart,2026-03-06,2026-03-06,2,,12.0,1273724008,,,,,,Traccion Horizontal,,Pull H
+Exequiel Heredia Garcia,Standing Toe Touches (Stretch),2026-03-06,2026-03-06,1,,10.0,1273724005,,,,,,Stretch MMII,,Sin categoria
+Exequiel Heredia Garcia,Standing Toe Touches (Stretch),2026-03-06,2026-03-06,2,,10.0,1273724005,,,,,,Stretch MMII,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Glute Bridge,2026-03-06,2026-03-06,1,,10.0,1273724006,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Glute Bridge,2026-03-06,2026-03-06,2,,10.0,1273724006,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-06,2026-03-06,1,,12.0,1273724007,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-06,2026-03-06,2,,12.0,1273724007,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Kb/Db CMJ,2026-03-06,2026-03-06,1,10.0,3.0,1273724011,,,,,,Jump_Ballistic,30.0,Balístico
+Exequiel Heredia Garcia,Kb/Db CMJ,2026-03-06,2026-03-06,2,18.0,3.0,1273724011,,,,,,Jump_Ballistic,54.0,Balístico
+Exequiel Heredia Garcia,Kb/Db CMJ,2026-03-06,2026-03-06,3,18.0,3.0,1273724011,,,,,,Jump_Ballistic,54.0,Balístico
+Exequiel Heredia Garcia,Kb/Db CMJ,2026-03-06,2026-03-06,4,20.0,3.0,1273724011,,,,,,Jump_Ballistic,60.0,Balístico
+Exequiel Heredia Garcia,Oscillatory Bodyweigth Split Squat,2026-03-06,2026-03-06,1,,2.0,1273724021,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Oscillatory Bodyweigth Split Squat,2026-03-06,2026-03-06,2,,2.0,1273724021,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Oscillatory Bodyweigth Split Squat,2026-03-06,2026-03-06,3,,2.0,1273724021,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Oscillatory Bodyweigth Split Squat,2026-03-06,2026-03-06,4,,2.0,1273724021,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Kb/Db Walking Lunge,2026-03-06,2026-03-06,1,25.0,8.0,1273724014,,,,,,Dominante de Rodilla,200.0,Dom. Rodilla
+Exequiel Heredia Garcia,Kb/Db Walking Lunge,2026-03-06,2026-03-06,2,30.0,8.0,1273724014,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Exequiel Heredia Garcia,Kb/Db Walking Lunge,2026-03-06,2026-03-06,3,30.0,8.0,1273724014,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-06,2026-03-06,1,25.0,12.0,1273724018,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-06,2026-03-06,2,25.0,12.0,1273724018,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-06,2026-03-06,3,25.0,12.0,1273724018,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Banded Triceps Extension,2026-03-06,2026-03-06,1,0.0,12.0,1273724019,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Exequiel Heredia Garcia,Banded Triceps Extension,2026-03-06,2026-03-06,2,0.0,12.0,1273724019,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Exequiel Heredia Garcia,Banded Triceps Extension,2026-03-06,2026-03-06,3,0.0,12.0,1273724019,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Exequiel Heredia Garcia,Barbell Hip Thrust,2026-03-06,2026-03-06,1,40.0,10.0,1273724013,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Hip Thrust,2026-03-06,2026-03-06,2,60.0,10.0,1273724013,,,,,,Dominante de Cadera,600.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Hip Thrust,2026-03-06,2026-03-06,3,80.0,10.0,1273724013,,,,,,Dominante de Cadera,800.0,Dom. Cadera
+Exequiel Heredia Garcia,Db Lateral Shoulder Raises,2026-03-06,2026-03-06,1,18.0,12.0,1273724020,,,,,,Accessories MMSS,216.0,Accesorios MMSS
+Exequiel Heredia Garcia,Db Lateral Shoulder Raises,2026-03-06,2026-03-06,2,18.0,12.0,1273724020,,,,,,Accessories MMSS,216.0,Accesorios MMSS
+Exequiel Heredia Garcia,Db Lateral Shoulder Raises,2026-03-06,2026-03-06,3,18.0,12.0,1273724020,,,,,,Accessories MMSS,216.0,Accesorios MMSS
+Exequiel Heredia Garcia,Slider Eccentric Hamstring Curl ,2026-03-06,2026-03-06,1,,10.0,1273724016,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Exequiel Heredia Garcia,Slider Eccentric Hamstring Curl ,2026-03-06,2026-03-06,2,,10.0,1273724016,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Exequiel Heredia Garcia,Slider Eccentric Hamstring Curl ,2026-03-06,2026-03-06,3,,10.0,1273724016,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-09,2026-03-09,1,50.0,6.0,1273633725,,,,,,Empuje Vertical,300.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-09,2026-03-09,2,50.0,6.0,1273633725,,,,,,Empuje Vertical,300.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-09,2026-03-09,3,55.0,6.0,1273633725,,,,,,Empuje Vertical,330.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-09,2026-03-09,4,50.0,6.0,1273633725,,,,,,Empuje Vertical,300.0,Push V
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-09,2026-03-09,1,42.0,12.0,1273625089,,,,,,Traccion Horizontal,504.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-09,2026-03-09,2,35.0,14.0,1273625089,,,,,,Traccion Horizontal,490.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-09,2026-03-09,3,35.0,15.0,1273625089,,,,,,Traccion Horizontal,525.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-09,2026-03-09,4,35.0,15.0,1273625089,,,,,,Traccion Horizontal,525.0,Pull H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-09,2026-03-09,1,,15.0,1273625084,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-09,2026-03-09,2,,15.0,1273625084,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-09,2026-03-09,3,,15.0,1273625084,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-09,2026-03-09,4,,15.0,1273625084,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-09,2026-03-09,1,,20.0,1273625083,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-09,2026-03-09,2,,20.0,1273625083,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-09,2026-03-09,3,,20.0,1273625083,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-09,2026-03-09,4,,20.0,1273625083,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded Face Pull,2026-03-09,2026-03-09,1,,12.0,1273633736,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Banded Face Pull,2026-03-09,2026-03-09,2,,12.0,1273633736,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-09,2026-03-09,1,,12.0,1273625085,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-09,2026-03-09,2,,12.0,1273625085,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-09,2026-03-09,1,45.0,12.0,1273625091,,,,,,Empuje Horizontal,540.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-09,2026-03-09,2,45.0,12.0,1273625091,,,,,,Empuje Horizontal,540.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-09,2026-03-09,3,50.0,12.0,1273625091,,,,,,Empuje Horizontal,600.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-09,2026-03-09,4,50.0,12.0,1273625091,,,,,,Empuje Horizontal,600.0,Push H
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-09,2026-03-10,1,30.0,12.0,1273625092,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-09,2026-03-10,2,30.0,12.0,1273625092,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-09,2026-03-10,3,30.0,12.0,1273625092,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-03-09,2026-03-10,1,45.0,12.0,1273625093,,,,,,Biceps/Accessories MMSS,540.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-03-09,2026-03-10,2,45.0,12.0,1273625093,,,,,,Biceps/Accessories MMSS,540.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-03-09,2026-03-10,3,45.0,12.0,1273625093,,,,,,Biceps/Accessories MMSS,540.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-09,2026-03-10,1,35.0,15.0,1273625094,,,,,,Triceps/Accessories MMSS,525.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-09,2026-03-10,2,35.0,15.0,1273625094,,,,,,Triceps/Accessories MMSS,525.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-09,2026-03-10,3,35.0,15.0,1273625094,,,,,,Triceps/Accessories MMSS,525.0,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-03-10,2026-03-10,1,,12.0,1273659978,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-03-10,2026-03-10,2,,12.0,1273659978,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-03-10,2026-03-10,1,20.0,8.0,1273659979,,,,,,Core,160.0,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-03-10,2026-03-10,2,20.0,8.0,1273659979,,,,,,Core,160.0,Sin categoria
+Exequiel Heredia Garcia,Zercher Squat,2026-03-10,2026-03-10,1,20.0,8.0,1273659980,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Zercher Squat,2026-03-10,2026-03-10,2,20.0,8.0,1273659980,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-10,2026-03-10,1,55.0,5.0,1273659982,,,,,,Dominante de Rodilla,275.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-10,2026-03-10,2,55.0,5.0,1273659982,,,,,,Dominante de Rodilla,275.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-10,2026-03-10,3,60.0,5.0,1273659982,,,,,,Dominante de Rodilla,300.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-10,2026-03-10,4,60.0,5.0,1273659982,,,,,,Dominante de Rodilla,300.0,Dom. Rodilla
+Exequiel Heredia Garcia,Harop Curl,2026-03-10,2026-03-10,1,,5.0,1273659984,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-03-10,2026-03-10,2,,5.0,1273659984,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-03-10,2026-03-10,3,,5.0,1273659984,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-10,2026-03-10,1,20.0,10.0,1273659985,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-10,2026-03-10,2,20.0,10.0,1273659985,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-10,2026-03-10,3,20.0,10.0,1273659985,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Slider Adductor Squat,2026-03-10,2026-03-10,1,0.0,6.0,1273659987,,,,,,Accessories MMII,0.0,Sin categoria
+Exequiel Heredia Garcia,Slider Adductor Squat,2026-03-10,2026-03-10,2,0.0,6.0,1273659987,,,,,,Accessories MMII,0.0,Sin categoria
+Exequiel Heredia Garcia,Slider Adductor Squat,2026-03-10,2026-03-10,3,0.0,6.0,1273659987,,,,,,Accessories MMII,0.0,Sin categoria
+Exequiel Heredia Garcia,Slider Adductor Squat,2026-03-10,2026-03-10,4,0.0,6.0,1273659987,,,,,,Accessories MMII,0.0,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-10,2026-03-10,1,,10.0,1273659988,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-10,2026-03-10,2,,10.0,1273659988,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-10,2026-03-10,3,,10.0,1273659988,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-10,2026-03-10,1,20.0,20.0,1273659989,,,,,,,400.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-10,2026-03-10,2,20.0,20.0,1273659989,,,,,,,400.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-10,2026-03-10,3,20.0,20.0,1273659989,,,,,,,400.0,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-03-11,2026-03-11,1,,8.0,1273666426,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-03-11,2026-03-11,2,,8.0,1273666426,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-03-11,2026-03-11,1,,10.0,1273666427,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-03-11,2026-03-11,2,,10.0,1273666427,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-03-11,2026-03-11,1,,10.0,1273666428,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-03-11,2026-03-11,2,,10.0,1273666428,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-11,2026-03-11,1,,15.0,1273666430,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-11,2026-03-11,2,,15.0,1273666430,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-11,2026-03-11,3,,15.0,1273666430,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-11,2026-03-11,1,,3.0,1273666432,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-11,2026-03-11,2,,3.0,1273666432,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-11,2026-03-11,3,,3.0,1273666432,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-11,2026-03-11,4,,3.0,1273666432,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-11,2026-03-11,5,,3.0,1273666432,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-11,2026-03-11,1,75.0,4.0,1273666433,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-11,2026-03-11,2,85.0,4.0,1273666433,,,,,,Dominante de Cadera,340.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-11,2026-03-11,3,85.0,4.0,1273666433,,,,,,Dominante de Cadera,340.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-11,2026-03-11,4,85.0,4.0,1273666433,,,,,,Dominante de Cadera,340.0,Dom. Cadera
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-11,2026-03-11,1,0.0,7.0,1273666435,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-11,2026-03-11,2,7.5,7.0,1273666435,,,,,,,52.5,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-11,2026-03-11,3,7.5,7.0,1273666435,,,,,,,52.5,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-11,2026-03-11,4,7.5,7.0,1273666435,,,,,,,52.5,Sin categoria
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-11,2026-03-11,1,,12.0,1273666436,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-11,2026-03-11,2,,12.0,1273666436,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-11,2026-03-11,3,,12.0,1273666436,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-11,2026-03-11,1,40.0,15.0,1273666438,,,,,,,600.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-11,2026-03-11,2,40.0,15.0,1273666438,,,,,,,600.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-11,2026-03-11,3,50.0,15.0,1273666438,,,,,,,750.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-11,2026-03-11,4,50.0,15.0,1273666438,,,,,,,750.0,Sin categoria
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-11,2026-03-11,1,35.0,13.0,1273666440,,,,,,Traccion Horizontal,455.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-11,2026-03-11,2,35.0,12.0,1273666440,,,,,,Traccion Horizontal,420.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-11,2026-03-11,3,35.0,12.0,1273666440,,,,,,Traccion Horizontal,420.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-11,2026-03-11,4,35.0,12.0,1273666440,,,,,,Traccion Horizontal,420.0,Pull H
+Exequiel Heredia Garcia,Lineal/Forward Pogo Jumps,2026-03-12,2026-03-12,1,10.0,1.0,1273633773,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,Lineal/Forward Pogo Jumps,2026-03-12,2026-03-12,2,10.0,1.0,1273633773,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,A Skip,2026-03-12,2026-03-12,1,10.0,1.0,1273633774,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,A Skip,2026-03-12,2026-03-12,2,10.0,1.0,1273633774,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,Dribble Runs (Knees High),2026-03-12,2026-03-12,1,15.0,1.0,1273633775,,,,,,,15.0,Sin categoria
+Exequiel Heredia Garcia,Dribble Runs (Knees High),2026-03-12,2026-03-12,2,15.0,1.0,1273633775,,,,,,,15.0,Sin categoria
+Exequiel Heredia Garcia,Falling Start,2026-03-12,2026-03-12,1,10.0,1.0,1273633776,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,Falling Start,2026-03-12,2026-03-12,2,10.0,1.0,1273633776,,,,,,,10.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 10mts,2026-03-12,2026-03-12,1,0.0,1.0,1273633778,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 10mts,2026-03-12,2026-03-12,2,0.0,1.0,1273633778,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-12,2026-03-12,1,0.0,1.0,1273633777,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-12,2026-03-12,2,0.0,1.0,1273633777,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-12,2026-03-12,3,0.0,1.0,1273633777,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-12,2026-03-12,1,0.0,1.0,1273633783,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 20mts,2026-03-12,2026-03-12,2,0.0,1.0,1273633783,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 10mts,2026-03-12,2026-03-12,1,0.0,1.0,1273633780,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Sprint 10mts,2026-03-12,2026-03-12,2,0.0,1.0,1273633780,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Tempo Run (Value-Min&Sec),2026-03-12,2026-03-12,1,,6.0,1273633781,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Tempo Run (Value-Min&Sec),2026-03-12,2026-03-12,2,,6.0,1273633781,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-12,2026-03-12,1,0.0,1.0,1273633782,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-12,2026-03-12,2,0.0,1.0,1273633782,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-12,2026-03-12,3,0.0,1.0,1273633782,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-12,2026-03-12,4,0.0,1.0,1273633782,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-12,2026-03-12,5,0.0,1.0,1273633782,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-12,2026-03-12,6,0.0,1.0,1273633782,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-12,2026-03-12,7,0.0,1.0,1273633782,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,COD (5-5),2026-03-12,2026-03-12,8,0.0,1.0,1273633782,,,,,,,0.0,Sin categoria
+Exequiel Heredia Garcia,Oscillatory Bodyweigth Split Squat,2026-03-13,2026-03-13,1,,2.0,1273682298,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Oscillatory Bodyweigth Split Squat,2026-03-13,2026-03-13,2,,2.0,1273682298,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Oscillatory Bodyweigth Split Squat,2026-03-13,2026-03-13,3,,2.0,1273682298,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Oscillatory Bodyweigth Split Squat,2026-03-13,2026-03-13,4,,2.0,1273682298,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Exequiel Heredia Garcia,Band Pull Apart,2026-03-13,2026-03-13,1,,12.0,1273625152,,,,,,Traccion Horizontal,,Pull H
+Exequiel Heredia Garcia,Band Pull Apart,2026-03-13,2026-03-13,2,,12.0,1273625152,,,,,,Traccion Horizontal,,Pull H
+Exequiel Heredia Garcia,Standing Toe Touches (Stretch),2026-03-13,2026-03-13,1,,10.0,1273625149,,,,,,Stretch MMII,,Sin categoria
+Exequiel Heredia Garcia,Standing Toe Touches (Stretch),2026-03-13,2026-03-13,2,,10.0,1273625149,,,,,,Stretch MMII,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Glute Bridge,2026-03-13,2026-03-13,1,,10.0,1273625150,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Glute Bridge,2026-03-13,2026-03-13,2,,10.0,1273625150,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-13,2026-03-13,1,,12.0,1273625151,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-13,2026-03-13,2,,12.0,1273625151,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Kb/Db CMJ,2026-03-13,2026-03-13,1,20.0,3.0,1273633788,,,,,,Jump_Ballistic,60.0,Balístico
+Exequiel Heredia Garcia,Kb/Db CMJ,2026-03-13,2026-03-13,2,20.0,3.0,1273633788,,,,,,Jump_Ballistic,60.0,Balístico
+Exequiel Heredia Garcia,Kb/Db CMJ,2026-03-13,2026-03-13,3,20.0,3.0,1273633788,,,,,,Jump_Ballistic,60.0,Balístico
+Exequiel Heredia Garcia,Kb/Db CMJ,2026-03-13,2026-03-13,4,20.0,3.0,1273633788,,,,,,Jump_Ballistic,60.0,Balístico
+Exequiel Heredia Garcia,Barbell Hip Thrust,2026-03-13,2026-03-13,1,70.0,10.0,1273633790,,,,,,Dominante de Cadera,700.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Hip Thrust,2026-03-13,2026-03-13,2,90.0,10.0,1273633790,,,,,,Dominante de Cadera,900.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Hip Thrust,2026-03-13,2026-03-13,3,90.0,10.0,1273633790,,,,,,Dominante de Cadera,900.0,Dom. Cadera
+Exequiel Heredia Garcia,Kb/Db Walking Lunge,2026-03-13,2026-03-13,1,30.0,8.0,1273633791,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Exequiel Heredia Garcia,Kb/Db Walking Lunge,2026-03-13,2026-03-13,2,30.0,8.0,1273633791,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Exequiel Heredia Garcia,Kb/Db Walking Lunge,2026-03-13,2026-03-13,3,35.0,8.0,1273633791,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Exequiel Heredia Garcia,High Cable Face pull,2026-03-13,2026-03-13,1,15.0,12.0,1273633793,,,,,,,180.0,Sin categoria
+Exequiel Heredia Garcia,High Cable Face pull,2026-03-13,2026-03-13,2,20.0,12.0,1273633793,,,,,,,240.0,Sin categoria
+Exequiel Heredia Garcia,High Cable Face pull,2026-03-13,2026-03-13,3,40.0,12.0,1273633793,,,,,,,480.0,Sin categoria
+Exequiel Heredia Garcia,Db Biceps Curl,2026-03-13,2026-03-13,1,25.0,12.0,1273633796,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Db Biceps Curl,2026-03-13,2026-03-13,2,25.0,12.0,1273633796,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Db Biceps Curl,2026-03-13,2026-03-13,3,25.0,12.0,1273633796,,,,,,Biceps/Accessories MMSS,300.0,Sin categoria
+Exequiel Heredia Garcia,Low Cable Triceps Extension,2026-03-13,2026-03-13,1,30.0,12.0,1273633797,,,,,,Triceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Low Cable Triceps Extension,2026-03-13,2026-03-13,2,30.0,12.0,1273633797,,,,,,Triceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Low Cable Triceps Extension,2026-03-13,2026-03-13,3,30.0,12.0,1273633797,,,,,,Triceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Db Lateral Shoulder Raises,2026-03-13,2026-03-13,1,16.0,12.0,1273633798,,,,,,Accessories MMSS,192.0,Accesorios MMSS
+Exequiel Heredia Garcia,Db Lateral Shoulder Raises,2026-03-13,2026-03-13,2,20.0,12.0,1273633798,,,,,,Accessories MMSS,240.0,Accesorios MMSS
+Exequiel Heredia Garcia,Db Lateral Shoulder Raises,2026-03-13,2026-03-13,3,20.0,12.0,1273633798,,,,,,Accessories MMSS,240.0,Accesorios MMSS
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-16,2026-03-16,1,50.0,6.0,1273724549,,,,,,Empuje Vertical,300.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-16,2026-03-16,2,60.0,6.0,1273724549,,,,,,Empuje Vertical,360.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-16,2026-03-16,3,60.0,6.0,1273724549,,,,,,Empuje Vertical,360.0,Push V
+Exequiel Heredia Garcia,Incline Barbell Bench Press,2026-03-16,2026-03-16,4,60.0,6.0,1273724549,,,,,,Empuje Vertical,360.0,Push V
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-16,2026-03-16,1,35.0,12.0,1273724542,,,,,,Traccion Horizontal,420.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-16,2026-03-16,2,40.0,15.0,1273724542,,,,,,Traccion Horizontal,600.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-16,2026-03-16,3,40.0,15.0,1273724542,,,,,,Traccion Horizontal,600.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-16,2026-03-16,4,40.0,15.0,1273724542,,,,,,Traccion Horizontal,600.0,Pull H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-16,2026-03-16,1,,15.0,1273724540,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-16,2026-03-16,2,,15.0,1273724540,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-16,2026-03-16,3,,15.0,1273724540,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Scapular Push Up,2026-03-16,2026-03-16,4,,15.0,1273724540,,,,,,Empuje Horizontal,,Push H
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-16,2026-03-16,1,,20.0,1273724539,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-16,2026-03-16,2,,20.0,1273724539,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-16,2026-03-16,3,,20.0,1273724539,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded RE Iso Hold,2026-03-16,2026-03-16,4,,20.0,1273724539,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Banded Face Pull,2026-03-16,2026-03-16,1,,12.0,1273724553,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Banded Face Pull,2026-03-16,2026-03-16,2,,12.0,1273724553,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-16,2026-03-16,1,,12.0,1273724541,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Seated Bent Over Lateral Raises,2026-03-16,2026-03-16,2,,12.0,1273724541,,,,,,Accessories MMSS,,Accesorios MMSS
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-16,2026-03-16,1,50.0,12.0,1273724543,,,,,,Empuje Horizontal,600.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-16,2026-03-16,2,55.0,12.0,1273724543,,,,,,Empuje Horizontal,660.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-16,2026-03-16,3,55.0,10.0,1273724543,,,,,,Empuje Horizontal,550.0,Push H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Floor Press,2026-03-16,2026-03-16,4,55.0,12.0,1273724543,,,,,,Empuje Horizontal,660.0,Push H
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-16,2026-03-16,1,30.0,12.0,1273724544,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-16,2026-03-16,2,30.0,12.0,1273724544,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Alternating Db Biceps Curl,2026-03-16,2026-03-16,3,30.0,12.0,1273724544,,,,,,Biceps/Accessories MMSS,360.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-03-16,2026-03-16,1,45.0,12.0,1273724545,,,,,,Biceps/Accessories MMSS,540.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-03-16,2026-03-16,2,45.0,12.0,1273724545,,,,,,Biceps/Accessories MMSS,540.0,Sin categoria
+Exequiel Heredia Garcia,Cable Biceps Curl,2026-03-16,2026-03-16,3,45.0,12.0,1273724545,,,,,,Biceps/Accessories MMSS,540.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-16,2026-03-16,1,30.0,15.0,1273724546,,,,,,Triceps/Accessories MMSS,450.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-16,2026-03-16,2,35.0,15.0,1273724546,,,,,,Triceps/Accessories MMSS,525.0,Sin categoria
+Exequiel Heredia Garcia,Rope Cable Triceps Extension,2026-03-16,2026-03-16,3,35.0,15.0,1273724546,,,,,,Triceps/Accessories MMSS,525.0,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-03-17,2026-03-17,1,,12.0,1273724556,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,90-90 Hip Mobility,2026-03-17,2026-03-17,2,,12.0,1273724556,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-03-17,2026-03-17,1,20.0,8.0,1273724557,,,,,,Core,160.0,Sin categoria
+Exequiel Heredia Garcia,Plate Hold 1-Leg Dead Bug,2026-03-17,2026-03-17,2,20.0,8.0,1273724557,,,,,,Core,160.0,Sin categoria
+Exequiel Heredia Garcia,Zercher Squat,2026-03-17,2026-03-17,1,20.0,8.0,1273724558,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Zercher Squat,2026-03-17,2026-03-17,2,20.0,8.0,1273724558,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-17,2026-03-17,1,65.0,5.0,1273724560,,,,,,Dominante de Rodilla,325.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-17,2026-03-17,2,65.0,5.0,1273724560,,,,,,Dominante de Rodilla,325.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-17,2026-03-17,3,65.0,5.0,1273724560,,,,,,Dominante de Rodilla,325.0,Dom. Rodilla
+Exequiel Heredia Garcia,Barbell Back Squat,2026-03-17,2026-03-17,4,65.0,5.0,1273724560,,,,,,Dominante de Rodilla,325.0,Dom. Rodilla
+Exequiel Heredia Garcia,Harop Curl,2026-03-17,2026-03-17,1,,6.0,1273724562,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-03-17,2026-03-17,2,,6.0,1273724562,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Harop Curl,2026-03-17,2026-03-17,3,,60.0,1273724562,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-17,2026-03-17,1,20.0,10.0,1273724563,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-17,2026-03-17,2,20.0,10.0,1273724563,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Barbell 1-Leg Hip Thrust,2026-03-17,2026-03-17,3,20.0,10.0,1273724563,,,,,,Dominante de Cadera,200.0,Dom. Cadera
+Exequiel Heredia Garcia,Slider Adductor Squat,2026-03-17,2026-03-17,1,0.0,6.0,1273724565,,,,,,Accessories MMII,0.0,Sin categoria
+Exequiel Heredia Garcia,Slider Adductor Squat,2026-03-17,2026-03-17,2,2.5,6.0,1273724565,,,,,,Accessories MMII,15.0,Sin categoria
+Exequiel Heredia Garcia,Slider Adductor Squat,2026-03-17,2026-03-17,3,5.0,6.0,1273724565,,,,,,Accessories MMII,30.0,Sin categoria
+Exequiel Heredia Garcia,Slider Adductor Squat,2026-03-17,2026-03-17,4,5.0,6.0,1273724565,,,,,,Accessories MMII,30.0,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-17,2026-03-19,1,,10.0,1273724566,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-17,2026-03-19,2,,10.0,1273724566,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Standing Pallof Press,2026-03-17,2026-03-19,3,,10.0,1273724566,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-17,2026-03-19,1,20.0,20.0,1273724567,,,,,,,400.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-17,2026-03-19,2,20.0,20.0,1273724567,,,,,,,400.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Db Calf Raises Iso-Hold,2026-03-17,2026-03-19,3,20.0,20.0,1273724567,,,,,,,400.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-18,2026-03-18,1,10.0,7.0,1273724580,,,,,,,70.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-18,2026-03-18,2,10.0,7.0,1273724580,,,,,,,70.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-18,2026-03-18,3,10.0,7.0,1273724580,,,,,,,70.0,Sin categoria
+Exequiel Heredia Garcia,1-Leg Hamstring Bridge (Elevated Feet),2026-03-18,2026-03-18,4,10.0,7.0,1273724580,,,,,,,70.0,Sin categoria
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-18,2026-03-18,1,90.0,4.0,1273724578,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-18,2026-03-18,2,90.0,4.0,1273724578,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-18,2026-03-18,3,90.0,4.0,1273724578,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Exequiel Heredia Garcia,Trap Bar Deadlift,2026-03-18,2026-03-18,4,90.0,4.0,1273724578,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-18,2026-03-18,1,,3.0,1273724577,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-18,2026-03-18,2,,3.0,1273724577,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-18,2026-03-18,3,,3.0,1273724577,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-18,2026-03-18,4,,3.0,1273724577,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Seated Broad Jump,2026-03-18,2026-03-18,5,,3.0,1273724577,,,,,,Jump_Ballistic,,Balístico
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-18,2026-03-18,1,,15.0,1273724575,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-18,2026-03-18,2,,15.0,1273724575,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Pogo Jump to Plate,2026-03-18,2026-03-18,3,,15.0,1273724575,,,,,,Jump_Plyo,,Plyo/Saltos
+Exequiel Heredia Garcia,Glute Bridge March,2026-03-18,2026-03-18,1,,10.0,1273724573,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Glute Bridge March,2026-03-18,2026-03-18,2,,10.0,1273724573,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-03-18,2026-03-18,1,,8.0,1273724571,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Half Kneeling Psoas to Hamstring Dynamic Stretch,2026-03-18,2026-03-18,2,,8.0,1273724571,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-03-18,2026-03-18,1,,10.0,1273724572,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,Plank Leg Raise,2026-03-18,2026-03-18,2,,10.0,1273724572,,,,,,,,Sin categoria
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-18,2026-03-18,1,,12.0,1273724581,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-18,2026-03-18,2,,12.0,1273724581,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,45 Degree Back Extension,2026-03-18,2026-03-18,3,,12.0,1273724581,,,,,,Dominante de Cadera,,Dom. Cadera
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-18,2026-03-18,1,50.0,15.0,1273724583,,,,,,,750.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-18,2026-03-18,2,50.0,15.0,1273724583,,,,,,,750.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-18,2026-03-18,3,50.0,15.0,1273724583,,,,,,,750.0,Sin categoria
+Exequiel Heredia Garcia,Kb/Db 2-Arm Calf Raises,2026-03-18,2026-03-18,4,50.0,15.0,1273724583,,,,,,,750.0,Sin categoria
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-18,2026-03-18,1,40.0,12.0,1273724584,,,,,,Traccion Horizontal,480.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-18,2026-03-18,2,40.0,12.0,1273724584,,,,,,Traccion Horizontal,480.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-18,2026-03-18,3,40.0,12.0,1273724584,,,,,,Traccion Horizontal,480.0,Pull H
+Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-18,2026-03-18,4,40.0,12.0,1273724584,,,,,,Traccion Horizontal,480.0,Pull H
