@@ -1,4 +1,315 @@
 Athlete,Exercise Name,Assigned Date,Completed Date,Set Number,Result,Reps,WorkoutId,Peak Power L,Peak Power R,Average Power,Average Speed,Peak Speed,Tags,Volume_Load,Category
+Agustin Choquis,Air Bike,2026-02-09,2026-02-16,1,30.0,3.0,1248282050,,,,,,,90.0,Sin categoria
+Agustin Choquis,Barbell Back Squat,2026-02-09,2026-02-16,1,20.0,5.0,1248282046,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Agustin Choquis,Barbell Back Squat,2026-02-09,2026-02-16,2,20.0,5.0,1248282046,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Agustin Choquis,Barbell Back Squat,2026-02-09,2026-02-16,3,20.0,5.0,1248282046,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Agustin Choquis,Barbell Back Squat,2026-02-09,2026-02-16,4,20.0,5.0,1248282046,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Agustin Choquis,Barbell Back Squat,2026-02-09,2026-02-16,5,20.0,5.0,1248282046,,,,,,Dominante de Rodilla,100.0,Dom. Rodilla
+Agustin Choquis,Barbell Bench Press,2026-02-09,2026-02-16,1,40.0,5.0,1248282047,,,,,,Empuje Horizontal,200.0,Push H
+Agustin Choquis,Barbell Bench Press,2026-02-09,2026-02-16,2,40.0,5.0,1248282047,,,,,,Empuje Horizontal,200.0,Push H
+Agustin Choquis,Barbell Bench Press,2026-02-09,2026-02-16,3,40.0,5.0,1248282047,,,,,,Empuje Horizontal,200.0,Push H
+Agustin Choquis,Barbell Bench Press,2026-02-09,2026-02-16,4,40.0,5.0,1248282047,,,,,,Empuje Horizontal,200.0,Push H
+Agustin Choquis,Db/Kb 2-Arm Split Squat,2026-02-09,2026-02-16,1,14.0,6.0,1248282049,,,,,,Dominante de Rodilla,84.0,Dom. Rodilla
+Agustin Choquis,Db/Kb 2-Arm Split Squat,2026-02-09,2026-02-16,2,14.0,6.0,1248282049,,,,,,Dominante de Rodilla,84.0,Dom. Rodilla
+Agustin Choquis,Db/Kb 2-Arm Split Squat,2026-02-09,2026-02-16,3,14.0,6.0,1248282049,,,,,,Dominante de Rodilla,84.0,Dom. Rodilla
+Agustin Choquis,Bar Inverted Row (Pronated Grip),2026-02-09,2026-02-16,1,,10.0,1248282048,,,,,,Traccion Horizontal,,Pull H
+Agustin Choquis,Bar Inverted Row (Pronated Grip),2026-02-09,2026-02-16,2,,8.0,1248282048,,,,,,Traccion Horizontal,,Pull H
+Agustin Choquis,Bar Inverted Row (Pronated Grip),2026-02-09,2026-02-16,3,,9.0,1248282048,,,,,,Traccion Horizontal,,Pull H
+Agustin Choquis,Deadbug,2026-02-09,2026-02-16,1,,10.0,1248282059,,,,,,,,Sin categoria
+Agustin Choquis,Deadbug,2026-02-09,2026-02-16,2,,10.0,1248282059,,,,,,,,Sin categoria
+Agustin Choquis,Deadbug,2026-02-09,2026-02-16,3,,10.0,1248282059,,,,,,,,Sin categoria
+Cande Falzone,Barbell Back Squat,2026-03-02,2026-03-03,1,60.0,5.0,1273479397,,,,,,Dominante de Rodilla,300.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-02,2026-03-03,2,72.0,3.0,1273479397,,,,,,Dominante de Rodilla,216.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-02,2026-03-03,3,65.0,4.0,1273479397,,,,,,Dominante de Rodilla,260.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-02,2026-03-03,4,65.0,4.0,1273479397,,,,,,Dominante de Rodilla,260.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-02,2026-03-03,5,65.0,4.0,1273479397,,,,,,Dominante de Rodilla,260.0,Dom. Rodilla
+Cande Falzone,Bodyweigth CMJ,2026-03-02,2026-03-03,1,,3.0,1273479396,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-02,2026-03-03,1,,10.0,1273479390,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-02,2026-03-03,2,,10.0,1273479390,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-02,2026-03-03,1,,5.0,1273479391,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-02,2026-03-03,2,,5.0,1273479391,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-02,2026-03-03,1,,4.0,1273479392,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-02,2026-03-03,2,,4.0,1273479392,,,,,,,,Sin categoria
+Cande Falzone,Glute Bridge,2026-03-02,2026-03-03,1,,12.0,1273479393,,,,,,,,Sin categoria
+Cande Falzone,Goblet Squat,2026-03-02,2026-03-03,1,,5.0,1273479394,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-02,2026-03-03,1,28.0,8.0,1273479398,,,,,,Dominante de Rodilla,224.0,Dom. Rodilla
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-02,2026-03-03,2,28.0,8.0,1273479398,,,,,,Dominante de Rodilla,224.0,Dom. Rodilla
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-02,2026-03-03,3,28.0,8.0,1273479398,,,,,,Dominante de Rodilla,224.0,Dom. Rodilla
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-02,2026-03-03,1,,,1273479401,,,,,,Traccion Vertical,,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-02,2026-03-03,2,,,1273479401,,,,,,Traccion Vertical,,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-02,2026-03-03,3,,,1273479401,,,,,,Traccion Vertical,,Pull V
+Cande Falzone,Barbell RDL,2026-03-02,2026-03-03,1,,,1273479400,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Barbell RDL,2026-03-02,2026-03-03,2,,,1273479400,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Barbell RDL,2026-03-02,2026-03-03,3,,,1273479400,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Treandmil Walking (Value Time),2026-03-02,2026-03-03,1,,1.0,1273479404,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-02,2026-03-03,1,,40.0,1273479403,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-02,2026-03-03,2,,40.0,1273479403,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-02,2026-03-03,3,,40.0,1273479403,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-02,2026-03-03,4,,40.0,1273479403,,,,,,,,Sin categoria
+Cande Falzone,Band Pull Apart,2026-03-02,2026-03-05,1,0.0,12.0,1273479406,,,,,,Traccion Horizontal,0.0,Pull H
+Cande Falzone,Cat Camel Rock Back,2026-03-04,2026-03-02,1,,5.0,1273479409,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-04,2026-03-02,2,,5.0,1273479409,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-04,2026-03-02,1,,10.0,1273479410,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-04,2026-03-02,2,,10.0,1273479410,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-04,2026-03-02,1,,4.0,1273479411,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-04,2026-03-02,2,,4.0,1273479411,,,,,,,,Sin categoria
+Cande Falzone,Glute Bridge,2026-03-04,2026-03-02,1,,12.0,1273479412,,,,,,,,Sin categoria
+Cande Falzone,Band Pull Apart,2026-03-04,2026-03-02,1,,12.0,1273479413,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,Push Up,2026-03-04,2026-03-02,1,,5.0,1273479414,,,,,,Empuje Horizontal,,Push H
+Cande Falzone,Box Jump,2026-03-04,2026-03-02,1,,3.0,1273479416,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Box Jump,2026-03-04,2026-03-02,2,,3.0,1273479416,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Box Jump,2026-03-04,2026-03-02,3,,3.0,1273479416,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Barbell Bench Press,2026-03-04,2026-03-02,1,37.0,5.0,1273479417,,,,,,Empuje Horizontal,185.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-04,2026-03-02,2,37.0,5.0,1273479417,,,,,,Empuje Horizontal,185.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-04,2026-03-02,3,37.0,5.0,1273479417,,,,,,Empuje Horizontal,185.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-04,2026-03-02,4,37.0,5.0,1273479417,,,,,,Empuje Horizontal,185.0,Push H
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-04,2026-03-02,1,15.0,8.0,1273479418,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-04,2026-03-02,2,15.0,8.0,1273479418,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-04,2026-03-02,3,15.0,8.0,1273479418,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-04,2026-03-02,1,8.0,10.0,1273479420,,,,,,Empuje Vertical,80.0,Push V
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-04,2026-03-02,2,8.0,10.0,1273479420,,,,,,Empuje Vertical,80.0,Push V
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-04,2026-03-02,3,8.0,10.0,1273479420,,,,,,Empuje Vertical,80.0,Push V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-04,2026-03-02,1,30.0,12.0,1273479421,,,,,,Traccion Vertical,360.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-04,2026-03-02,2,30.0,12.0,1273479421,,,,,,Traccion Vertical,360.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-04,2026-03-02,3,30.0,12.0,1273479421,,,,,,Traccion Vertical,360.0,Pull V
+Cande Falzone,Front Plank,2026-03-04,2026-03-02,1,,20.0,1273479423,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-04,2026-03-02,2,,20.0,1273479423,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-04,2026-03-02,3,,20.0,1273479423,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-04,2026-03-02,4,,20.0,1273479423,,,,,,,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-04,2026-03-02,1,,20.0,1273479424,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-04,2026-03-02,2,,20.0,1273479424,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-04,2026-03-02,3,,20.0,1273479424,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-04,2026-03-02,4,,20.0,1273479424,,,,,,Core,,Sin categoria
+Cande Falzone,TRX Row,2026-03-05,2026-03-05,1,,10.0,1273479428,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,TRX Row,2026-03-05,2026-03-05,2,,10.0,1273479428,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,TRX Row,2026-03-05,2026-03-05,3,,10.0,1273479428,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,TRX Row,2026-03-05,2026-03-05,4,,10.0,1273479428,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,TRX Row,2026-03-05,2026-03-05,5,,10.0,1273479428,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,Goblet Squat,2026-03-05,2026-03-05,1,20.0,15.0,1273479429,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-05,2026-03-05,2,20.0,15.0,1273479429,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-05,2026-03-05,3,20.0,15.0,1273479429,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-05,2026-03-05,4,20.0,15.0,1273479429,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-05,2026-03-05,5,20.0,15.0,1273479429,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-05,2026-03-05,1,,8.0,1273479430,,,,,,,,Sin categoria
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-05,2026-03-05,2,,8.0,1273479430,,,,,,,,Sin categoria
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-05,2026-03-05,3,,8.0,1273479430,,,,,,,,Sin categoria
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-05,2026-03-05,4,,8.0,1273479430,,,,,,,,Sin categoria
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-05,2026-03-05,5,,8.0,1273479430,,,,,,,,Sin categoria
+Cande Falzone,Push Up,2026-03-05,2026-03-05,1,0.0,8.0,1273479431,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Push Up,2026-03-05,2026-03-05,2,0.0,8.0,1273479431,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Push Up,2026-03-05,2026-03-05,3,0.0,8.0,1273479431,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Push Up,2026-03-05,2026-03-05,4,0.0,8.0,1273479431,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Push Up,2026-03-05,2026-03-05,5,0.0,8.0,1273479431,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Running,2026-03-05,2026-03-05,1,1.0,1.0,1273479432,,,,,,,1.0,Sin categoria
+Cande Falzone,Running,2026-03-05,2026-03-05,2,1.0,1.0,1273479432,,,,,,,1.0,Sin categoria
+Cande Falzone,Running,2026-03-05,2026-03-05,3,1.0,1.0,1273479432,,,,,,,1.0,Sin categoria
+Cande Falzone,Trap Bar Deadlift,2026-03-06,2026-03-06,1,70.0,5.0,1273519041,,,,,,Dominante de Cadera,350.0,Dom. Cadera
+Cande Falzone,Trap Bar Deadlift,2026-03-06,2026-03-06,2,85.0,3.0,1273519041,,,,,,Dominante de Cadera,255.0,Dom. Cadera
+Cande Falzone,Trap Bar Deadlift,2026-03-06,2026-03-06,3,70.0,4.0,1273519041,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Cande Falzone,Trap Bar Deadlift,2026-03-06,2026-03-06,4,70.0,4.0,1273519041,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Cande Falzone,Trap Bar Deadlift,2026-03-06,2026-03-06,5,70.0,4.0,1273519041,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Cande Falzone,Barbell Hip Thrust,2026-03-06,2026-03-06,1,100.0,10.0,1273519042,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Cande Falzone,Barbell Hip Thrust,2026-03-06,2026-03-06,2,100.0,10.0,1273519042,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Cande Falzone,Barbell Hip Thrust,2026-03-06,2026-03-06,3,100.0,10.0,1273519042,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Cande Falzone,Barbell Hip Thrust,2026-03-06,2026-03-06,4,100.0,10.0,1273519042,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Cande Falzone,Kb/Db 1-Leg Hip Thrust,2026-03-06,2026-03-06,1,,10.0,1273519045,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Kb/Db 1-Leg Hip Thrust,2026-03-06,2026-03-06,2,,10.0,1273519045,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Kb/Db 1-Leg Hip Thrust,2026-03-06,2026-03-06,3,,10.0,1273519045,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-06,2026-03-06,1,,10.0,1273519033,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-06,2026-03-06,2,,10.0,1273519033,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-06,2026-03-06,1,,5.0,1273519034,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-06,2026-03-06,2,,5.0,1273519034,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-06,2026-03-06,1,,4.0,1273519035,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-06,2026-03-06,2,,4.0,1273519035,,,,,,,,Sin categoria
+Cande Falzone,Glute Bridge,2026-03-06,2026-03-06,1,,12.0,1273519036,,,,,,,,Sin categoria
+Cande Falzone,Band Pull Apart,2026-03-06,2026-03-06,1,,12.0,1273519037,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,Barbell Good Morning,2026-03-06,2026-03-06,1,0.0,5.0,1273524387,,,,,,Dominante de Cadera,0.0,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-06,2026-03-06,1,,10.0,1273519038,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-06,2026-03-06,2,,10.0,1273519038,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-06,2026-03-06,3,,10.0,1273519038,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-06,2026-03-06,4,,15.0,1273519038,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-06,2026-03-06,5,,15.0,1273519038,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Barbell Back Squat,2026-03-09,2026-03-09,1,55.0,5.0,1273528265,,,,,,Dominante de Rodilla,275.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-09,2026-03-09,2,67.0,3.0,1273528265,,,,,,Dominante de Rodilla,201.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-09,2026-03-09,3,60.0,4.0,1273528265,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-09,2026-03-09,4,60.0,4.0,1273528265,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-09,2026-03-09,5,60.0,4.0,1273528265,,,,,,Dominante de Rodilla,240.0,Dom. Rodilla
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-09,2026-03-09,1,16.0,8.0,1273528266,,,,,,Dominante de Rodilla,128.0,Dom. Rodilla
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-09,2026-03-09,2,16.0,8.0,1273528266,,,,,,Dominante de Rodilla,128.0,Dom. Rodilla
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-09,2026-03-09,3,16.0,8.0,1273528266,,,,,,Dominante de Rodilla,128.0,Dom. Rodilla
+Cande Falzone,Barbell RDL,2026-03-09,2026-03-09,1,,,1273528268,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Barbell RDL,2026-03-09,2026-03-09,2,,,1273528268,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Barbell RDL,2026-03-09,2026-03-09,3,,,1273528268,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-09,2026-03-09,1,35.0,10.0,1273528269,,,,,,Traccion Vertical,350.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-09,2026-03-09,2,35.0,10.0,1273528269,,,,,,Traccion Vertical,350.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-09,2026-03-09,3,35.0,12.0,1273528269,,,,,,Traccion Vertical,420.0,Pull V
+Cande Falzone,Front Plank,2026-03-09,2026-03-09,1,,40.0,1273528271,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-09,2026-03-09,2,,30.0,1273528271,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-09,2026-03-09,3,,30.0,1273528271,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-09,2026-03-09,4,,30.0,1273528271,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-09,2026-03-12,1,,10.0,1273528258,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-09,2026-03-12,2,,10.0,1273528258,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-09,2026-03-12,1,,5.0,1273528259,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-09,2026-03-12,2,,5.0,1273528259,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-09,2026-03-12,1,,4.0,1273528260,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-09,2026-03-12,2,,4.0,1273528260,,,,,,,,Sin categoria
+Cande Falzone,Glute Bridge,2026-03-09,2026-03-12,1,,12.0,1273528261,,,,,,,,Sin categoria
+Cande Falzone,Band Pull Apart,2026-03-09,2026-03-12,1,0.0,12.0,1273528274,,,,,,Traccion Horizontal,0.0,Pull H
+Cande Falzone,Goblet Squat,2026-03-09,2026-03-12,1,,5.0,1273528262,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Barbell Bench Press,2026-03-11,2026-03-10,1,35.0,6.0,1273528286,,,,,,Empuje Horizontal,210.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-11,2026-03-10,2,35.0,6.0,1273528286,,,,,,Empuje Horizontal,210.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-11,2026-03-10,3,36.0,6.0,1273528286,,,,,,Empuje Horizontal,216.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-11,2026-03-10,4,36.0,3.0,1273528286,,,,,,Empuje Horizontal,108.0,Push H
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-11,2026-03-10,1,15.0,8.0,1273528287,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-11,2026-03-10,2,15.0,8.0,1273528287,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-11,2026-03-10,3,15.0,8.0,1273528287,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-11,2026-03-10,1,10.0,8.0,1273528289,,,,,,Empuje Vertical,80.0,Push V
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-11,2026-03-10,2,10.0,8.0,1273528289,,,,,,Empuje Vertical,80.0,Push V
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-11,2026-03-10,3,10.0,8.0,1273528289,,,,,,Empuje Vertical,80.0,Push V
+Cande Falzone,Front Plank,2026-03-11,2026-03-10,1,,20.0,1273528292,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-11,2026-03-10,2,,20.0,1273528292,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-11,2026-03-10,3,,20.0,1273528292,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-11,2026-03-10,4,,20.0,1273528292,,,,,,,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-11,2026-03-10,1,,20.0,1273528293,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-11,2026-03-10,2,,20.0,1273528293,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-11,2026-03-10,3,,20.0,1273528293,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-11,2026-03-10,4,,20.0,1273528293,,,,,,Core,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-11,2026-03-12,1,,5.0,1273528278,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-11,2026-03-12,2,,5.0,1273528278,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-11,2026-03-12,1,,10.0,1273528279,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-11,2026-03-12,2,,10.0,1273528279,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-11,2026-03-12,1,,4.0,1273528280,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-11,2026-03-12,2,,4.0,1273528280,,,,,,,,Sin categoria
+Cande Falzone,Glute Bridge,2026-03-11,2026-03-12,1,,12.0,1273528281,,,,,,,,Sin categoria
+Cande Falzone,Band Pull Apart,2026-03-11,2026-03-12,1,,12.0,1273528282,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,Push Up,2026-03-11,2026-03-12,1,,5.0,1273528283,,,,,,Empuje Horizontal,,Push H
+Cande Falzone,Box Jump,2026-03-11,2026-03-12,1,,3.0,1273528285,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Box Jump,2026-03-11,2026-03-12,2,,3.0,1273528285,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Box Jump,2026-03-11,2026-03-12,3,,3.0,1273528285,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-11,2026-03-12,1,35.0,12.0,1273528290,,,,,,Traccion Vertical,420.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-11,2026-03-12,2,35.0,12.0,1273528290,,,,,,Traccion Vertical,420.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-11,2026-03-12,3,35.0,12.0,1273528290,,,,,,Traccion Vertical,420.0,Pull V
+Cande Falzone,TRX Row,2026-03-12,2026-03-12,1,,10.0,1273528297,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,TRX Row,2026-03-12,2026-03-12,2,,10.0,1273528297,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,TRX Row,2026-03-12,2026-03-12,3,,10.0,1273528297,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,TRX Row,2026-03-12,2026-03-12,4,,10.0,1273528297,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,TRX Row,2026-03-12,2026-03-12,5,,10.0,1273528297,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,Goblet Squat,2026-03-12,2026-03-12,1,,20.0,1273528298,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-12,2026-03-12,2,,20.0,1273528298,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-12,2026-03-12,3,,20.0,1273528298,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-12,2026-03-12,4,,20.0,1273528298,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-12,2026-03-12,5,,15.0,1273528298,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-12,2026-03-12,1,,8.0,1273528299,,,,,,,,Sin categoria
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-12,2026-03-12,2,,8.0,1273528299,,,,,,,,Sin categoria
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-12,2026-03-12,3,,8.0,1273528299,,,,,,,,Sin categoria
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-12,2026-03-12,4,,8.0,1273528299,,,,,,,,Sin categoria
+Cande Falzone,Bodyweight 1-Leg Hamstring Bridge,2026-03-12,2026-03-12,5,,8.0,1273528299,,,,,,,,Sin categoria
+Cande Falzone,Push Up,2026-03-12,2026-03-12,1,0.0,8.0,1273528300,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Push Up,2026-03-12,2026-03-12,2,0.0,8.0,1273528300,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Push Up,2026-03-12,2026-03-12,3,0.0,8.0,1273528300,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Push Up,2026-03-12,2026-03-12,4,0.0,8.0,1273528300,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Push Up,2026-03-12,2026-03-12,5,0.0,8.0,1273528300,,,,,,Empuje Horizontal,0.0,Push H
+Cande Falzone,Running,2026-03-12,2026-03-12,1,1.0,1.0,1273528301,,,,,,,1.0,Sin categoria
+Cande Falzone,Running,2026-03-12,2026-03-12,2,1.0,1.0,1273528301,,,,,,,1.0,Sin categoria
+Cande Falzone,Running,2026-03-12,2026-03-12,3,1.0,1.0,1273528301,,,,,,,1.0,Sin categoria
+Cande Falzone,Barbell Back Squat,2026-03-16,2026-03-16,1,55.0,5.0,1273532230,,,,,,Dominante de Rodilla,275.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-16,2026-03-16,2,67.0,3.0,1273532230,,,,,,Dominante de Rodilla,201.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-16,2026-03-16,3,62.0,4.0,1273532230,,,,,,Dominante de Rodilla,248.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-16,2026-03-16,4,62.0,4.0,1273532230,,,,,,Dominante de Rodilla,248.0,Dom. Rodilla
+Cande Falzone,Barbell Back Squat,2026-03-16,2026-03-16,5,62.0,4.0,1273532230,,,,,,Dominante de Rodilla,248.0,Dom. Rodilla
+Cande Falzone,Bodyweigth CMJ,2026-03-16,2026-03-16,1,,3.0,1273532229,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-16,2026-03-16,1,17.0,8.0,1273532231,,,,,,Dominante de Rodilla,136.0,Dom. Rodilla
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-16,2026-03-16,2,17.0,8.0,1273532231,,,,,,Dominante de Rodilla,136.0,Dom. Rodilla
+Cande Falzone,Kb/Db Bulgarian Split Squat,2026-03-16,2026-03-16,3,17.0,8.0,1273532231,,,,,,Dominante de Rodilla,136.0,Dom. Rodilla
+Cande Falzone,Barbell RDL,2026-03-16,2026-03-16,1,40.0,8.0,1273532233,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Cande Falzone,Barbell RDL,2026-03-16,2026-03-16,2,40.0,8.0,1273532233,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Cande Falzone,Barbell RDL,2026-03-16,2026-03-16,3,40.0,8.0,1273532233,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-16,2026-03-16,1,35.0,10.0,1273532234,,,,,,Traccion Vertical,350.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-16,2026-03-16,2,35.0,10.0,1273532234,,,,,,Traccion Vertical,350.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-16,2026-03-16,3,35.0,10.0,1273532234,,,,,,Traccion Vertical,350.0,Pull V
+Cande Falzone,Treandmil Walking (Value Time),2026-03-16,2026-03-16,1,,1.0,1273532237,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-16,2026-03-16,1,,30.0,1273532236,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-16,2026-03-16,2,,30.0,1273532236,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-16,2026-03-16,3,,30.0,1273532236,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-16,2026-03-16,4,,30.0,1273532236,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-16,2026-03-18,1,,10.0,1273532223,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-16,2026-03-18,2,,10.0,1273532223,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-16,2026-03-18,1,,5.0,1273532224,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-16,2026-03-18,2,,5.0,1273532224,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-16,2026-03-18,1,,4.0,1273532225,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-16,2026-03-18,2,,4.0,1273532225,,,,,,,,Sin categoria
+Cande Falzone,Glute Bridge,2026-03-16,2026-03-18,1,,12.0,1273532226,,,,,,,,Sin categoria
+Cande Falzone,Band Pull Apart,2026-03-16,2026-03-18,1,0.0,12.0,1273532239,,,,,,Traccion Horizontal,0.0,Pull H
+Cande Falzone,Goblet Squat,2026-03-16,2026-03-18,1,,5.0,1273532227,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Barbell Bench Press,2026-03-18,2026-03-18,1,36.0,5.0,1273532251,,,,,,Empuje Horizontal,180.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-18,2026-03-18,2,36.0,6.0,1273532251,,,,,,Empuje Horizontal,216.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-18,2026-03-18,3,36.0,6.0,1273532251,,,,,,Empuje Horizontal,216.0,Push H
+Cande Falzone,Barbell Bench Press,2026-03-18,2026-03-18,4,36.0,6.0,1273532251,,,,,,Empuje Horizontal,216.0,Push H
+Cande Falzone,Box Jump,2026-03-18,2026-03-18,1,,3.0,1273532250,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Box Jump,2026-03-18,2026-03-18,2,,3.0,1273532250,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Box Jump,2026-03-18,2026-03-18,3,,3.0,1273532250,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-18,2026-03-18,1,15.0,8.0,1273532252,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-18,2026-03-18,2,15.0,8.0,1273532252,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db 1-Arm Bent Over Row (Bench),2026-03-18,2026-03-18,3,15.0,8.0,1273532252,,,,,,Traccion Horizontal,120.0,Pull H
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-18,2026-03-18,1,10.0,8.0,1273532254,,,,,,Empuje Vertical,80.0,Push V
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-18,2026-03-18,2,8.0,8.0,1273532254,,,,,,Empuje Vertical,64.0,Push V
+Cande Falzone,Kb/Db Seated 2-Arm Overhead Press (Neutral),2026-03-18,2026-03-18,3,8.0,8.0,1273532254,,,,,,Empuje Vertical,64.0,Push V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-18,2026-03-18,1,35.0,10.0,1273532255,,,,,,Traccion Vertical,350.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-18,2026-03-18,2,35.0,12.0,1273532255,,,,,,Traccion Vertical,420.0,Pull V
+Cande Falzone,Lat Pulldown (Supinated Grip),2026-03-18,2026-03-18,3,35.0,10.0,1273532255,,,,,,Traccion Vertical,350.0,Pull V
+Cande Falzone,Front Plank,2026-03-18,2026-03-18,1,,20.0,1273532257,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-18,2026-03-18,2,,20.0,1273532257,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-18,2026-03-18,3,,20.0,1273532257,,,,,,,,Sin categoria
+Cande Falzone,Front Plank,2026-03-18,2026-03-18,4,,20.0,1273532257,,,,,,,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-18,2026-03-18,1,,20.0,1273532258,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-18,2026-03-18,2,,20.0,1273532258,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-18,2026-03-18,3,,20.0,1273532258,,,,,,Core,,Sin categoria
+Cande Falzone,Lateral Plank,2026-03-18,2026-03-18,4,,20.0,1273532258,,,,,,Core,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-18,2026-03-18,1,,5.0,1273532243,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-18,2026-03-18,2,,5.0,1273532243,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-18,2026-03-18,1,,10.0,1273532244,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-18,2026-03-18,2,,10.0,1273532244,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-18,2026-03-18,1,,4.0,1273532245,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-18,2026-03-18,2,,4.0,1273532245,,,,,,,,Sin categoria
+Cande Falzone,Glute Bridge,2026-03-18,2026-03-18,1,,12.0,1273532246,,,,,,,,Sin categoria
+Cande Falzone,Band Pull Apart,2026-03-18,2026-03-18,1,,12.0,1273532247,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,Push Up,2026-03-18,2026-03-18,1,,5.0,1273532248,,,,,,Empuje Horizontal,,Push H
+Cande Falzone,Trap Bar Deadlift,2026-03-20,2026-03-20,1,65.0,5.0,1273532278,,,,,,Dominante de Cadera,325.0,Dom. Cadera
+Cande Falzone,Trap Bar Deadlift,2026-03-20,2026-03-20,2,80.0,3.0,1273532278,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Cande Falzone,Trap Bar Deadlift,2026-03-20,2026-03-20,3,70.0,4.0,1273532278,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Cande Falzone,Trap Bar Deadlift,2026-03-20,2026-03-20,4,70.0,4.0,1273532278,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Cande Falzone,Trap Bar Deadlift,2026-03-20,2026-03-20,5,70.0,4.0,1273532278,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Cande Falzone,Barbell Hip Thrust,2026-03-20,2026-03-20,1,100.0,8.0,1273532279,,,,,,Dominante de Cadera,800.0,Dom. Cadera
+Cande Falzone,Barbell Hip Thrust,2026-03-20,2026-03-20,2,100.0,8.0,1273532279,,,,,,Dominante de Cadera,800.0,Dom. Cadera
+Cande Falzone,Barbell Hip Thrust,2026-03-20,2026-03-20,3,110.0,8.0,1273532279,,,,,,Dominante de Cadera,880.0,Dom. Cadera
+Cande Falzone,Barbell Hip Thrust,2026-03-20,2026-03-20,4,110.0,8.0,1273532279,,,,,,Dominante de Cadera,880.0,Dom. Cadera
+Cande Falzone,Smith Rumanian Deadlift,2026-03-20,2026-03-20,1,40.0,8.0,1273532281,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Cande Falzone,Smith Rumanian Deadlift,2026-03-20,2026-03-20,2,40.0,8.0,1273532281,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Cande Falzone,Smith Rumanian Deadlift,2026-03-20,2026-03-20,3,40.0,8.0,1273532281,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Cande Falzone,Kb/Db 1-Leg Hip Thrust,2026-03-20,2026-03-20,1,,10.0,1273532282,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Kb/Db 1-Leg Hip Thrust,2026-03-20,2026-03-20,2,,10.0,1273532282,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Kb/Db 1-Leg Hip Thrust,2026-03-20,2026-03-20,3,,10.0,1273532282,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-20,2026-03-20,1,,10.0,1273532270,,,,,,,,Sin categoria
+Cande Falzone,Standing Ankle Dorsiflexion,2026-03-20,2026-03-20,2,,10.0,1273532270,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-20,2026-03-20,1,,5.0,1273532271,,,,,,,,Sin categoria
+Cande Falzone,Cat Camel Rock Back,2026-03-20,2026-03-20,2,,5.0,1273532271,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-20,2026-03-20,1,,4.0,1273532272,,,,,,,,Sin categoria
+Cande Falzone,Downward Dog to Spiderman with Rotation,2026-03-20,2026-03-20,2,,4.0,1273532272,,,,,,,,Sin categoria
+Cande Falzone,Glute Bridge,2026-03-20,2026-03-20,1,,12.0,1273532273,,,,,,,,Sin categoria
+Cande Falzone,Band Pull Apart,2026-03-20,2026-03-20,1,,12.0,1273532274,,,,,,Traccion Horizontal,,Pull H
+Cande Falzone,Barbell Good Morning,2026-03-20,2026-03-20,1,20.0,5.0,1273532286,,,,,,Dominante de Cadera,100.0,Dom. Cadera
+Cande Falzone,Bodyweigth CMJ,2026-03-20,2026-03-20,1,,3.0,1273532277,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Bodyweigth CMJ,2026-03-20,2026-03-20,2,,3.0,1273532277,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Bodyweigth CMJ,2026-03-20,2026-03-20,3,,3.0,1273532277,,,,,,Jump_Ballistic,,Balístico
+Cande Falzone,Goblet Squat,2026-03-20,2026-03-20,1,,15.0,1273532275,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-20,2026-03-20,2,,15.0,1273532275,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-20,2026-03-20,3,,15.0,1273532275,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-20,2026-03-20,4,,15.0,1273532275,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Goblet Squat,2026-03-20,2026-03-20,5,,15.0,1273532275,,,,,,Dominante de Cadera,,Dom. Cadera
+Cande Falzone,Banded Lateral Walk,2026-03-20,2026-03-22,1,,12.0,1273532287,,,,,,,,Sin categoria
+Cande Falzone,Banded Lateral Walk,2026-03-20,2026-03-22,2,,12.0,1273532287,,,,,,,,Sin categoria
+Cande Falzone,Banded Lateral Walk,2026-03-20,2026-03-22,3,,12.0,1273532287,,,,,,,,Sin categoria
+Cande Falzone,Banded Lateral Walk,2026-03-20,2026-03-22,4,,12.0,1273532287,,,,,,,,Sin categoria
 Celina Amarillo,Ab Whell Roll Out,2026-02-02,2026-02-02,1,,8.0,1235463944,,,,,,,,Sin categoria
 Celina Amarillo,Ab Whell Roll Out,2026-02-02,2026-02-02,2,,8.0,1235463944,,,,,,,,Sin categoria
 Celina Amarillo,Standing Pallof Press,2026-02-02,2026-02-02,1,,8.0,1235463943,,,,,,,,Sin categoria
@@ -1238,3 +1549,1245 @@ Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-18,
 Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-18,2026-03-18,2,40.0,12.0,1273724584,,,,,,Traccion Horizontal,480.0,Pull H
 Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-18,2026-03-18,3,40.0,12.0,1273724584,,,,,,Traccion Horizontal,480.0,Pull H
 Exequiel Heredia Garcia,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-18,2026-03-18,4,40.0,12.0,1273724584,,,,,,Traccion Horizontal,480.0,Pull H
+Florencia Romano Coll,Plank Shoulder Taps,2026-02-09,2026-02-09,1,,12.0,1256181609,,,,,,,,Sin categoria
+Florencia Romano Coll,Banded Shoulder Dislocation,2026-02-09,2026-02-09,1,,15.0,1256181608,,,,,,,,Sin categoria
+Florencia Romano Coll,Barbell Bench Press,2026-02-09,2026-02-09,1,30.0,5.0,1256181601,,,,,,Empuje Horizontal,150.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-09,2026-02-09,2,30.0,5.0,1256181601,,,,,,Empuje Horizontal,150.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-09,2026-02-09,3,35.0,3.0,1256181601,,,,,,Empuje Horizontal,105.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-09,2026-02-09,4,35.0,3.0,1256181601,,,,,,Empuje Horizontal,105.0,Push H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-09,2026-02-09,1,25.0,8.0,1256181604,,,,,,Traccion Horizontal,200.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-09,2026-02-09,2,25.0,8.0,1256181604,,,,,,Traccion Horizontal,200.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-09,2026-02-09,3,30.0,5.0,1256181604,,,,,,Traccion Horizontal,150.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-09,2026-02-09,4,30.0,5.0,1256181604,,,,,,Traccion Horizontal,150.0,Pull H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-09,2026-02-09,1,,,1256181602,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-09,2026-02-09,2,,,1256181602,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-09,2026-02-09,3,,,1256181602,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Alternating Db Biceps Curl,2026-02-09,2026-02-09,1,,,1256181603,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Alternating Db Biceps Curl,2026-02-09,2026-02-09,2,,,1256181603,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Banded Triceps Extension,2026-02-09,2026-02-09,1,,,1256181606,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Banded Triceps Extension,2026-02-09,2026-02-09,2,,,1256181606,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Banded Triceps Extension,2026-02-09,2026-02-09,3,,,1256181606,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,90-90 Hip Stretch (Hands Support),2026-02-10,2026-02-10,1,,,1256181622,,,,,,Stretch MMII,,Sin categoria
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-10,2026-02-10,1,54.0,15.0,1256181620,,,,,,Jump_Plyo,810.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-10,2026-02-10,2,54.0,15.0,1256181620,,,,,,Jump_Plyo,810.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-10,2026-02-10,3,54.0,15.0,1256181620,,,,,,Jump_Plyo,810.0,Plyo/Saltos
+Florencia Romano Coll,Box Jump,2026-02-10,2026-02-10,1,54.0,4.0,1256181621,,,,,,Jump_Ballistic,216.0,Balístico
+Florencia Romano Coll,Box Jump,2026-02-10,2026-02-10,2,54.0,4.0,1256181621,,,,,,Jump_Ballistic,216.0,Balístico
+Florencia Romano Coll,Box Jump,2026-02-10,2026-02-10,3,54.0,4.0,1256181621,,,,,,Jump_Ballistic,216.0,Balístico
+Florencia Romano Coll,Barbell Back Squat,2026-02-10,2026-02-10,1,35.0,6.0,1256181615,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-10,2026-02-10,2,35.0,6.0,1256181615,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-10,2026-02-10,3,35.0,6.0,1256181615,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-10,2026-02-10,4,35.0,6.0,1256181615,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-02-10,2026-02-10,1,,12.0,1256181617,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-02-10,2026-02-10,2,,12.0,1256181617,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-02-10,2026-02-10,3,,12.0,1256181617,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-10,2026-02-10,1,5.0,8.0,1256181616,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-10,2026-02-10,2,5.0,8.0,1256181616,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-10,2026-02-10,3,5.0,8.0,1256181616,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,TRX W Raises,2026-02-11,2026-02-12,1,,,1256181627,,,,,,,,Sin categoria
+Florencia Romano Coll,TRX W Raises,2026-02-11,2026-02-12,2,,,1256181627,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db Plank Drag,2026-02-11,2026-02-12,1,21.0,10.0,1256181626,,,,,,,210.0,Sin categoria
+Florencia Romano Coll,Kb/Db Plank Drag,2026-02-11,2026-02-12,2,,,1256181626,,,,,,,,Sin categoria
+Florencia Romano Coll,Bar Pull Up Leg Assisted (Pronated Grip),2026-02-11,2026-02-12,1,,4.0,1256181633,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Bar Pull Up Leg Assisted (Pronated Grip),2026-02-11,2026-02-12,2,,4.0,1256181633,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Bar Pull Up Leg Assisted (Pronated Grip),2026-02-11,2026-02-12,3,,4.0,1256181633,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Bar Pull Up Leg Assisted (Pronated Grip),2026-02-11,2026-02-12,4,,4.0,1256181633,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-02-11,2026-02-12,1,7.5,10.0,1256181625,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-02-11,2026-02-12,2,7.5,10.0,1256181625,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-02-11,2026-02-12,3,7.5,10.0,1256181625,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Dynamic Quad stretch,2026-02-12,2026-02-13,1,,15.0,1256181648,,,,,,Stretch MMII,,Sin categoria
+Florencia Romano Coll,Bodyweigth CMJ,2026-02-12,2026-02-13,1,,6.0,1256181649,,,,,,Jump_Ballistic,,Balístico
+Florencia Romano Coll,Bodyweigth CMJ,2026-02-12,2026-02-13,2,,6.0,1256181649,,,,,,Jump_Ballistic,,Balístico
+Florencia Romano Coll,Goblet Squat,2026-02-12,2026-02-13,1,10.0,12.0,1256181647,,,,,,Dominante de Cadera,120.0,Dom. Cadera
+Florencia Romano Coll,Goblet Squat,2026-02-12,2026-02-13,2,10.0,12.0,1256181647,,,,,,Dominante de Cadera,120.0,Dom. Cadera
+Florencia Romano Coll,Goblet Squat,2026-02-12,2026-02-13,3,10.0,12.0,1256181647,,,,,,Dominante de Cadera,120.0,Dom. Cadera
+Florencia Romano Coll,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-02-12,2026-02-13,1,54.0,8.0,1256181646,,,,,,Dominante de Cadera,432.0,Dom. Cadera
+Florencia Romano Coll,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-02-12,2026-02-13,2,54.0,8.0,1256181646,,,,,,Dominante de Cadera,432.0,Dom. Cadera
+Florencia Romano Coll,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-02-12,2026-02-13,3,54.0,8.0,1256181646,,,,,,Dominante de Cadera,432.0,Dom. Cadera
+Florencia Romano Coll,Barbell Bench Press,2026-02-16,2026-02-17,1,20.0,5.0,1256181655,,,,,,Empuje Horizontal,100.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-16,2026-02-17,2,20.0,5.0,1256181655,,,,,,Empuje Horizontal,100.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-16,2026-02-17,3,25.0,3.0,1256181655,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-16,2026-02-17,4,25.0,3.0,1256181655,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-16,2026-02-17,1,25.0,8.0,1256181658,,,,,,Traccion Horizontal,200.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-16,2026-02-17,2,25.0,8.0,1256181658,,,,,,Traccion Horizontal,200.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-16,2026-02-17,3,30.0,5.0,1256181658,,,,,,Traccion Horizontal,150.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-16,2026-02-17,4,30.0,5.0,1256181658,,,,,,Traccion Horizontal,150.0,Pull H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-16,2026-02-17,1,,,1256181656,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-16,2026-02-17,2,,,1256181656,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-16,2026-02-17,3,,,1256181656,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,TRX Row,2026-02-16,2026-02-17,1,54.0,15.0,1256181659,,,,,,Traccion Horizontal,810.0,Pull H
+Florencia Romano Coll,TRX Row,2026-02-16,2026-02-17,2,54.0,15.0,1256181659,,,,,,Traccion Horizontal,810.0,Pull H
+Florencia Romano Coll,TRX Row,2026-02-16,2026-02-17,3,54.0,15.0,1256181659,,,,,,Traccion Horizontal,810.0,Pull H
+Florencia Romano Coll,Db Biceps Curl,2026-02-16,2026-02-17,1,,,1256181657,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Db Biceps Curl,2026-02-16,2026-02-17,2,,,1256181657,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-02-16,2026-02-17,1,,,1256181660,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-02-16,2026-02-17,2,,,1256181660,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-02-16,2026-02-17,3,,,1256181660,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Standing Toe Touches (Stretch),2026-02-17,2026-02-18,1,,15.0,1256181676,,,,,,Stretch MMII,,Sin categoria
+Florencia Romano Coll,Half Kneeling Ankle Dorsiflexion,2026-02-17,2026-02-18,1,,15.0,1256181677,,,,,,,,Sin categoria
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-17,2026-02-18,1,54.0,15.0,1256181674,,,,,,Jump_Plyo,810.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-17,2026-02-18,2,54.0,15.0,1256181674,,,,,,Jump_Plyo,810.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-17,2026-02-18,3,54.0,15.0,1256181674,,,,,,Jump_Plyo,810.0,Plyo/Saltos
+Florencia Romano Coll,Box Jump,2026-02-17,2026-02-18,1,54.0,4.0,1256181675,,,,,,Jump_Ballistic,216.0,Balístico
+Florencia Romano Coll,Box Jump,2026-02-17,2026-02-18,2,54.0,4.0,1256181675,,,,,,Jump_Ballistic,216.0,Balístico
+Florencia Romano Coll,Box Jump,2026-02-17,2026-02-18,3,54.0,4.0,1256181675,,,,,,Jump_Ballistic,216.0,Balístico
+Florencia Romano Coll,Barbell Back Squat,2026-02-17,2026-02-18,1,35.0,6.0,1256181669,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-17,2026-02-18,2,35.0,0.0,1256181669,,,,,,Dominante de Rodilla,0.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-17,2026-02-18,3,35.0,6.0,1256181669,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-17,2026-02-18,4,35.0,6.0,1256181669,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-17,2026-02-18,1,5.0,8.0,1256181670,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-17,2026-02-18,2,5.0,8.0,1256181670,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-17,2026-02-18,3,5.0,8.0,1256181670,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Bench Press,2026-02-23,2026-02-23,1,30.0,5.0,1256181709,,,,,,Empuje Horizontal,150.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-23,2026-02-23,2,30.0,5.0,1256181709,,,,,,Empuje Horizontal,150.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-23,2026-02-23,3,35.0,3.0,1256181709,,,,,,Empuje Horizontal,105.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-02-23,2026-02-23,4,35.0,3.0,1256181709,,,,,,Empuje Horizontal,105.0,Push H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-23,2026-02-23,1,25.0,8.0,1256181712,,,,,,Traccion Horizontal,200.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-23,2026-02-23,2,25.0,8.0,1256181712,,,,,,Traccion Horizontal,200.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-23,2026-02-23,3,30.0,5.0,1256181712,,,,,,Traccion Horizontal,150.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-02-23,2026-02-23,4,30.0,5.0,1256181712,,,,,,Traccion Horizontal,150.0,Pull H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-23,2026-02-23,1,,,1256181710,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-23,2026-02-23,2,,,1256181710,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-02-23,2026-02-23,3,,,1256181710,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,TRX Row,2026-02-23,2026-02-23,1,54.0,15.0,1256181713,,,,,,Traccion Horizontal,810.0,Pull H
+Florencia Romano Coll,TRX Row,2026-02-23,2026-02-23,2,54.0,15.0,1256181713,,,,,,Traccion Horizontal,810.0,Pull H
+Florencia Romano Coll,TRX Row,2026-02-23,2026-02-23,3,54.0,15.0,1256181713,,,,,,Traccion Horizontal,810.0,Pull H
+Florencia Romano Coll,Db Biceps Curl,2026-02-23,2026-02-23,1,5.0,12.0,1256181711,,,,,,Biceps/Accessories MMSS,60.0,Sin categoria
+Florencia Romano Coll,Db Biceps Curl,2026-02-23,2026-02-23,2,5.0,12.0,1256181711,,,,,,Biceps/Accessories MMSS,60.0,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-02-23,2026-02-23,1,10.0,20.0,1256181714,,,,,,Triceps/Accessories MMSS,200.0,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-02-23,2026-02-23,2,10.0,20.0,1256181714,,,,,,Triceps/Accessories MMSS,200.0,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-02-23,2026-02-23,3,10.0,20.0,1256181714,,,,,,Triceps/Accessories MMSS,200.0,Sin categoria
+Florencia Romano Coll,Standing Toe Touches (Stretch),2026-02-24,2026-02-25,1,,,1256181730,,,,,,Stretch MMII,,Sin categoria
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-24,2026-02-25,1,53.0,15.0,1256181728,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-24,2026-02-25,2,53.0,15.0,1256181728,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-02-24,2026-02-25,3,53.0,15.0,1256181728,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Box Jump,2026-02-24,2026-02-25,1,53.0,4.0,1256181729,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Box Jump,2026-02-24,2026-02-25,2,53.0,4.0,1256181729,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Box Jump,2026-02-24,2026-02-25,3,53.0,4.0,1256181729,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Barbell Back Squat,2026-02-24,2026-02-25,1,35.0,6.0,1256181723,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-24,2026-02-25,2,35.0,6.0,1256181723,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-24,2026-02-25,3,35.0,6.0,1256181723,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-02-24,2026-02-25,4,35.0,6.0,1256181723,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-02-24,2026-02-25,1,,12.0,1256181725,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-02-24,2026-02-25,2,,12.0,1256181725,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-02-24,2026-02-25,3,,12.0,1256181725,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-24,2026-02-25,1,5.0,8.0,1256181724,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-24,2026-02-25,2,5.0,8.0,1256181724,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-02-24,2026-02-25,3,5.0,8.0,1256181724,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-02-24,2026-02-25,1,,15.0,1256181726,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-02-24,2026-02-25,2,,15.0,1256181726,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-02-24,2026-02-25,3,,15.0,1256181726,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db Plank Drag,2026-02-25,2026-02-26,1,5.0,10.0,1256181734,,,,,,,50.0,Sin categoria
+Florencia Romano Coll,Kb/Db Plank Drag,2026-02-25,2026-02-26,2,5.0,10.0,1256181734,,,,,,,50.0,Sin categoria
+Florencia Romano Coll,TRX W Raises,2026-02-25,2026-02-26,1,,,1256181735,,,,,,,,Sin categoria
+Florencia Romano Coll,TRX W Raises,2026-02-25,2026-02-26,2,,,1256181735,,,,,,,,Sin categoria
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-02-25,2026-02-26,1,,4.0,1256181741,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-02-25,2026-02-26,2,,4.0,1256181741,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-02-25,2026-02-26,3,,4.0,1256181741,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-02-25,2026-02-26,4,,4.0,1256181741,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-02-25,2026-02-26,1,10.0,10.0,1256181733,,,,,,Empuje Horizontal,100.0,Push H
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-02-25,2026-02-26,2,10.0,10.0,1256181733,,,,,,Empuje Horizontal,100.0,Push H
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-02-25,2026-02-26,3,10.0,10.0,1256181733,,,,,,Empuje Horizontal,100.0,Push H
+Florencia Romano Coll,Kb/Db 2-Arm Calf Raises,2026-02-25,2026-02-26,1,,15.0,1256181745,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db 2-Arm Calf Raises,2026-02-25,2026-02-26,2,,15.0,1256181745,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db 2-Arm Calf Raises,2026-02-25,2026-02-26,3,,15.0,1256181745,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-02-25,2026-02-26,1,53.0,20.0,1256181743,,,,,,,1060.0,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-02-25,2026-02-26,2,53.0,20.0,1256181743,,,,,,,1060.0,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-02-25,2026-02-26,3,53.0,20.0,1256181743,,,,,,,1060.0,Sin categoria
+Florencia Romano Coll,90-90 Hip Stretch (Hands Support),2026-02-26,2026-02-27,1,,15.0,1256181756,,,,,,Stretch MMII,,Sin categoria
+Florencia Romano Coll,Bodyweigth CMJ,2026-02-26,2026-02-27,1,,6.0,1256181757,,,,,,Jump_Ballistic,,Balístico
+Florencia Romano Coll,Bodyweigth CMJ,2026-02-26,2026-02-27,2,,6.0,1256181757,,,,,,Jump_Ballistic,,Balístico
+Florencia Romano Coll,Goblet Squat,2026-02-26,2026-02-27,1,30.0,12.0,1256181755,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Florencia Romano Coll,Goblet Squat,2026-02-26,2026-02-27,2,30.0,12.0,1256181755,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Florencia Romano Coll,Goblet Squat,2026-02-26,2026-02-27,3,30.0,12.0,1256181755,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Florencia Romano Coll,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-02-26,2026-02-27,1,53.0,8.0,1256181754,,,,,,Dominante de Cadera,424.0,Dom. Cadera
+Florencia Romano Coll,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-02-26,2026-02-27,2,53.0,8.0,1256181754,,,,,,Dominante de Cadera,424.0,Dom. Cadera
+Florencia Romano Coll,1-Leg Weighted Hamstring Bridge (Elveted Feet),2026-02-26,2026-02-27,3,53.0,8.0,1256181754,,,,,,Dominante de Cadera,424.0,Dom. Cadera
+Florencia Romano Coll,Db Lateral Shoulder Raises,2026-02-26,2026-02-27,1,5.0,20.0,1256181747,,,,,,Accessories MMSS,100.0,Accesorios MMSS
+Florencia Romano Coll,Db Lateral Shoulder Raises,2026-02-26,2026-02-27,2,5.0,20.0,1256181747,,,,,,Accessories MMSS,100.0,Accesorios MMSS
+Florencia Romano Coll,Db Lateral Shoulder Raises,2026-02-26,2026-02-27,3,5.0,20.0,1256181747,,,,,,Accessories MMSS,100.0,Accesorios MMSS
+Florencia Romano Coll,Supine Hamstring Stretch,2026-03-03,2026-03-03,1,,15.0,1256181784,,,,,,Stretch MMII,,Sin categoria
+Florencia Romano Coll,Half Kneeling Ankle Dorsiflexion,2026-03-03,2026-03-04,1,,15.0,1256181785,,,,,,,,Sin categoria
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-03-03,2026-03-04,1,53.0,15.0,1256181782,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-03-03,2026-03-04,2,53.0,15.0,1256181782,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-03-03,2026-03-04,3,53.0,15.0,1256181782,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Box Jump,2026-03-03,2026-03-04,1,53.0,4.0,1256181783,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Box Jump,2026-03-03,2026-03-04,2,53.0,4.0,1256181783,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Box Jump,2026-03-03,2026-03-04,3,53.0,4.0,1256181783,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Barbell Back Squat,2026-03-03,2026-03-04,1,35.0,6.0,1256181777,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-03-03,2026-03-04,2,35.0,6.0,1256181777,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-03-03,2026-03-04,3,35.0,6.0,1256181777,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Barbell Back Squat,2026-03-03,2026-03-04,4,35.0,6.0,1256181777,,,,,,Dominante de Rodilla,210.0,Dom. Rodilla
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-03-03,2026-03-04,1,,12.0,1256181779,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-03-03,2026-03-04,2,,12.0,1256181779,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-03-03,2026-03-04,3,,12.0,1256181779,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-03-03,2026-03-04,1,5.0,8.0,1256181778,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-03-03,2026-03-04,2,5.0,8.0,1256181778,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-03-03,2026-03-04,3,5.0,8.0,1256181778,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-03-03,2026-03-04,1,,15.0,1256181780,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-03-03,2026-03-04,2,,15.0,1256181780,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Calf Raises,2026-03-03,2026-03-04,3,,15.0,1256181780,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db Plank Drag,2026-03-04,2026-03-03,1,21.0,10.0,1256181788,,,,,,,210.0,Sin categoria
+Florencia Romano Coll,Kb/Db Plank Drag,2026-03-04,2026-03-03,2,,,1256181788,,,,,,,,Sin categoria
+Florencia Romano Coll,TRX W Raises,2026-03-04,2026-03-03,1,,,1256181789,,,,,,,,Sin categoria
+Florencia Romano Coll,TRX W Raises,2026-03-04,2026-03-03,2,,,1256181789,,,,,,,,Sin categoria
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-03-04,2026-03-03,1,,4.0,1256181795,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-03-04,2026-03-03,2,,4.0,1256181795,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-03-04,2026-03-03,3,,4.0,1256181795,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-03-04,2026-03-03,4,,4.0,1256181795,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-03-04,2026-03-03,1,7.5,10.0,1256181787,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-03-04,2026-03-03,2,7.5,10.0,1256181787,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-03-04,2026-03-03,3,7.5,10.0,1256181787,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Standing Toe Touches (Stretch),2026-03-05,2026-03-11,1,,15.0,1256181810,,,,,,Stretch MMII,,Sin categoria
+Florencia Romano Coll,Bodyweigth CMJ,2026-03-05,2026-03-11,1,,6.0,1256181811,,,,,,Jump_Ballistic,,Balístico
+Florencia Romano Coll,Bodyweigth CMJ,2026-03-05,2026-03-11,2,,6.0,1256181811,,,,,,Jump_Ballistic,,Balístico
+Florencia Romano Coll,Goblet Squat,2026-03-05,2026-03-11,1,30.0,12.0,1256181809,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Florencia Romano Coll,Goblet Squat,2026-03-05,2026-03-11,2,30.0,12.0,1256181809,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Florencia Romano Coll,Goblet Squat,2026-03-05,2026-03-11,3,30.0,12.0,1256181809,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Florencia Romano Coll,Banded Shoulder Dislocation,2026-03-09,2026-03-13,1,,15.0,1284553804,,,,,,,,Sin categoria
+Florencia Romano Coll,Barbell Bench Press,2026-03-09,2026-03-13,1,30.0,5.0,1284553797,,,,,,Empuje Horizontal,150.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-03-09,2026-03-13,2,30.0,5.0,1284553797,,,,,,Empuje Horizontal,150.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-03-09,2026-03-13,3,35.0,3.0,1284553797,,,,,,Empuje Horizontal,105.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-03-09,2026-03-13,4,35.0,3.0,1284553797,,,,,,Empuje Horizontal,105.0,Push H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-03-09,2026-03-13,1,25.0,8.0,1284553800,,,,,,Traccion Horizontal,200.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-03-09,2026-03-13,2,25.0,8.0,1284553800,,,,,,Traccion Horizontal,200.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-03-09,2026-03-13,3,30.0,5.0,1284553800,,,,,,Traccion Horizontal,150.0,Pull H
+Florencia Romano Coll,Barbell Bent Over Row (Supinated Grip),2026-03-09,2026-03-13,4,30.0,5.0,1284553800,,,,,,Traccion Horizontal,150.0,Pull H
+Florencia Romano Coll,Barbell Bench Press,2026-03-16,2026-03-18,1,30.0,5.0,1287015583,,,,,,Empuje Horizontal,150.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-03-16,2026-03-18,2,30.0,5.0,1287015583,,,,,,Empuje Horizontal,150.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-03-16,2026-03-18,3,35.0,3.0,1287015583,,,,,,Empuje Horizontal,105.0,Push H
+Florencia Romano Coll,Barbell Bench Press,2026-03-16,2026-03-18,4,35.0,3.0,1287015583,,,,,,Empuje Horizontal,105.0,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-03-16,2026-03-18,1,,,1287015584,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-03-16,2026-03-18,2,,,1287015584,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,Db/Kb Deficit Push Up,2026-03-16,2026-03-18,3,,,1287015584,,,,,,Empuje Horizontal,,Push H
+Florencia Romano Coll,TRX Row,2026-03-16,2026-03-18,1,53.0,15.0,1287015587,,,,,,Traccion Horizontal,795.0,Pull H
+Florencia Romano Coll,TRX Row,2026-03-16,2026-03-18,2,53.0,15.0,1287015587,,,,,,Traccion Horizontal,795.0,Pull H
+Florencia Romano Coll,TRX Row,2026-03-16,2026-03-18,3,53.0,15.0,1287015587,,,,,,Traccion Horizontal,795.0,Pull H
+Florencia Romano Coll,Db Biceps Curl,2026-03-16,2026-03-18,1,,,1287015585,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Db Biceps Curl,2026-03-16,2026-03-18,2,,,1287015585,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-03-16,2026-03-18,1,,,1287015588,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-03-16,2026-03-18,2,,,1287015588,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Rope Triceps Pushdown,2026-03-16,2026-03-18,3,,,1287015588,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Florencia Romano Coll,Cossack/Side Lunge (Stretch),2026-03-17,2026-03-17,1,,15.0,1287015604,,,,,,Stretch MMII,,Sin categoria
+Florencia Romano Coll,Half Kneeling Ankle Dorsiflexion,2026-03-17,2026-03-17,1,,15.0,1287015605,,,,,,,,Sin categoria
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-03-17,2026-03-17,1,53.0,15.0,1287015602,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-03-17,2026-03-17,2,53.0,15.0,1287015602,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Extensive Bodyweight Pogo Jumps,2026-03-17,2026-03-17,3,53.0,15.0,1287015602,,,,,,Jump_Plyo,795.0,Plyo/Saltos
+Florencia Romano Coll,Box Jump,2026-03-17,2026-03-17,1,53.0,4.0,1287015603,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Box Jump,2026-03-17,2026-03-17,2,53.0,4.0,1287015603,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Box Jump,2026-03-17,2026-03-17,3,53.0,4.0,1287015603,,,,,,Jump_Ballistic,212.0,Balístico
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-03-17,2026-03-17,1,,12.0,1287015599,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-03-17,2026-03-17,2,,12.0,1287015599,,,,,,,,Sin categoria
+Florencia Romano Coll,Bodyweight 1-Leg Hamstring Bridge,2026-03-17,2026-03-17,3,,12.0,1287015599,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-03-17,2026-03-17,1,5.0,8.0,1287015598,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-03-17,2026-03-17,2,5.0,8.0,1287015598,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,Kb/Db Bulgarian Split Squat,2026-03-17,2026-03-17,3,5.0,8.0,1287015598,,,,,,Dominante de Rodilla,40.0,Dom. Rodilla
+Florencia Romano Coll,TRX W Raises,2026-03-18,2026-03-16,1,,,1287015609,,,,,,,,Sin categoria
+Florencia Romano Coll,TRX W Raises,2026-03-18,2026-03-16,2,,,1287015609,,,,,,,,Sin categoria
+Florencia Romano Coll,Kb/Db Plank Drag,2026-03-18,2026-03-16,1,21.0,10.0,1287015608,,,,,,,210.0,Sin categoria
+Florencia Romano Coll,Kb/Db Plank Drag,2026-03-18,2026-03-16,2,,,1287015608,,,,,,,,Sin categoria
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-03-18,2026-03-16,1,,4.0,1287015615,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-03-18,2026-03-16,2,,4.0,1287015615,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-03-18,2026-03-16,3,,4.0,1287015615,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Eccentric Chin-Up (Box Assisted),2026-03-18,2026-03-16,4,,4.0,1287015615,,,,,,Traccion Vertical,,Pull V
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-03-18,2026-03-16,1,7.5,10.0,1287015607,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-03-18,2026-03-16,2,7.5,10.0,1287015607,,,,,,Empuje Horizontal,75.0,Push H
+Florencia Romano Coll,Db/Kb 2-Arm Incline Bench Press,2026-03-18,2026-03-16,3,7.5,10.0,1287015607,,,,,,Empuje Horizontal,75.0,Push H
+Griselda Romano,Kb/Db 1/2 Kneeling Dorsiflexion Lateral Stretch,2026-01-22,2026-02-05,1,17.5,10.0,1235471368,,,,,,Stretch MMII,175.0,Sin categoria
+Griselda Romano,Kb/Db 1/2 Kneeling Dorsiflexion Lateral Stretch,2026-01-22,2026-02-05,2,17.5,12.0,1235471368,,,,,,Stretch MMII,210.0,Sin categoria
+Griselda Romano,Kb/Db 1/2 Kneeling Dorsiflexion Lateral Stretch,2026-01-22,2026-02-05,3,17.5,12.0,1235471368,,,,,,Stretch MMII,210.0,Sin categoria
+Griselda Romano,Barbell Back Squat,2026-02-02,2026-02-02,1,60.0,5.0,1235471461,,,,,,Dominante de Rodilla,300.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-02,2026-02-02,2,70.0,5.0,1235471461,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-02,2026-02-02,3,70.0,5.0,1235471461,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-02,2026-02-02,4,70.0,5.0,1235471461,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-02,2026-02-02,5,70.0,5.0,1235471461,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Griselda Romano,Db Front Squat,2026-02-02,2026-02-02,1,30.0,10.0,1235471470,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Griselda Romano,Db Front Squat,2026-02-02,2026-02-02,2,30.0,10.0,1235471470,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Griselda Romano,Db Front Squat,2026-02-02,2026-02-02,3,30.0,10.0,1235471470,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Griselda Romano,Db Front Squat,2026-02-02,2026-02-02,4,30.0,10.0,1235471470,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Griselda Romano,Db/Kb 2-Arm Split Squat,2026-02-02,2026-02-02,1,35.0,10.0,1235471466,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Griselda Romano,Db/Kb 2-Arm Split Squat,2026-02-02,2026-02-02,2,35.0,10.0,1235471466,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Griselda Romano,Db/Kb 2-Arm Split Squat,2026-02-02,2026-02-02,3,35.0,10.0,1235471466,,,,,,Dominante de Rodilla,350.0,Dom. Rodilla
+Griselda Romano,TRX YTW,2026-02-02,2026-02-02,1,,15.0,1235471467,,,,,,Traccion Horizontal,,Pull H
+Griselda Romano,TRX YTW,2026-02-02,2026-02-02,2,,15.0,1235471467,,,,,,Traccion Horizontal,,Pull H
+Griselda Romano,Barbell Hip Thrust (Pulse),2026-02-02,2026-02-02,1,100.0,12.0,1235471469,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust (Pulse),2026-02-02,2026-02-02,2,100.0,12.0,1235471469,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust (Pulse),2026-02-02,2026-02-02,3,100.0,12.0,1235471469,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust (Pulse),2026-02-02,2026-02-02,4,100.0,12.0,1235471469,,,,,,Dominante de Cadera,1200.0,Dom. Cadera
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-03,2026-02-03,1,40.0,8.0,1235471473,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-03,2026-02-03,2,40.0,8.0,1235471473,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-03,2026-02-03,3,40.0,8.0,1235471473,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-03,2026-02-03,4,40.0,8.0,1235471473,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Deadlift,2026-02-04,2026-02-04,1,80.0,4.0,1235471495,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-04,2026-02-04,2,90.0,4.0,1235471495,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-04,2026-02-04,3,90.0,4.0,1235471495,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-04,2026-02-04,4,90.0,4.0,1235471495,,,,,,Dominante de Cadera,360.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-04,2026-02-04,5,98.0,4.0,1235471495,,,,,,Dominante de Cadera,392.0,Dom. Cadera
+Griselda Romano,Barbell Front Squat,2026-02-04,2026-02-04,1,35.0,8.0,1235471494,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Griselda Romano,Barbell Front Squat,2026-02-04,2026-02-04,2,35.0,8.0,1235471494,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Griselda Romano,Barbell Front Squat,2026-02-04,2026-02-04,3,35.0,8.0,1235471494,,,,,,Dominante de Cadera,280.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-02-04,2026-02-04,1,50.0,8.0,1235471486,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-02-04,2026-02-04,2,50.0,8.0,1235471486,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-02-04,2026-02-04,3,50.0,8.0,1235471486,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-02-04,2026-02-04,4,50.0,8.0,1235471486,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Griselda Romano,Barbell Military Press (Eccentric),2026-02-05,2026-02-05,1,20.0,8.0,1235471508,,,,,,Empuje Vertical,160.0,Push V
+Griselda Romano,Barbell Military Press (Eccentric),2026-02-05,2026-02-05,2,20.0,8.0,1235471508,,,,,,Empuje Vertical,160.0,Push V
+Griselda Romano,Barbell Military Press (Eccentric),2026-02-05,2026-02-05,3,20.0,8.0,1235471508,,,,,,Empuje Vertical,160.0,Push V
+Griselda Romano,Barbell Back Squat,2026-02-06,2026-02-06,1,60.0,6.0,1235471513,,,,,,Dominante de Rodilla,360.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-06,2026-02-06,2,60.0,6.0,1235471513,,,,,,Dominante de Rodilla,360.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-06,2026-02-06,3,60.0,6.0,1235471513,,,,,,Dominante de Rodilla,360.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-09,2026-02-09,1,70.0,10.0,1235471528,,,,,,Dominante de Rodilla,700.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-09,2026-02-09,2,70.0,10.0,1235471528,,,,,,Dominante de Rodilla,700.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-09,2026-02-09,3,70.0,10.0,1235471528,,,,,,Dominante de Rodilla,700.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-09,2026-02-09,4,,,1235471528,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-02-09,2026-02-09,5,70.0,10.0,1235471528,,,,,,Dominante de Rodilla,700.0,Dom. Rodilla
+Griselda Romano,Barbell Hip Thrust,2026-02-09,2026-02-09,1,100.0,15.0,1235471536,,,,,,Dominante de Cadera,1500.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-02-09,2026-02-09,2,100.0,15.0,1235471536,,,,,,Dominante de Cadera,1500.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-02-09,2026-02-09,3,100.0,15.0,1235471536,,,,,,Dominante de Cadera,1500.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-02-09,2026-02-09,4,100.0,15.0,1235471536,,,,,,Dominante de Cadera,1500.0,Dom. Cadera
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-10,2026-02-10,1,40.0,8.0,1235471540,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-10,2026-02-10,2,40.0,8.0,1235471540,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-10,2026-02-10,3,40.0,8.0,1235471540,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-10,2026-02-10,4,40.0,8.0,1235471540,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Deadlift,2026-02-11,2026-02-11,1,65.0,6.0,1235471562,,,,,,Dominante de Cadera,390.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-11,2026-02-11,2,65.0,6.0,1235471562,,,,,,Dominante de Cadera,390.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-11,2026-02-11,3,65.0,6.0,1235471562,,,,,,Dominante de Cadera,390.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-11,2026-02-11,4,65.0,4.0,1235471562,,,,,,Dominante de Cadera,260.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-11,2026-02-11,5,65.0,6.0,1235471562,,,,,,Dominante de Cadera,390.0,Dom. Cadera
+Griselda Romano,Goblet Squat (Pulse),2026-02-11,2026-02-11,1,20.0,15.0,1235471565,,,,,,Dominante de Rodilla/Accessories MMII,300.0,Sin categoria
+Griselda Romano,Goblet Squat (Pulse),2026-02-11,2026-02-11,2,20.0,15.0,1235471565,,,,,,Dominante de Rodilla/Accessories MMII,300.0,Sin categoria
+Griselda Romano,Goblet Squat (Pulse),2026-02-11,2026-02-11,3,20.0,15.0,1235471565,,,,,,Dominante de Rodilla/Accessories MMII,300.0,Sin categoria
+Griselda Romano,Goblet Squat (Pulse),2026-02-11,2026-02-11,4,20.0,15.0,1235471565,,,,,,Dominante de Rodilla/Accessories MMII,300.0,Sin categoria
+Griselda Romano,Barbell RDL,2026-02-11,2026-02-11,1,65.0,8.0,1235471553,,,,,,Dominante de Cadera,520.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-02-11,2026-02-11,2,65.0,8.0,1235471553,,,,,,Dominante de Cadera,520.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-02-11,2026-02-11,3,65.0,8.0,1235471553,,,,,,Dominante de Cadera,520.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-02-11,2026-02-11,4,65.0,8.0,1235471553,,,,,,Dominante de Cadera,520.0,Dom. Cadera
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-24,2026-02-24,1,40.0,8.0,1265854749,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-24,2026-02-24,2,40.0,8.0,1265854749,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-24,2026-02-24,3,40.0,8.0,1265854749,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Bent Over Row (Pronated Grip),2026-02-24,2026-02-24,4,40.0,8.0,1265854749,,,,,,Traccion Horizontal,320.0,Pull H
+Griselda Romano,Barbell Deadlift,2026-02-25,2026-02-25,1,80.0,4.0,1265854771,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-25,2026-02-25,2,80.0,4.0,1265854771,,,,,,Dominante de Cadera,320.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-25,2026-02-25,3,85.0,4.0,1265854771,,,,,,Dominante de Cadera,340.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-25,2026-02-25,4,85.0,4.0,1265854771,,,,,,Dominante de Cadera,340.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-02-25,2026-02-25,5,85.0,4.0,1265854771,,,,,,Dominante de Cadera,340.0,Dom. Cadera
+Griselda Romano,Ab Whell Roll Out,2026-03-09,2026-03-09,1,,8.0,1273578869,,,,,,,,Sin categoria
+Griselda Romano,Ab Whell Roll Out,2026-03-09,2026-03-09,2,,8.0,1273578869,,,,,,,,Sin categoria
+Griselda Romano,Standing Pallof Press,2026-03-09,2026-03-09,1,,8.0,1273578868,,,,,,,,Sin categoria
+Griselda Romano,Standing Pallof Press,2026-03-09,2026-03-09,2,,8.0,1273578868,,,,,,,,Sin categoria
+Griselda Romano,Bodyweigth CMJ,2026-03-09,2026-03-09,1,,4.0,1273578862,,,,,,Jump_Ballistic,,Balístico
+Griselda Romano,Bodyweigth CMJ,2026-03-09,2026-03-09,2,,4.0,1273578862,,,,,,Jump_Ballistic,,Balístico
+Griselda Romano,Barbell Back Squat,2026-03-09,2026-03-09,1,70.0,6.0,1273578866,,,,,,Dominante de Rodilla,420.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-09,2026-03-09,2,90.0,3.0,1273578866,,,,,,Dominante de Rodilla,270.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-09,2026-03-09,3,85.0,4.0,1273578866,,,,,,Dominante de Rodilla,340.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-09,2026-03-09,4,85.0,4.0,1273578866,,,,,,Dominante de Rodilla,340.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-09,2026-03-09,5,85.0,4.0,1273578866,,,,,,Dominante de Rodilla,340.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-09,2026-03-09,6,90.0,10.0,1273578866,,,,,,Dominante de Rodilla,900.0,Dom. Rodilla
+Griselda Romano,Barbell Good Morning,2026-03-11,2026-03-11,1,30.0,10.0,1273578891,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Griselda Romano,Barbell Good Morning,2026-03-11,2026-03-11,2,30.0,10.0,1273578891,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-03-11,2026-03-11,1,80.0,3.0,1273578894,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-03-11,2026-03-11,2,95.0,4.0,1273578894,,,,,,Dominante de Cadera,380.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-03-11,2026-03-11,3,95.0,4.0,1273578894,,,,,,Dominante de Cadera,380.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-03-11,2026-03-11,4,100.0,4.0,1273578894,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Griselda Romano,Barbell Deadlift,2026-03-11,2026-03-11,5,100.0,4.0,1273578894,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-03-11,2026-03-11,1,90.0,15.0,1273578893,,,,,,Dominante de Cadera,1350.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-03-11,2026-03-11,2,90.0,15.0,1273578893,,,,,,Dominante de Cadera,1350.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-03-11,2026-03-11,3,90.0,15.0,1273578893,,,,,,Dominante de Cadera,1350.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-03-11,2026-03-11,4,90.0,15.0,1273578893,,,,,,Dominante de Cadera,1350.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-03-11,2026-03-11,5,90.0,15.0,1273578893,,,,,,Dominante de Cadera,1350.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust,2026-03-11,2026-03-11,6,90.0,15.0,1273578893,,,,,,Dominante de Cadera,1350.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-03-11,2026-03-11,1,65.0,8.0,1273578888,,,,,,Dominante de Cadera,520.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-03-11,2026-03-11,2,65.0,8.0,1273578888,,,,,,Dominante de Cadera,520.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-03-11,2026-03-11,3,65.0,8.0,1273578888,,,,,,Dominante de Cadera,520.0,Dom. Cadera
+Griselda Romano,Barbell RDL,2026-03-11,2026-03-11,4,65.0,8.0,1273578888,,,,,,Dominante de Cadera,520.0,Dom. Cadera
+Griselda Romano,Front Squat,2026-03-13,2026-03-13,1,40.0,8.0,1273578913,,,,,,,320.0,Sin categoria
+Griselda Romano,Front Squat,2026-03-13,2026-03-13,2,40.0,8.0,1273578913,,,,,,,320.0,Sin categoria
+Griselda Romano,Front Squat,2026-03-13,2026-03-13,3,40.0,8.0,1273578913,,,,,,,320.0,Sin categoria
+Griselda Romano,Front Squat,2026-03-13,2026-03-13,4,40.0,8.0,1273578913,,,,,,,320.0,Sin categoria
+Griselda Romano,Front Squat,2026-03-13,2026-03-13,5,,,1273578913,,,,,,,,Sin categoria
+Griselda Romano,Barbell Back Squat,2026-03-16,2026-03-16,1,70.0,4.0,1273580929,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-16,2026-03-16,2,90.0,5.0,1273580929,,,,,,Dominante de Rodilla,450.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-16,2026-03-16,3,90.0,5.0,1273580929,,,,,,Dominante de Rodilla,450.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-16,2026-03-16,4,90.0,1.0,1273580929,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-16,2026-03-16,5,90.0,1.0,1273580929,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Griselda Romano,Barbell Back Squat,2026-03-16,2026-03-16,6,90.0,1.0,1273580929,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Griselda Romano,Barbell Hip Thrust (Pulse),2026-03-20,2026-03-20,1,100.0,10.0,1273580982,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust (Pulse),2026-03-20,2026-03-20,2,100.0,10.0,1273580982,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust (Pulse),2026-03-20,2026-03-20,3,100.0,10.0,1273580982,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Griselda Romano,Barbell Hip Thrust (Pulse),2026-03-20,2026-03-20,4,100.0,10.0,1273580982,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Juan Pablo Godoy,Hack Squat,2026-03-09,2026-03-09,1,80.0,8.0,1277664407,,,,,,Dominante de Rodilla,640.0,Dom. Rodilla
+Juan Pablo Godoy,Hack Squat,2026-03-09,2026-03-09,2,80.0,8.0,1277664407,,,,,,Dominante de Rodilla,640.0,Dom. Rodilla
+Juan Pablo Godoy,Hack Squat,2026-03-09,2026-03-09,3,80.0,8.0,1277664407,,,,,,Dominante de Rodilla,640.0,Dom. Rodilla
+Juan Pablo Godoy,Hack Squat,2026-03-09,2026-03-09,4,80.0,8.0,1277664407,,,,,,Dominante de Rodilla,640.0,Dom. Rodilla
+Juan Pablo Godoy,Barbell RDL,2026-03-09,2026-03-09,1,70.0,6.0,1277664410,,,,,,Dominante de Cadera,420.0,Dom. Cadera
+Juan Pablo Godoy,Barbell RDL,2026-03-09,2026-03-09,2,80.0,6.0,1277664410,,,,,,Dominante de Cadera,480.0,Dom. Cadera
+Juan Pablo Godoy,Barbell RDL,2026-03-09,2026-03-09,3,80.0,6.0,1277664410,,,,,,Dominante de Cadera,480.0,Dom. Cadera
+Juan Pablo Godoy,Barbell RDL,2026-03-09,2026-03-09,4,90.0,6.0,1277664410,,,,,,Dominante de Cadera,540.0,Dom. Cadera
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-09,2026-03-09,1,35.0,8.0,1277664411,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-09,2026-03-09,2,35.0,8.0,1277664411,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-09,2026-03-09,3,35.0,8.0,1277664411,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-09,2026-03-09,4,35.0,8.0,1277664411,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Seated Hamstring Curl (Machine),2026-03-09,2026-03-09,1,55.0,15.0,1277664412,,,,,,Accessories MMII/Ham_Curl,825.0,Accesorios MMII
+Juan Pablo Godoy,Seated Hamstring Curl (Machine),2026-03-09,2026-03-09,2,60.0,15.0,1277664412,,,,,,Accessories MMII/Ham_Curl,900.0,Accesorios MMII
+Juan Pablo Godoy,Seated Hamstring Curl (Machine),2026-03-09,2026-03-09,3,65.0,15.0,1277664412,,,,,,Accessories MMII/Ham_Curl,975.0,Accesorios MMII
+Juan Pablo Godoy,Barbell Bent Over Row (Supinated Grip),2026-03-10,2026-03-10,1,40.0,8.0,1277664415,,,,,,Traccion Horizontal,320.0,Pull H
+Juan Pablo Godoy,Barbell Bent Over Row (Supinated Grip),2026-03-10,2026-03-10,2,60.0,8.0,1277664415,,,,,,Traccion Horizontal,480.0,Pull H
+Juan Pablo Godoy,Barbell Bent Over Row (Supinated Grip),2026-03-10,2026-03-10,3,60.0,8.0,1277664415,,,,,,Traccion Horizontal,480.0,Pull H
+Juan Pablo Godoy,Barbell Bent Over Row (Supinated Grip),2026-03-10,2026-03-10,4,60.0,8.0,1277664415,,,,,,Traccion Horizontal,480.0,Pull H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-10,2026-03-10,1,40.0,10.0,1277664426,,,,,,Traccion Horizontal,400.0,Pull H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-10,2026-03-10,2,40.0,10.0,1277664426,,,,,,Traccion Horizontal,400.0,Pull H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-10,2026-03-10,3,40.0,10.0,1277664426,,,,,,Traccion Horizontal,400.0,Pull H
+Juan Pablo Godoy,Lat Pulldown (Supinated Grip),2026-03-10,2026-03-10,1,60.0,8.0,1277664427,,,,,,Traccion Vertical,480.0,Pull V
+Juan Pablo Godoy,Lat Pulldown (Supinated Grip),2026-03-10,2026-03-10,2,70.0,8.0,1277664427,,,,,,Traccion Vertical,560.0,Pull V
+Juan Pablo Godoy,Lat Pulldown (Supinated Grip),2026-03-10,2026-03-10,3,70.0,8.0,1277664427,,,,,,Traccion Vertical,560.0,Pull V
+Juan Pablo Godoy,Prone Barbell Triceps Extension,2026-03-10,2026-03-10,1,,,1277664423,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Prone Barbell Triceps Extension,2026-03-10,2026-03-10,2,,,1277664423,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Prone Barbell Triceps Extension,2026-03-10,2026-03-10,3,,,1277664423,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Cable Biceps Curl,2026-03-10,2026-03-10,1,,,1277664424,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Cable Biceps Curl,2026-03-10,2026-03-10,2,,,1277664424,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Cable Biceps Curl,2026-03-10,2026-03-10,3,,,1277664424,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Push Up,2026-03-11,2026-03-11,1,,12.0,1277664438,,,,,,Empuje Horizontal,,Push H
+Juan Pablo Godoy,Push Up,2026-03-11,2026-03-11,2,,12.0,1277664438,,,,,,Empuje Horizontal,,Push H
+Juan Pablo Godoy,Plate Russian Twist,2026-03-11,2026-03-11,1,10.0,20.0,1277664440,,,,,,,200.0,Sin categoria
+Juan Pablo Godoy,Plate Russian Twist,2026-03-11,2026-03-11,2,10.0,20.0,1277664440,,,,,,,200.0,Sin categoria
+Juan Pablo Godoy,Db Pullover on Bench,2026-03-11,2026-03-11,1,17.5,12.0,1277664439,,,,,,,210.0,Sin categoria
+Juan Pablo Godoy,Db Pullover on Bench,2026-03-11,2026-03-11,2,17.5,12.0,1277664439,,,,,,,210.0,Sin categoria
+Juan Pablo Godoy,Barbell Bench Press,2026-03-11,2026-03-11,1,80.0,10.0,1277664436,,,,,,Empuje Horizontal,800.0,Push H
+Juan Pablo Godoy,Barbell Bench Press,2026-03-11,2026-03-11,2,100.0,5.0,1277664436,,,,,,Empuje Horizontal,500.0,Push H
+Juan Pablo Godoy,Barbell Bench Press,2026-03-11,2026-03-11,3,110.0,3.0,1277664436,,,,,,Empuje Horizontal,330.0,Push H
+Juan Pablo Godoy,Barbell Bench Press,2026-03-11,2026-03-11,4,100.0,4.0,1277664436,,,,,,Empuje Horizontal,400.0,Push H
+Juan Pablo Godoy,Barbell Military Press,2026-03-11,2026-03-11,1,50.0,5.0,1277664428,,,,,,Empuje Vertical,250.0,Push V
+Juan Pablo Godoy,Barbell Military Press,2026-03-11,2026-03-11,2,50.0,5.0,1277664428,,,,,,Empuje Vertical,250.0,Push V
+Juan Pablo Godoy,Barbell Military Press,2026-03-11,2026-03-11,3,50.0,5.0,1277664428,,,,,,Empuje Vertical,250.0,Push V
+Juan Pablo Godoy,Barbell Military Press,2026-03-11,2026-03-11,4,50.0,5.0,1277664428,,,,,,Empuje Vertical,250.0,Push V
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Press,2026-03-11,2026-03-11,1,40.0,10.0,1277664435,,,,,,Empuje Horizontal,400.0,Push H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Press,2026-03-11,2026-03-11,2,40.0,10.0,1277664435,,,,,,Empuje Horizontal,400.0,Push H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Press,2026-03-11,2026-03-11,3,40.0,10.0,1277664435,,,,,,Empuje Horizontal,400.0,Push H
+Juan Pablo Godoy,Seated Chest Fly (Machine),2026-03-11,2026-03-11,1,35.0,15.0,1277664437,,,,,,,525.0,Sin categoria
+Juan Pablo Godoy,Seated Chest Fly (Machine),2026-03-11,2026-03-11,2,45.0,12.0,1277664437,,,,,,,540.0,Sin categoria
+Juan Pablo Godoy,Seated Chest Fly (Machine),2026-03-11,2026-03-11,3,45.0,12.0,1277664437,,,,,,,540.0,Sin categoria
+Juan Pablo Godoy,Barbell RDL,2026-03-16,2026-03-16,1,80.0,6.0,1277664449,,,,,,Dominante de Cadera,480.0,Dom. Cadera
+Juan Pablo Godoy,Barbell RDL,2026-03-16,2026-03-16,2,80.0,6.0,1277664449,,,,,,Dominante de Cadera,480.0,Dom. Cadera
+Juan Pablo Godoy,Barbell RDL,2026-03-16,2026-03-16,3,80.0,6.0,1277664449,,,,,,Dominante de Cadera,480.0,Dom. Cadera
+Juan Pablo Godoy,Barbell RDL,2026-03-16,2026-03-16,4,80.0,6.0,1277664449,,,,,,Dominante de Cadera,480.0,Dom. Cadera
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-16,2026-03-16,1,35.0,8.0,1277664450,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-16,2026-03-16,2,35.0,80.0,1277664450,,,,,,Dominante de Rodilla,2800.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-16,2026-03-16,3,35.0,8.0,1277664450,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-16,2026-03-16,4,35.0,8.0,1277664450,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Bar Pull Up (Pronated Grip),2026-03-17,2026-03-18,1,0.0,5.0,1277664464,,,,,,Traccion Vertical,0.0,Pull V
+Juan Pablo Godoy,Bar Pull Up (Pronated Grip),2026-03-17,2026-03-18,2,0.0,5.0,1277664464,,,,,,Traccion Vertical,0.0,Pull V
+Juan Pablo Godoy,Bar Pull Up (Pronated Grip),2026-03-17,2026-03-18,3,0.0,5.0,1277664464,,,,,,Traccion Vertical,0.0,Pull V
+Juan Pablo Godoy,Bar Pull Up (Pronated Grip),2026-03-17,2026-03-18,4,0.0,5.0,1277664464,,,,,,Traccion Vertical,0.0,Pull V
+Juan Pablo Godoy,Barbell Bent Over Row (Supinated Grip),2026-03-17,2026-03-18,1,60.0,8.0,1277664454,,,,,,Traccion Horizontal,480.0,Pull H
+Juan Pablo Godoy,Barbell Bent Over Row (Supinated Grip),2026-03-17,2026-03-18,2,70.0,8.0,1277664454,,,,,,Traccion Horizontal,560.0,Pull H
+Juan Pablo Godoy,Barbell Bent Over Row (Supinated Grip),2026-03-17,2026-03-18,3,60.0,8.0,1277664454,,,,,,Traccion Horizontal,480.0,Pull H
+Juan Pablo Godoy,Barbell Bent Over Row (Supinated Grip),2026-03-17,2026-03-18,4,60.0,8.0,1277664454,,,,,,Traccion Horizontal,480.0,Pull H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-17,2026-03-18,1,40.0,10.0,1277664465,,,,,,Traccion Horizontal,400.0,Pull H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-17,2026-03-18,2,45.0,10.0,1277664465,,,,,,Traccion Horizontal,450.0,Pull H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Row (Neutral Grip),2026-03-17,2026-03-18,3,45.0,10.0,1277664465,,,,,,Traccion Horizontal,450.0,Pull H
+Juan Pablo Godoy,Lat Pulldown (Supinated Grip),2026-03-17,2026-03-18,1,65.0,8.0,1277664466,,,,,,Traccion Vertical,520.0,Pull V
+Juan Pablo Godoy,Lat Pulldown (Supinated Grip),2026-03-17,2026-03-18,2,65.0,8.0,1277664466,,,,,,Traccion Vertical,520.0,Pull V
+Juan Pablo Godoy,Lat Pulldown (Supinated Grip),2026-03-17,2026-03-18,3,70.0,8.0,1277664466,,,,,,Traccion Vertical,560.0,Pull V
+Juan Pablo Godoy,HIgh Cable Bar Triceps Extension,2026-03-17,2026-03-18,1,,,1277664462,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,HIgh Cable Bar Triceps Extension,2026-03-17,2026-03-18,2,,,1277664462,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,HIgh Cable Bar Triceps Extension,2026-03-17,2026-03-18,3,,,1277664462,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Db Biceps Curl,2026-03-17,2026-03-18,1,,,1277664463,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Db Biceps Curl,2026-03-17,2026-03-18,2,,,1277664463,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Db Biceps Curl,2026-03-17,2026-03-18,3,,,1277664463,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Barbell Bench Press,2026-03-18,2026-03-21,1,80.0,8.0,1277664475,,,,,,Empuje Horizontal,640.0,Push H
+Juan Pablo Godoy,Barbell Bench Press,2026-03-18,2026-03-21,2,100.0,4.0,1277664475,,,,,,Empuje Horizontal,400.0,Push H
+Juan Pablo Godoy,Barbell Bench Press,2026-03-18,2026-03-21,3,110.0,4.0,1277664475,,,,,,Empuje Horizontal,440.0,Push H
+Juan Pablo Godoy,Barbell Bench Press,2026-03-18,2026-03-21,4,110.0,3.0,1277664475,,,,,,Empuje Horizontal,330.0,Push H
+Juan Pablo Godoy,Barbell Military Press,2026-03-18,2026-03-21,1,50.0,5.0,1277664467,,,,,,Empuje Vertical,250.0,Push V
+Juan Pablo Godoy,Barbell Military Press,2026-03-18,2026-03-21,2,50.0,5.0,1277664467,,,,,,Empuje Vertical,250.0,Push V
+Juan Pablo Godoy,Barbell Military Press,2026-03-18,2026-03-21,3,50.0,5.0,1277664467,,,,,,Empuje Vertical,250.0,Push V
+Juan Pablo Godoy,Barbell Military Press,2026-03-18,2026-03-21,4,50.0,5.0,1277664467,,,,,,Empuje Vertical,250.0,Push V
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Press,2026-03-18,2026-03-21,1,50.0,10.0,1277664474,,,,,,Empuje Horizontal,500.0,Push H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Press,2026-03-18,2026-03-21,2,50.0,10.0,1277664474,,,,,,Empuje Horizontal,500.0,Push H
+Juan Pablo Godoy,Db/Kb 2-Arm Incline Bench Press,2026-03-18,2026-03-21,3,50.0,10.0,1277664474,,,,,,Empuje Horizontal,500.0,Push H
+Juan Pablo Godoy,Seated Chest Fly (Machine),2026-03-18,2026-03-21,1,45.0,12.0,1277664476,,,,,,,540.0,Sin categoria
+Juan Pablo Godoy,Seated Chest Fly (Machine),2026-03-18,2026-03-21,2,50.0,12.0,1277664476,,,,,,,600.0,Sin categoria
+Juan Pablo Godoy,Seated Chest Fly (Machine),2026-03-18,2026-03-21,3,50.0,12.0,1277664476,,,,,,,600.0,Sin categoria
+Juan Pablo Godoy,Alternating Db Biceps Curl,2026-03-18,2026-03-21,1,,,1277664472,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Alternating Db Biceps Curl,2026-03-18,2026-03-21,2,,,1277664472,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Lying Barbell Triceps Extension,2026-03-18,2026-03-21,1,,,1277664473,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Lying Barbell Triceps Extension,2026-03-18,2026-03-21,2,,,1277664473,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Juan Pablo Godoy,Hack Squat,2026-03-23,2026-03-23,1,80.0,8.0,1277664485,,,,,,Dominante de Rodilla,640.0,Dom. Rodilla
+Juan Pablo Godoy,Hack Squat,2026-03-23,2026-03-23,2,80.0,8.0,1277664485,,,,,,Dominante de Rodilla,640.0,Dom. Rodilla
+Juan Pablo Godoy,Hack Squat,2026-03-23,2026-03-23,3,80.0,8.0,1277664485,,,,,,Dominante de Rodilla,640.0,Dom. Rodilla
+Juan Pablo Godoy,Hack Squat,2026-03-23,2026-03-23,4,80.0,8.0,1277664485,,,,,,Dominante de Rodilla,640.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-23,2026-03-23,1,35.0,8.0,1277664489,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-23,2026-03-23,2,35.0,8.0,1277664489,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-23,2026-03-23,3,35.0,8.0,1277664489,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Juan Pablo Godoy,Db/Kb 2-Arm Split Squat,2026-03-23,2026-03-23,4,35.0,8.0,1277664489,,,,,,Dominante de Rodilla,280.0,Dom. Rodilla
+Mariano Burgos,Quadruped T-Spine Rotation,2026-02-04,2026-02-04,1,,10.0,1236971532,,,,,,,,Sin categoria
+Mariano Burgos,Quadruped T-Spine Rotation,2026-02-04,2026-02-04,2,,10.0,1236971532,,,,,,,,Sin categoria
+Mariano Burgos,90-90 Hip Stretch (Hands Support),2026-02-04,2026-02-04,1,,12.0,1236971531,,,,,,Stretch MMII,,Sin categoria
+Mariano Burgos,90-90 Hip Stretch (Hands Support),2026-02-04,2026-02-04,2,,12.0,1236971531,,,,,,Stretch MMII,,Sin categoria
+Mariano Burgos,Knee to Wall,2026-02-04,2026-02-04,1,,15.0,1236971530,,,,,,Wall Drill,,Sin categoria
+Mariano Burgos,Knee to Wall,2026-02-04,2026-02-04,2,,15.0,1236971530,,,,,,Wall Drill,,Sin categoria
+Mariano Burgos,Barbell Back Squat,2026-02-04,2026-02-04,1,,4.0,1236971534,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-04,2026-02-04,2,,4.0,1236971534,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-04,2026-02-04,3,,4.0,1236971534,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-04,2026-02-04,4,,4.0,1236971534,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-04,2026-02-04,5,,4.0,1236971534,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell RDL,2026-02-04,2026-02-04,1,35.0,6.0,1236971535,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-02-04,2026-02-04,2,35.0,6.0,1236971535,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-02-04,2026-02-04,3,35.0,6.0,1236971535,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-02-04,2026-02-04,4,35.0,6.0,1236971535,,,,,,Dominante de Cadera,210.0,Dom. Cadera
+Mariano Burgos,Db/Kb 2-Arm Split Squat,2026-02-04,2026-02-04,1,15.0,6.0,1236971537,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Db/Kb 2-Arm Split Squat,2026-02-04,2026-02-04,2,15.0,6.0,1236971537,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Db/Kb 2-Arm Split Squat,2026-02-04,2026-02-04,3,15.0,6.0,1236971537,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Db/Kb Seated 1-Leg Calf Raises,2026-02-04,2026-02-04,1,15.0,15.0,1236971539,,,,,,Accessories MMII,225.0,Sin categoria
+Mariano Burgos,Db/Kb Seated 1-Leg Calf Raises,2026-02-04,2026-02-04,2,15.0,15.0,1236971539,,,,,,Accessories MMII,225.0,Sin categoria
+Mariano Burgos,Db/Kb Seated 1-Leg Calf Raises,2026-02-04,2026-02-04,3,15.0,15.0,1236971539,,,,,,Accessories MMII,225.0,Sin categoria
+Mariano Burgos,Split Squat ISO Hold,2026-02-04,2026-02-04,1,,20.0,1236971540,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Squat ISO Hold,2026-02-04,2026-02-04,2,,20.0,1236971540,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Hang Power Clean,2026-02-06,2026-02-06,1,28.0,2.0,1236971559,,,,,,DLO,56.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-06,2026-02-06,2,28.0,2.0,1236971559,,,,,,DLO,56.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-06,2026-02-06,3,28.0,2.0,1236971559,,,,,,DLO,56.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-06,2026-02-06,4,35.0,2.0,1236971559,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-06,2026-02-06,5,35.0,2.0,1236971559,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-06,2026-02-06,6,35.0,2.0,1236971559,,,,,,DLO,70.0,DLO
+Mariano Burgos,Barbell Deadlift,2026-02-06,2026-02-06,1,60.0,2.0,1236971561,,,,,,Dominante de Cadera,120.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-02-06,2026-02-06,2,60.0,2.0,1236971561,,,,,,Dominante de Cadera,120.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-02-06,2026-02-06,3,60.0,2.0,1236971561,,,,,,Dominante de Cadera,120.0,Dom. Cadera
+Mariano Burgos,Kb/Db CMJ,2026-02-06,2026-02-06,1,15.0,3.0,1236971562,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-02-06,2026-02-06,2,15.0,3.0,1236971562,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-02-06,2026-02-06,3,15.0,3.0,1236971562,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Barbell Hip Thrust,2026-02-06,2026-02-06,1,50.0,8.0,1236971564,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-06,2026-02-06,2,50.0,8.0,1236971564,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-06,2026-02-06,3,50.0,8.0,1236971564,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-06,2026-02-06,4,50.0,8.0,1236971564,,,,,,Dominante de Cadera,400.0,Dom. Cadera
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-06,2026-02-06,1,15.0,6.0,1236971565,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-06,2026-02-06,2,15.0,6.0,1236971565,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-06,2026-02-06,3,15.0,6.0,1236971565,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-06,2026-02-06,1,7.5,12.0,1236971568,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-06,2026-02-06,2,7.5,12.0,1236971568,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-06,2026-02-06,3,7.5,12.0,1236971568,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-02-06,2026-02-06,1,12.5,12.0,1236971569,,,,,,Triceps,150.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-02-06,2026-02-06,2,12.5,12.0,1236971569,,,,,,Triceps,150.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-02-06,2026-02-06,3,15.0,12.0,1236971569,,,,,,Triceps,180.0,Sin categoria
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-06,2026-02-06,1,,12.0,1236971567,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-06,2026-02-06,2,,12.0,1236971567,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-06,2026-02-06,3,,12.0,1236971567,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-06,2026-02-06,1,5.0,12.0,1236971570,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-06,2026-02-06,2,5.0,12.0,1236971570,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-06,2026-02-06,3,5.0,12.0,1236971570,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Banded Shoulder Dislocation,2026-02-09,2026-02-10,1,,15.0,1236971573,,,,,,,,Sin categoria
+Mariano Burgos,Banded Shoulder Dislocation,2026-02-09,2026-02-10,2,,15.0,1236971573,,,,,,,,Sin categoria
+Mariano Burgos,Banded Face Pull,2026-02-09,2026-02-10,1,,12.0,1236971574,,,,,,,,Sin categoria
+Mariano Burgos,Banded Face Pull,2026-02-09,2026-02-10,2,,12.0,1236971574,,,,,,,,Sin categoria
+Mariano Burgos,Bent Over Lateral Raises (Shoulder Post),2026-02-09,2026-02-10,1,5.0,10.0,1236971575,,,,,,Accessories MMSS,50.0,Accesorios MMSS
+Mariano Burgos,Bent Over Lateral Raises (Shoulder Post),2026-02-09,2026-02-10,2,5.0,10.0,1236971575,,,,,,Accessories MMSS,50.0,Accesorios MMSS
+Mariano Burgos,Barbell Bench Press,2026-02-09,2026-02-10,1,36.0,4.0,1236971577,,,,,,Empuje Horizontal,144.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-02-09,2026-02-10,2,36.0,4.0,1236971577,,,,,,Empuje Horizontal,144.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-02-09,2026-02-10,3,36.0,4.0,1236971577,,,,,,Empuje Horizontal,144.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-02-09,2026-02-10,4,39.0,4.0,1236971577,,,,,,Empuje Horizontal,156.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-02-09,2026-02-10,5,39.0,4.0,1236971577,,,,,,Empuje Horizontal,156.0,Push H
+Mariano Burgos,Barbell Bent Over Row (Supinated Grip),2026-02-09,2026-02-10,1,30.0,6.0,1236971578,,,,,,Traccion Horizontal,180.0,Pull H
+Mariano Burgos,Barbell Bent Over Row (Supinated Grip),2026-02-09,2026-02-10,2,30.0,6.0,1236971578,,,,,,Traccion Horizontal,180.0,Pull H
+Mariano Burgos,Barbell Bent Over Row (Supinated Grip),2026-02-09,2026-02-10,3,35.0,6.0,1236971578,,,,,,Traccion Horizontal,210.0,Pull H
+Mariano Burgos,Barbell Bent Over Row (Supinated Grip),2026-02-09,2026-02-10,4,35.0,6.0,1236971578,,,,,,Traccion Horizontal,210.0,Pull H
+Mariano Burgos,Barbell Military Press,2026-02-09,2026-02-10,1,20.0,6.0,1236971580,,,,,,Empuje Vertical,120.0,Push V
+Mariano Burgos,Barbell Military Press,2026-02-09,2026-02-10,2,20.0,6.0,1236971580,,,,,,Empuje Vertical,120.0,Push V
+Mariano Burgos,Barbell Military Press,2026-02-09,2026-02-10,3,20.0,6.0,1236971580,,,,,,Empuje Vertical,120.0,Push V
+Mariano Burgos,Bar Pull Up (Supinated Grip),2026-02-09,2026-02-10,1,0.0,4.0,1236971581,,,,,,Traccion Vertical,0.0,Pull V
+Mariano Burgos,Bar Pull Up (Supinated Grip),2026-02-09,2026-02-10,2,0.0,4.0,1236971581,,,,,,Traccion Vertical,0.0,Pull V
+Mariano Burgos,Bar Pull Up (Supinated Grip),2026-02-09,2026-02-10,3,0.0,4.0,1236971581,,,,,,Traccion Vertical,0.0,Pull V
+Mariano Burgos,Bar Pull Up (Supinated Grip),2026-02-09,2026-02-10,4,0.0,4.0,1236971581,,,,,,Traccion Vertical,0.0,Pull V
+Mariano Burgos,Eccentric Nordic Curl (Assisted Barbell & Rack),2026-02-09,2026-02-10,1,,5.0,1236971583,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Eccentric Nordic Curl (Assisted Barbell & Rack),2026-02-09,2026-02-10,2,,5.0,1236971583,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Eccentric Nordic Curl (Assisted Barbell & Rack),2026-02-09,2026-02-10,3,,5.0,1236971583,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Copenhagen Plank,2026-02-09,2026-02-10,1,,30.0,1236971584,,,,,,,,Sin categoria
+Mariano Burgos,Copenhagen Plank,2026-02-09,2026-02-10,2,,30.0,1236971584,,,,,,,,Sin categoria
+Mariano Burgos,Copenhagen Plank,2026-02-09,2026-02-10,3,,30.0,1236971584,,,,,,,,Sin categoria
+Mariano Burgos,Deadbug Psoas March,2026-02-09,2026-02-10,1,,12.0,1236971585,,,,,,,,Sin categoria
+Mariano Burgos,Deadbug Psoas March,2026-02-09,2026-02-10,2,,12.0,1236971585,,,,,,,,Sin categoria
+Mariano Burgos,Deadbug Psoas March,2026-02-09,2026-02-10,3,,12.0,1236971585,,,,,,,,Sin categoria
+Mariano Burgos,Quadruped T-Spine Rotation,2026-02-11,2026-02-11,1,,10.0,1236971608,,,,,,,,Sin categoria
+Mariano Burgos,Quadruped T-Spine Rotation,2026-02-11,2026-02-11,2,,10.0,1236971608,,,,,,,,Sin categoria
+Mariano Burgos,90-90 Hip Stretch (Hands Support),2026-02-11,2026-02-11,1,,12.0,1236971607,,,,,,Stretch MMII,,Sin categoria
+Mariano Burgos,90-90 Hip Stretch (Hands Support),2026-02-11,2026-02-11,2,,12.0,1236971607,,,,,,Stretch MMII,,Sin categoria
+Mariano Burgos,Knee to Wall,2026-02-11,2026-02-11,1,,15.0,1236971606,,,,,,Wall Drill,,Sin categoria
+Mariano Burgos,Knee to Wall,2026-02-11,2026-02-11,2,,15.0,1236971606,,,,,,Wall Drill,,Sin categoria
+Mariano Burgos,Barbell Back Squat,2026-02-11,2026-02-11,1,,3.0,1236971610,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-11,2026-02-11,2,,3.0,1236971610,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-11,2026-02-11,3,,3.0,1236971610,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-11,2026-02-11,4,,3.0,1236971610,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-11,2026-02-11,5,,3.0,1236971610,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-02-11,2026-02-11,6,,3.0,1236971610,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Barbell RDL,2026-02-11,2026-02-11,1,40.0,6.0,1236971611,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-02-11,2026-02-11,2,40.0,6.0,1236971611,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-02-11,2026-02-11,3,40.0,6.0,1236971611,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-02-11,2026-02-11,4,40.0,6.0,1236971611,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Mariano Burgos,Db/Kb 2-Arm Split Squat,2026-02-11,2026-02-11,1,15.0,8.0,1236971613,,,,,,Dominante de Rodilla,120.0,Dom. Rodilla
+Mariano Burgos,Db/Kb 2-Arm Split Squat,2026-02-11,2026-02-11,2,15.0,8.0,1236971613,,,,,,Dominante de Rodilla,120.0,Dom. Rodilla
+Mariano Burgos,Db/Kb 2-Arm Split Squat,2026-02-11,2026-02-11,3,15.0,8.0,1236971613,,,,,,Dominante de Rodilla,120.0,Dom. Rodilla
+Mariano Burgos,Db/Kb Seated 1-Leg Calf Raises,2026-02-11,2026-02-11,1,15.0,15.0,1236971615,,,,,,Accessories MMII,225.0,Sin categoria
+Mariano Burgos,Db/Kb Seated 1-Leg Calf Raises,2026-02-11,2026-02-11,2,15.0,15.0,1236971615,,,,,,Accessories MMII,225.0,Sin categoria
+Mariano Burgos,Db/Kb Seated 1-Leg Calf Raises,2026-02-11,2026-02-11,3,15.0,15.0,1236971615,,,,,,Accessories MMII,225.0,Sin categoria
+Mariano Burgos,Split Squat ISO Hold,2026-02-11,2026-02-11,1,,20.0,1236971616,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Squat ISO Hold,2026-02-11,2026-02-11,2,,20.0,1236971616,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Hang Power Clean,2026-02-13,2026-02-13,1,28.0,2.0,1236971636,,,,,,DLO,56.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-13,2026-02-13,2,28.0,2.0,1236971636,,,,,,DLO,56.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-13,2026-02-13,3,28.0,2.0,1236971636,,,,,,DLO,56.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-13,2026-02-13,4,28.0,2.0,1236971636,,,,,,DLO,56.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-13,2026-02-13,5,28.0,2.0,1236971636,,,,,,DLO,56.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-13,2026-02-13,6,28.0,2.0,1236971636,,,,,,DLO,56.0,DLO
+Mariano Burgos,Barbell Deadlift,2026-02-13,2026-02-13,1,58.0,2.0,1236971638,,,,,,Dominante de Cadera,116.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-02-13,2026-02-13,2,58.0,2.0,1236971638,,,,,,Dominante de Cadera,116.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-02-13,2026-02-13,3,58.0,2.0,1236971638,,,,,,Dominante de Cadera,116.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-02-13,2026-02-13,4,58.0,2.0,1236971638,,,,,,Dominante de Cadera,116.0,Dom. Cadera
+Mariano Burgos,Kb/Db CMJ,2026-02-13,2026-02-13,1,15.0,3.0,1236971639,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-02-13,2026-02-13,2,15.0,3.0,1236971639,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-02-13,2026-02-13,3,15.0,3.0,1236971639,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-02-13,2026-02-13,4,15.0,3.0,1236971639,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Barbell Hip Thrust,2026-02-13,2026-02-13,1,40.0,6.0,1236971641,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-13,2026-02-13,2,50.0,6.0,1236971641,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-13,2026-02-13,3,50.0,6.0,1236971641,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-13,2026-02-13,4,50.0,6.0,1236971641,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-13,2026-02-13,1,15.0,6.0,1236971642,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-13,2026-02-13,2,15.0,6.0,1236971642,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-13,2026-02-13,3,15.0,6.0,1236971642,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-13,2026-02-13,1,,12.0,1236971644,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-13,2026-02-13,2,,12.0,1236971644,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-13,2026-02-13,3,,12.0,1236971644,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-13,2026-02-13,1,7.5,12.0,1236971645,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-13,2026-02-13,2,7.5,12.0,1236971645,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-13,2026-02-13,3,7.5,12.0,1236971645,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-02-13,2026-02-13,1,0.0,12.0,1236971646,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-02-13,2026-02-13,2,0.0,12.0,1236971646,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-02-13,2026-02-13,3,0.0,12.0,1236971646,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-13,2026-02-13,1,5.0,12.0,1236971647,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-13,2026-02-13,2,5.0,12.0,1236971647,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-13,2026-02-13,3,5.0,12.0,1236971647,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Hang Power Clean,2026-02-20,2026-02-20,1,35.0,2.0,1236971710,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-20,2026-02-20,2,35.0,2.0,1236971710,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-20,2026-02-20,3,35.0,2.0,1236971710,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-20,2026-02-20,4,35.0,2.0,1236971710,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-20,2026-02-20,5,35.0,2.0,1236971710,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-20,2026-02-20,6,35.0,2.0,1236971710,,,,,,DLO,70.0,DLO
+Mariano Burgos,Kb/Db CMJ,2026-02-20,2026-02-20,1,15.0,3.0,1236971713,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-02-20,2026-02-20,2,15.0,3.0,1236971713,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-02-20,2026-02-20,3,15.0,3.0,1236971713,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Barbell Deadlift,2026-02-20,2026-02-20,1,59.0,2.0,1236971712,,,,,,Dominante de Cadera,118.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-02-20,2026-02-20,2,59.0,2.0,1236971712,,,,,,Dominante de Cadera,118.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-02-20,2026-02-20,3,59.0,2.0,1236971712,,,,,,Dominante de Cadera,118.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-20,2026-02-20,1,50.0,6.0,1236971715,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-20,2026-02-20,2,50.0,6.0,1236971715,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-20,2026-02-20,3,50.0,6.0,1236971715,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-20,2026-02-20,1,15.0,6.0,1236971716,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-20,2026-02-20,2,15.0,6.0,1236971716,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-20,2026-02-20,3,15.0,6.0,1236971716,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-20,2026-02-20,1,,12.0,1236971718,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-20,2026-02-20,2,,12.0,1236971718,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-20,2026-02-20,3,,12.0,1236971718,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-20,2026-02-20,1,7.5,12.0,1236971719,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-20,2026-02-20,2,7.5,12.0,1236971719,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-20,2026-02-20,3,7.5,12.0,1236971719,,,,,,Biceps/Accessories MMSS,90.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-02-20,2026-02-20,1,15.0,12.0,1236971720,,,,,,Triceps,180.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-02-20,2026-02-20,2,15.0,12.0,1236971720,,,,,,Triceps,180.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-02-20,2026-02-20,3,15.0,12.0,1236971720,,,,,,Triceps,180.0,Sin categoria
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-20,2026-02-20,1,5.0,12.0,1236971721,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-20,2026-02-20,2,5.0,12.0,1236971721,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Db Lateral Shoulder Raises,2026-02-20,2026-02-20,3,5.0,12.0,1236971721,,,,,,Accessories MMSS,60.0,Accesorios MMSS
+Mariano Burgos,Hang Power Clean,2026-02-27,2026-02-27,1,35.0,2.0,1236971786,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-27,2026-02-27,2,35.0,2.0,1236971786,,,,,,DLO,70.0,DLO
+Mariano Burgos,Hang Power Clean,2026-02-27,2026-02-27,3,35.0,2.0,1236971786,,,,,,DLO,70.0,DLO
+Mariano Burgos,Barbell Deadlift,2026-02-27,2026-02-27,1,59.0,2.0,1236971788,,,,,,Dominante de Cadera,118.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-02-27,2026-02-27,2,59.0,2.0,1236971788,,,,,,Dominante de Cadera,118.0,Dom. Cadera
+Mariano Burgos,Kb/Db CMJ,2026-02-27,2026-02-27,1,15.0,3.0,1236971789,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-02-27,2026-02-27,2,15.0,3.0,1236971789,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Barbell Hip Thrust,2026-02-27,2026-02-27,1,40.0,6.0,1236971791,,,,,,Dominante de Cadera,240.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-27,2026-02-27,2,50.0,6.0,1236971791,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Burgos,Barbell Hip Thrust,2026-02-27,2026-02-27,3,50.0,6.0,1236971791,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-27,2026-02-27,1,15.0,6.0,1236971792,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-27,2026-02-27,2,15.0,6.0,1236971792,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Kb/Db Walking Lunge,2026-02-27,2026-02-27,3,15.0,6.0,1236971792,,,,,,Dominante de Rodilla,90.0,Dom. Rodilla
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-27,2026-02-27,1,,12.0,1236971794,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-27,2026-02-27,2,,12.0,1236971794,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Slider Eccentric Hamstring Curl ,2026-02-27,2026-02-27,3,,12.0,1236971794,,,,,,Accessories MMII/Ham_Curl,,Accesorios MMII
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-27,2026-02-27,1,,,1236971795,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-27,2026-02-27,2,,,1236971795,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-02-27,2026-02-27,3,,,1236971795,,,,,,Biceps/Accessories MMSS,,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-02-27,2026-02-27,1,,,1236971796,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-02-27,2026-02-27,2,,,1236971796,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-02-27,2026-02-27,3,,,1236971796,,,,,,Triceps/Accessories MMSS,,Sin categoria
+Mariano Burgos,KB Front Plank Push-Pull,2026-03-04,2026-03-04,1,,3.0,1273205979,,,,,,,,Sin categoria
+Mariano Burgos,KB Front Plank Push-Pull,2026-03-04,2026-03-04,2,,3.0,1273205979,,,,,,,,Sin categoria
+Mariano Burgos,Split Jump (Body Weight),2026-03-04,2026-03-04,1,0.0,10.0,1273205985,,,,,,Dominante de Rodilla,0.0,Dom. Rodilla
+Mariano Burgos,Split Jump (Body Weight),2026-03-04,2026-03-04,2,0.0,10.0,1273205985,,,,,,Dominante de Rodilla,0.0,Dom. Rodilla
+Mariano Burgos,Depth Jump,2026-03-04,2026-03-04,1,0.0,4.0,1273205984,,,,,,Jump_Ballistic,0.0,Balístico
+Mariano Burgos,Depth Jump,2026-03-04,2026-03-04,2,0.0,4.0,1273205984,,,,,,Jump_Ballistic,0.0,Balístico
+Mariano Burgos,Hang Power Clean,2026-03-04,2026-03-04,1,30.0,3.0,1273205972,,,,,,DLO,90.0,DLO
+Mariano Burgos,Hang Power Clean,2026-03-04,2026-03-04,2,30.0,3.0,1273205972,,,,,,DLO,90.0,DLO
+Mariano Burgos,Hang Power Clean,2026-03-04,2026-03-04,3,30.0,3.0,1273205972,,,,,,DLO,90.0,DLO
+Mariano Burgos,Kb/Db CMJ,2026-03-04,2026-03-04,1,15.0,3.0,1273205980,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-03-04,2026-03-04,2,15.0,3.0,1273205980,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-03-04,2026-03-04,3,15.0,3.0,1273205980,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-03-04,2026-03-04,4,15.0,3.0,1273205980,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Kb/Db CMJ,2026-03-04,2026-03-04,5,15.0,3.0,1273205980,,,,,,Jump_Ballistic,45.0,Balístico
+Mariano Burgos,Mb Chest Pass to Floor,2026-03-04,2026-03-04,1,6.0,5.0,1273205971,,,,,,,30.0,Sin categoria
+Mariano Burgos,Mb Chest Pass to Floor,2026-03-04,2026-03-04,2,6.0,5.0,1273205971,,,,,,,30.0,Sin categoria
+Mariano Burgos,Mb Chest Pass to Floor,2026-03-04,2026-03-04,3,6.0,5.0,1273205971,,,,,,,30.0,Sin categoria
+Mariano Burgos,Mb Chest Pass to Floor,2026-03-04,2026-03-04,4,6.0,5.0,1273205971,,,,,,,30.0,Sin categoria
+Mariano Burgos,Box Jump,2026-03-04,2026-03-04,1,,3.0,1273205986,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Box Jump,2026-03-04,2026-03-04,2,,3.0,1273205986,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Box Jump,2026-03-04,2026-03-04,3,,3.0,1273205986,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Box Jump,2026-03-04,2026-03-04,4,,3.0,1273205986,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-03-04,2026-03-04,1,,25.0,1273205981,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Mariano Burgos,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-03-04,2026-03-04,2,,25.0,1273205981,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Mariano Burgos,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-03-04,2026-03-04,3,,25.0,1273205981,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Mariano Burgos,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-03-04,2026-03-04,4,,25.0,1273205981,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Mariano Burgos,Split Squat ISO Hold,2026-03-04,2026-03-04,1,,25.0,1273205987,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Squat ISO Hold,2026-03-04,2026-03-04,2,,25.0,1273205987,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Squat ISO Hold,2026-03-04,2026-03-04,3,,25.0,1273205987,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Squat ISO Hold,2026-03-04,2026-03-04,4,,25.0,1273205987,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Jump (Body Weight),2026-03-09,2026-03-10,1,,6.0,1273206006,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Jump (Body Weight),2026-03-09,2026-03-10,2,,6.0,1273206006,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Abalakov Jump,2026-03-09,2026-03-10,1,,3.0,1273206007,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Abalakov Jump,2026-03-09,2026-03-10,2,,3.0,1273206007,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Barbell Back Squat,2026-03-09,2026-03-10,1,42.0,4.0,1273206009,,,,,,Dominante de Rodilla,168.0,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-03-09,2026-03-10,2,42.0,4.0,1273206009,,,,,,Dominante de Rodilla,168.0,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-03-09,2026-03-10,3,42.0,4.0,1273206009,,,,,,Dominante de Rodilla,168.0,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-03-09,2026-03-10,4,42.0,4.0,1273206009,,,,,,Dominante de Rodilla,168.0,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-03-09,2026-03-10,5,42.0,4.0,1273206009,,,,,,Dominante de Rodilla,168.0,Dom. Rodilla
+Mariano Burgos,Barbell Bench Press,2026-03-09,2026-03-10,1,40.0,4.0,1273206010,,,,,,Empuje Horizontal,160.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-03-09,2026-03-10,2,40.0,4.0,1273206010,,,,,,Empuje Horizontal,160.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-03-09,2026-03-10,3,40.0,4.0,1273206010,,,,,,Empuje Horizontal,160.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-03-09,2026-03-10,4,40.0,4.0,1273206010,,,,,,Empuje Horizontal,160.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-03-09,2026-03-10,5,40.0,4.0,1273206010,,,,,,Empuje Horizontal,160.0,Push H
+Mariano Burgos,Barbell RDL,2026-03-09,2026-03-10,1,31.0,6.0,1273206012,,,,,,Dominante de Cadera,186.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-03-09,2026-03-10,2,31.0,6.0,1273206012,,,,,,Dominante de Cadera,186.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-03-09,2026-03-10,3,31.0,6.0,1273206012,,,,,,Dominante de Cadera,186.0,Dom. Cadera
+Mariano Burgos,Barbell RDL,2026-03-09,2026-03-10,4,31.0,6.0,1273206012,,,,,,Dominante de Cadera,186.0,Dom. Cadera
+Mariano Burgos,Barbell Bent Over Row (Supinated Grip),2026-03-09,2026-03-10,1,,6.0,1273206013,,,,,,Traccion Horizontal,,Pull H
+Mariano Burgos,Barbell Bent Over Row (Supinated Grip),2026-03-09,2026-03-10,2,,6.0,1273206013,,,,,,Traccion Horizontal,,Pull H
+Mariano Burgos,Barbell Bent Over Row (Supinated Grip),2026-03-09,2026-03-10,3,,6.0,1273206013,,,,,,Traccion Horizontal,,Pull H
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-09,2026-03-10,1,15.0,15.0,1273206015,,,,,,Biceps/Accessories MMSS,225.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-09,2026-03-10,2,15.0,15.0,1273206015,,,,,,Biceps/Accessories MMSS,225.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-09,2026-03-10,3,15.0,15.0,1273206015,,,,,,Biceps/Accessories MMSS,225.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-09,2026-03-10,1,0.0,20.0,1273206016,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-09,2026-03-10,2,0.0,20.0,1273206016,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-09,2026-03-10,3,0.0,20.0,1273206016,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Plate Deadbug 2-Arm 1Leg,2026-03-13,2026-03-13,1,10.0,8.0,1273206050,,,,,,,80.0,Sin categoria
+Mariano Burgos,Plate Deadbug 2-Arm 1Leg,2026-03-13,2026-03-13,2,10.0,8.0,1273206050,,,,,,,80.0,Sin categoria
+Mariano Burgos,Stick OH Squat,2026-03-13,2026-03-13,1,,8.0,1273206049,,,,,,Dominante de Cadera,,Dom. Cadera
+Mariano Burgos,Stick OH Squat,2026-03-13,2026-03-13,2,,8.0,1273206049,,,,,,Dominante de Cadera,,Dom. Cadera
+Mariano Burgos,Bodyweigth CMJ,2026-03-13,2026-03-13,1,,2.0,1273206048,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Bodyweigth CMJ,2026-03-13,2026-03-13,2,,2.0,1273206048,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Front Squat,2026-03-13,2026-03-13,1,30.0,6.0,1273206036,,,,,,,180.0,Sin categoria
+Mariano Burgos,Front Squat,2026-03-13,2026-03-13,2,30.0,6.0,1273206036,,,,,,,180.0,Sin categoria
+Mariano Burgos,Front Squat,2026-03-13,2026-03-13,3,35.0,6.0,1273206036,,,,,,,210.0,Sin categoria
+Mariano Burgos,Front Squat,2026-03-13,2026-03-13,4,35.0,6.0,1273206036,,,,,,,210.0,Sin categoria
+Mariano Burgos,Hang Muscle Snatch,2026-03-13,2026-03-13,1,20.0,4.0,1273206045,,,,,,DLO,80.0,DLO
+Mariano Burgos,Hang Muscle Snatch,2026-03-13,2026-03-13,2,20.0,4.0,1273206045,,,,,,DLO,80.0,DLO
+Mariano Burgos,Hang Muscle Snatch,2026-03-13,2026-03-13,3,20.0,4.0,1273206045,,,,,,DLO,80.0,DLO
+Mariano Burgos,Hang Muscle Snatch,2026-03-13,2026-03-13,4,20.0,4.0,1273206045,,,,,,DLO,80.0,DLO
+Mariano Burgos,Db/Kb 2-Arm Bench Press,2026-03-13,2026-03-13,1,10.0,10.0,1273206037,,,,,,Empuje Horizontal,100.0,Push H
+Mariano Burgos,Db/Kb 2-Arm Bench Press,2026-03-13,2026-03-13,2,12.5,10.0,1273206037,,,,,,Empuje Horizontal,125.0,Push H
+Mariano Burgos,Db/Kb 2-Arm Bench Press,2026-03-13,2026-03-13,3,12.5,10.0,1273206037,,,,,,Empuje Horizontal,125.0,Push H
+Mariano Burgos,Kb/Db 2-Arm 1-Leg RDL,2026-03-13,2026-03-13,1,20.0,8.0,1273206046,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Mariano Burgos,Kb/Db 2-Arm 1-Leg RDL,2026-03-13,2026-03-13,2,20.0,8.0,1273206046,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Mariano Burgos,Kb/Db 2-Arm 1-Leg RDL,2026-03-13,2026-03-13,3,20.0,8.0,1273206046,,,,,,Dominante de Cadera,160.0,Dom. Cadera
+Mariano Burgos,Short Copenhagen Plank,2026-03-13,2026-03-13,1,,15.0,1273206035,,,,,,,,Sin categoria
+Mariano Burgos,Short Copenhagen Plank,2026-03-13,2026-03-13,2,,15.0,1273206035,,,,,,,,Sin categoria
+Mariano Burgos,Short Copenhagen Plank,2026-03-13,2026-03-13,3,,15.0,1273206035,,,,,,,,Sin categoria
+Mariano Burgos,Plank Front Reach,2026-03-13,2026-03-13,1,,10.0,1273206051,,,,,,,,Sin categoria
+Mariano Burgos,Plank Front Reach,2026-03-13,2026-03-13,2,,10.0,1273206051,,,,,,,,Sin categoria
+Mariano Burgos,Plank Front Reach,2026-03-13,2026-03-13,3,,10.0,1273206051,,,,,,,,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-13,2026-03-13,1,7.5,15.0,1273206043,,,,,,Biceps/Accessories MMSS,112.5,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-13,2026-03-13,2,7.5,15.0,1273206043,,,,,,Biceps/Accessories MMSS,112.5,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-13,2026-03-13,3,7.5,15.0,1273206043,,,,,,Biceps/Accessories MMSS,112.5,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-13,2026-03-13,1,0.0,20.0,1273206044,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-13,2026-03-13,2,0.0,20.0,1273206044,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-13,2026-03-13,3,0.0,20.0,1273206044,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Split Jump (Body Weight),2026-03-16,2026-03-17,1,,6.0,1273206056,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Jump (Body Weight),2026-03-16,2026-03-17,2,,6.0,1273206056,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Abalakov Jump,2026-03-16,2026-03-17,1,,3.0,1273206061,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Abalakov Jump,2026-03-16,2026-03-17,2,,3.0,1273206061,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Barbell Back Squat,2026-03-16,2026-03-17,1,45.0,3.0,1273206057,,,,,,Dominante de Rodilla,135.0,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-03-16,2026-03-17,2,45.0,3.0,1273206057,,,,,,Dominante de Rodilla,135.0,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-03-16,2026-03-17,3,45.0,3.0,1273206057,,,,,,Dominante de Rodilla,135.0,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-03-16,2026-03-17,4,45.0,3.0,1273206057,,,,,,Dominante de Rodilla,135.0,Dom. Rodilla
+Mariano Burgos,Barbell Back Squat,2026-03-16,2026-03-17,5,45.0,3.0,1273206057,,,,,,Dominante de Rodilla,135.0,Dom. Rodilla
+Mariano Burgos,Barbell Bench Press,2026-03-16,2026-03-17,1,41.0,3.0,1273206065,,,,,,Empuje Horizontal,123.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-03-16,2026-03-17,2,41.0,3.0,1273206065,,,,,,Empuje Horizontal,123.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-03-16,2026-03-17,3,41.0,3.0,1273206065,,,,,,Empuje Horizontal,123.0,Push H
+Mariano Burgos,Barbell Bench Press,2026-03-16,2026-03-17,4,41.0,3.0,1273206065,,,,,,Empuje Horizontal,123.0,Push H
+Mariano Burgos,Barbell Deadlift,2026-03-16,2026-03-17,1,51.0,4.0,1273206064,,,,,,Dominante de Cadera,204.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-03-16,2026-03-17,2,51.0,4.0,1273206064,,,,,,Dominante de Cadera,204.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-03-16,2026-03-17,3,51.0,4.0,1273206064,,,,,,Dominante de Cadera,204.0,Dom. Cadera
+Mariano Burgos,Barbell Deadlift,2026-03-16,2026-03-17,4,51.0,4.0,1273206064,,,,,,Dominante de Cadera,204.0,Dom. Cadera
+Mariano Burgos,Weighted Bar Pull Up (Supinated Grip),2026-03-16,2026-03-17,1,,4.0,1273206058,,,,,,Traccion Vertical,,Pull V
+Mariano Burgos,Weighted Bar Pull Up (Supinated Grip),2026-03-16,2026-03-17,2,,4.0,1273206058,,,,,,Traccion Vertical,,Pull V
+Mariano Burgos,Weighted Bar Pull Up (Supinated Grip),2026-03-16,2026-03-17,3,,4.0,1273206058,,,,,,Traccion Vertical,,Pull V
+Mariano Burgos,Weighted Bar Pull Up (Supinated Grip),2026-03-16,2026-03-17,4,,4.0,1273206058,,,,,,Traccion Vertical,,Pull V
+Mariano Burgos,Banded biceps curl,2026-03-16,2026-03-17,1,0.0,15.0,1273206059,,,,,,Biceps,0.0,Sin categoria
+Mariano Burgos,Banded biceps curl,2026-03-16,2026-03-17,2,0.0,15.0,1273206059,,,,,,Biceps,0.0,Sin categoria
+Mariano Burgos,Banded biceps curl,2026-03-16,2026-03-17,3,0.0,15.0,1273206059,,,,,,Biceps,0.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-03-16,2026-03-17,1,12.5,20.0,1273206060,,,,,,Triceps,250.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-03-16,2026-03-17,2,12.5,20.0,1273206060,,,,,,Triceps,250.0,Sin categoria
+Mariano Burgos,Barbell French press,2026-03-16,2026-03-17,3,12.5,20.0,1273206060,,,,,,Triceps,250.0,Sin categoria
+Mariano Burgos,Db Lateral Shoulder Raises,2026-03-16,2026-03-17,1,5.0,15.0,1273206066,,,,,,Accessories MMSS,75.0,Accesorios MMSS
+Mariano Burgos,Db Lateral Shoulder Raises,2026-03-16,2026-03-17,2,5.0,15.0,1273206066,,,,,,Accessories MMSS,75.0,Accesorios MMSS
+Mariano Burgos,Db Lateral Shoulder Raises,2026-03-16,2026-03-17,3,5.0,15.0,1273206066,,,,,,Accessories MMSS,75.0,Accesorios MMSS
+Mariano Burgos,KB Front Plank Push-Pull,2026-03-18,2026-03-19,1,,3.0,1273206075,,,,,,,,Sin categoria
+Mariano Burgos,KB Front Plank Push-Pull,2026-03-18,2026-03-19,2,,3.0,1273206075,,,,,,,,Sin categoria
+Mariano Burgos,Split Jump (Body Weight),2026-03-18,2026-03-19,1,0.0,10.0,1273206081,,,,,,Dominante de Rodilla,0.0,Dom. Rodilla
+Mariano Burgos,Split Jump (Body Weight),2026-03-18,2026-03-19,2,0.0,10.0,1273206081,,,,,,Dominante de Rodilla,0.0,Dom. Rodilla
+Mariano Burgos,Depth Jump,2026-03-18,2026-03-19,1,0.0,4.0,1273206080,,,,,,Jump_Ballistic,0.0,Balístico
+Mariano Burgos,Depth Jump,2026-03-18,2026-03-19,2,0.0,4.0,1273206080,,,,,,Jump_Ballistic,0.0,Balístico
+Mariano Burgos,Power Clean from Block,2026-03-18,2026-03-19,1,30.0,2.0,1273206068,,,,,,DLO,60.0,DLO
+Mariano Burgos,Power Clean from Block,2026-03-18,2026-03-19,2,30.0,2.0,1273206068,,,,,,DLO,60.0,DLO
+Mariano Burgos,Power Clean from Block,2026-03-18,2026-03-19,3,30.0,2.0,1273206068,,,,,,DLO,60.0,DLO
+Mariano Burgos,Power Clean from Block,2026-03-18,2026-03-19,4,35.0,2.0,1273206068,,,,,,DLO,70.0,DLO
+Mariano Burgos,Power Clean from Block,2026-03-18,2026-03-19,5,35.0,2.0,1273206068,,,,,,DLO,70.0,DLO
+Mariano Burgos,Power Clean from Block,2026-03-18,2026-03-19,6,35.0,2.0,1273206068,,,,,,DLO,70.0,DLO
+Mariano Burgos,Broad Jump,2026-03-18,2026-03-19,1,,3.0,1273206076,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Broad Jump,2026-03-18,2026-03-19,2,,3.0,1273206076,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Broad Jump,2026-03-18,2026-03-19,3,,3.0,1273206076,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Broad Jump,2026-03-18,2026-03-19,4,,3.0,1273206076,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Broad Jump,2026-03-18,2026-03-19,5,,3.0,1273206076,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Side to Side MB Slam,2026-03-18,2026-03-19,1,8.0,5.0,1273206067,,,,,,,40.0,Sin categoria
+Mariano Burgos,Side to Side MB Slam,2026-03-18,2026-03-19,2,8.0,5.0,1273206067,,,,,,,40.0,Sin categoria
+Mariano Burgos,Side to Side MB Slam,2026-03-18,2026-03-19,3,8.0,5.0,1273206067,,,,,,,40.0,Sin categoria
+Mariano Burgos,Side to Side MB Slam,2026-03-18,2026-03-19,4,8.0,5.0,1273206067,,,,,,,40.0,Sin categoria
+Mariano Burgos,Lateral Bounds (Extensive),2026-03-18,2026-03-19,1,,6.0,1273206082,,,,,,,,Sin categoria
+Mariano Burgos,Lateral Bounds (Extensive),2026-03-18,2026-03-19,2,,6.0,1273206082,,,,,,,,Sin categoria
+Mariano Burgos,Lateral Bounds (Extensive),2026-03-18,2026-03-19,3,,6.0,1273206082,,,,,,,,Sin categoria
+Mariano Burgos,Lateral Bounds (Extensive),2026-03-18,2026-03-19,4,,6.0,1273206082,,,,,,,,Sin categoria
+Mariano Burgos,Split Squat ISO Hold,2026-03-18,2026-03-19,1,,25.0,1273206083,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Squat ISO Hold,2026-03-18,2026-03-19,2,,25.0,1273206083,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Squat ISO Hold,2026-03-18,2026-03-19,3,,25.0,1273206083,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,Split Squat ISO Hold,2026-03-18,2026-03-19,4,,25.0,1273206083,,,,,,Dominante de Rodilla,,Dom. Rodilla
+Mariano Burgos,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-03-18,2026-03-19,1,,25.0,1273206077,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Mariano Burgos,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-03-18,2026-03-19,2,,25.0,1273206077,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Mariano Burgos,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-03-18,2026-03-19,3,,25.0,1273206077,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Mariano Burgos,1-Leg Hamstring Bridge Iso-Hold (Lying),2026-03-18,2026-03-19,4,,25.0,1273206077,,,,,,Dominante de Rodilla/Dominante de Cadera,,Sin categoria
+Mariano Burgos,Barbell Calf Raises,2026-03-18,2026-03-19,1,20.0,15.0,1273206078,,,,,,,300.0,Sin categoria
+Mariano Burgos,Barbell Calf Raises,2026-03-18,2026-03-19,2,20.0,15.0,1273206078,,,,,,,300.0,Sin categoria
+Mariano Burgos,Barbell Calf Raises,2026-03-18,2026-03-19,3,20.0,15.0,1273206078,,,,,,,300.0,Sin categoria
+Mariano Burgos,Copenhagen Plank Hip Raises,2026-03-18,2026-03-19,1,0.0,8.0,1273206072,,,,,,,0.0,Sin categoria
+Mariano Burgos,Copenhagen Plank Hip Raises,2026-03-18,2026-03-19,2,0.0,8.0,1273206072,,,,,,,0.0,Sin categoria
+Mariano Burgos,Copenhagen Plank Hip Raises,2026-03-18,2026-03-19,3,0.0,8.0,1273206072,,,,,,,0.0,Sin categoria
+Mariano Burgos,Plate Deadbug 2-Arm 1Leg,2026-03-20,2026-03-20,1,10.0,8.0,1273206099,,,,,,,80.0,Sin categoria
+Mariano Burgos,Plate Deadbug 2-Arm 1Leg,2026-03-20,2026-03-20,2,10.0,8.0,1273206099,,,,,,,80.0,Sin categoria
+Mariano Burgos,Stick OH Squat,2026-03-20,2026-03-20,1,,8.0,1273206098,,,,,,Dominante de Cadera,,Dom. Cadera
+Mariano Burgos,Stick OH Squat,2026-03-20,2026-03-20,2,,8.0,1273206098,,,,,,Dominante de Cadera,,Dom. Cadera
+Mariano Burgos,Bodyweigth CMJ,2026-03-20,2026-03-20,1,,2.0,1273206097,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Bodyweigth CMJ,2026-03-20,2026-03-20,2,,2.0,1273206097,,,,,,Jump_Ballistic,,Balístico
+Mariano Burgos,Hang Muscle Snatch,2026-03-20,2026-03-21,1,10.0,4.0,1273206093,,,,,,DLO,40.0,DLO
+Mariano Burgos,Hang Muscle Snatch,2026-03-20,2026-03-21,2,10.0,4.0,1273206093,,,,,,DLO,40.0,DLO
+Mariano Burgos,Hang Muscle Snatch,2026-03-20,2026-03-21,3,10.0,4.0,1273206093,,,,,,DLO,40.0,DLO
+Mariano Burgos,Hang Muscle Snatch,2026-03-20,2026-03-21,4,10.0,4.0,1273206093,,,,,,DLO,40.0,DLO
+Mariano Burgos,Front Squat,2026-03-20,2026-03-21,1,30.0,6.0,1273206084,,,,,,,180.0,Sin categoria
+Mariano Burgos,Front Squat,2026-03-20,2026-03-21,2,30.0,6.0,1273206084,,,,,,,180.0,Sin categoria
+Mariano Burgos,Front Squat,2026-03-20,2026-03-21,3,40.0,6.0,1273206084,,,,,,,240.0,Sin categoria
+Mariano Burgos,Db/Kb 2-Arm Bench Press,2026-03-20,2026-03-21,1,9.0,10.0,1273206085,,,,,,Empuje Horizontal,90.0,Push H
+Mariano Burgos,Db/Kb 2-Arm Bench Press,2026-03-20,2026-03-21,2,9.0,10.0,1273206085,,,,,,Empuje Horizontal,90.0,Push H
+Mariano Burgos,Db/Kb 2-Arm Bench Press,2026-03-20,2026-03-21,3,9.0,10.0,1273206085,,,,,,Empuje Horizontal,90.0,Push H
+Mariano Burgos,Kb/Db RDL,2026-03-20,2026-03-21,1,35.0,10.0,1273206094,,,,,,Dominante de Cadera,350.0,Dom. Cadera
+Mariano Burgos,Kb/Db RDL,2026-03-20,2026-03-21,2,35.0,10.0,1273206094,,,,,,Dominante de Cadera,350.0,Dom. Cadera
+Mariano Burgos,Kb/Db RDL,2026-03-20,2026-03-21,3,35.0,10.0,1273206094,,,,,,Dominante de Cadera,350.0,Dom. Cadera
+Mariano Burgos,Kb/Db 2-Arm Farmer Carry,2026-03-20,2026-03-21,1,30.0,1.0,1273206096,,,,,,,30.0,Sin categoria
+Mariano Burgos,Kb/Db 2-Arm Farmer Carry,2026-03-20,2026-03-21,2,30.0,1.0,1273206096,,,,,,,30.0,Sin categoria
+Mariano Burgos,Kb/Db 2-Arm Farmer Carry,2026-03-20,2026-03-21,3,30.0,1.0,1273206096,,,,,,,30.0,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-20,2026-03-21,1,7.5,15.0,1273206091,,,,,,Biceps/Accessories MMSS,112.5,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-20,2026-03-21,2,7.5,15.0,1273206091,,,,,,Biceps/Accessories MMSS,112.5,Sin categoria
+Mariano Burgos,Alternating Db Biceps Curl,2026-03-20,2026-03-21,3,7.5,15.0,1273206091,,,,,,Biceps/Accessories MMSS,112.5,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-20,2026-03-21,1,0.0,20.0,1273206092,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-20,2026-03-21,2,0.0,20.0,1273206092,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Burgos,Banded Triceps Extension,2026-03-20,2026-03-21,3,0.0,20.0,1273206092,,,,,,Triceps/Accessories MMSS,0.0,Sin categoria
+Mariano Diaz Romero,Scapular Push Up,2026-02-03,2026-02-03,1,,20.0,1245428725,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Scapular Pull Up,2026-02-03,2026-02-03,1,,20.0,1245428726,,,,,,,,Sin categoria
+Mariano Diaz Romero,Db Lateral Shoulder Raises,2026-02-03,2026-02-03,1,5.0,23.0,1245428724,,,,,,Accessories MMSS,115.0,Accesorios MMSS
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-02-03,2026-02-03,1,12.5,4.0,1245428727,,,,,,,50.0,Sin categoria
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-02-03,2026-02-03,2,12.5,4.0,1245428727,,,,,,,50.0,Sin categoria
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-03,2026-02-03,1,60.0,5.0,1245424522,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-03,2026-02-03,2,60.0,5.0,1245424522,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-03,2026-02-03,3,60.0,5.0,1245424522,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-03,2026-02-03,4,60.0,5.0,1245424522,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-03,2026-02-03,5,60.0,5.0,1245424522,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Barbell Bench Press,2026-02-03,2026-02-03,1,110.0,3.0,1245428722,,,,,,Empuje Horizontal,330.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-03,2026-02-03,2,110.0,3.0,1245428722,,,,,,Empuje Horizontal,330.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-03,2026-02-03,3,110.0,3.0,1245428722,,,,,,Empuje Horizontal,330.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-03,2026-02-03,4,110.0,3.0,1245428722,,,,,,Empuje Horizontal,330.0,Push H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-03,2026-02-03,1,80.0,6.0,1245428721,,,,,,Traccion Horizontal,480.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-03,2026-02-03,2,80.0,6.0,1245428721,,,,,,Traccion Horizontal,480.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-03,2026-02-03,3,80.0,6.0,1245428721,,,,,,Traccion Horizontal,480.0,Pull H
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-03,2026-02-03,1,40.0,15.0,1245428728,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-03,2026-02-03,2,40.0,15.0,1245428728,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-03,2026-02-03,3,40.0,15.0,1245428728,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-03,2026-02-03,4,40.0,15.0,1245428728,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-03,2026-02-03,1,45.0,15.0,1245428729,,,,,,Accessories MMII/Ham_Curl,675.0,Accesorios MMII
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-03,2026-02-03,2,45.0,15.0,1245428729,,,,,,Accessories MMII/Ham_Curl,675.0,Accesorios MMII
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-03,2026-02-03,3,45.0,15.0,1245428729,,,,,,Accessories MMII/Ham_Curl,675.0,Accesorios MMII
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-02-05,2026-02-05,1,20.0,10.0,1245439885,,,,,,Jump_Plyo,200.0,Plyo/Saltos
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-02-05,2026-02-05,2,20.0,10.0,1245439885,,,,,,Jump_Plyo,200.0,Plyo/Saltos
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-02-05,2026-02-05,1,5.0,8.0,1245441741,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-02-05,2026-02-05,2,5.0,8.0,1245441741,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-02-05,2026-02-05,1,,12.0,1245442426,,,,,,,,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-02-05,2026-02-05,2,,12.0,1245442426,,,,,,,,Sin categoria
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-02-05,2026-02-05,1,60.0,4.0,1245443749,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-02-05,2026-02-05,2,60.0,4.0,1245443749,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-02-05,2026-02-05,3,60.0,4.0,1245443749,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-02-05,2026-02-05,4,60.0,4.0,1245443749,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-02-05,2026-02-05,5,60.0,4.0,1245443749,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Box Jump,2026-02-05,2026-02-05,1,,2.0,1245444479,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-05,2026-02-05,2,,2.0,1245444479,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-05,2026-02-05,3,,2.0,1245444479,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-05,2026-02-05,4,,2.0,1245444479,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-05,2026-02-05,5,,2.0,1245444479,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Barbell Deadlift,2026-02-05,2026-02-05,1,160.0,4.0,1245428735,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-05,2026-02-05,2,160.0,4.0,1245428735,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-05,2026-02-05,3,160.0,4.0,1245428735,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-05,2026-02-05,4,160.0,4.0,1245428735,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-05,2026-02-05,5,160.0,4.0,1245428735,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-05,2026-02-05,1,70.0,8.0,1245445712,,,,,,Dominante de Rodilla/Stance_Split,560.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-05,2026-02-05,2,70.0,8.0,1245445712,,,,,,Dominante de Rodilla/Stance_Split,560.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-05,2026-02-05,3,70.0,8.0,1245445712,,,,,,Dominante de Rodilla/Stance_Split,560.0,Dom. Rodilla
+Mariano Diaz Romero,High Cable Face pull,2026-02-05,2026-02-05,1,15.0,12.0,1245447205,,,,,,,180.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-02-05,2026-02-05,2,15.0,12.0,1245447205,,,,,,,180.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-02-05,2026-02-05,3,15.0,12.0,1245447205,,,,,,,180.0,Sin categoria
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-05,2026-02-05,1,,20.0,1245448193,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-05,2026-02-05,2,,20.0,1245448193,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-05,2026-02-05,3,,20.0,1245448193,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Scapular Push Up,2026-02-10,2026-02-10,1,,20.0,1246745921,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Scapular Pull Up,2026-02-10,2026-02-10,1,,20.0,1246745922,,,,,,,,Sin categoria
+Mariano Diaz Romero,Db Lateral Shoulder Raises,2026-02-10,2026-02-10,1,7.5,20.0,1246745920,,,,,,Accessories MMSS,150.0,Accesorios MMSS
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-02-10,2026-02-10,1,12.5,4.0,1246745923,,,,,,,50.0,Sin categoria
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-02-10,2026-02-10,2,12.5,4.0,1246745923,,,,,,,50.0,Sin categoria
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-10,2026-02-10,1,60.0,5.0,1246745917,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-10,2026-02-10,2,60.0,5.0,1246745917,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-10,2026-02-10,3,70.0,4.0,1246745917,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-10,2026-02-10,4,70.0,4.0,1246745917,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-10,2026-02-10,5,70.0,4.0,1246745917,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Barbell Bench Press,2026-02-10,2026-02-10,1,120.0,3.0,1246745919,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-10,2026-02-10,2,120.0,3.0,1246745919,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-10,2026-02-10,3,120.0,3.0,1246745919,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-10,2026-02-10,4,120.0,3.0,1246745919,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-10,2026-02-10,1,100.0,6.0,1246745918,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-10,2026-02-10,2,100.0,6.0,1246745918,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-10,2026-02-10,3,100.0,6.0,1246745918,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-10,2026-02-10,1,40.0,15.0,1246745924,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-10,2026-02-10,2,40.0,15.0,1246745924,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-10,2026-02-10,3,40.0,15.0,1246745924,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-10,2026-02-10,4,40.0,15.0,1246745924,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-10,2026-02-10,1,50.0,15.0,1246745925,,,,,,Accessories MMII/Ham_Curl,750.0,Accesorios MMII
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-10,2026-02-10,2,50.0,15.0,1246745925,,,,,,Accessories MMII/Ham_Curl,750.0,Accesorios MMII
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-10,2026-02-10,3,50.0,15.0,1246745925,,,,,,Accessories MMII/Ham_Curl,750.0,Accesorios MMII
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-02-12,2026-02-12,1,20.0,10.0,1246745931,,,,,,Jump_Plyo,200.0,Plyo/Saltos
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-02-12,2026-02-12,2,20.0,10.0,1246745931,,,,,,Jump_Plyo,200.0,Plyo/Saltos
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-02-12,2026-02-12,1,5.0,8.0,1246745932,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-02-12,2026-02-12,2,5.0,8.0,1246745932,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-02-12,2026-02-12,1,,12.0,1246745933,,,,,,,,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-02-12,2026-02-12,2,,12.0,1246745933,,,,,,,,Sin categoria
+Mariano Diaz Romero,Hang Power Clean,2026-02-12,2026-02-12,1,60.0,4.0,1246745937,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-12,2026-02-12,2,60.0,4.0,1246745937,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-12,2026-02-12,3,65.0,4.0,1246745937,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-12,2026-02-12,4,65.0,4.0,1246745937,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-12,2026-02-12,5,65.0,4.0,1246745937,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Box Jump,2026-02-12,2026-02-12,1,,2.0,1246745939,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-12,2026-02-12,2,,2.0,1246745939,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-12,2026-02-12,3,,2.0,1246745939,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-12,2026-02-12,4,,2.0,1246745939,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-12,2026-02-12,5,,2.0,1246745939,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Barbell Deadlift,2026-02-12,2026-02-12,1,160.0,4.0,1246745930,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-12,2026-02-12,2,160.0,4.0,1246745930,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-12,2026-02-12,3,160.0,4.0,1246745930,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-12,2026-02-12,4,160.0,4.0,1246745930,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-12,2026-02-12,5,160.0,4.0,1246745930,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-12,2026-02-12,1,80.0,8.0,1246745940,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-12,2026-02-12,2,80.0,8.0,1246745940,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-12,2026-02-12,3,80.0,8.0,1246745940,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,High Cable Face pull,2026-02-12,2026-02-12,1,17.5,12.0,1246745941,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-02-12,2026-02-12,2,17.5,12.0,1246745941,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-02-12,2026-02-12,3,17.5,12.0,1246745941,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Plank Prone brench Neck Bridge,2026-02-12,2026-02-12,1,,20.0,1246745942,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Plank Prone brench Neck Bridge,2026-02-12,2026-02-12,2,,20.0,1246745942,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Plank Prone brench Neck Bridge,2026-02-12,2026-02-12,3,,20.0,1246745942,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Kb Bottoms Up 1-Arm Shoulder Press,2026-02-14,2026-02-14,1,16.0,10.0,1246745953,,,,,,Empuje Vertical,160.0,Push V
+Mariano Diaz Romero,Kb Bottoms Up 1-Arm Shoulder Press,2026-02-14,2026-02-14,2,16.0,10.0,1246745953,,,,,,Empuje Vertical,160.0,Push V
+Mariano Diaz Romero,Barbell Overhead Squat,2026-02-14,2026-02-14,1,5.0,10.0,1246745954,,,,,,,50.0,Sin categoria
+Mariano Diaz Romero,Barbell Overhead Squat,2026-02-14,2026-02-14,2,5.0,10.0,1246745954,,,,,,,50.0,Sin categoria
+Mariano Diaz Romero,Kb/Db Plank Drag,2026-02-14,2026-02-14,1,21.0,10.0,1246745955,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Kb/Db Plank Drag,2026-02-14,2026-02-14,2,21.0,10.0,1246745955,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-14,2026-02-14,1,80.0,5.0,1246745944,,,,,,,400.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-14,2026-02-14,2,80.0,5.0,1246745944,,,,,,,400.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-14,2026-02-14,3,85.0,5.0,1246745944,,,,,,,425.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-14,2026-02-14,4,85.0,5.0,1246745944,,,,,,,425.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-14,2026-02-14,5,85.0,5.0,1246745944,,,,,,,425.0,Sin categoria
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-02-14,2026-02-14,1,60.0,8.0,1246745945,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-02-14,2026-02-14,2,60.0,8.0,1246745945,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-02-14,2026-02-14,3,60.0,6.0,1246745945,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-02-14,2026-02-14,4,60.0,6.0,1246745945,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell RDL,2026-02-14,2026-02-14,1,110.0,10.0,1246745946,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Barbell RDL,2026-02-14,2026-02-14,2,110.0,10.0,1246745946,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Barbell RDL,2026-02-14,2026-02-14,3,110.0,10.0,1246745946,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-02-14,2026-02-14,1,,20.0,1246745951,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-02-14,2026-02-14,2,,20.0,1246745951,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-02-14,2026-02-14,3,,20.0,1246745951,,,,,,,,Sin categoria
+Mariano Diaz Romero,Banded Cuban Press,2026-02-14,2026-02-14,1,,12.0,1246745957,,,,,,,,Sin categoria
+Mariano Diaz Romero,Banded Cuban Press,2026-02-14,2026-02-14,2,,12.0,1246745957,,,,,,,,Sin categoria
+Mariano Diaz Romero,Scapular Push Up,2026-02-17,2026-02-17,1,,20.0,1246746050,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Scapular Pull Up,2026-02-17,2026-02-17,1,,20.0,1246746051,,,,,,,,Sin categoria
+Mariano Diaz Romero,Db Lateral Shoulder Raises,2026-02-17,2026-02-17,1,5.0,20.0,1246746049,,,,,,Accessories MMSS,100.0,Accesorios MMSS
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-02-17,2026-02-17,1,15.0,4.0,1246746052,,,,,,,60.0,Sin categoria
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-02-17,2026-02-17,2,15.0,4.0,1246746052,,,,,,,60.0,Sin categoria
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-17,2026-02-17,1,60.0,5.0,1246746046,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-17,2026-02-17,2,60.0,5.0,1246746046,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-17,2026-02-17,3,65.0,4.0,1246746046,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-17,2026-02-17,4,65.0,4.0,1246746046,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-17,2026-02-17,5,65.0,4.0,1246746046,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Barbell Bench Press,2026-02-17,2026-02-17,1,120.0,3.0,1246746048,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-17,2026-02-17,2,120.0,3.0,1246746048,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-17,2026-02-17,3,120.0,3.0,1246746048,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-17,2026-02-17,4,120.0,3.0,1246746048,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-17,2026-02-17,1,100.0,6.0,1246746047,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-17,2026-02-17,2,100.0,6.0,1246746047,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-17,2026-02-17,3,100.0,6.0,1246746047,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-02-19,2026-02-19,1,20.0,10.0,1246746060,,,,,,Jump_Plyo,200.0,Plyo/Saltos
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-02-19,2026-02-19,2,20.0,10.0,1246746060,,,,,,Jump_Plyo,200.0,Plyo/Saltos
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-02-19,2026-02-19,1,5.0,8.0,1246746061,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-02-19,2026-02-19,2,5.0,8.0,1246746061,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-02-19,2026-02-19,1,,12.0,1246746062,,,,,,,,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-02-19,2026-02-19,2,,12.0,1246746062,,,,,,,,Sin categoria
+Mariano Diaz Romero,Hang Power Clean,2026-02-19,2026-02-19,1,60.0,4.0,1246746066,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-19,2026-02-19,2,60.0,4.0,1246746066,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-19,2026-02-19,3,60.0,4.0,1246746066,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-19,2026-02-19,4,60.0,4.0,1246746066,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-19,2026-02-19,5,60.0,4.0,1246746066,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Box Jump,2026-02-19,2026-02-19,1,,2.0,1246746068,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-19,2026-02-19,2,,2.0,1246746068,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-19,2026-02-19,3,,2.0,1246746068,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-19,2026-02-19,4,,2.0,1246746068,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-19,2026-02-19,5,,2.0,1246746068,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Barbell Deadlift,2026-02-19,2026-02-19,1,160.0,4.0,1246746059,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-19,2026-02-19,2,160.0,4.0,1246746059,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-19,2026-02-19,3,160.0,4.0,1246746059,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-19,2026-02-19,4,160.0,4.0,1246746059,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-19,2026-02-19,5,160.0,4.0,1246746059,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-19,2026-02-19,1,80.0,8.0,1246746069,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-19,2026-02-19,2,80.0,8.0,1246746069,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-19,2026-02-19,3,80.0,8.0,1246746069,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,High Cable Face pull,2026-02-19,2026-02-19,1,17.5,12.0,1246746070,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-02-19,2026-02-19,2,17.5,12.0,1246746070,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-02-19,2026-02-19,3,17.5,12.0,1246746070,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-19,2026-02-19,1,,30.0,1246746071,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-19,2026-02-19,2,,30.0,1246746071,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-19,2026-02-19,3,,30.0,1246746071,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Scapular Push Up,2026-02-24,2026-02-24,1,,20.0,1246746092,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Scapular Pull Up,2026-02-24,2026-02-24,1,,20.0,1246746093,,,,,,,,Sin categoria
+Mariano Diaz Romero,Db Lateral Shoulder Raises,2026-02-24,2026-02-24,1,5.0,20.0,1246746091,,,,,,Accessories MMSS,100.0,Accesorios MMSS
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-02-24,2026-02-24,1,15.0,5.0,1246746094,,,,,,,75.0,Sin categoria
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-02-24,2026-02-24,2,15.0,5.0,1246746094,,,,,,,75.0,Sin categoria
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-24,2026-02-24,1,60.0,5.0,1246746088,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-24,2026-02-24,2,60.0,5.0,1246746088,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-24,2026-02-24,3,65.0,4.0,1246746088,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-24,2026-02-24,4,65.0,4.0,1246746088,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-02-24,2026-02-24,5,65.0,4.0,1246746088,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Barbell Bench Press,2026-02-24,2026-02-24,1,120.0,3.0,1246746090,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-24,2026-02-24,2,140.0,3.0,1246746090,,,,,,Empuje Horizontal,420.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-24,2026-02-24,3,140.0,3.0,1246746090,,,,,,Empuje Horizontal,420.0,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-02-24,2026-02-24,4,140.0,3.0,1246746090,,,,,,Empuje Horizontal,420.0,Push H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-24,2026-02-24,1,100.0,6.0,1246746089,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-24,2026-02-24,2,100.0,6.0,1246746089,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-02-24,2026-02-24,3,100.0,6.0,1246746089,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-24,2026-02-24,1,40.0,15.0,1246746095,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-24,2026-02-24,2,40.0,15.0,1246746095,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-24,2026-02-24,3,40.0,15.0,1246746095,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-02-24,2026-02-24,4,40.0,15.0,1246746095,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-24,2026-02-24,1,50.0,15.0,1246746096,,,,,,Accessories MMII/Ham_Curl,750.0,Accesorios MMII
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-24,2026-02-24,2,50.0,15.0,1246746096,,,,,,Accessories MMII/Ham_Curl,750.0,Accesorios MMII
+Mariano Diaz Romero,Prone Hamstring Curl (Machine),2026-02-24,2026-02-24,3,50.0,15.0,1246746096,,,,,,Accessories MMII/Ham_Curl,750.0,Accesorios MMII
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-02-26,2026-02-26,1,10.0,10.0,1246746102,,,,,,Jump_Plyo,100.0,Plyo/Saltos
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-02-26,2026-02-26,2,10.0,10.0,1246746102,,,,,,Jump_Plyo,100.0,Plyo/Saltos
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-02-26,2026-02-26,1,5.0,8.0,1246746103,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-02-26,2026-02-26,2,5.0,8.0,1246746103,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-02-26,2026-02-26,1,,12.0,1246746104,,,,,,,,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-02-26,2026-02-26,2,,12.0,1246746104,,,,,,,,Sin categoria
+Mariano Diaz Romero,Hang Power Clean,2026-02-26,2026-02-26,1,60.0,4.0,1246746108,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-26,2026-02-26,2,65.0,4.0,1246746108,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-26,2026-02-26,3,65.0,4.0,1246746108,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-26,2026-02-26,4,65.0,4.0,1246746108,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-02-26,2026-02-26,5,65.0,4.0,1246746108,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Box Jump,2026-02-26,2026-02-26,1,,2.0,1246746110,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-26,2026-02-26,2,,2.0,1246746110,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-26,2026-02-26,3,,2.0,1246746110,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-26,2026-02-26,4,,2.0,1246746110,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-02-26,2026-02-26,5,,2.0,1246746110,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Barbell Deadlift,2026-02-26,2026-02-26,1,160.0,4.0,1246746101,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-26,2026-02-26,2,160.0,4.0,1246746101,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-26,2026-02-26,3,170.0,4.0,1246746101,,,,,,Dominante de Cadera,680.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-26,2026-02-26,4,170.0,4.0,1246746101,,,,,,Dominante de Cadera,680.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-02-26,2026-02-26,5,170.0,4.0,1246746101,,,,,,Dominante de Cadera,680.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-26,2026-02-26,1,80.0,8.0,1246746111,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-26,2026-02-26,2,80.0,8.0,1246746111,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-02-26,2026-02-26,3,80.0,8.0,1246746111,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,High Cable Face pull,2026-02-26,2026-02-26,1,17.5,12.0,1246746112,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-02-26,2026-02-26,2,17.5,12.0,1246746112,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-02-26,2026-02-26,3,17.5,12.0,1246746112,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-26,2026-02-26,1,,30.0,1246746113,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-26,2026-02-26,2,,30.0,1246746113,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Wall Reverse Neck Plank,2026-02-26,2026-02-26,3,,30.0,1246746113,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Kb Bottoms Up 1-Arm Shoulder Press,2026-02-28,2026-02-28,1,16.0,10.0,1246746124,,,,,,Empuje Vertical,160.0,Push V
+Mariano Diaz Romero,Kb Bottoms Up 1-Arm Shoulder Press,2026-02-28,2026-02-28,2,16.0,10.0,1246746124,,,,,,Empuje Vertical,160.0,Push V
+Mariano Diaz Romero,Barbell Overhead Squat,2026-02-28,2026-02-28,1,5.0,10.0,1246746125,,,,,,,50.0,Sin categoria
+Mariano Diaz Romero,Barbell Overhead Squat,2026-02-28,2026-02-28,2,5.0,10.0,1246746125,,,,,,,50.0,Sin categoria
+Mariano Diaz Romero,Kb/Db Plank Drag,2026-02-28,2026-02-28,1,21.0,10.0,1246746126,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Kb/Db Plank Drag,2026-02-28,2026-02-28,2,21.0,10.0,1246746126,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-28,2026-02-28,1,80.0,5.0,1246746115,,,,,,,400.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-28,2026-02-28,2,90.0,5.0,1246746115,,,,,,,450.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-28,2026-02-28,3,100.0,5.0,1246746115,,,,,,,500.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-28,2026-02-28,4,100.0,5.0,1246746115,,,,,,,500.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-02-28,2026-02-28,5,100.0,4.0,1246746115,,,,,,,400.0,Sin categoria
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-02-28,2026-02-28,1,60.0,8.0,1246746116,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-02-28,2026-02-28,2,60.0,8.0,1246746116,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-02-28,2026-02-28,3,60.0,8.0,1246746116,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-02-28,2026-02-28,4,60.0,8.0,1246746116,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Barbell RDL,2026-02-28,2026-02-28,1,100.0,10.0,1246746117,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Mariano Diaz Romero,Barbell RDL,2026-02-28,2026-02-28,2,100.0,10.0,1246746117,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Mariano Diaz Romero,Barbell RDL,2026-02-28,2026-02-28,3,100.0,10.0,1246746117,,,,,,Dominante de Cadera,1000.0,Dom. Cadera
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-02-28,2026-02-28,1,,20.0,1246746122,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-02-28,2026-02-28,2,,20.0,1246746122,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-02-28,2026-02-28,3,,20.0,1246746122,,,,,,,,Sin categoria
+Mariano Diaz Romero,Scapular Push Up,2026-03-03,2026-03-03,1,,20.0,1273208355,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Scapular Pull Up,2026-03-03,2026-03-03,1,,20.0,1273208356,,,,,,,,Sin categoria
+Mariano Diaz Romero,Db Lateral Shoulder Raises,2026-03-03,2026-03-03,1,5.0,20.0,1273208354,,,,,,Accessories MMSS,100.0,Accesorios MMSS
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-03-03,2026-03-03,1,15.0,4.0,1273208357,,,,,,,60.0,Sin categoria
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-03-03,2026-03-03,2,15.0,4.0,1273208357,,,,,,,60.0,Sin categoria
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-03,2026-03-03,1,60.0,5.0,1273208351,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-03,2026-03-03,2,70.0,5.0,1273208351,,,,,,DLO,350.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-03,2026-03-03,3,70.0,5.0,1273208351,,,,,,DLO,350.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-03,2026-03-03,4,70.0,5.0,1273208351,,,,,,DLO,350.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-03,2026-03-03,5,70.0,5.0,1273208351,,,,,,DLO,350.0,DLO
+Mariano Diaz Romero,Barbell Bench Press,2026-03-03,2026-03-03,1,,,1273208353,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-03-03,2026-03-03,2,,,1273208353,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-03-03,2026-03-03,3,,,1273208353,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Barbell Bench Press,2026-03-03,2026-03-03,4,,,1273208353,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-03-05,2026-03-05,1,60.0,4.0,1273208371,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-03-05,2026-03-05,2,70.0,4.0,1273208371,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-03-05,2026-03-05,3,70.0,4.0,1273208371,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-03-05,2026-03-05,4,70.0,4.0,1273208371,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Hang High Pull (Snatch Grip),2026-03-05,2026-03-05,5,70.0,4.0,1273208371,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Box Jump,2026-03-05,2026-03-05,1,,2.0,1273208373,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-03-05,2026-03-05,2,,2.0,1273208373,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-03-05,2026-03-05,3,,2.0,1273208373,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-03-05,2026-03-05,4,,2.0,1273208373,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-03-05,2026-03-05,5,,2.0,1273208373,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Barbell Deadlift,2026-03-05,2026-03-05,1,160.0,4.0,1273208364,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-03-05,2026-03-05,2,160.0,4.0,1273208364,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-03-05,2026-03-05,3,170.0,4.0,1273208364,,,,,,Dominante de Cadera,680.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-03-05,2026-03-05,4,170.0,4.0,1273208364,,,,,,Dominante de Cadera,680.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-03-05,2026-03-05,5,170.0,4.0,1273208364,,,,,,Dominante de Cadera,680.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-03-05,2026-03-05,1,80.0,8.0,1273208374,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-03-05,2026-03-05,2,80.0,8.0,1273208374,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-03-05,2026-03-05,3,80.0,8.0,1273208374,,,,,,Dominante de Rodilla/Stance_Split,640.0,Dom. Rodilla
+Mariano Diaz Romero,Kb Bottoms Up 1-Arm Shoulder Press,2026-03-07,2026-03-07,1,16.0,12.0,1273208387,,,,,,Empuje Vertical,192.0,Push V
+Mariano Diaz Romero,Kb Bottoms Up 1-Arm Shoulder Press,2026-03-07,2026-03-07,2,16.0,12.0,1273208387,,,,,,Empuje Vertical,192.0,Push V
+Mariano Diaz Romero,Barbell Overhead Squat,2026-03-07,2026-03-07,1,15.0,10.0,1273208388,,,,,,,150.0,Sin categoria
+Mariano Diaz Romero,Barbell Overhead Squat,2026-03-07,2026-03-07,2,15.0,10.0,1273208388,,,,,,,150.0,Sin categoria
+Mariano Diaz Romero,Kb/Db Plank Drag,2026-03-07,2026-03-07,1,21.0,10.0,1273208389,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Kb/Db Plank Drag,2026-03-07,2026-03-07,2,21.0,10.0,1273208389,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-07,2026-03-07,1,80.0,5.0,1273208378,,,,,,,400.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-07,2026-03-07,2,100.0,5.0,1273208378,,,,,,,500.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-07,2026-03-07,3,120.0,5.0,1273208378,,,,,,,600.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-07,2026-03-07,4,120.0,5.0,1273208378,,,,,,,600.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-07,2026-03-07,5,120.0,5.0,1273208378,,,,,,,600.0,Sin categoria
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-03-07,2026-03-07,1,60.0,10.0,1273208379,,,,,,Empuje Horizontal,600.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-03-07,2026-03-07,2,60.0,10.0,1273208379,,,,,,Empuje Horizontal,600.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-03-07,2026-03-07,3,60.0,9.0,1273208379,,,,,,Empuje Horizontal,540.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-03-07,2026-03-07,4,60.0,8.0,1273208379,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Barbell RDL,2026-03-07,2026-03-07,1,110.0,10.0,1273208380,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Barbell RDL,2026-03-07,2026-03-07,2,110.0,10.0,1273208380,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Barbell RDL,2026-03-07,2026-03-07,3,110.0,10.0,1273208380,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-03-07,2026-03-07,1,,20.0,1273208385,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-03-07,2026-03-07,2,,20.0,1273208385,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-03-07,2026-03-07,3,,20.0,1273208385,,,,,,,,Sin categoria
+Mariano Diaz Romero,Barbell Calf Raises,2026-03-07,2026-03-07,1,45.0,15.0,1273208386,,,,,,,675.0,Sin categoria
+Mariano Diaz Romero,Barbell Calf Raises,2026-03-07,2026-03-07,2,45.0,15.0,1273208386,,,,,,,675.0,Sin categoria
+Mariano Diaz Romero,Barbell Calf Raises,2026-03-07,2026-03-07,3,45.0,15.0,1273208386,,,,,,,675.0,Sin categoria
+Mariano Diaz Romero,1-Leg Kb/Db Deficit Calf Raises (Rack assisted),2026-03-07,2026-03-07,1,20.0,15.0,1273208390,,,,,,,300.0,Sin categoria
+Mariano Diaz Romero,1-Leg Kb/Db Deficit Calf Raises (Rack assisted),2026-03-07,2026-03-07,2,20.0,15.0,1273208390,,,,,,,300.0,Sin categoria
+Mariano Diaz Romero,1-Leg Kb/Db Deficit Calf Raises (Rack assisted),2026-03-07,2026-03-07,3,20.0,15.0,1273208390,,,,,,,300.0,Sin categoria
+Mariano Diaz Romero,Banded Cuban Press,2026-03-07,2026-03-07,1,,12.0,1273208391,,,,,,,,Sin categoria
+Mariano Diaz Romero,Banded Cuban Press,2026-03-07,2026-03-07,2,,12.0,1273208391,,,,,,,,Sin categoria
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-03-12,2026-03-12,1,20.0,10.0,1273208407,,,,,,Jump_Plyo,200.0,Plyo/Saltos
+Mariano Diaz Romero,Barbell Pogo Jumps,2026-03-12,2026-03-12,2,20.0,10.0,1273208407,,,,,,Jump_Plyo,200.0,Plyo/Saltos
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-03-12,2026-03-12,1,5.0,8.0,1273208408,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Db/Kb Half Kneeling Chop,2026-03-12,2026-03-12,2,5.0,8.0,1273208408,,,,,,,40.0,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-03-12,2026-03-12,1,,12.0,1273208409,,,,,,,,Sin categoria
+Mariano Diaz Romero,Floor Back Extension,2026-03-12,2026-03-12,2,,12.0,1273208409,,,,,,,,Sin categoria
+Mariano Diaz Romero,Hang Power Clean,2026-03-12,2026-03-12,1,60.0,4.0,1273208413,,,,,,DLO,240.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-03-12,2026-03-12,2,65.0,4.0,1273208413,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-03-12,2026-03-12,3,65.0,4.0,1273208413,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-03-12,2026-03-12,4,65.0,4.0,1273208413,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Hang Power Clean,2026-03-12,2026-03-12,5,65.0,4.0,1273208413,,,,,,DLO,260.0,DLO
+Mariano Diaz Romero,Box Jump,2026-03-12,2026-03-12,1,,2.0,1273208415,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-03-12,2026-03-12,2,,2.0,1273208415,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-03-12,2026-03-12,3,,2.0,1273208415,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-03-12,2026-03-12,4,,2.0,1273208415,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Box Jump,2026-03-12,2026-03-12,5,,2.0,1273208415,,,,,,Jump_Ballistic,,Balístico
+Mariano Diaz Romero,Barbell Deadlift,2026-03-12,2026-03-12,1,160.0,4.0,1273208406,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-03-12,2026-03-12,2,160.0,4.0,1273208406,,,,,,Dominante de Cadera,640.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-03-12,2026-03-12,3,180.0,4.0,1273208406,,,,,,Dominante de Cadera,720.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-03-12,2026-03-12,4,180.0,4.0,1273208406,,,,,,Dominante de Cadera,720.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Deadlift,2026-03-12,2026-03-12,5,180.0,4.0,1273208406,,,,,,Dominante de Cadera,720.0,Dom. Cadera
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-03-12,2026-03-12,1,85.0,8.0,1273208416,,,,,,Dominante de Rodilla/Stance_Split,680.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-03-12,2026-03-12,2,85.0,8.0,1273208416,,,,,,Dominante de Rodilla/Stance_Split,680.0,Dom. Rodilla
+Mariano Diaz Romero,Barbell Bulgarian Split Squat,2026-03-12,2026-03-12,3,85.0,8.0,1273208416,,,,,,Dominante de Rodilla/Stance_Split,680.0,Dom. Rodilla
+Mariano Diaz Romero,High Cable Face pull,2026-03-12,2026-03-12,1,20.0,12.0,1273208417,,,,,,,240.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-03-12,2026-03-12,2,20.0,12.0,1273208417,,,,,,,240.0,Sin categoria
+Mariano Diaz Romero,High Cable Face pull,2026-03-12,2026-03-12,3,20.0,12.0,1273208417,,,,,,,240.0,Sin categoria
+Mariano Diaz Romero,Plank Prone brench Neck Bridge,2026-03-12,2026-03-12,1,,30.0,1273208418,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Plank Prone brench Neck Bridge,2026-03-12,2026-03-12,2,,30.0,1273208418,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Plank Prone brench Neck Bridge,2026-03-12,2026-03-12,3,,30.0,1273208418,,,,,,Neck,,Cuello/Trapecio
+Mariano Diaz Romero,Kb Bottoms Up 1-Arm Shoulder Press,2026-03-14,2026-03-14,1,16.0,12.0,1273208429,,,,,,Empuje Vertical,192.0,Push V
+Mariano Diaz Romero,Kb Bottoms Up 1-Arm Shoulder Press,2026-03-14,2026-03-14,2,16.0,12.0,1273208429,,,,,,Empuje Vertical,192.0,Push V
+Mariano Diaz Romero,Barbell Overhead Squat,2026-03-14,2026-03-14,1,20.0,10.0,1273208430,,,,,,,200.0,Sin categoria
+Mariano Diaz Romero,Barbell Overhead Squat,2026-03-14,2026-03-14,2,20.0,10.0,1273208430,,,,,,,200.0,Sin categoria
+Mariano Diaz Romero,Kb/Db Plank Drag,2026-03-14,2026-03-14,1,21.0,10.0,1273208431,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Kb/Db Plank Drag,2026-03-14,2026-03-14,2,21.0,10.0,1273208431,,,,,,,210.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-14,2026-03-14,1,80.0,5.0,1273208420,,,,,,,400.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-14,2026-03-14,2,100.0,5.0,1273208420,,,,,,,500.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-14,2026-03-14,3,120.0,5.0,1273208420,,,,,,,600.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-14,2026-03-14,4,120.0,5.0,1273208420,,,,,,,600.0,Sin categoria
+Mariano Diaz Romero,Front Squat,2026-03-14,2026-03-14,5,120.0,5.0,1273208420,,,,,,,600.0,Sin categoria
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-03-14,2026-03-14,1,60.0,8.0,1273208421,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-03-14,2026-03-14,2,60.0,8.0,1273208421,,,,,,Empuje Horizontal,480.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-03-14,2026-03-14,3,60.0,6.0,1273208421,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Db/Kb 2-Arm Incline Bench Press (Narrow Grip),2026-03-14,2026-03-14,4,60.0,6.0,1273208421,,,,,,Empuje Horizontal,360.0,Push H
+Mariano Diaz Romero,Barbell RDL,2026-03-14,2026-03-14,1,110.0,10.0,1273208422,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Barbell RDL,2026-03-14,2026-03-14,2,110.0,10.0,1273208422,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Barbell RDL,2026-03-14,2026-03-14,3,110.0,10.0,1273208422,,,,,,Dominante de Cadera,1100.0,Dom. Cadera
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-03-14,2026-03-14,1,,20.0,1273208427,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-03-14,2026-03-14,2,,20.0,1273208427,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-03-14,2026-03-14,3,,20.0,1273208427,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-03-14,2026-03-14,4,,20.0,1273208427,,,,,,,,Sin categoria
+Mariano Diaz Romero,Pull-Up Iso-Hold,2026-03-14,2026-03-14,5,,20.0,1273208427,,,,,,,,Sin categoria
+Mariano Diaz Romero,Scapular Push Up,2026-03-17,2026-03-17,1,,20.0,1273208439,,,,,,Empuje Horizontal,,Push H
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-17,2026-03-17,1,60.0,5.0,1273208435,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-17,2026-03-17,2,60.0,5.0,1273208435,,,,,,DLO,300.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-17,2026-03-17,3,70.0,4.0,1273208435,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-17,2026-03-17,4,70.0,4.0,1273208435,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Hang High Pull (Clean Grip),2026-03-17,2026-03-17,5,70.0,4.0,1273208435,,,,,,DLO,280.0,DLO
+Mariano Diaz Romero,Machine Chest Press,2026-03-17,2026-03-17,1,95.0,3.0,1273208437,,,,,,Empuje Horizontal,285.0,Push H
+Mariano Diaz Romero,Machine Chest Press,2026-03-17,2026-03-17,2,100.0,3.0,1273208437,,,,,,Empuje Horizontal,300.0,Push H
+Mariano Diaz Romero,Machine Chest Press,2026-03-17,2026-03-17,3,100.0,3.0,1273208437,,,,,,Empuje Horizontal,300.0,Push H
+Mariano Diaz Romero,Machine Chest Press,2026-03-17,2026-03-17,4,100.0,3.0,1273208437,,,,,,Empuje Horizontal,300.0,Push H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-03-17,2026-03-17,1,100.0,6.0,1273208436,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-03-17,2026-03-17,2,100.0,6.0,1273208436,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Barbell Pendlay Row,2026-03-17,2026-03-17,3,100.0,6.0,1273208436,,,,,,Traccion Horizontal,600.0,Pull H
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-03-17,2026-03-17,1,40.0,15.0,1273208442,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-03-17,2026-03-17,2,40.0,15.0,1273208442,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-03-17,2026-03-17,3,40.0,15.0,1273208442,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Db Split Squat Iso-Hold,2026-03-17,2026-03-17,4,40.0,15.0,1273208442,,,,,,Dominante de Rodilla,600.0,Dom. Rodilla
+Mariano Diaz Romero,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-03-17,2026-03-17,1,20.0,15.0,1273208443,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Diaz Romero,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-03-17,2026-03-17,2,20.0,15.0,1273208443,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Diaz Romero,Weighted 1-Leg Hamstring Bridge (Lying Floor),2026-03-17,2026-03-17,3,20.0,15.0,1273208443,,,,,,Dominante de Cadera,300.0,Dom. Cadera
+Mariano Diaz Romero,Scapular Pull Up,2026-03-17,2026-03-17,1,,20.0,1273208440,,,,,,,,Sin categoria
+Mariano Diaz Romero,Db Lateral Shoulder Raises,2026-03-17,2026-03-17,1,6.0,25.0,1273208438,,,,,,Accessories MMSS,150.0,Accesorios MMSS
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-03-17,2026-03-17,1,15.0,5.0,1273208441,,,,,,,75.0,Sin categoria
+Mariano Diaz Romero,Kb/Db 1/4 TGU,2026-03-17,2026-03-17,2,15.0,5.0,1273208441,,,,,,,75.0,Sin categoria

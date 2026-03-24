@@ -1,4 +1,27 @@
 Date,Athlete,RPE,Duration_min,sRPE
+2026-02-01,Agustin Choquis,5.0,75.0,375.0
+2026-02-09,Agustin Choquis,5.0,75.0,375.0
+2026-02-01,Agustin Lopez Muñoz,7.7,58.6,451.22
+2026-02-02,Agustin Lopez Muñoz,8.0,58.0,464.0
+2026-02-04,Agustin Lopez Muñoz,8.0,60.0,480.0
+2026-02-09,Agustin Lopez Muñoz,8.0,50.0,400.0
+2026-02-11,Agustin Lopez Muñoz,7.0,58.0,406.0
+2026-02-18,Agustin Lopez Muñoz,8.0,55.0,440.0
+2026-02-23,Agustin Lopez Muñoz,7.0,57.0,399.0
+2026-02-25,Agustin Lopez Muñoz,8.0,62.0,496.0
+2026-02-27,Agustin Lopez Muñoz,7.0,50.0,350.0
+2026-03-02,Agustin Lopez Muñoz,8.0,71.0,568.0
+2026-03-16,Agustin Lopez Muñoz,8.0,65.0,520.0
+2026-02-01,Cande Falzone,6.78,84.44,572.5032
+2026-03-02,Cande Falzone,7.0,80.0,560.0
+2026-03-04,Cande Falzone,7.0,90.0,630.0
+2026-03-05,Cande Falzone,8.0,80.0,640.0
+2026-03-09,Cande Falzone,6.0,90.0,540.0
+2026-03-11,Cande Falzone,6.0,70.0,420.0
+2026-03-12,Cande Falzone,7.0,100.0,700.0
+2026-03-16,Cande Falzone,7.0,80.0,560.0
+2026-03-18,Cande Falzone,6.0,80.0,480.0
+2026-03-20,Cande Falzone,7.0,90.0,630.0
 2026-02-01,Celina Amarillo,7.8,51.13,398.814
 2026-02-10,Celina Amarillo,6.0,80.0,480.0
 2026-02-11,Celina Amarillo,8.0,81.0,648.0
@@ -29,3 +52,25 @@ Date,Athlete,RPE,Duration_min,sRPE
 2026-03-16,Exequiel Heredia Garcia,7.0,65.0,455.0
 2026-03-18,Exequiel Heredia Garcia,5.0,65.0,325.0
 2026-03-19,Exequiel Heredia Garcia,5.0,59.0,295.0
+2026-02-01,Mariano Burgos,8.6,63.1,542.66
+2026-02-04,Mariano Burgos,9.0,59.0,531.0
+2026-02-06,Mariano Burgos,9.0,71.0,639.0
+2026-02-09,Mariano Burgos,8.0,64.0,512.0
+2026-02-11,Mariano Burgos,8.0,60.0,480.0
+2026-02-13,Mariano Burgos,9.0,59.0,531.0
+2026-02-20,Mariano Burgos,9.0,61.0,549.0
+2026-03-09,Mariano Burgos,9.0,70.0,630.0
+2026-03-13,Mariano Burgos,9.0,59.0,531.0
+2026-03-16,Mariano Burgos,8.0,65.0,520.0
+2026-03-20,Mariano Burgos,8.0,63.0,504.0
+2026-02-01,Mariano Diaz Romero,7.2,57.33,412.776
+2026-02-03,Mariano Diaz Romero,7.0,57.0,399.0
+2026-02-05,Mariano Diaz Romero,7.0,55.0,385.0
+2026-02-10,Mariano Diaz Romero,6.0,56.0,336.0
+2026-02-17,Mariano Diaz Romero,7.0,46.0,322.0
+2026-02-19,Mariano Diaz Romero,8.0,68.0,544.0
+2026-02-24,Mariano Diaz Romero,7.0,60.0,420.0
+2026-02-26,Mariano Diaz Romero,7.0,64.0,448.0
+2026-02-28,Mariano Diaz Romero,7.0,40.0,280.0
+2026-03-07,Mariano Diaz Romero,8.0,8.0,64.0
+2026-03-12,Mariano Diaz Romero,8.0,70.0,560.0
