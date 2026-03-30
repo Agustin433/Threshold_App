@@ -595,99 +595,322 @@ def _pdf_line(commands: list[str], x1: int, y1: int, x2: int, y2: int, color: st
     commands.append(f"{x1} {y1} m {x2} {y2} l S")
 
 
+def _pdf_stroke_rect(
+    commands: list[str],
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    *,
+    color: str = "#D8DEE4",
+    width: float = 1.0,
+) -> None:
+    r, g, b = _pdf_color(color)
+    commands.append(f"{r:.3f} {g:.3f} {b:.3f} RG")
+    commands.append(f"{width:.1f} w")
+    commands.append(f"{x} {y} {w} {h} re S")
+
+
+def _zone_color(zone: object) -> str:
+    zone_text = _ascii_text(zone).strip().lower()
+    if "alto" in zone_text or "riesgo" in zone_text:
+        return "#B85C38"
+    if "precauc" in zone_text:
+        return "#C58A2D"
+    if "opt" in zone_text:
+        return "#2F6B52"
+    if "sub" in zone_text:
+        return "#708C9F"
+    return "#5A595B"
+
+
+def _display_metric(value: object, *, digits: int | None = None, suffix: str = "") -> str:
+    numeric = _coerce_float(value)
+    if numeric is not None:
+        if digits is None:
+            rendered = f"{numeric:g}"
+        else:
+            rendered = f"{numeric:.{digits}f}"
+        return f"{rendered}{suffix}"
+    text = _ascii_text(value).strip()
+    return text or "-"
+
+
+def _pdf_label_value_card(
+    commands: list[str],
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    *,
+    label: str,
+    value: str,
+    accent: str = "#0D3C5E",
+    fill: str = "#FEFEFE",
+    border: str = "#D8DEE4",
+    value_color: str = "#221F20",
+) -> None:
+    _pdf_rect(commands, x, y, w, h, fill)
+    _pdf_stroke_rect(commands, x, y, w, h, color=border)
+    _pdf_rect(commands, x, y + h - 4, w, 4, accent)
+    _pdf_text(commands, x + 14, y + h - 24, label, size=9, color="#5A595B")
+    _pdf_text(commands, x + 14, y + h - 50, value, font="F2", size=18, color=value_color)
+
+
+def _pdf_module_block(
+    commands: list[str],
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    *,
+    title: str,
+    summary: str,
+    focuses: list[str],
+    accent: str = "#0D3C5E",
+) -> None:
+    _pdf_rect(commands, x, y, w, h, "#FEFEFE")
+    _pdf_stroke_rect(commands, x, y, w, h, color="#D8DEE4")
+    _pdf_rect(commands, x, y + h - 6, w, 6, accent)
+    _pdf_text(commands, x + 14, y + h - 28, title, font="F2", size=12, color="#221F20")
+    current_y = _pdf_multiline(
+        commands,
+        x + 14,
+        y + h - 48,
+        _wrap_lines(summary, 42),
+        size=9,
+        color="#5A595B",
+        leading=12,
+    ) - 8
+    for focus in focuses[:2]:
+        if current_y < y + 20:
+            break
+        current_y = _pdf_multiline(
+            commands,
+            x + 18,
+            current_y,
+            _wrap_lines(f"- {focus}", 40),
+            size=8,
+            color="#221F20",
+            leading=11,
+        ) - 4
+
+
 def _build_cover_page(report_athlete: str, summary_df: pd.DataFrame, insights: dict[str, dict[str, object]]) -> str:
     commands: list[str] = []
     _pdf_rect(commands, 0, 0, 595, 842, "#F4F6F8")
-    _pdf_rect(commands, 0, 742, 595, 100, "#0D3C5E")
-    _pdf_text(commands, 48, 798, "THRESHOLD STRENGTH & CONDITIONING", font="F2", size=22, color="#FEFEFE")
-    _pdf_text(commands, 48, 770, "Performance Report", font="F2", size=16, color="#FEFEFE")
+    _pdf_rect(commands, 0, 742, 595, 100, "#221F20")
+    _pdf_rect(commands, 48, 730, 220, 3, "#0D3C5E")
+    _pdf_text(commands, 48, 794, "THRESHOLD STRENGTH & CONDITIONING", font="F2", size=21, color="#FEFEFE")
+    _pdf_text(commands, 48, 770, "Performance Report", font="F2", size=14, color="#9AA2A9")
 
-    _pdf_text(commands, 48, 700, f"Scope: {report_athlete}", font="F2", size=18, color="#0D3C5E")
-    _pdf_text(commands, 48, 676, f"Generated: {datetime.now():%d/%m/%Y %H:%M}", size=11, color="#5A595B")
-    summary_line = (
-        f"Executive rows: {len(summary_df)} | Active modules: {len(insights)}"
-        if not summary_df.empty else
-        "No executive summary rows available yet."
-    )
-    _pdf_text(commands, 48, 652, summary_line, size=11, color="#5A595B")
+    _pdf_text(commands, 48, 698, "Scope", size=10, color="#708C9F")
+    _pdf_text(commands, 48, 674, report_athlete, font="F2", size=20, color="#0D3C5E")
+    _pdf_text(commands, 250, 698, "Generated", size=10, color="#708C9F")
+    _pdf_text(commands, 250, 676, f"{datetime.now():%d/%m/%Y %H:%M}", font="F2", size=14, color="#221F20")
+    _pdf_text(commands, 430, 698, "Executive rows", size=10, color="#708C9F")
+    _pdf_text(commands, 430, 676, str(len(summary_df)), font="F2", size=14, color="#221F20")
 
-    y = 610
-    _pdf_text(commands, 48, y, "Executive narrative", font="F2", size=14, color="#0D3C5E")
-    y -= 28
+    _pdf_rect(commands, 48, 560, 499, 84, "#FEFEFE")
+    _pdf_stroke_rect(commands, 48, 560, 499, 84, color="#D8DEE4")
+    _pdf_text(commands, 64, 620, "Executive narrative", font="F2", size=13, color="#221F20")
     intro = insights.get("report", {}).get("summary", "Operational report ready for technical review.")
-    y = _pdf_multiline(commands, 48, y, _wrap_lines(intro, 72), size=11, color="#221F20", leading=15)
+    _pdf_multiline(commands, 64, 598, _wrap_lines(intro, 78), size=10, color="#5A595B", leading=14)
 
-    y -= 18
-    _pdf_text(commands, 48, y, "Priority focuses", font="F2", size=14, color="#0D3C5E")
-    y -= 24
+    overview_summary = insights.get("overview", {}).get("summary", "No overview available yet.")
+    _pdf_label_value_card(commands, 48, 450, 156, 78, label="Report focus", value="Integrated review", accent="#0D3C5E")
+    _pdf_label_value_card(commands, 220, 450, 156, 78, label="Window", value="Last 6 weeks", accent="#708C9F")
+    _pdf_label_value_card(commands, 392, 450, 155, 78, label="Modules", value=str(len(insights)), accent="#5A595B")
+
+    _pdf_text(commands, 48, 410, "Reading context", font="F2", size=13, color="#221F20")
+    _pdf_multiline(commands, 48, 388, _wrap_lines(overview_summary, 82), size=10, color="#5A595B", leading=14)
+
+    _pdf_text(commands, 48, 318, "Priority focuses", font="F2", size=13, color="#221F20")
+    current_y = 294
     for focus in insights.get("report", {}).get("focuses", []):
-        wrapped = _wrap_lines(f"- {focus}", 76)
-        y = _pdf_multiline(commands, 60, y, wrapped, size=10, color="#221F20", leading=14) - 6
+        current_y = _pdf_multiline(
+            commands,
+            60,
+            current_y,
+            _wrap_lines(f"- {focus}", 78),
+            size=10,
+            color="#221F20",
+            leading=14,
+        ) - 6
 
-    y -= 10
-    _pdf_line(commands, 48, y, 547, y)
-    y -= 28
+    _pdf_line(commands, 48, 112, 547, 112, color="#D8DEE4")
     footer = "Threshold S&C - Load monitoring, evaluations and athlete follow-up."
-    _pdf_multiline(commands, 48, y, _wrap_lines(footer, 80), size=10, color="#708C9F", leading=14)
+    _pdf_multiline(commands, 48, 92, _wrap_lines(footer, 84), size=9, color="#708C9F", leading=13)
     return "\n".join(commands)
 
 
-def _build_summary_pages(summary_df: pd.DataFrame) -> list[str]:
+def _build_dashboard_page(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str,
+    summary_df: pd.DataFrame,
+) -> str | None:
+    if summary_df.empty:
+        return None
+
+    commands: list[str] = []
+    _pdf_rect(commands, 0, 0, 595, 842, "#F4F6F8")
+    _pdf_text(commands, 48, 800, "Executive dashboard", font="F2", size=18, color="#0D3C5E")
+    _pdf_text(commands, 48, 778, "Latest integrated snapshot for operational review.", size=10, color="#5A595B")
+    _pdf_line(commands, 48, 766, 547, 766, color="#D8DEE4")
+
+    if report_athlete != "Todos" and not summary_df.empty:
+        focus_row = summary_df.iloc[0]
+        title_text = _ascii_text(focus_row.get("Atleta", report_athlete))
+    else:
+        focus_row = summary_df.iloc[0]
+        title_text = f"{len(summary_df)} visible athlete(s)"
+
+    _pdf_text(commands, 48, 730, title_text, font="F2", size=22, color="#221F20")
+    _pdf_text(commands, 48, 708, "Performance dashboard ready for technical review and client-facing export.", size=10, color="#708C9F")
+
+    cards = [
+        ("ACWR EWMA", _display_metric(focus_row.get("ACWR EWMA"), digits=2), _zone_color(focus_row.get("Zona"))),
+        ("Load zone", _display_metric(focus_row.get("Zona")), "#708C9F"),
+        ("Wellness 3d", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"),
+        ("Monotony", _display_metric(focus_row.get("Monotonia"), digits=2), "#5A595B"),
+        ("CMJ", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm"), "#0D3C5E"),
+        ("IMTP", _display_metric(focus_row.get("IMTP N"), digits=0, suffix=" N"), "#134263"),
+    ]
+
+    positions = [
+        (48, 604), (220, 604), (392, 604),
+        (48, 504), (220, 504), (392, 504),
+    ]
+    for (label, value, accent), (x, y) in zip(cards, positions):
+        _pdf_label_value_card(commands, x, y, 155, 82, label=label, value=value, accent=accent)
+
+    completion_value = _team_completion_mean(state)
+    completion_text = _display_metric(completion_value, digits=1, suffix="%") if completion_value is not None else "-"
+    athletes_text = str(len(summary_df))
+    datasets_count = len(
+        [
+            key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
+            if state.get(key) is not None and not state.get(key).empty
+        ]
+    )
+
+    _pdf_rect(commands, 48, 392, 499, 78, "#FEFEFE")
+    _pdf_stroke_rect(commands, 48, 392, 499, 78, color="#D8DEE4")
+    _pdf_text(commands, 64, 438, "Report pulse", font="F2", size=12, color="#221F20")
+    _pdf_text(commands, 64, 414, f"Visible athletes: {athletes_text}", size=10, color="#5A595B")
+    _pdf_text(commands, 220, 414, f"Active datasets: {datasets_count}", size=10, color="#5A595B")
+    _pdf_text(commands, 392, 414, f"Completion mean: {completion_text}", size=10, color="#5A595B")
+
+    _pdf_text(commands, 48, 346, "Export note", font="F2", size=12, color="#221F20")
+    _pdf_multiline(
+        commands,
+        48,
+        324,
+        [
+            "Use this page as the visual executive snapshot for coaches, athletes and clients.",
+            "The detailed table and module readings continue on the next pages.",
+        ],
+        size=10,
+        color="#5A595B",
+        leading=14,
+    )
+    return "\n".join(commands)
+
+
+def _build_snapshot_pages(summary_df: pd.DataFrame) -> list[str]:
     if summary_df.empty:
         return []
 
-    rows = []
-    for _, row in summary_df.fillna("—").iterrows():
-        line = " | ".join(
-            [
-                _ascii_text(row.get("Atleta", "—")),
-                f"ACWR {row.get('ACWR EWMA', '—')}",
-                f"Zona {row.get('Zona', '—')}",
-                f"CMJ {row.get('CMJ cm', '—')}",
-                f"DRI {row.get('DRI', '—')}",
-                f"IMTP {row.get('IMTP N', '—')}",
-            ]
-        )
-        rows.append(line)
+    display_df = summary_df.copy().fillna("-")
+    keep_cols = [
+        col for col in ["Atleta", "ACWR EWMA", "Zona", "Wellness 3d", "CMJ cm", "DRI", "IMTP N", "Perfil NM"]
+        if col in display_df.columns
+    ]
+    display_df = display_df[keep_cols]
+    rename_map = {
+        "Atleta": "Athlete",
+        "ACWR EWMA": "ACWR",
+        "Wellness 3d": "Wellness",
+        "CMJ cm": "CMJ",
+        "IMTP N": "IMTP",
+        "Perfil NM": "NM Profile",
+    }
+    display_df = display_df.rename(columns=rename_map)
 
-    pages = []
-    chunk_size = 22
-    for start in range(0, len(rows), chunk_size):
+    rows_per_page = 14
+    pages: list[str] = []
+    columns = display_df.columns.tolist()
+    widths = [120, 58, 72, 62, 52, 52, 62, 72][: len(columns)]
+
+    for start in range(0, len(display_df), rows_per_page):
+        chunk = display_df.iloc[start:start + rows_per_page]
         commands: list[str] = []
         _pdf_rect(commands, 0, 0, 595, 842, "#FEFEFE")
-        _pdf_text(commands, 48, 800, "Executive summary", font="F2", size=18, color="#0D3C5E")
-        _pdf_text(commands, 48, 780, "Most recent integrated KPI snapshot by athlete.", size=11, color="#5A595B")
-        _pdf_line(commands, 48, 770, 547, 770, color="#9AA2A9")
-        y = 744
-        for line in rows[start:start + chunk_size]:
-            wrapped = _wrap_lines(line, 84)
-            y = _pdf_multiline(commands, 48, y, wrapped, font="F3", size=9, color="#221F20", leading=13) - 8
+        _pdf_text(commands, 48, 800, "Athlete snapshot table", font="F2", size=18, color="#0D3C5E")
+        _pdf_text(commands, 48, 778, "Integrated KPI table for the current visible window.", size=10, color="#5A595B")
+        _pdf_line(commands, 48, 766, 547, 766, color="#D8DEE4")
+
+        table_x = 48
+        header_y = 726
+        row_h = 34
+        current_x = table_x
+        for col, width in zip(columns, widths):
+            _pdf_rect(commands, current_x, header_y, width, row_h, "#0D3C5E")
+            _pdf_text(commands, current_x + 8, header_y + 12, col, font="F2", size=8, color="#FEFEFE")
+            current_x += width
+
+        current_y = header_y - row_h
+        for row_idx, (_, row) in enumerate(chunk.iterrows()):
+            fill = "#F8FAFB" if row_idx % 2 == 0 else "#FEFEFE"
+            current_x = table_x
+            for col, width in zip(columns, widths):
+                _pdf_rect(commands, current_x, current_y, width, row_h, fill)
+                _pdf_stroke_rect(commands, current_x, current_y, width, row_h, color="#D8DEE4", width=0.8)
+                raw_value = row.get(col, "-")
+                text_color = _zone_color(raw_value) if col == "Zone" else "#221F20"
+                wrapped = _wrap_lines(raw_value, max(8, int(width / 6)))
+                _pdf_multiline(commands, current_x + 6, current_y + 20, wrapped[:2], size=8, color=text_color, leading=10)
+                current_x += width
+            current_y -= row_h
+
         pages.append("\n".join(commands))
     return pages
 
 
-def _build_insight_page(insights: dict[str, dict[str, object]]) -> str:
-    commands: list[str] = []
-    _pdf_rect(commands, 0, 0, 595, 842, "#FEFEFE")
-    _pdf_text(commands, 48, 800, "Interpretation and focus areas", font="F2", size=18, color="#0D3C5E")
-    _pdf_text(commands, 48, 780, "Brief editorial reading for technical follow-up.", size=11, color="#5A595B")
-    _pdf_line(commands, 48, 770, 547, 770, color="#9AA2A9")
+def _build_insight_pages(insights: dict[str, dict[str, object]]) -> list[str]:
+    ordered_keys = ["overview", "load", "evaluations", "profile", "team", "report"]
+    payloads = [insights[key] for key in ordered_keys if insights.get(key)]
+    if not payloads:
+        return []
 
-    y = 744
-    ordered_keys = ["overview", "load", "evaluations", "profile", "team"]
-    for key in ordered_keys:
-        payload = insights.get(key)
-        if not payload:
-            continue
-        _pdf_text(commands, 48, y, payload.get("title", key.title()), font="F2", size=13, color="#0D3C5E")
-        y -= 18
-        y = _pdf_multiline(commands, 48, y, _wrap_lines(payload.get("summary", ""), 80), size=10, color="#221F20", leading=13) - 8
-        for focus in payload.get("focuses", [])[:3]:
-            y = _pdf_multiline(commands, 60, y, _wrap_lines(f"- {focus}", 78), size=10, color="#5A595B", leading=13) - 4
-        y -= 12
-        if y < 90:
-            break
-    return "\n".join(commands)
+    positions = [
+        (48, 558), (306, 558),
+        (48, 366), (306, 366),
+        (48, 174), (306, 174),
+    ]
+    pages: list[str] = []
+    blocks_per_page = len(positions)
+
+    for start in range(0, len(payloads), blocks_per_page):
+        commands: list[str] = []
+        _pdf_rect(commands, 0, 0, 595, 842, "#F4F6F8")
+        _pdf_text(commands, 48, 800, "Interpretation and focus areas", font="F2", size=18, color="#0D3C5E")
+        _pdf_text(commands, 48, 778, "Editorial reading by module for follow-up and reporting.", size=10, color="#5A595B")
+        _pdf_line(commands, 48, 766, 547, 766, color="#D8DEE4")
+
+        for payload, (x, y) in zip(payloads[start:start + blocks_per_page], positions):
+            _pdf_module_block(
+                commands,
+                x,
+                y,
+                241,
+                152,
+                title=payload.get("title", "Module"),
+                summary=payload.get("summary", ""),
+                focuses=payload.get("focuses", []),
+            )
+        pages.append("\n".join(commands))
+    return pages
 
 
 def _build_pdf_document(page_contents: list[str]) -> bytes:
@@ -748,6 +971,9 @@ def generate_visual_report_pdf(
     insights = generate_module_insights(state, report_athlete)
 
     page_contents = [_build_cover_page(report_athlete, summary_df, insights)]
-    page_contents.extend(_build_summary_pages(summary_df))
-    page_contents.append(_build_insight_page(insights))
+    dashboard_page = _build_dashboard_page(state, report_athlete, summary_df)
+    if dashboard_page:
+        page_contents.append(dashboard_page)
+    page_contents.extend(_build_snapshot_pages(summary_df))
+    page_contents.extend(_build_insight_pages(insights))
     return _build_pdf_document(page_contents)
