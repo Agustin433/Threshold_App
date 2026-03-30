@@ -13,6 +13,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import base64
+import hashlib
 import html
 import json
 import os
@@ -40,6 +41,7 @@ from charts.load_charts import (
     chart_wellness as shared_chart_wellness,
 )
 from local_store import (
+    DATASET_SPECS,
     RECENT_WEEKS,
     build_load_models,
     build_dataset_summaries,
@@ -1975,6 +1977,163 @@ def _supabase_request(method: str, table: str, query: dict | None = None,
         raise RuntimeError(f"No se pudo conectar a Supabase: {exc.reason}") from exc
 
 
+SUPABASE_DATASETS_TABLE = "dataset_rows"
+REMOTE_DATASET_KEYS = ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df"]
+
+
+def _supabase_dataset_store_config() -> tuple[str | None, str | None, str]:
+    url = (
+        _get_secret_or_env("SUPABASE_URL")
+        or _get_secret_or_env("THRESHOLD_SUPABASE_URL")
+    )
+    key = (
+        _get_secret_or_env("SUPABASE_SERVICE_ROLE_KEY")
+        or _get_secret_or_env("SUPABASE_KEY")
+        or _get_secret_or_env("SUPABASE_ANON_KEY")
+        or _get_secret_or_env("THRESHOLD_SUPABASE_KEY")
+    )
+    table = (
+        _get_secret_or_env("SUPABASE_DATASETS_TABLE")
+        or SUPABASE_DATASETS_TABLE
+    )
+    return url, key, table
+
+
+def supabase_dataset_store_enabled() -> bool:
+    url, key, table = _supabase_dataset_store_config()
+    return bool(url and key and table)
+
+
+def _json_safe_value(value):
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.date().isoformat()
+    if isinstance(value, np.datetime64):
+        return pd.Timestamp(value).date().isoformat()
+    if isinstance(value, (np.integer, int)):
+        return int(value)
+    if isinstance(value, (np.floating, float)):
+        if not np.isfinite(value):
+            return None
+        return float(value)
+    if isinstance(value, (np.bool_, bool)):
+        return bool(value)
+    return value
+
+
+def _dataset_event_date(value) -> str | None:
+    if value in [None, "", "â€”", "-"]:
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date().isoformat()
+
+
+def _dataset_row_signature(state_key: str, payload: dict[str, object]) -> str:
+    spec = DATASET_SPECS.get(state_key, {})
+    dedupe_cols = spec.get("dedupe_cols") or sorted(payload.keys())
+    key_payload = {col: payload.get(col) for col in dedupe_cols if col in payload}
+    if not key_payload:
+        key_payload = payload
+    signature = json.dumps(key_payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1(signature.encode("utf-8")).hexdigest()
+
+
+def _dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict]:
+    if state_key not in REMOTE_DATASET_KEYS or df is None or df.empty:
+        return []
+
+    spec = DATASET_SPECS.get(state_key, {})
+    date_col = spec.get("date_col")
+    athlete_col = spec.get("athlete_col")
+    records: list[dict] = []
+
+    for _, row in df.iterrows():
+        payload: dict[str, object] = {}
+        for col in df.columns:
+            safe_value = _json_safe_value(row.get(col))
+            if safe_value is not None:
+                payload[col] = safe_value
+
+        if not payload:
+            continue
+
+        if athlete_col and athlete_col in payload:
+            payload[athlete_col] = normalize_athlete_name(payload[athlete_col])
+
+        record = {
+            "dataset_key": state_key,
+            "row_key": _dataset_row_signature(state_key, payload),
+            "payload": payload,
+        }
+
+        if athlete_col and payload.get(athlete_col):
+            record["athlete"] = normalize_athlete_name(payload[athlete_col])
+
+        event_date = _dataset_event_date(payload.get(date_col)) if date_col else None
+        if event_date:
+            record["event_date"] = event_date
+
+        records.append(record)
+
+    return records
+
+
+def save_remote_dataset(state_key: str, df: pd.DataFrame) -> dict[str, int | bool]:
+    if not supabase_dataset_store_enabled() or state_key not in REMOTE_DATASET_KEYS:
+        return {"enabled": False, "upserted": 0}
+
+    payload = _dataset_df_to_remote_records(state_key, df)
+    if not payload:
+        return {"enabled": True, "upserted": 0}
+
+    _, _, table = _supabase_dataset_store_config()
+    rows = _supabase_request(
+        "POST",
+        table,
+        query={"on_conflict": "dataset_key,row_key"},
+        payload=payload,
+        prefer="resolution=merge-duplicates,return=representation",
+    ) or []
+    return {"enabled": True, "upserted": len(rows) if rows else len(payload)}
+
+
+def load_remote_dataset(state_key: str) -> pd.DataFrame:
+    if not supabase_dataset_store_enabled() or state_key not in REMOTE_DATASET_KEYS:
+        return pd.DataFrame()
+
+    _, _, table = _supabase_dataset_store_config()
+    rows = []
+    offset = 0
+    page_size = 1000
+
+    while True:
+        batch = _supabase_request(
+            "GET",
+            table,
+            query={
+                "select": "payload",
+                "dataset_key": f"eq.{state_key}",
+                "order": "event_date.asc.nullslast,row_key.asc",
+                "limit": page_size,
+                "offset": offset,
+            },
+        ) or []
+        if not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+
+    payloads = [row.get("payload") for row in rows if isinstance(row.get("payload"), dict)]
+    if not payloads:
+        return pd.DataFrame()
+    return pd.DataFrame(payloads)
+
+
 def _jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
     if df is None or df.empty:
         return []
@@ -2945,10 +3104,16 @@ def init_state():
         st.session_state.data_processed = False
     if "evaluations_loaded_from_store" not in st.session_state:
         st.session_state.evaluations_loaded_from_store = False
+    if "datasets_loaded_from_store" not in st.session_state:
+        st.session_state.datasets_loaded_from_store = False
     if "eval_sync_notice" not in st.session_state:
         st.session_state.eval_sync_notice = None
     if "eval_sync_notice_kind" not in st.session_state:
         st.session_state.eval_sync_notice_kind = "info"
+    if "dataset_sync_notice" not in st.session_state:
+        st.session_state.dataset_sync_notice = None
+    if "dataset_sync_notice_kind" not in st.session_state:
+        st.session_state.dataset_sync_notice_kind = "info"
     if "upload_feedback" not in st.session_state:
         st.session_state.upload_feedback = []
 
@@ -2995,6 +3160,48 @@ def _dataset_detail_text(row: dict[str, object]) -> str:
     return " · ".join(parts)
 
 
+def _completion_has_athlete_column(comp_df: pd.DataFrame | None) -> bool:
+    return (
+        comp_df is not None
+        and not comp_df.empty
+        and "Athlete" in comp_df.columns
+        and comp_df["Athlete"].dropna().astype(str).str.strip().ne("").any()
+    )
+
+
+def _completion_options(comp_df: pd.DataFrame | None) -> list[str]:
+    if not _completion_has_athlete_column(comp_df):
+        return ["Todos"]
+    athletes = sorted(
+        comp_df["Athlete"].dropna().astype(str).str.strip().unique().tolist()
+    )
+    return ["Todos"] + athletes
+
+
+def _completion_view_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") -> pd.DataFrame:
+    if comp_df is None or comp_df.empty or not {"Date", "Pct"}.issubset(comp_df.columns):
+        return pd.DataFrame(columns=["Date", "Pct"])
+
+    result = comp_df.copy()
+    result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
+    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
+    result = result.dropna(subset=["Date", "Pct"])
+
+    if _completion_has_athlete_column(result) and athlete != "Todos":
+        result["Athlete"] = result["Athlete"].astype(str).str.strip()
+        result = result[result["Athlete"] == athlete]
+
+    if result.empty:
+        return pd.DataFrame(columns=["Date", "Pct"])
+
+    return (
+        result.groupby("Date", as_index=False)["Pct"]
+        .mean()
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+
+
 def _push_notice(kind: str, message: str) -> None:
     st.session_state.upload_feedback.append({"kind": kind, "message": message})
 
@@ -3025,6 +3232,17 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader) -> bool:
         if df is None or df.empty:
             raise ValueError("se leyó el archivo, pero no produjo registros válidos.")
         save_dataset(state_key, df)
+        remote_suffix = ""
+        if supabase_dataset_store_enabled() and state_key in REMOTE_DATASET_KEYS:
+            try:
+                sync_stats = save_remote_dataset(state_key, df)
+                st.session_state.datasets_loaded_from_store = False
+                remote_suffix = f" Â· Supabase: {sync_stats['upserted']} fila(s)."
+            except Exception as remote_exc:
+                _push_notice(
+                    "warning",
+                    f"{label} ({filename}): se guardÃ³ en local, pero no se pudo sincronizar con Supabase ({remote_exc}).",
+                )
         visible_df = load_recent_dataset(state_key, weeks=RECENT_WEEKS)
         summary_rows = build_dataset_summaries({state_key: visible_df}, weeks=RECENT_WEEKS, keys=[state_key])
         if summary_rows:
@@ -3057,6 +3275,43 @@ def hydrate_local_store(force: bool = True):
     rebuild_load_state()
 
 
+def hydrate_remote_datasets(force: bool = False, show_success: bool = False):
+    if not supabase_dataset_store_enabled():
+        return
+    if st.session_state.datasets_loaded_from_store and not force:
+        return
+
+    try:
+        synced_labels = []
+        for state_key in REMOTE_DATASET_KEYS:
+            remote_df = load_remote_dataset(state_key)
+            if remote_df.empty:
+                continue
+            save_dataset(state_key, remote_df)
+            synced_labels.append(f"{state_key}: {len(remote_df)}")
+
+        if synced_labels:
+            hydrate_local_store(force=True)
+            if show_success:
+                st.session_state.dataset_sync_notice = (
+                    "Datasets TeamBuildr cargados desde Supabase: "
+                    + ", ".join(synced_labels)
+                )
+                st.session_state.dataset_sync_notice_kind = "success"
+        elif force and show_success:
+            st.session_state.dataset_sync_notice = (
+                "No hay datasets TeamBuildr guardados en Supabase todavia."
+            )
+            st.session_state.dataset_sync_notice_kind = "info"
+    except Exception as exc:
+        st.session_state.dataset_sync_notice = (
+            f"No se pudieron sincronizar datasets TeamBuildr con Supabase: {exc}"
+        )
+        st.session_state.dataset_sync_notice_kind = "warning"
+    finally:
+        st.session_state.datasets_loaded_from_store = True
+
+
 def hydrate_evaluations_from_store(force: bool = False, show_success: bool = False):
     if not supabase_evaluations_enabled():
         return
@@ -3087,6 +3342,7 @@ def hydrate_evaluations_from_store(force: bool = False, show_success: bool = Fal
 
 
 hydrate_local_store()
+hydrate_remote_datasets()
 hydrate_evaluations_from_store()
 
 
@@ -3118,8 +3374,30 @@ with st.sidebar:
         st.caption("Marca oficial cargada desde assets/brand.")
     else:
         st.caption("No se detectaron assets oficiales en assets/brand. La UI usa fallback neutro hasta que copies los archivos reales.")
+        with st.expander("Guia rapida de assets de marca", expanded=False):
+            st.code(str(BRAND_ASSET_DIR))
+            st.caption("Nombres recomendados: threshold-wordmark.png y threshold-isotype.png")
 
     _flush_notices()
+
+    if supabase_dataset_store_enabled():
+        st.caption("Historial TeamBuildr conectado a Supabase.")
+        if st.button("Sincronizar datasets TeamBuildr", key="btn_sync_remote_datasets"):
+            hydrate_remote_datasets(force=True, show_success=True)
+            st.rerun()
+    else:
+        st.caption("Datasets TeamBuildr en modo local. Configura SUPABASE_DATASETS_TABLE para persistencia remota.")
+
+    if st.session_state.dataset_sync_notice:
+        dataset_notice = st.session_state.dataset_sync_notice
+        dataset_kind = st.session_state.dataset_sync_notice_kind
+        if dataset_kind == "success":
+            st.success(dataset_notice)
+        elif dataset_kind == "warning":
+            st.warning(dataset_notice)
+        else:
+            st.info(dataset_notice)
+        st.session_state.dataset_sync_notice = None
 
     # ── Status compacto cuando hay datos cargados ──
     if _data_loaded():
@@ -3139,11 +3417,12 @@ with st.sidebar:
 
     # ── Expander de carga — colapsado automáticamente cuando hay datos ──
     with st.expander("Cargar archivos", expanded=not _data_loaded()):
+        st.caption("Questionnaire Reports: usa los exports .xlsx de TeamBuildr para RPE y Wellness. Completion, Rep/Load, Raw Workouts y Maxes se cargan como .csv.")
 
         f_rpe = st.file_uploader("RPE + Tiempo (questionnaire-report.xlsx)",
-                                  type=["xlsx", "csv"], key="u_rpe")
+                                  type=["xlsx"], key="u_rpe")
         f_wellness = st.file_uploader("Wellness 3Q (questionnaire-report_wellness.xlsx)",
-                                       type=["xlsx", "csv"], key="u_wellness")
+                                       type=["xlsx"], key="u_wellness")
         f_completion = st.file_uploader("Completion Report (.csv)",
                                          type=["csv"], key="u_comp")
         f_rep_load = st.file_uploader("Rep/Load Report (.csv)",
@@ -3186,6 +3465,8 @@ with st.sidebar:
                     raise ValueError("no se detectaron métricas válidas para el tipo de test seleccionado.")
                 record["Athlete"] = eval_athlete_name
                 record["Date"] = pd.Timestamp(eval_date)
+                record["__source_file"] = getattr(eval_file, "name", "archivo")
+                record["__metric_count"] = metric_count
                 persist_athlete_names([eval_athlete_name])
                 if "eval_records" not in st.session_state:
                     st.session_state.eval_records = []
@@ -3202,10 +3483,75 @@ with st.sidebar:
             st.rerun()
 
         if "eval_records" in st.session_state and st.session_state.eval_records:
-            n = len(st.session_state.eval_records)
-            st.caption(f"{n} test(s) cargado(s)")
-            if st.button("Limpiar evaluaciones", key="btn_clear_eval"):
-                st.session_state.eval_records = []
+            pending_records = st.session_state.eval_records
+            n = len(pending_records)
+            pending_athletes = len(
+                {
+                    normalize_athlete_name(record.get("Athlete"))
+                    for record in pending_records
+                    if normalize_athlete_name(record.get("Athlete"))
+                }
+            )
+            st.caption(f"{n} test(s) pendientes de consolidacion - {pending_athletes} atleta(s)")
+
+            pending_rows = []
+            pending_labels = []
+            for idx, record in enumerate(pending_records):
+                record_date = pd.to_datetime(record.get("Date"), errors="coerce")
+                record_date_text = record_date.strftime("%d/%m/%Y") if not pd.isna(record_date) else "Sin fecha"
+                pending_rows.append(
+                    {
+                        "#": idx + 1,
+                        "Atleta": record.get("Athlete", "Sin atleta"),
+                        "Fecha": record_date_text,
+                        "Test": record.get("test_type", "-"),
+                        "Archivo": record.get("__source_file", "archivo"),
+                        "Metricas": record.get("__metric_count", "-"),
+                    }
+                )
+                pending_labels.append(
+                    f"{idx + 1}. {record.get('Athlete', 'Sin atleta')} | {record_date_text} | {record.get('test_type', '-')}"
+                )
+
+            st.dataframe(pd.DataFrame(pending_rows), use_container_width=True, hide_index=True)
+
+            preview_df = _records_to_jump_df(pending_records)
+            if not preview_df.empty:
+                with st.expander("Vista previa consolidada", expanded=False):
+                    preview_cols = [
+                        col for col in [
+                            "Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_cm",
+                            "DJ_tc_ms", "EUR", "DRI", "IMTP_N", "NM_Profile"
+                        ]
+                        if col in preview_df.columns
+                    ]
+                    st.dataframe(
+                        preview_df[preview_cols].sort_values(["Athlete", "Date"]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            remove_col, clear_col = st.columns(2)
+            with remove_col:
+                pending_to_remove = st.selectbox(
+                    "Quitar test pendiente",
+                    pending_labels,
+                    key="pending_eval_remove",
+                )
+                if st.button("Eliminar test seleccionado", key="btn_remove_eval"):
+                    remove_idx = pending_labels.index(pending_to_remove)
+                    removed = pending_records.pop(remove_idx)
+                    st.session_state.eval_records = pending_records
+                    _push_notice(
+                        "info",
+                        f"Se quito {removed.get('test_type', 'el test')} pendiente de {removed.get('Athlete', 'atleta')}.",
+                    )
+                    st.rerun()
+            with clear_col:
+                if st.button("Limpiar evaluaciones", key="btn_clear_eval"):
+                    st.session_state.eval_records = []
+                    _push_notice("info", "Se limpiaron los tests pendientes de consolidacion.")
+                    st.rerun()
 
         st.markdown("---")
         st.info(
@@ -3475,10 +3821,31 @@ with tab_overview:
         render_subsection_header("Adherencia y volumen", "completion rate y exposicion total acumulada", kicker="Resumen")
         c1, c2 = st.columns(2)
         with c1:
-            avg_comp = cdf["Pct"].mean()
-            _alert(f"Completion rate promedio: **{avg_comp:.0f}%**",
-                   "g" if avg_comp >= 90 else "y")
-            st.plotly_chart(chart_completion(cdf), use_container_width=True, key="completion_overview")
+            completion_sel_overview = "Todos"
+            if _completion_has_athlete_column(cdf):
+                completion_sel_overview = st.selectbox(
+                    "Atleta",
+                    _completion_options(cdf),
+                    key="completion_sel_overview",
+                )
+            else:
+                st.caption("El Completion Report actual no trae columna de atleta. Se muestra la vista global.")
+
+            cdf_view = _completion_view_df(cdf, completion_sel_overview)
+            if not cdf_view.empty:
+                avg_comp = cdf_view["Pct"].mean()
+                target_label = "equipo" if completion_sel_overview == "Todos" else completion_sel_overview
+                _alert(
+                    f"Completion rate promedio ({target_label}): **{avg_comp:.0f}%**",
+                    "g" if avg_comp >= 90 else "y",
+                )
+                st.plotly_chart(
+                    chart_completion(cdf_view, athlete_label=completion_sel_overview),
+                    use_container_width=True,
+                    key="completion_overview",
+                )
+            else:
+                _alert("No hay datos de completion para la seleccion actual.", "b")
         with c2:
             if rldf is not None:
                 total_load = rldf["Load_kg"].sum()
@@ -3953,8 +4320,26 @@ with tab_team:
     if st.session_state.completion_df is not None:
         st.markdown("---")
         render_subsection_header("Adherencia y completion", "porcentaje de cumplimiento del equipo", kicker="Adherencia")
-        st.plotly_chart(chart_completion(st.session_state.completion_df),
-                        use_container_width=True, key="completion_team")
+        completion_team_df = st.session_state.completion_df
+        completion_sel_team = "Todos"
+        if _completion_has_athlete_column(completion_team_df):
+            completion_sel_team = st.selectbox(
+                "Atleta",
+                _completion_options(completion_team_df),
+                key="completion_sel_team",
+            )
+        else:
+            st.caption("El Completion Report actual no trae columna de atleta. Se muestra la vista global.")
+
+        completion_team_view = _completion_view_df(completion_team_df, completion_sel_team)
+        if completion_team_view.empty:
+            _alert("No hay datos de completion para la seleccion actual.", "b")
+        else:
+            st.plotly_chart(
+                chart_completion(completion_team_view, athlete_label=completion_sel_team),
+                use_container_width=True,
+                key="completion_team",
+            )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -4088,7 +4473,12 @@ with tab_report:
 
         # Completion
         if include_completion and st.session_state.completion_df is not None:
-            sheets["Completion_Rate"] = st.session_state.completion_df
+            comp_df_r = st.session_state.completion_df
+            if report_athlete != "Todos" and "Athlete" in comp_df_r.columns:
+                filtered_comp = comp_df_r[comp_df_r["Athlete"] == report_athlete]
+                if not filtered_comp.empty:
+                    comp_df_r = filtered_comp
+            sheets["Completion_Rate"] = comp_df_r
 
         if not sheets:
             _alert("No hay datos para exportar. Cargá archivos primero.", "y")

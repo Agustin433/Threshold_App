@@ -316,8 +316,28 @@ def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str, *, theme: dict) -> 
     return fig
 
 
-def chart_completion(comp_df: pd.DataFrame, *, theme: dict) -> go.Figure:
+def chart_completion(comp_df: pd.DataFrame, *, theme: dict, athlete_label: str = "Todos") -> go.Figure:
     colors, layout, _, grid_soft, _ = _theme_parts(theme)
+    if comp_df is None or comp_df.empty or not {"Date", "Pct"}.issubset(comp_df.columns):
+        fig = go.Figure()
+        fig.update_layout(
+            **layout,
+            height=300,
+            title=dict(text="<b>Completion Rate por Sesion</b>", font=dict(color=colors["navy"], size=13)),
+            annotations=[
+                dict(
+                    text="No hay datos de completion para la seleccion actual.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
     fig = go.Figure()
     bar_colors = [
         colors["green"] if pct >= 90 else colors["yellow"] if pct >= 70 else colors["red"]
@@ -335,7 +355,10 @@ def chart_completion(comp_df: pd.DataFrame, *, theme: dict) -> go.Figure:
     fig.update_layout(
         **layout,
         height=300,
-        title=dict(text="<b>Completion Rate por Sesion</b>", font=dict(color=colors["navy"], size=13)),
+        title=dict(
+            text=f"<b>Completion Rate por Sesion - {'Equipo' if athlete_label == 'Todos' else athlete_label}</b>",
+            font=dict(color=colors["navy"], size=13),
+        ),
         xaxis=dict(title="Fecha", gridcolor=grid_soft, zeroline=False),
         yaxis=dict(title="% Completado", range=[0, 105], gridcolor=grid_soft, zeroline=False),
     )

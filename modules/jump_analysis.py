@@ -121,7 +121,11 @@ def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
         key = (athlete, date.normalize())
         row = rows.setdefault(key, {"Athlete": athlete, "Date": date.normalize()})
         for field, value in record.items():
-            if field in {"Athlete", "Date", "test_type"} or field.endswith("_reps"):
+            if (
+                field in {"Athlete", "Date", "test_type"}
+                or field.endswith("_reps")
+                or field.startswith("__")
+            ):
                 continue
             if value is not None and not (isinstance(value, float) and np.isnan(value)):
                 row[field] = value

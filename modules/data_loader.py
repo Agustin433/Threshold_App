@@ -138,6 +138,29 @@ def _wellness_score(sueno, estres, dolor):
     return sum(values) if values else None
 
 
+def _preview_columns(df: pd.DataFrame, limit: int = 10) -> str:
+    cols = [str(col) for col in df.columns[:limit]]
+    if len(df.columns) > limit:
+        cols.append("...")
+    return ", ".join(cols) if cols else "sin columnas detectadas"
+
+
+def _missing_columns_message(
+    report_name: str,
+    df: pd.DataFrame,
+    missing_map: dict[str, list[str]],
+) -> str:
+    parts = [
+        f"{label}: {', '.join(options)}"
+        for label, options in missing_map.items()
+    ]
+    return (
+        f"El {report_name} no tiene columnas reconocibles para "
+        f"{'; '.join(parts)}. "
+        f"Columnas detectadas: {_preview_columns(df)}."
+    )
+
+
 def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     """Read CSV exports with multiple encoding fallbacks."""
     if isinstance(file, (str, os.PathLike, Path)):
@@ -183,7 +206,13 @@ def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
 
 def parse_xlsx_questionnaire(file_bytes: bytes, mode: str = "rpe") -> pd.DataFrame:
     """Parse TeamBuildr questionnaire report exports."""
-    rows = _read_xlsx_rows(file_bytes)
+    try:
+        rows = _read_xlsx_rows(file_bytes)
+    except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+        raise ValueError(
+            "El archivo debe ser un .xlsx valido exportado desde TeamBuildr Questionnaire Report."
+        ) from exc
+
     records = []
     current_athlete = None
 
@@ -242,20 +271,42 @@ def parse_xlsx_questionnaire(file_bytes: bytes, mode: str = "rpe") -> pd.DataFra
                     }
                 )
 
+    if not records:
+        report_label = "RPE + Tiempo" if mode == "rpe" else "Wellness 3Q"
+        raise ValueError(
+            f"El archivo de {report_label} se pudo abrir, pero no produjo registros validos. "
+            "Verifica que sea el export correcto de TeamBuildr y que incluya atletas, fechas y respuestas."
+        )
+
     return pd.DataFrame(records)
 
 
 def parse_completion_report(file) -> pd.DataFrame:
     df = _read_csv_with_fallback(file)
     df.columns = [col.strip().strip('"') for col in df.columns]
-    date_col = next((col for col in ["Dates", "Date", "Fecha"] if col in df.columns), None)
-    assigned_col = next((col for col in ["Assigned", "Asignado"] if col in df.columns), None)
-    completed_col = next((col for col in ["Completed", "Completado"] if col in df.columns), None)
+    date_options = ["Dates", "Date", "Fecha"]
+    assigned_options = ["Assigned", "Asignado"]
+    completed_options = ["Completed", "Completado"]
+    athlete_options = ["Athlete", "Name", "Player", "Atleta"]
+
+    date_col = next((col for col in date_options if col in df.columns), None)
+    assigned_col = next((col for col in assigned_options if col in df.columns), None)
+    completed_col = next((col for col in completed_options if col in df.columns), None)
+    athlete_col = next((col for col in athlete_options if col in df.columns), None)
     if not date_col or not assigned_col or not completed_col:
-        raise ValueError("El Completion Report no tiene las columnas esperadas.")
+        missing_map: dict[str, list[str]] = {}
+        if not date_col:
+            missing_map["fecha"] = date_options
+        if not assigned_col:
+            missing_map["asignado"] = assigned_options
+        if not completed_col:
+            missing_map["completado"] = completed_options
+        raise ValueError(_missing_columns_message("Completion Report", df, missing_map))
     df["Date"] = pd.to_datetime(df[date_col], errors="coerce")
     df["Assigned"] = pd.to_numeric(df[assigned_col], errors="coerce")
     df["Completed"] = pd.to_numeric(df[completed_col], errors="coerce")
+    if athlete_col:
+        df["Athlete"] = df[athlete_col].astype(str).str.strip().str.title()
     df["Pct"] = df["Completed"] / df["Assigned"] * 100
     return df.dropna(subset=["Date"])
 
@@ -263,29 +314,41 @@ def parse_completion_report(file) -> pd.DataFrame:
 def parse_rep_load_report(file) -> pd.DataFrame:
     df = _read_csv_with_fallback(file)
     df.columns = [col.strip().strip('"') for col in df.columns]
+    date_options = ["Date", "Dates", "Fecha"]
+    reps_assigned_options = ["Rep Count (Assigned)", "Assigned Reps", "Reps Assigned"]
+    reps_completed_options = ["Rep Count (Completed)", "Completed Reps", "Reps Completed"]
+    load_options = ["Load (Completed)", "Load Completed", "Load", "Weight"]
+    athlete_options = ["Athlete", "Name", "Player", "Atleta"]
+    exercise_options = ["Exercise Name", "Exercise", "Ejercicio"]
     rename_map = {}
-    if date_col := next((col for col in ["Date", "Dates", "Fecha"] if col in df.columns), None):
+    if date_col := next((col for col in date_options if col in df.columns), None):
         rename_map[date_col] = "Date"
     if reps_assigned_col := next(
-        (col for col in ["Rep Count (Assigned)", "Assigned Reps", "Reps Assigned"] if col in df.columns),
+        (col for col in reps_assigned_options if col in df.columns),
         None,
     ):
         rename_map[reps_assigned_col] = "Reps_Assigned"
     if reps_completed_col := next(
-        (col for col in ["Rep Count (Completed)", "Completed Reps", "Reps Completed"] if col in df.columns),
+        (col for col in reps_completed_options if col in df.columns),
         None,
     ):
         rename_map[reps_completed_col] = "Reps_Completed"
-    if load_col := next((col for col in ["Load (Completed)", "Load Completed", "Load", "Weight"] if col in df.columns), None):
+    if load_col := next((col for col in load_options if col in df.columns), None):
         rename_map[load_col] = "Load_kg"
-    if athlete_col := next((col for col in ["Athlete", "Name", "Player", "Atleta"] if col in df.columns), None):
+    if athlete_col := next((col for col in athlete_options if col in df.columns), None):
         rename_map[athlete_col] = "Athlete"
-    if exercise_col := next((col for col in ["Exercise Name", "Exercise", "Ejercicio"] if col in df.columns), None):
+    if exercise_col := next((col for col in exercise_options if col in df.columns), None):
         rename_map[exercise_col] = "Exercise"
 
     df = df.rename(columns=rename_map)
     if "Date" not in df.columns:
-        raise ValueError("El Rep/Load Report no tiene una columna de fecha reconocible.")
+        raise ValueError(
+            _missing_columns_message(
+                "Rep/Load Report",
+                df,
+                {"fecha": date_options},
+            )
+        )
 
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=False, errors="coerce")
     if "Load_kg" in df.columns:
@@ -301,13 +364,25 @@ def parse_raw_workouts(file) -> pd.DataFrame:
     """Robust raw workout parser that tolerates column variants."""
     df = _read_csv_with_fallback(file)
     df.columns = [col.strip().strip('"') for col in df.columns]
-    date_col = next((col for col in ["Assigned Date", "Date", "Workout Date", "Fecha"] if col in df.columns), None)
-    athlete_col = next((col for col in ["Athlete", "Name", "Player", "Athlete Name", "Atleta"] if col in df.columns), None)
-    result_col = next((col for col in ["Result", "Load", "Weight", "Carga"] if col in df.columns), None)
-    reps_col = next((col for col in ["Reps", "Rep Count", "Completed Reps"] if col in df.columns), None)
-    tags_col = next((col for col in ["Tags", "Tag", "Labels"] if col in df.columns), None)
+    date_options = ["Assigned Date", "Date", "Workout Date", "Fecha"]
+    athlete_options = ["Athlete", "Name", "Player", "Athlete Name", "Atleta"]
+    result_options = ["Result", "Load", "Weight", "Carga"]
+    reps_options = ["Reps", "Rep Count", "Completed Reps"]
+    tags_options = ["Tags", "Tag", "Labels"]
+    date_col = next((col for col in date_options if col in df.columns), None)
+    athlete_col = next((col for col in athlete_options if col in df.columns), None)
+    result_col = next((col for col in result_options if col in df.columns), None)
+    reps_col = next((col for col in reps_options if col in df.columns), None)
+    tags_col = next((col for col in tags_options if col in df.columns), None)
     if not date_col or not result_col or not reps_col:
-        raise ValueError("El Raw Data Report no tiene las columnas minimas esperadas.")
+        missing_map: dict[str, list[str]] = {}
+        if not date_col:
+            missing_map["fecha"] = date_options
+        if not result_col:
+            missing_map["resultado/carga"] = result_options
+        if not reps_col:
+            missing_map["repeticiones"] = reps_options
+        raise ValueError(_missing_columns_message("Raw Data Report - Workouts", df, missing_map))
 
     rename_map = {date_col: "Assigned Date", result_col: "Result", reps_col: "Reps"}
     if athlete_col:
@@ -331,14 +406,25 @@ def parse_maxes_health(file) -> pd.DataFrame:
     """Robust parser for TeamBuildr maxes exports."""
     df = _read_csv_with_fallback(file)
     df.columns = [col.strip().strip('"') for col in df.columns]
-    date_col = next((col for col in ["Added Date", "Date", "Fecha"] if col in df.columns), None)
-    value_col = next((col for col in ["Max Value", "Value", "Peso", "Weight"] if col in df.columns), None)
-    athlete_col = next((col for col in ["Athlete", "Name", "Player", "Atleta"] if col in df.columns), None)
-    first_name_col = next((col for col in ["First Name", "Nombre"] if col in df.columns), None)
-    last_name_col = next((col for col in ["Last Name", "Apellido"] if col in df.columns), None)
-    exercise_col = next((col for col in ["Exercise Name", "Exercise", "Ejercicio"] if col in df.columns), None)
+    date_options = ["Added Date", "Date", "Fecha"]
+    value_options = ["Max Value", "Value", "Peso", "Weight"]
+    athlete_options = ["Athlete", "Name", "Player", "Atleta"]
+    first_name_options = ["First Name", "Nombre"]
+    last_name_options = ["Last Name", "Apellido"]
+    exercise_options = ["Exercise Name", "Exercise", "Ejercicio"]
+    date_col = next((col for col in date_options if col in df.columns), None)
+    value_col = next((col for col in value_options if col in df.columns), None)
+    athlete_col = next((col for col in athlete_options if col in df.columns), None)
+    first_name_col = next((col for col in first_name_options if col in df.columns), None)
+    last_name_col = next((col for col in last_name_options if col in df.columns), None)
+    exercise_col = next((col for col in exercise_options if col in df.columns), None)
     if not date_col or not value_col:
-        raise ValueError("El reporte de maximos no tiene fecha o valor maximo reconocible.")
+        missing_map: dict[str, list[str]] = {}
+        if not date_col:
+            missing_map["fecha"] = date_options
+        if not value_col:
+            missing_map["valor maximo"] = value_options
+        raise ValueError(_missing_columns_message("Raw Data Report - Maxes", df, missing_map))
 
     df["Added Date"] = pd.to_datetime(df[date_col], errors="coerce")
     df["Max Value"] = pd.to_numeric(df[value_col], errors="coerce")

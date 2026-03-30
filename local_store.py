@@ -31,8 +31,8 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
     "completion_df": {
         "filename": "completion_history.csv",
         "date_col": "Date",
-        "athlete_col": None,
-        "dedupe_cols": ["Date"],
+        "athlete_col": "Athlete",
+        "dedupe_cols": ["Athlete", "Date"],
     },
     "rep_load_df": {
         "filename": "rep_load_history.csv",

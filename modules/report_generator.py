@@ -9,10 +9,35 @@ import textwrap
 import unicodedata
 
 import pandas as pd
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 BRAND_ASSET_DIR = APP_ROOT / "assets" / "brand"
+
+REPORT_SHEET_ORDER = [
+    "Reporte_Meta",
+    "Resumen_Ejecutivo",
+    "Interpretacion",
+    "ACWR_sRPE",
+    "Monotonia_Strain",
+    "Wellness",
+    "Evaluaciones_Saltos",
+    "Maximos_Ejercicios",
+    "Volumen_Sesion",
+    "Completion_Rate",
+]
+
+DATASET_LABELS = {
+    "rpe_df": "RPE + Tiempo",
+    "wellness_df": "Wellness",
+    "completion_df": "Completion",
+    "rep_load_df": "Rep/Load",
+    "raw_df": "Raw Workouts",
+    "maxes_df": "Maxes",
+    "jump_df": "Evaluaciones",
+}
 
 
 def collect_report_athletes(state: dict[str, pd.DataFrame | None]) -> list[str]:
@@ -308,6 +333,30 @@ def build_interpretation_sheet(
     return pd.DataFrame(rows)
 
 
+def _build_report_metadata_df(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str,
+    included_sections: list[str],
+) -> pd.DataFrame:
+    active_datasets = [
+        DATASET_LABELS.get(key, key)
+        for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
+        if state.get(key) is not None and not state.get(key).empty
+    ]
+    visible_athletes = collect_report_athletes(state)
+    return pd.DataFrame(
+        [
+            {"Campo": "Reporte", "Valor": "Threshold S&C Performance Report"},
+            {"Campo": "Alcance", "Valor": report_athlete},
+            {"Campo": "Generado", "Valor": datetime.now().strftime("%d/%m/%Y %H:%M")},
+            {"Campo": "Ventana operativa", "Valor": "Ultimas 6 semanas visibles"},
+            {"Campo": "Atletas visibles", "Valor": len(visible_athletes)},
+            {"Campo": "Datasets activos", "Valor": ", ".join(active_datasets) if active_datasets else "Sin datasets activos"},
+            {"Campo": "Secciones incluidas", "Valor": ", ".join(included_sections) if included_sections else "Sin secciones"},
+        ]
+    )
+
+
 def build_report_sheets(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
@@ -321,14 +370,17 @@ def build_report_sheets(
     include_completion: bool = True,
 ) -> dict[str, pd.DataFrame]:
     sheets: dict[str, pd.DataFrame] = {}
+    included_sections: list[str] = []
 
     executive_df = build_executive_summary_df(state, report_athlete)
     if not executive_df.empty:
         sheets["Resumen_Ejecutivo"] = executive_df
+        included_sections.append("Resumen ejecutivo")
 
     interpretation_df = build_interpretation_sheet(state, report_athlete)
     if not interpretation_df.empty:
         sheets["Interpretacion"] = interpretation_df
+        included_sections.append("Interpretacion")
 
     acwr_dict = state.get("acwr_dict") or {}
     mono_dict = state.get("mono_dict") or {}
@@ -343,6 +395,7 @@ def build_report_sheets(
             acwr_rows.append(tmp)
         if acwr_rows:
             sheets["ACWR_sRPE"] = pd.concat(acwr_rows, ignore_index=True).round(2)
+            included_sections.append("ACWR + sRPE")
 
     if include_mono and mono_dict:
         mono_rows = []
@@ -354,44 +407,121 @@ def build_report_sheets(
             mono_rows.append(tmp)
         if mono_rows:
             sheets["Monotonia_Strain"] = pd.concat(mono_rows, ignore_index=True).round(2)
+            included_sections.append("Monotonia + Strain")
 
     if include_wellness and state.get("wellness_df") is not None:
         df = state["wellness_df"]
         if report_athlete != "Todos" and "Athlete" in df.columns:
             df = df[df["Athlete"] == report_athlete]
         sheets["Wellness"] = df.round(2)
+        if not df.empty:
+            included_sections.append("Wellness")
 
     if include_jumps and state.get("jump_df") is not None:
         df = state["jump_df"]
         if report_athlete != "Todos" and "Athlete" in df.columns:
             df = df[df["Athlete"] == report_athlete]
         sheets["Evaluaciones_Saltos"] = df.round(2)
+        if not df.empty:
+            included_sections.append("Evaluaciones")
 
     if include_maxes and state.get("maxes_df") is not None:
         df = state["maxes_df"]
         if report_athlete != "Todos" and "Athlete" in df.columns:
             df = df[df["Athlete"] == report_athlete]
         sheets["Maximos_Ejercicios"] = df
+        if not df.empty:
+            included_sections.append("Maximos")
 
     if include_volume and state.get("rep_load_df") is not None:
         df = state["rep_load_df"]
         if report_athlete != "Todos" and "Athlete" in df.columns:
             df = df[df["Athlete"] == report_athlete]
         sheets["Volumen_Sesion"] = df
+        if not df.empty:
+            included_sections.append("Volumen")
 
     if include_completion and state.get("completion_df") is not None:
-        sheets["Completion_Rate"] = state["completion_df"]
+        df = state["completion_df"]
+        if report_athlete != "Todos" and "Athlete" in df.columns:
+            filtered_df = df[df["Athlete"] == report_athlete]
+            if not filtered_df.empty:
+                df = filtered_df
+        sheets["Completion_Rate"] = df
+        if not df.empty:
+            included_sections.append("Completion")
+
+    if sheets:
+        sheets["Reporte_Meta"] = _build_report_metadata_df(state, report_athlete, included_sections)
 
     return {name: df for name, df in sheets.items() if df is not None and not df.empty}
+
+
+def _ordered_sheet_items(data_dict: dict[str, pd.DataFrame]) -> list[tuple[str, pd.DataFrame]]:
+    ordered_names = [name for name in REPORT_SHEET_ORDER if name in data_dict]
+    ordered_names.extend(name for name in data_dict if name not in ordered_names)
+    return [(name, data_dict[name]) for name in ordered_names]
+
+
+def _format_excel_sheet(worksheet, df: pd.DataFrame, sheet_name: str) -> None:
+    header_fill = PatternFill(fill_type="solid", fgColor="0D3C5E")
+    header_font = Font(color="FEFEFE", bold=True)
+    body_font = Font(color="221F20")
+    thin_side = Side(style="thin", color="D8DEE4")
+    border = Border(bottom=thin_side)
+
+    worksheet.freeze_panes = "A2"
+    worksheet.auto_filter.ref = worksheet.dimensions
+    worksheet.sheet_view.showGridLines = False
+
+    for cell in worksheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = border
+
+    for row in worksheet.iter_rows(min_row=2):
+        for cell in row:
+            cell.font = body_font
+            cell.alignment = Alignment(vertical="top")
+            cell.border = border
+
+    date_like_cols = [
+        idx for idx, col in enumerate(df.columns, start=1)
+        if "date" in str(col).lower() or "fecha" in str(col).lower() or "semana" in str(col).lower()
+    ]
+    numeric_like_cols = [
+        idx for idx, col in enumerate(df.columns, start=1)
+        if pd.api.types.is_numeric_dtype(df[col])
+    ]
+
+    for col_idx in date_like_cols:
+        for cell in worksheet[get_column_letter(col_idx)][1:]:
+            cell.number_format = "DD/MM/YYYY"
+
+    for col_idx in numeric_like_cols:
+        for cell in worksheet[get_column_letter(col_idx)][1:]:
+            cell.alignment = Alignment(horizontal="right", vertical="top")
+
+    for idx, column in enumerate(df.columns, start=1):
+        values = [str(column)] + ["" if pd.isna(value) else str(value) for value in df[column].head(200)]
+        max_len = min(max(len(value) for value in values) + 2, 36)
+        worksheet.column_dimensions[get_column_letter(idx)].width = max(12, max_len)
+
+    if sheet_name == "Reporte_Meta":
+        worksheet.column_dimensions["A"].width = 22
+        worksheet.column_dimensions["B"].width = 72
 
 
 def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
     """Export selected dataframes to a multi-sheet Excel workbook."""
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        for sheet_name, df in data_dict.items():
+        for sheet_name, df in _ordered_sheet_items(data_dict):
             if df is not None and not df.empty:
                 df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+                worksheet = writer.book[sheet_name[:31]]
+                _format_excel_sheet(worksheet, df, sheet_name)
     return buffer.getvalue()
 
 
