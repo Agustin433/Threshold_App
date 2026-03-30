@@ -1,180 +1,129 @@
-# modules/jump_analysis.py
+"""Shared jump evaluation calculations and normalization."""
 
-import pandas as pd
+from __future__ import annotations
+
 import numpy as np
-from scipy import stats
-from config import EUR_REFERENCE, DRI_REFERENCE
+import pandas as pd
 
 
-def calculate_eur(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    EUR = Elasticity Utilization Ratio
-    Formula: (CMJ_cm - SJ_cm) / SJ_cm × 100
-    
-    Referencia: Bosco et al. 1982; Balsalobre-Fernández 2019
-    Interpreta el uso del ciclo estiramiento-acortamiento (SSC/CEA).
-    
-    EUR > 20%  → atleta reactivo, domina el SSC rápido
-    EUR < 10%  → predominio fuerza concéntrica, CEA ineficiente
-    EUR negativo → SJ > CMJ → señal de fatiga neuromuscular severa o
-                  fallo técnico (requiere re-test)
-    """
-    if "CMJ_cm" not in df.columns or "SJ_cm" not in df.columns:
-        return df
+def _normalize_eur_series_to_ratio(series: pd.Series) -> pd.Series:
+    """Normalize EUR values to a CMJ/SJ ratio."""
+    result = pd.to_numeric(series, errors="coerce")
+    pct_mask = result > 5
+    result.loc[pct_mask] = 1 + (result.loc[pct_mask] / 100)
+    return result.round(3)
 
-    df["EUR"] = ((df["CMJ_cm"] - df["SJ_cm"]) / df["SJ_cm"]) * 100
 
-    # Clasificación cualitativa
-    def classify_eur(val):
-        if pd.isna(val):
-            return "Sin datos"
-        if val < 0:
-            return "⚠️ Negativo - re-test"
-        for label, (low, high) in EUR_REFERENCE.items():
-            if low <= val < high:
-                return label.replace("_", " ").title()
-        return "Muy Alto"
-
-    df["EUR_Categoria"] = df["EUR"].apply(classify_eur)
+def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
+    """Canonical EUR as a CMJ/SJ ratio."""
+    if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
+        mask = df["CMJ_cm"].notna() & df["SJ_cm"].notna() & (df["SJ_cm"] != 0)
+        df.loc[mask, "EUR"] = (df.loc[mask, "CMJ_cm"] / df.loc[mask, "SJ_cm"]).round(3)
+        if "EUR" in df.columns:
+            df["EUR"] = _normalize_eur_series_to_ratio(df["EUR"])
     return df
 
 
-def calculate_dri(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    DRI = Dynamic Reactive Index (equivalente al RSI)
-    Formula: DJ_height_m / contact_time_s
-    
-    Convierte DJ_cm → m y DJ_tc_ms → s antes de calcular.
-    
-    Referencia: Young 1995; Flanagan & Comyns 2008
-    RSI/DRI > 2.0 → atleta reactivo de élite
-    RSI/DRI 1.5-2.0 → bueno
-    RSI/DRI < 0.9  → bajo, priorizar stiffness y CEA corto
-    
-    NOTA: algunos autores usan la fórmula de tiempo de vuelo derivado
-    en lugar de altura directa. Aquí usamos altura medida directa
-    (My Jump Lab).
-    """
-    if "DJ_cm" not in df.columns or "DJ_tc_ms" not in df.columns:
-        return df
-
-    # Conversión de unidades
-    df["DJ_m"] = df["DJ_cm"] / 100
-    df["DJ_tc_s"] = df["DJ_tc_ms"] / 1000
-
-    # DRI
-    df["DRI"] = df["DJ_m"] / df["DJ_tc_s"]
-
-    def classify_dri(val):
-        if pd.isna(val):
-            return "Sin datos"
-        for label, (low, high) in DRI_REFERENCE.items():
-            if low <= val < high:
-                return label.replace("_", " ").title()
-        return "Excelente"
-
-    df["DRI_Categoria"] = df["DRI"].apply(classify_dri)
+def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
+    """DRI as jump height in meters divided by contact time in seconds."""
+    if "DJ_cm" in df.columns and "DJ_tc_ms" in df.columns:
+        df["DRI"] = (df["DJ_cm"] / 100) / (df["DJ_tc_ms"] / 1000)
     return df
 
 
-def calculate_zscores(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calcula Z-scores grupales para:
-    - CMJ_cm   (altura CMJ)
-    - DJ_tc_ms (tiempo de contacto DJ — INVERTIDO: menor TC = mejor)
-    - EUR      (ratio de elasticidad)
-    - DRI      (índice reactivo dinámico)
-    
-    Z = (x - μ) / σ
-    
-    IMPORTANTE: DJ_tc_ms se invierte (×-1) para el radar porque
-    menor tiempo de contacto = mejor capacidad reactiva.
-    El radar mostrará 'DJ_Reactividad_Z' donde valores positivos
-    indican mejor rendimiento.
-    
-    Referencia: Hopkins 2000 — Individual Response to Training
-    """
-    z_vars = {
-        "CMJ_cm":   False,   # False = no invertir
-        "DJ_tc_ms": True,    # True  = invertir (menor es mejor)
-        "EUR":      False,
-        "DRI":      False,
-        "SJ_cm":    False,
-        "IMTP_N":   False,
+def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
+    """Group z-scores used by the neuromuscular radar."""
+    cols_config = {
+        "CMJ_cm": ("CMJ_Z", False),
+        "SJ_cm": ("SJ_Z", False),
+        "DJ_tc_ms": ("DJtc_Z", True),
+        "EUR": ("EUR_Z", False),
+        "DRI": ("DRI_Z", False),
+        "IMTP_N": ("IMTP_Z", False),
     }
-
-    for col, invert in z_vars.items():
-        if col in df.columns:
-            z_col = f"{col.replace('_cm','').replace('_ms','').replace('_N','')}_Z"
-            if col == "DJ_tc_ms":
-                z_col = "DJ_Reactividad_Z"
-
-            values = df[col].dropna()
-            if len(values) > 1:
-                mu = values.mean()
-                sigma = values.std()
-                if sigma > 0:
-                    z = (df[col] - mu) / sigma
-                    df[z_col] = -z if invert else z
-                else:
-                    df[z_col] = 0.0
-            else:
-                df[z_col] = 0.0
-
+    for col, (z_col, invert) in cols_config.items():
+        if col not in df.columns:
+            continue
+        values = df[col].dropna()
+        if len(values) > 1 and values.std() > 0:
+            z_score = (df[col] - values.mean()) / values.std()
+            df[z_col] = (-z_score if invert else z_score).round(2)
+        else:
+            df[z_col] = 0.0
     return df
 
 
-def calculate_bilateral_deficit(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Asimetría bilateral estimada desde EUR.
-    
-    No reemplaza a la plataforma de fuerza, pero es un proxy útil.
-    EUR bajo + DRI bajo = déficit en el CEA rápido → trabajar DJ, pliometría
-    EUR alto + DRI bajo = buen SSC lento pero falla en el rápido
-    """
+def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
+    """Neuromuscular profile based on EUR ratio and DRI."""
     if "EUR" not in df.columns or "DRI" not in df.columns:
         return df
-
-    # Índice compuesto de perfil neuromuscular
-    df["NM_Profile"] = np.where(
-        (df["EUR"] >= 20) & (df["DRI"] >= 1.5), "Reactivo-Elástico",
-        np.where(
-            (df["EUR"] >= 20) & (df["DRI"] < 1.5), "Elástico-Lento",
-            np.where(
-                (df["EUR"] < 20) & (df["DRI"] >= 1.5), "Reactivo-Rígido",
-                "Fuerza-Concéntrica"
-            )
-        )
-    )
+    eur_ratio = _normalize_eur_series_to_ratio(df["EUR"])
+    conditions = [
+        (eur_ratio >= 1.20) & (df["DRI"] >= 1.5),
+        (eur_ratio >= 1.20) & (df["DRI"] < 1.5),
+        (eur_ratio < 1.20) & (df["DRI"] >= 1.5),
+        (eur_ratio < 1.20) & (df["DRI"] < 1.5),
+    ]
+    labels = [
+        "Reactivo-Elastico",
+        "Elastico / CEA-Lento",
+        "Reactivo / Poca Base",
+        "Fuerza-Concentrica",
+    ]
+    df["EUR"] = eur_ratio
+    df["NM_Profile"] = np.select(conditions, labels, default="Sin datos")
     return df
 
 
-def get_athlete_jump_summary(df: pd.DataFrame, athlete: str) -> dict:
-    """
-    Retorna diccionario con todos los KPIs de salto para un atleta.
-    Usa el registro más reciente si hay múltiples fechas.
-    """
-    a_df = df[df["Athlete"] == athlete].sort_values("Date")
-    if a_df.empty:
-        return {}
+def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize the unified evaluations table and recompute derived metrics."""
+    if jump_df is None or jump_df.empty:
+        return pd.DataFrame()
 
-    latest = a_df.iloc[-1]
-    baseline = a_df.mean(numeric_only=True)
+    result = jump_df.copy()
+    if "Athlete" in result.columns:
+        result["Athlete"] = result["Athlete"].astype(str).str.strip().str.title()
+    if "Date" in result.columns:
+        result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
 
-    metrics = {}
-    for col in ["CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "IMTP_N", "EUR", "DRI"]:
-        if col in latest.index:
-            metrics[col] = {
-                "latest":   round(latest[col], 2) if not pd.isna(latest[col]) else None,
-                "baseline": round(baseline[col], 2) if not pd.isna(baseline[col]) else None,
-                "delta_pct": round(
-                    ((latest[col] - baseline[col]) / baseline[col]) * 100, 1
-                ) if baseline[col] != 0 else 0,
-            }
+    numeric_cols = [col for col in result.columns if col not in {"Athlete", "Date", "NM_Profile"}]
+    for col in numeric_cols:
+        result[col] = pd.to_numeric(result[col], errors="coerce")
 
-    # Z-scores para el radar
-    z_cols = [c for c in a_df.columns if c.endswith("_Z")]
-    for z in z_cols:
-        metrics[z] = round(float(latest[z]), 2) if z in latest.index else 0
+    valid_subset = [col for col in ["Athlete", "Date"] if col in result.columns]
+    result = result.dropna(subset=valid_subset)
+    if result.empty:
+        return pd.DataFrame()
 
-    return metrics
+    result = result.sort_values(["Athlete", "Date"]).drop_duplicates(
+        subset=["Athlete", "Date"],
+        keep="last",
+    )
+    result = calc_eur(result)
+    result = calc_dri(result)
+    result = calc_zscores(result)
+    result = calc_nm_profile(result)
+    return result.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+
+
+def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
+    """Consolidate individual test records into one row per athlete/date."""
+    if not records:
+        return pd.DataFrame()
+
+    rows: dict[tuple[str, pd.Timestamp], dict[str, object]] = {}
+    for record in records:
+        athlete = str(record.get("Athlete", "")).strip().title()
+        date = pd.to_datetime(record.get("Date"), errors="coerce")
+        if not athlete or pd.isna(date):
+            continue
+
+        key = (athlete, date.normalize())
+        row = rows.setdefault(key, {"Athlete": athlete, "Date": date.normalize()})
+        for field, value in record.items():
+            if field in {"Athlete", "Date", "test_type"} or field.endswith("_reps"):
+                continue
+            if value is not None and not (isinstance(value, float) and np.isnan(value)):
+                row[field] = value
+
+    return _prepare_jump_df(pd.DataFrame(rows.values()))

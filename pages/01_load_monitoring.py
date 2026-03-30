@@ -1,32 +1,12 @@
 """Vista dedicada de monitoreo de carga."""
+
 import pandas as pd
 import streamlit as st
-from local_store import build_load_models, load_recent_state
+
+from modules.page_state import ensure_page_state
 
 
-def ensure_state():
-    keys = [
-        "rpe_df", "wellness_df", "completion_df", "rep_load_df",
-        "raw_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict",
-    ]
-    for key in keys:
-        if key not in st.session_state:
-            st.session_state[key] = None
-
-    stored_state = load_recent_state()
-    for key in keys:
-        if st.session_state[key] is None:
-            st.session_state[key] = stored_state.get(key)
-
-    if st.session_state.rpe_df is not None and (
-        st.session_state.acwr_dict is None or st.session_state.mono_dict is None
-    ):
-        acwr_dict, mono_dict = build_load_models(st.session_state.rpe_df)
-        st.session_state.acwr_dict = acwr_dict or None
-        st.session_state.mono_dict = mono_dict or None
-
-
-ensure_state()
+ensure_page_state(load_models=True)
 
 st.header("Monitoreo de Carga")
 st.caption("La carga de archivos se hace desde la app principal.")
@@ -58,7 +38,7 @@ else:
     c4.metric("Monotonia", f"{last_mono['Monotonia'].iloc[-1]:.2f}" if not last_mono.empty else "-")
 
     st.markdown("### Sesiones recientes")
-    display_cols = [c for c in ["Date", "RPE", "Duration_min", "sRPE"] if c in sub_rpe.columns]
+    display_cols = [col for col in ["Date", "RPE", "Duration_min", "sRPE"] if col in sub_rpe.columns]
     st.dataframe(
         sub_rpe[display_cols].sort_values("Date", ascending=False).head(12),
         use_container_width=True,
@@ -87,4 +67,3 @@ else:
         st.markdown("### Wellness")
         w_sub = wdf[wdf["Athlete"] == athlete].sort_values("Date", ascending=False)
         st.dataframe(w_sub.head(12), use_container_width=True, hide_index=True)
-

@@ -307,6 +307,86 @@ User ID,External ID,First Name,Last Name,Exercise Id,Exercise Type,Exercise Name
 3617824,,Griselda,Romano,22700253,L,Barbell Deadlift,253763383,2026-03-11,88.0,False,1773239376,0,Griselda Romano
 3617824,,Griselda,Romano,22700256,L,Barbell Back Squat,254353926,2026-03-16,85.0,False,1773670377,0,Griselda Romano
 3617824,,Griselda,Romano,31204096,L,Barbell Hip Thrust (Pulse),255120432,2026-03-20,100.0,False,1774016453,0,Griselda Romano
+4107754,,Hernan,Arch,24564678,L,1-Leg Deadlift Balance,251990211,2026-02-27,5.0,False,1772230328,0,Hernan Arch
+4107754,,Hernan,Arch,22700262,L,Goblet Squat,251989255,2026-02-27,7.5,False,1772229827,0,Hernan Arch
+4107754,,Hernan,Arch,23279245,L,Slider Eccentric Hamstring Curl ,251989806,2026-02-27,3.0,False,1772230120,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,252029355,2026-02-28,15.0,False,1772312991,0,Hernan Arch
+4107754,,Hernan,Arch,22757449,L,Bent Over Lateral Raises (Shoulder Post),252029509,2026-02-28,12.0,False,1772313365,0,Hernan Arch
+4107754,,Hernan,Arch,22751719,L,Db 1-Arm Row (on Bench),252029719,2026-02-28,17.5,False,1772314361,0,Hernan Arch
+4107754,,Hernan,Arch,24034966,L,Db/Kb 2-Arm Incline Bench Press,252029699,2026-02-28,40.0,False,1772314264,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,252315412,2026-03-02,12.0,False,1772490723,0,Hernan Arch
+4107754,,Hernan,Arch,1,H,Body Weight,252290608,2026-03-02,81.0,False,1772485652,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,252295792,2026-03-02,5.0,False,1772486521,0,Hernan Arch
+4107754,,Hernan,Arch,24034966,L,Db/Kb 2-Arm Incline Bench Press,252302783,2026-03-02,30.0,False,1772487940,0,Hernan Arch
+4107754,,Hernan,Arch,22700262,L,Goblet Squat,252297297,2026-03-02,12.5,False,1772486797,0,Hernan Arch
+4107754,,Hernan,Arch,31769725,R,Treandmil Walking (Value Time),252312427,2026-03-02,,False,1772490015,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,252747432,2026-03-04,5.0,False,1772659086,0,Hernan Arch
+4107754,,Hernan,Arch,22700399,L,Box Jump,252748164,2026-03-04,3.0,False,1772659236,0,Hernan Arch
+4107754,,Hernan,Arch,22700218,L,Db/Kb 2-Arm Split Squat,252751127,2026-03-04,15.0,False,1772659972,0,Hernan Arch
+4107754,,Hernan,Arch,28673263,L,Kb/Db 1-Arm Bent Over Row (Bench),252751027,2026-03-04,10.0,False,1772659947,0,Hernan Arch
+4107754,,Hernan,Arch,27707717,L,Kb/Db Seated 2-Arm Overhead Press (Neutral),252753918,2026-03-04,20.0,False,1772660657,0,Hernan Arch
+4107754,,Hernan,Arch,31769937,L,Lateral Plank,252757201,2026-03-04,20.0,False,1772661538,0,Hernan Arch
+4107754,,Hernan,Arch,31778557,L,2-Leg Hamstring Bridge,253158489,2026-03-07,8.0,False,1772885966,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,253158532,2026-03-07,12.0,False,1772886097,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,253158487,2026-03-07,15.0,False,1772885960,0,Hernan Arch
+4107754,,Hernan,Arch,26884004,L,Push Up,253158494,2026-03-07,10.0,False,1772885981,0,Hernan Arch
+4107754,,Hernan,Arch,27696774,R,Running,253158508,2026-03-07,1.0,False,1772886040,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,253183808,2026-03-08,12.0,False,1772975547,0,Hernan Arch
+4107754,,Hernan,Arch,30698508,L,Bar Pull Up Leg Assisted (Pronated Grip),253184092,2026-03-08,6.0,False,1772976627,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,253183825,2026-03-08,5.0,False,1772975608,0,Hernan Arch
+4107754,,Hernan,Arch,22749581,L,Db/Kb 2-Arm Floor Press,253184072,2026-03-08,32.0,False,1772976566,0,Hernan Arch
+4107754,,Hernan,Arch,22700262,L,Goblet Squat,253183871,2026-03-08,16.0,False,1772975861,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,253436556,2026-03-09,12.0,False,1773091580,0,Hernan Arch
+4107754,,Hernan,Arch,1,H,Body Weight,253431062,2026-03-09,80.0,False,1773090232,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,253436574,2026-03-09,5.0,False,1773091585,0,Hernan Arch
+4107754,,Hernan,Arch,24034966,L,Db/Kb 2-Arm Incline Bench Press,253441505,2026-03-09,35.0,False,1773092967,0,Hernan Arch
+4107754,,Hernan,Arch,22700262,L,Goblet Squat,253437371,2026-03-09,20.0,False,1773091795,0,Hernan Arch
+4107754,,Hernan,Arch,31769725,R,Treandmil Walking (Value Time),253444924,2026-03-09,,False,1773094085,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,253865133,2026-03-11,12.0,False,1773263995,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,253865123,2026-03-11,5.0,False,1773263992,0,Hernan Arch
+4107754,,Hernan,Arch,22700399,L,Box Jump,253865333,2026-03-11,3.0,False,1773264063,0,Hernan Arch
+4107754,,Hernan,Arch,22700218,L,Db/Kb 2-Arm Split Squat,253866403,2026-03-11,20.0,False,1773264415,0,Hernan Arch
+4107754,,Hernan,Arch,28673263,L,Kb/Db 1-Arm Bent Over Row (Bench),253866424,2026-03-11,15.0,False,1773264424,0,Hernan Arch
+4107754,,Hernan,Arch,27707717,L,Kb/Db Seated 2-Arm Overhead Press (Neutral),253868685,2026-03-11,20.0,False,1773265227,0,Hernan Arch
+4107754,,Hernan,Arch,31769937,L,Lateral Plank,253870024,2026-03-11,30.0,False,1773265750,0,Hernan Arch
+4107754,,Hernan,Arch,31778557,L,2-Leg Hamstring Bridge,254058104,2026-03-12,8.0,False,1773349541,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,254058079,2026-03-12,15.0,False,1773349535,0,Hernan Arch
+4107754,,Hernan,Arch,26884004,L,Push Up,254058127,2026-03-12,10.0,False,1773349548,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,254209762,2026-03-13,12.0,False,1773437104,0,Hernan Arch
+4107754,,Hernan,Arch,30698508,L,Bar Pull Up Leg Assisted (Pronated Grip),254211968,2026-03-13,10.0,False,1773438520,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,254209755,2026-03-13,5.0,False,1773437100,0,Hernan Arch
+4107754,,Hernan,Arch,22749581,L,Db/Kb 2-Arm Floor Press,254211882,2026-03-13,40.0,False,1773438462,0,Hernan Arch
+4107754,,Hernan,Arch,22700262,L,Goblet Squat,254210150,2026-03-13,24.0,False,1773437321,0,Hernan Arch
+4107754,,Hernan,Arch,27696774,R,Running,254168987,2026-03-13,1.0,False,1773420674,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,254466874,2026-03-16,12.0,False,1773695673,0,Hernan Arch
+4107754,,Hernan,Arch,1,H,Body Weight,254478481,2026-03-16,81.0,False,1773699669,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,254466883,2026-03-16,5.0,False,1773695676,0,Hernan Arch
+4107754,,Hernan,Arch,24034966,L,Db/Kb 2-Arm Incline Bench Press,254471670,2026-03-16,40.0,False,1773697148,0,Hernan Arch
+4107754,,Hernan,Arch,22700262,L,Goblet Squat,254467849,2026-03-16,20.0,False,1773695951,0,Hernan Arch
+4107754,,Hernan,Arch,31769725,R,Treandmil Walking (Value Time),254478377,2026-03-16,,False,1773699631,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,254861006,2026-03-18,12.0,False,1773869006,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,254861016,2026-03-18,5.0,False,1773869008,0,Hernan Arch
+4107754,,Hernan,Arch,22700399,L,Box Jump,254861838,2026-03-18,3.0,False,1773869244,0,Hernan Arch
+4107754,,Hernan,Arch,22700218,L,Db/Kb 2-Arm Split Squat,254862262,2026-03-18,15.0,False,1773869390,0,Hernan Arch
+4107754,,Hernan,Arch,28673263,L,Kb/Db 1-Arm Bent Over Row (Bench),254863312,2026-03-18,17.5,False,1773869725,0,Hernan Arch
+4107754,,Hernan,Arch,27707717,L,Kb/Db Seated 2-Arm Overhead Press (Neutral),254864788,2026-03-18,25.0,False,1773870247,0,Hernan Arch
+4107754,,Hernan,Arch,31769937,L,Lateral Plank,254868611,2026-03-18,30.0,False,1773871650,0,Hernan Arch
+4107754,,Hernan,Arch,31778557,L,2-Leg Hamstring Bridge,255032962,2026-03-19,8.0,False,1773952949,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,255032944,2026-03-19,15.0,False,1773952944,0,Hernan Arch
+4107754,,Hernan,Arch,26884004,L,Push Up,255032986,2026-03-19,10.0,False,1773952956,0,Hernan Arch
+4107754,,Hernan,Arch,27696774,R,Running,255036216,2026-03-19,0.7,False,1773954002,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,255200450,2026-03-20,12.0,False,1774041827,0,Hernan Arch
+4107754,,Hernan,Arch,30698508,L,Bar Pull Up Leg Assisted (Pronated Grip),255202382,2026-03-20,8.0,False,1774043292,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,255200452,2026-03-20,5.0,False,1774041829,0,Hernan Arch
+4107754,,Hernan,Arch,22749581,L,Db/Kb 2-Arm Floor Press,255202352,2026-03-20,40.0,False,1774043274,0,Hernan Arch
+4107754,,Hernan,Arch,22700262,L,Goblet Squat,255201002,2026-03-20,22.5,False,1774042206,0,Hernan Arch
+4107754,,Hernan,Arch,30144294,L,Band Pull Apart,255683494,2026-03-24,12.0,False,1774379707,0,Hernan Arch
+4107754,,Hernan,Arch,28422954,L,Bodyweight Squat,255683507,2026-03-24,5.0,False,1774379712,0,Hernan Arch
+4107754,,Hernan,Arch,22700399,L,Box Jump,255684444,2026-03-24,3.0,False,1774379917,0,Hernan Arch
+4107754,,Hernan,Arch,22700218,L,Db/Kb 2-Arm Split Squat,255685473,2026-03-24,15.0,False,1774380123,0,Hernan Arch
+4107754,,Hernan,Arch,28673263,L,Kb/Db 1-Arm Bent Over Row (Bench),255687269,2026-03-24,20.0,False,1774380456,0,Hernan Arch
+4107754,,Hernan,Arch,27707717,L,Kb/Db Seated 2-Arm Overhead Press (Neutral),255689390,2026-03-24,25.0,False,1774380879,0,Hernan Arch
+4107754,,Hernan,Arch,31769937,L,Lateral Plank,255695891,2026-03-24,20.0,False,1774382213,0,Hernan Arch
 3530521,,Juan Pablo,Godoy,22700218,L,Db/Kb 2-Arm Split Squat,253458939,2026-03-09,35.0,False,1773099856,0,Juan Pablo Godoy
 3530521,,Juan Pablo,Godoy,22700246,L,Hack Squat,253456124,2026-03-09,80.0,False,1773098469,0,Juan Pablo Godoy
 3530521,,Juan Pablo,Godoy,28659700,L,Seated Hamstring Curl (Machine),253460008,2026-03-09,65.0,False,1773100466,0,Juan Pablo Godoy

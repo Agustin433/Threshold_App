@@ -1,24 +1,11 @@
 """Vista dedicada de evaluaciones individuales."""
+
 import streamlit as st
-from local_store import load_recent_state
+
+from modules.page_state import ensure_page_state
 
 
-def ensure_state():
-    keys = [
-        "rpe_df", "wellness_df", "completion_df", "rep_load_df",
-        "raw_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict",
-    ]
-    for key in keys:
-        if key not in st.session_state:
-            st.session_state[key] = None
-
-    stored_state = load_recent_state()
-    for key in keys:
-        if st.session_state[key] is None:
-            st.session_state[key] = stored_state.get(key)
-
-
-ensure_state()
+ensure_page_state(load_models=False)
 
 st.header("Evaluacion de Saltos")
 st.caption("Esta vista usa solo evaluaciones individuales cargadas desde la app principal.")
@@ -43,4 +30,3 @@ else:
         use_container_width=True,
         hide_index=True,
     )
-

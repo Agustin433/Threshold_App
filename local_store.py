@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
+from itertools import combinations
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from modules.load_monitoring import calc_acwr, calc_monotony_strain
 
 RECENT_WEEKS = 6
 RECENT_DAYS = RECENT_WEEKS * 7
@@ -55,6 +58,16 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
         "athlete_col": "Athlete",
         "dedupe_cols": ["Athlete", "Date"],
     },
+}
+
+DATASET_LABELS: dict[str, str] = {
+    "rpe_df": "RPE + Tiempo",
+    "wellness_df": "Wellness",
+    "completion_df": "Completion",
+    "rep_load_df": "Rep/Load",
+    "raw_df": "Raw Workouts",
+    "maxes_df": "Maxes",
+    "jump_df": "Evaluaciones",
 }
 
 ACWR_ZONES = (
@@ -171,6 +184,23 @@ def _collapse_duplicate_rows(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFr
     return pd.DataFrame(rows)
 
 
+def _dedupe_dataset_frame(df: pd.DataFrame, state_key: str) -> pd.DataFrame:
+    spec = DATASET_SPECS[state_key]
+    df = _normalize_frame(df, spec)
+    if df.empty:
+        return df
+
+    dedupe_cols = [col for col in (spec.get("dedupe_cols") or []) if col in df.columns]
+    if dedupe_cols:
+        df = df.copy()
+        df["_merge_order"] = np.arange(len(df))
+        df = _collapse_duplicate_rows(df, dedupe_cols)
+    else:
+        df = df.drop_duplicates().reset_index(drop=True)
+
+    return _sort_frame(df, spec)
+
+
 def merge_dataset(existing: pd.DataFrame, incoming: pd.DataFrame, state_key: str) -> pd.DataFrame:
     spec = DATASET_SPECS[state_key]
     existing = _normalize_frame(existing, spec)
@@ -246,59 +276,6 @@ def load_recent_state(weeks: int = RECENT_WEEKS) -> dict[str, pd.DataFrame | Non
     return state
 
 
-def _classify_acwr(value: float) -> str:
-    if pd.isna(value):
-        return "Sin datos"
-    for lower, upper, label, _ in ACWR_ZONES:
-        if lower <= value < upper:
-            return label
-    return "Alto riesgo"
-
-
-def _acwr_color(value: float) -> str:
-    if pd.isna(value):
-        return "#5A6A7A"
-    for lower, upper, _, color in ACWR_ZONES:
-        if lower <= value < upper:
-            return color
-    return "#D94F4F"
-
-
-def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex, method: str = "ewma") -> pd.DataFrame:
-    daily = pd.Series(srpe_series.values, index=dates).sort_index()
-    daily = daily.resample("D").sum().fillna(0)
-
-    result = pd.DataFrame({"Date": daily.index, "sRPE_diario": daily.values})
-    result["Aguda_7d"] = result["sRPE_diario"].rolling(7, min_periods=1).mean()
-    result["Cronica_28d"] = result["sRPE_diario"].rolling(28, min_periods=1).mean()
-    result["ACWR_Classic"] = np.where(
-        result["Cronica_28d"] > 0,
-        result["Aguda_7d"] / result["Cronica_28d"],
-        0,
-    )
-    result["EWMA_Aguda"] = result["sRPE_diario"].ewm(alpha=0.28, adjust=False).mean()
-    result["EWMA_Cronica"] = result["sRPE_diario"].ewm(alpha=0.07, adjust=False).mean()
-    result["ACWR_EWMA"] = np.where(
-        result["EWMA_Cronica"] > 0,
-        result["EWMA_Aguda"] / result["EWMA_Cronica"],
-        0,
-    )
-    result["ACWR"] = result["ACWR_EWMA"] if method == "ewma" else result["ACWR_Classic"]
-    result["Zona"] = result["ACWR"].apply(_classify_acwr)
-    result["Zona_Color"] = result["ACWR"].apply(_acwr_color)
-    return result
-
-
-def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
-    weekly = srpe_daily.set_index("Date")["sRPE_diario"].resample("W").agg(["sum", "mean", "std"]).reset_index()
-    weekly.columns = ["Semana", "Carga_Total", "Media", "SD"]
-    weekly["SD"] = weekly["SD"].fillna(0.001)
-    weekly["Monotonia"] = weekly["Media"] / weekly["SD"]
-    weekly["Strain"] = weekly["Carga_Total"] * weekly["Monotonia"]
-    weekly["Alerta"] = weekly["Monotonia"] > MONOTONY_HIGH
-    return weekly
-
-
 def build_load_models(rpe_df: pd.DataFrame | None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
     if rpe_df is None or rpe_df.empty:
         return {}, {}
@@ -324,3 +301,130 @@ def build_load_models(rpe_df: pd.DataFrame | None) -> tuple[dict[str, pd.DataFra
         mono_dict[athlete] = filter_recent_window(mono_df, "Semana")
 
     return acwr_dict, mono_dict
+
+
+def build_dataset_summaries(
+    state: dict[str, pd.DataFrame | None],
+    weeks: int = RECENT_WEEKS,
+    keys: list[str] | None = None,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+
+    for state_key, spec in DATASET_SPECS.items():
+        if keys is not None and state_key not in keys:
+            continue
+
+        df = state.get(state_key)
+        if df is None or df.empty:
+            continue
+
+        date_col = str(spec["date_col"])
+        athlete_col = spec.get("athlete_col")
+        latest = None
+        earliest = None
+        if date_col in df.columns:
+            dates = pd.to_datetime(df[date_col], errors="coerce").dropna()
+            if not dates.empty:
+                earliest = dates.min().normalize()
+                latest = dates.max().normalize()
+
+        athlete_count = None
+        if athlete_col and athlete_col in df.columns:
+            athlete_count = int(df[athlete_col].dropna().nunique())
+
+        if latest is not None:
+            window_start = (latest - pd.Timedelta(weeks=weeks)).normalize()
+            window_label = f"{window_start:%d/%m/%Y} - {latest:%d/%m/%Y}"
+            latest_label = latest.strftime("%d/%m/%Y")
+            earliest_label = earliest.strftime("%d/%m/%Y") if earliest is not None else "—"
+        else:
+            window_label = "Sin fecha"
+            latest_label = "—"
+            earliest_label = "—"
+
+        rows.append({
+            "state_key": state_key,
+            "Dataset": DATASET_LABELS.get(state_key, state_key),
+            "Registros": int(len(df)),
+            "Atletas": athlete_count,
+            "Primera fecha": earliest_label,
+            "Ultima fecha": latest_label,
+            "Ventana activa": window_label,
+        })
+
+    return rows
+
+
+def find_athlete_name_conflicts(
+    names: list[str] | None = None,
+    threshold: float = 0.86,
+) -> list[dict[str, object]]:
+    candidate_names = sorted(set(names or load_athlete_registry()))
+    conflicts: list[dict[str, object]] = []
+
+    for left, right in combinations(candidate_names, 2):
+        l_norm = normalize_athlete_name(left)
+        r_norm = normalize_athlete_name(right)
+        if not l_norm or not r_norm or l_norm == r_norm:
+            continue
+
+        similarity = SequenceMatcher(None, l_norm.casefold(), r_norm.casefold()).ratio()
+        shared_tokens = set(l_norm.casefold().split()) & set(r_norm.casefold().split())
+        strong_token_overlap = len(shared_tokens) >= 2
+
+        if similarity >= threshold or strong_token_overlap:
+            conflicts.append({
+                "Nombre A": l_norm,
+                "Nombre B": r_norm,
+                "Similaridad": round(similarity, 2),
+            })
+
+    conflicts.sort(key=lambda row: row["Similaridad"], reverse=True)
+    return conflicts
+
+
+def rename_athlete_in_store(old_name: str, new_name: str) -> dict[str, object]:
+    old_norm = normalize_athlete_name(old_name)
+    new_norm = normalize_athlete_name(new_name)
+
+    if not old_norm or not new_norm:
+        raise ValueError("Debes indicar un nombre actual y un nombre nuevo validos.")
+    if old_norm == new_norm:
+        raise ValueError("El nombre nuevo debe ser distinto al nombre actual.")
+
+    _ensure_store_dir()
+    changed: dict[str, int] = {}
+
+    for state_key, spec in DATASET_SPECS.items():
+        athlete_col = spec.get("athlete_col")
+        if not athlete_col:
+            continue
+
+        path = _dataset_path(state_key)
+        if not path.exists():
+            continue
+
+        df = read_full_dataset(state_key)
+        if df.empty or athlete_col not in df.columns:
+            continue
+
+        athlete_series = df[athlete_col].map(normalize_athlete_name)
+        mask = athlete_series == old_norm
+        if not mask.any():
+            continue
+
+        df = df.copy()
+        df.loc[mask, athlete_col] = new_norm
+        df = _dedupe_dataset_frame(df, state_key)
+        df.to_csv(path, index=False)
+        changed[state_key] = int(mask.sum())
+
+    registry_names = sorted((set(load_athlete_registry()) - {old_norm}) | {new_norm})
+    pd.DataFrame({"Athlete": registry_names}).to_csv(ATHLETE_REGISTRY_PATH, index=False)
+
+    return {
+        "old": old_norm,
+        "new": new_norm,
+        "datasets": changed,
+        "total": sum(changed.values()),
+    }

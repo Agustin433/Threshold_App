@@ -13,6 +13,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import base64
+import html
 import json
 import os
 import zipfile
@@ -24,16 +25,63 @@ import urllib.request
 from io import BytesIO
 from pathlib import Path
 import warnings
+from charts.dashboard_charts import (
+    chart_cmj_trend as shared_chart_cmj_trend,
+    chart_quadrant_cmj_imtp as shared_chart_quadrant_cmj_imtp,
+    chart_quadrant_dri_sj as shared_chart_quadrant_dri_sj,
+    chart_radar as shared_chart_radar,
+)
+from charts.load_charts import (
+    chart_acwr as shared_chart_acwr,
+    chart_completion as shared_chart_completion,
+    chart_maxes_trend as shared_chart_maxes_trend,
+    chart_monotony_strain as shared_chart_monotony_strain,
+    chart_volume_by_tag as shared_chart_volume_by_tag,
+    chart_wellness as shared_chart_wellness,
+)
 from local_store import (
     RECENT_WEEKS,
     build_load_models,
+    build_dataset_summaries,
     collect_athlete_names,
+    find_athlete_name_conflicts,
     load_athlete_registry,
     load_recent_dataset,
     load_recent_state,
     normalize_athlete_name,
     persist_athlete_names,
+    rename_athlete_in_store,
     save_dataset,
+)
+from modules.data_loader import (
+    EVALUATION_DB_COLUMN_MAP as SHARED_EVALUATION_DB_COLUMN_MAP,
+    EVALUATION_PERSIST_COLUMNS as SHARED_EVALUATION_PERSIST_COLUMNS,
+    RAW_EVALUATION_COLUMNS as SHARED_RAW_EVALUATION_COLUMNS,
+    SUPABASE_EVALUATIONS_TABLE as SHARED_SUPABASE_EVALUATIONS_TABLE,
+    TEST_MAPS as SHARED_TEST_MAPS,
+    parse_completion_report as shared_parse_completion_report,
+    parse_forceplate_file as shared_parse_forceplate_file,
+    parse_jump_eval as shared_parse_jump_eval,
+    parse_maxes_health as shared_parse_maxes_health,
+    parse_raw_workouts as shared_parse_raw_workouts,
+    parse_rep_load_report as shared_parse_rep_load_report,
+    parse_xlsx_questionnaire as shared_parse_xlsx_questionnaire,
+)
+from modules.jump_analysis import (
+    _prepare_jump_df as shared_prepare_jump_df,
+    _records_to_jump_df as shared_records_to_jump_df,
+    calc_dri as shared_calc_dri,
+    calc_eur as shared_calc_eur,
+    calc_nm_profile as shared_calc_nm_profile,
+    calc_zscores as shared_calc_zscores,
+)
+from modules.report_generator import (
+    build_executive_summary_df,
+    build_report_sheets,
+    collect_report_athletes,
+    export_excel as shared_export_excel,
+    generate_module_insights,
+    generate_visual_report_pdf,
 )
 try:
     from PIL import Image
@@ -128,7 +176,7 @@ def _load_page_icon(path: Path | None):
             return Image.open(path)
         except Exception:
             pass
-    return "âš¡"
+    return "T"
 
 
 _LOGO_ICON_PATH = _find_brand_asset("icon")
@@ -1350,7 +1398,7 @@ def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     ) from first_error
 
 
-def parse_raw_workouts(file) -> pd.DataFrame:
+def _legacy_parse_raw_workouts_unused(file) -> pd.DataFrame:
     df = _read_csv_with_fallback(file)
     df.columns = [c.strip().strip('"') for c in df.columns]
     df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
@@ -1361,7 +1409,7 @@ def parse_raw_workouts(file) -> pd.DataFrame:
     return df.dropna(subset=["Assigned Date"])
 
 
-def parse_maxes_health(file) -> pd.DataFrame:
+def _legacy_parse_maxes_health_unused(file) -> pd.DataFrame:
     df = _read_csv_with_fallback(file)
     df.columns = [c.strip().strip('"') for c in df.columns]
     df["Added Date"] = pd.to_datetime(df["Added Date"], errors="coerce")
@@ -1587,7 +1635,7 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     return weekly
 
 
-def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
+def _legacy_calc_eur_percentage_unused(df: pd.DataFrame) -> pd.DataFrame:
     """EUR = (CMJ - SJ) / SJ × 100. Bosco 1982."""
     if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
         df["EUR"] = ((df["CMJ_cm"] - df["SJ_cm"]) / df["SJ_cm"]) * 100
@@ -1625,7 +1673,7 @@ def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _calc_eur_from_records(df: pd.DataFrame) -> pd.DataFrame:
+def _legacy_calc_eur_from_records_unused(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calcula EUR agrupando registros CMJ y SJ del mismo atleta y fecha.
     EUR = (CMJ_cm - SJ_cm) / SJ_cm × 100  (Bosco 1982)
@@ -1682,7 +1730,7 @@ def _calc_eur_from_records(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
+def _legacy_calc_nm_profile_unused(df: pd.DataFrame) -> pd.DataFrame:
     """Perfil neuromuscular 4-cuadrantes basado en EUR + DRI."""
     if "EUR" not in df.columns or "DRI" not in df.columns:
         return df
@@ -2040,6 +2088,85 @@ def load_evaluations() -> pd.DataFrame:
     return _prepare_jump_df(df[keep_cols])
 
 
+def rename_evaluation_athlete_remote(old_name: str, new_name: str) -> dict[str, int | bool]:
+    if not supabase_evaluations_enabled():
+        return {"enabled": False, "updated": 0, "merged": 0, "deleted": 0}
+
+    old_norm = normalize_athlete_name(old_name)
+    new_norm = normalize_athlete_name(new_name)
+    _, _, table = _supabase_evaluations_config()
+
+    rows = _supabase_request(
+        "GET",
+        table,
+        query={"select": "*", "athlete": f"eq.{old_norm}"},
+    ) or []
+
+    updated = 0
+    merged = 0
+    deleted = 0
+
+    for row in rows:
+        date_value = row.get("date")
+        if not date_value:
+            continue
+
+        target_rows = _supabase_request(
+            "GET",
+            table,
+            query={
+                "select": "*",
+                "athlete": f"eq.{new_norm}",
+                "date": f"eq.{date_value}",
+            },
+        ) or []
+
+        if target_rows:
+            merged_row = target_rows[0].copy()
+            for key, value in row.items():
+                if key in {"athlete", "date"}:
+                    continue
+                if merged_row.get(key) in (None, "") and value not in (None, ""):
+                    merged_row[key] = value
+
+            _supabase_request(
+                "PATCH",
+                table,
+                query={
+                    "athlete": f"eq.{new_norm}",
+                    "date": f"eq.{date_value}",
+                },
+                payload=merged_row,
+                prefer="return=representation",
+            )
+            _supabase_request(
+                "DELETE",
+                table,
+                query={
+                    "athlete": f"eq.{old_norm}",
+                    "date": f"eq.{date_value}",
+                },
+                prefer="return=representation",
+            )
+            merged += 1
+            deleted += 1
+            continue
+
+        _supabase_request(
+            "PATCH",
+            table,
+            query={
+                "athlete": f"eq.{old_norm}",
+                "date": f"eq.{date_value}",
+            },
+            payload={"athlete": new_norm},
+            prefer="return=representation",
+        )
+        updated += 1
+
+    return {"enabled": True, "updated": updated, "merged": merged, "deleted": deleted}
+
+
 # ════════════════════════════════════════════════════════════════════
 # CHARTS
 # ════════════════════════════════════════════════════════════════════
@@ -2241,7 +2368,7 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str) -> go.Figure:
     return fig
 
 
-def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str) -> go.Figure:
+def _legacy_chart_maxes_trend_unused(maxes_df: pd.DataFrame, exercise: str) -> go.Figure:
     d = maxes_df[maxes_df["Exercise Name"] == exercise].sort_values("Added Date")
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -2702,6 +2829,35 @@ def render_sidebar_status_panel(items: list[tuple[str, str, bool]]):
     )
 
 
+def render_report_note(title: str, summary: str, focuses: list[str] | None = None, kicker: str = "Interpretacion"):
+    focus_html = ""
+    if focuses:
+        items = "".join(
+            f'<li style="margin:0 0 0.35rem 1rem;color:#5A595B;">{html.escape(str(item))}</li>'
+            for item in focuses
+        )
+        focus_html = f'<ul style="margin:0.6rem 0 0;padding:0;">{items}</ul>'
+
+    st.markdown(
+        f"""
+<div style="
+  background:#FEFEFE;
+  border:1px solid rgba(13,60,94,0.10);
+  border-radius:16px;
+  padding:1rem 1.1rem;
+  box-shadow:0 1px 0 rgba(13,60,94,0.04);
+  margin:0.25rem 0 0.8rem 0;
+">
+  <div style="font-size:0.68rem;letter-spacing:0.16em;text-transform:uppercase;color:#708C9F;margin-bottom:0.4rem;">{html.escape(kicker)}</div>
+  <div style="font-size:1rem;font-weight:700;color:#221F20;margin-bottom:0.45rem;">{html.escape(title)}</div>
+  <div style="font-size:0.92rem;line-height:1.6;color:#221F20;">{html.escape(summary)}</div>
+  {focus_html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
     if val is None or ref is None:
         return
@@ -2713,6 +2869,61 @@ def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
         delta_color = "normal"
     st.metric(label, f"{val:{fmt}}", delta=f"{pct:+.1f}%",
               delta_color=delta_color)
+
+
+def _build_chart_theme() -> dict:
+    return {
+        "colors": C,
+        "layout": _DARK,
+        "grid": _GRID,
+        "grid_soft": _GRID_SOFT,
+        "reference_line": _REFERENCE_LINE,
+        "reference_fill": _REFERENCE_FILL,
+        "legend": _LEGEND,
+        "monotony_high": MONOTONY_HIGH,
+    }
+
+
+def _bind_chart(shared_chart):
+    def _wrapped(*args, **kwargs):
+        return shared_chart(*args, theme=_build_chart_theme(), **kwargs)
+
+    return _wrapped
+
+
+# Shared modules are the active source of truth for Sprint 2.
+TEST_MAPS = SHARED_TEST_MAPS
+RAW_EVALUATION_COLUMNS = SHARED_RAW_EVALUATION_COLUMNS
+EVALUATION_PERSIST_COLUMNS = SHARED_EVALUATION_PERSIST_COLUMNS
+EVALUATION_DB_COLUMN_MAP = SHARED_EVALUATION_DB_COLUMN_MAP
+SUPABASE_EVALUATIONS_TABLE = SHARED_SUPABASE_EVALUATIONS_TABLE
+
+parse_xlsx_questionnaire = shared_parse_xlsx_questionnaire
+parse_completion_report = shared_parse_completion_report
+parse_rep_load_report = shared_parse_rep_load_report
+parse_raw_workouts = shared_parse_raw_workouts
+parse_maxes_health = shared_parse_maxes_health
+parse_forceplate_file = shared_parse_forceplate_file
+parse_jump_eval = shared_parse_jump_eval
+
+calc_eur = shared_calc_eur
+calc_dri = shared_calc_dri
+calc_zscores = shared_calc_zscores
+calc_nm_profile = shared_calc_nm_profile
+_prepare_jump_df = shared_prepare_jump_df
+_records_to_jump_df = shared_records_to_jump_df
+export_excel = shared_export_excel
+
+chart_acwr = _bind_chart(shared_chart_acwr)
+chart_monotony_strain = _bind_chart(shared_chart_monotony_strain)
+chart_wellness = _bind_chart(shared_chart_wellness)
+chart_volume_by_tag = _bind_chart(shared_chart_volume_by_tag)
+chart_maxes_trend = _bind_chart(shared_chart_maxes_trend)
+chart_radar = _bind_chart(shared_chart_radar)
+chart_quadrant_cmj_imtp = _bind_chart(shared_chart_quadrant_cmj_imtp)
+chart_quadrant_dri_sj = _bind_chart(shared_chart_quadrant_dri_sj)
+chart_completion = _bind_chart(shared_chart_completion)
+chart_cmj_trend = _bind_chart(shared_chart_cmj_trend)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -2738,6 +2949,8 @@ def init_state():
         st.session_state.eval_sync_notice = None
     if "eval_sync_notice_kind" not in st.session_state:
         st.session_state.eval_sync_notice_kind = "info"
+    if "upload_feedback" not in st.session_state:
+        st.session_state.upload_feedback = []
 
 
 init_state()
@@ -2753,6 +2966,79 @@ def known_athlete_names() -> list[str]:
         st.session_state.jump_df,
     )
     return sorted(set(load_athlete_registry()) | set(live_names))
+
+
+def _current_state_snapshot() -> dict[str, pd.DataFrame | None]:
+    return {
+        "rpe_df": st.session_state.rpe_df,
+        "wellness_df": st.session_state.wellness_df,
+        "completion_df": st.session_state.completion_df,
+        "rep_load_df": st.session_state.rep_load_df,
+        "raw_df": st.session_state.raw_df,
+        "maxes_df": st.session_state.maxes_df,
+        "jump_df": st.session_state.jump_df,
+    }
+
+
+def _active_dataset_rows(keys: list[str] | None = None) -> list[dict[str, object]]:
+    return build_dataset_summaries(_current_state_snapshot(), weeks=RECENT_WEEKS, keys=keys)
+
+
+def _dataset_detail_text(row: dict[str, object]) -> str:
+    parts = [f"{row['Registros']} reg."]
+    athletes = row.get("Atletas")
+    if athletes is not None:
+        parts.append(f"{athletes} atletas")
+    last_date = row.get("Ultima fecha")
+    if last_date and last_date != "—":
+        parts.append(f"hasta {last_date}")
+    return " · ".join(parts)
+
+
+def _push_notice(kind: str, message: str) -> None:
+    st.session_state.upload_feedback.append({"kind": kind, "message": message})
+
+
+def _flush_notices() -> None:
+    notices = st.session_state.get("upload_feedback", [])
+    if not notices:
+        return
+
+    for item in notices:
+        kind = item.get("kind", "info")
+        message = item.get("message", "")
+        if kind == "success":
+            st.success(message)
+        elif kind == "warning":
+            st.warning(message)
+        elif kind == "error":
+            st.error(message)
+        else:
+            st.info(message)
+
+    st.session_state.upload_feedback = []
+
+
+def _run_dataset_job(label: str, state_key: str, filename: str, loader) -> bool:
+    try:
+        df = loader()
+        if df is None or df.empty:
+            raise ValueError("se leyó el archivo, pero no produjo registros válidos.")
+        save_dataset(state_key, df)
+        visible_df = load_recent_dataset(state_key, weeks=RECENT_WEEKS)
+        summary_rows = build_dataset_summaries({state_key: visible_df}, weeks=RECENT_WEEKS, keys=[state_key])
+        if summary_rows:
+            row = summary_rows[0]
+            _push_notice(
+                "success",
+                f"{label} ({filename}): {row['Registros']} registro(s) visibles · {row['Ventana activa']}.",
+            )
+        else:
+            _push_notice("success", f"{label} ({filename}) procesado correctamente.")
+        return True
+    except Exception as exc:
+        _push_notice("error", f"{label} ({filename}): {exc}")
+        return False
 
 
 def rebuild_load_state():
@@ -2828,19 +3114,28 @@ with st.sidebar:
 </div>
 """, unsafe_allow_html=True)
 
+    if _LOGO_WORDMARK_PATH and _LOGO_ICON_PATH:
+        st.caption("Marca oficial cargada desde assets/brand.")
+    else:
+        st.caption("No se detectaron assets oficiales en assets/brand. La UI usa fallback neutro hasta que copies los archivos reales.")
+
+    _flush_notices()
+
     # ── Status compacto cuando hay datos cargados ──
     if _data_loaded():
-        loaded_items = []
-        if st.session_state.rpe_df is not None:
-            loaded_items.append(("RPE", f"{len(st.session_state.rpe_df)} registros", True))
-        if st.session_state.wellness_df is not None:
-            loaded_items.append(("Wellness", f"{len(st.session_state.wellness_df)} registros", True))
-        if st.session_state.jump_df is not None:
-            n_j = st.session_state.jump_df["Athlete"].nunique()
-            loaded_items.append(("Evaluaciones", f"{n_j} atletas", True))
-        if st.session_state.raw_df is not None:
-            loaded_items.append(("Workouts", "dataset disponible", True))
-        render_sidebar_status_panel(loaded_items)
+        dataset_rows = _active_dataset_rows()
+        loaded_items = [
+            (row["Dataset"], _dataset_detail_text(row), True)
+            for row in dataset_rows
+        ]
+        if loaded_items:
+            render_sidebar_status_panel(loaded_items)
+            with st.expander("Fechas y ventana activa", expanded=False):
+                st.dataframe(
+                    pd.DataFrame(dataset_rows)[["Dataset", "Registros", "Atletas", "Ultima fecha", "Ventana activa"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     # ── Expander de carga — colapsado automáticamente cuando hay datos ──
     with st.expander("Cargar archivos", expanded=not _data_loaded()):
@@ -2874,19 +3169,37 @@ with st.sidebar:
                                          key="eval_file")
         if st.button("Agregar evaluacion", key="btn_add_eval"):
             eval_athlete_name = normalize_athlete_name(eval_athlete)
-            if eval_file and eval_athlete_name:
+            if not eval_athlete_name:
+                _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
+                st.rerun()
+            if not eval_file:
+                _push_notice("warning", "Evaluaciones individuales: subi el archivo del test.")
+                st.rerun()
+
+            try:
                 record = parse_forceplate_file(eval_file.read(), eval_type)
+                metric_count = len([
+                    key for key, value in record.items()
+                    if key not in {"test_type"} and not key.endswith("_reps") and value is not None
+                ])
+                if metric_count == 0:
+                    raise ValueError("no se detectaron métricas válidas para el tipo de test seleccionado.")
                 record["Athlete"] = eval_athlete_name
-                record["Date"]    = pd.Timestamp(eval_date)
+                record["Date"] = pd.Timestamp(eval_date)
                 persist_athlete_names([eval_athlete_name])
                 if "eval_records" not in st.session_state:
                     st.session_state.eval_records = []
                 st.session_state.eval_records.append(record)
-                st.success(f"{eval_type} de {eval_athlete} ({eval_date}) agregado")
-            elif not eval_athlete_name:
-                st.warning("Ingresa el nombre del atleta")
-            elif not eval_file:
-                st.warning("Subi el archivo del test")
+                _push_notice(
+                    "success",
+                    f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): agregada para {eval_athlete_name} con {metric_count} métricas.",
+                )
+            except Exception as exc:
+                _push_notice(
+                    "error",
+                    f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): {exc}",
+                )
+            st.rerun()
 
         if "eval_records" in st.session_state and st.session_state.eval_records:
             n = len(st.session_state.eval_records)
@@ -2919,72 +3232,162 @@ with st.sidebar:
             st.session_state.eval_sync_notice = None
         st.markdown("---")
         if st.button("▶ PROCESAR TODO"):
+            st.session_state.upload_feedback = []
+            processed_any = False
             with st.spinner("Procesando..."):
                 if f_rpe:
-                    save_dataset("rpe_df", parse_xlsx_questionnaire(
-                        f_rpe.read(), mode="rpe"))
+                    processed_any = _run_dataset_job(
+                        "RPE + Tiempo",
+                        "rpe_df",
+                        getattr(f_rpe, "name", "questionnaire-report.xlsx"),
+                        lambda: parse_xlsx_questionnaire(f_rpe.read(), mode="rpe"),
+                    ) or processed_any
                 if f_wellness:
-                    save_dataset("wellness_df", parse_xlsx_questionnaire(
-                        f_wellness.read(), mode="wellness"))
+                    processed_any = _run_dataset_job(
+                        "Wellness 3Q",
+                        "wellness_df",
+                        getattr(f_wellness, "name", "questionnaire-report_wellness.xlsx"),
+                        lambda: parse_xlsx_questionnaire(f_wellness.read(), mode="wellness"),
+                    ) or processed_any
                 if f_completion:
-                    save_dataset("completion_df", parse_completion_report(f_completion))
+                    processed_any = _run_dataset_job(
+                        "Completion Report",
+                        "completion_df",
+                        getattr(f_completion, "name", "completion.csv"),
+                        lambda: parse_completion_report(f_completion),
+                    ) or processed_any
                 if f_rep_load:
-                    save_dataset("rep_load_df", parse_rep_load_report(f_rep_load))
+                    processed_any = _run_dataset_job(
+                        "Rep/Load Report",
+                        "rep_load_df",
+                        getattr(f_rep_load, "name", "rep_load.csv"),
+                        lambda: parse_rep_load_report(f_rep_load),
+                    ) or processed_any
                 if f_raw:
-                    save_dataset("raw_df", parse_raw_workouts(f_raw))
+                    processed_any = _run_dataset_job(
+                        "Raw Workouts",
+                        "raw_df",
+                        getattr(f_raw, "name", "raw_workouts.csv"),
+                        lambda: parse_raw_workouts(f_raw),
+                    ) or processed_any
                 if f_maxes:
-                    save_dataset("maxes_df", parse_maxes_health(f_maxes))
+                    processed_any = _run_dataset_job(
+                        "Raw Maxes",
+                        "maxes_df",
+                        getattr(f_maxes, "name", "maxes.csv"),
+                        lambda: parse_maxes_health(f_maxes),
+                    ) or processed_any
 
                 # Procesar evaluaciones de plataforma de fuerza
                 records = st.session_state.get("eval_records", [])
                 if records:
-                    jdf = _records_to_jump_df(records)
-                    if not jdf.empty:
+                    try:
+                        jdf = _records_to_jump_df(records)
+                        if jdf.empty:
+                            raise ValueError("no se pudo consolidar ninguna evaluación individual válida.")
+
                         save_dataset("jump_df", jdf)
                         persist_athlete_names(jdf["Athlete"].dropna().tolist())
-                    if not jdf.empty and supabase_evaluations_enabled():
-                        try:
-                            sync_stats = save_evaluation(jdf)
-                            st.session_state.evaluations_loaded_from_store = False
-                            hydrate_evaluations_from_store(force=True, show_success=False)
-                            remote_df = st.session_state.jump_df
-                            total_rows = len(remote_df) if remote_df is not None else len(jdf)
-                            total_athletes = (
-                                remote_df["Athlete"].nunique()
-                                if remote_df is not None and not remote_df.empty else
-                                jdf["Athlete"].nunique()
+                        visible_jump_df = load_recent_dataset("jump_df", weeks=RECENT_WEEKS)
+                        jump_rows = build_dataset_summaries({"jump_df": visible_jump_df}, weeks=RECENT_WEEKS, keys=["jump_df"])
+                        if jump_rows:
+                            jump_row = jump_rows[0]
+                            _push_notice(
+                                "success",
+                                f"Evaluaciones individuales: {jump_row['Registros']} registro(s) visibles · {jump_row['Ventana activa']}.",
                             )
+
+                        if supabase_evaluations_enabled():
+                            try:
+                                sync_stats = save_evaluation(jdf)
+                                st.session_state.evaluations_loaded_from_store = False
+                                hydrate_evaluations_from_store(force=True, show_success=False)
+                                st.session_state.eval_sync_notice = (
+                                    f"Evaluaciones sincronizadas con Supabase: "
+                                    f"{sync_stats['inserted']} nuevas, {sync_stats['updated']} actualizadas."
+                                )
+                                st.session_state.eval_sync_notice_kind = "success"
+                            except Exception as exc:
+                                st.session_state.eval_sync_notice = (
+                                    f"Evaluaciones procesadas en local, pero no se pudieron guardar en Supabase: {exc}"
+                                )
+                                st.session_state.eval_sync_notice_kind = "warning"
+                        else:
                             st.session_state.eval_sync_notice = (
-                                f"Evaluaciones sincronizadas con Supabase: "
-                                f"{sync_stats['inserted']} nuevas, {sync_stats['updated']} actualizadas. "
-                                f"Historial activo: {total_rows} registros / {total_athletes} atletas."
+                                f"{len(records)} test(s) consolidados en local para {jdf['Athlete'].nunique()} atleta(s)."
                             )
                             st.session_state.eval_sync_notice_kind = "success"
-                        except Exception as exc:
-                            st.session_state.eval_sync_notice = (
-                                f"Evaluaciones procesadas en local, pero no se pudieron guardar en Supabase: {exc}"
-                            )
-                            st.session_state.eval_sync_notice_kind = "warning"
-                    elif not jdf.empty:
-                        st.session_state.eval_sync_notice = (
-                            f"{len(records)} test(s) procesados en local — "
-                            f"{jdf['Athlete'].nunique()} atletas."
-                        )
-                        st.session_state.eval_sync_notice_kind = "success"
-                    else:
-                        st.session_state.eval_sync_notice = (
-                            "No se pudo consolidar ninguna evaluación individual válida."
-                        )
-                        st.session_state.eval_sync_notice_kind = "warning"
-                    if not jdf.empty:
-                        st.success(f"{len(records)} test(s) procesados — {jdf['Athlete'].nunique()} atletas")
-                    else:
-                        st.warning("No se pudo consolidar ninguna evaluación individual válida.")
+
+                        st.session_state.eval_records = []
+                        processed_any = True
+                    except Exception as exc:
+                        _push_notice("error", f"Evaluaciones individuales: {exc}")
 
                 hydrate_local_store(force=True)
+                if not processed_any:
+                    _push_notice("info", "No se detectaron archivos nuevos ni evaluaciones pendientes para procesar.")
 
-            st.session_state.data_processed = True
+            st.session_state.data_processed = processed_any or st.session_state.data_processed
             st.rerun()
+
+    with st.expander("Mantenimiento de atletas", expanded=False):
+        athlete_registry = known_athlete_names()
+        if not athlete_registry:
+            st.info("Todavía no hay atletas registrados.")
+        else:
+            st.caption(f"{len(athlete_registry)} nombre(s) registrados en historial.")
+            conflicts = find_athlete_name_conflicts(athlete_registry)
+            if conflicts:
+                st.caption("Posibles nombres duplicados o muy parecidos:")
+                st.dataframe(
+                    pd.DataFrame(conflicts),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.caption("No se detectaron nombres muy similares.")
+
+            rename_source = st.selectbox("Nombre a corregir", athlete_registry, key="rename_source")
+            rename_target_option = st.selectbox(
+                "Nombre canonical",
+                ["Escribir nuevo..."] + [name for name in athlete_registry if name != rename_source],
+                key="rename_target_option",
+            )
+            rename_target = rename_target_option
+            if rename_target_option == "Escribir nuevo...":
+                rename_target = st.text_input(
+                    "Nuevo nombre canonical",
+                    key="rename_target_text",
+                    placeholder="Ej: Exequiel Heredia Garcia",
+                )
+
+            if st.button("Aplicar correccion de nombre", key="btn_rename_athlete"):
+                try:
+                    result = rename_athlete_in_store(rename_source, rename_target)
+                    for rec in st.session_state.get("eval_records", []):
+                        if normalize_athlete_name(rec.get("Athlete")) == result["old"]:
+                            rec["Athlete"] = result["new"]
+                    remote_summary = ""
+                    if supabase_evaluations_enabled():
+                        remote_stats = rename_evaluation_athlete_remote(rename_source, rename_target)
+                        if remote_stats.get("enabled"):
+                            remote_summary = (
+                                f" Supabase: {remote_stats['updated']} actualizados, "
+                                f"{remote_stats['merged']} fusionados."
+                            )
+                        st.session_state.evaluations_loaded_from_store = False
+
+                    hydrate_local_store(force=True)
+                    hydrate_evaluations_from_store(force=True, show_success=False)
+                    _push_notice(
+                        "success",
+                        f"Nombre corregido: {result['old']} → {result['new']}."
+                        f" Dataset(s) afectados: {', '.join(result['datasets'].keys()) or 'registro local'}."
+                        f"{remote_summary}",
+                    )
+                except Exception as exc:
+                    _push_notice("error", f"Corrección de atleta: {exc}")
+                st.rerun()
 
     st.markdown('<div style="font-size:10px;color:#555;font-family:monospace;">v2.0 · Threshold S&C</div>',
                 unsafe_allow_html=True)
@@ -3028,6 +3431,13 @@ with tab_overview:
         ("Saltos/Eval",   jdf  is not None),
     ]
     render_status_badges(status_items)
+    dataset_rows = _active_dataset_rows()
+    if dataset_rows:
+        st.dataframe(
+            pd.DataFrame(dataset_rows)[["Dataset", "Registros", "Atletas", "Ultima fecha", "Ventana activa"]],
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.markdown("---")
 
@@ -3051,6 +3461,15 @@ with tab_overview:
         if rows_ov:
             df_ov = pd.DataFrame(rows_ov)
             st.dataframe(df_ov, use_container_width=True, hide_index=True)
+
+    overview_note = generate_module_insights(dict(st.session_state), "Todos").get("overview")
+    if overview_note:
+        render_report_note(
+            overview_note["title"],
+            overview_note["summary"],
+            overview_note.get("focuses"),
+            kicker="Lectura breve",
+        )
 
     if cdf is not None:
         render_subsection_header("Adherencia y volumen", "completion rate y exposicion total acumulada", kicker="Resumen")
@@ -3140,6 +3559,15 @@ with tab_load:
             if not last_mono.empty and last_mono["Alerta"].values[0]:
                 _alert(f"Monotonia = {last_mono['Monotonia'].values[0]:.2f} — por encima del umbral Foster (2.0). "
                        f"Aumentar variabilidad de carga en el microciclo.", "y")
+
+            load_note = generate_module_insights(dict(st.session_state), athlete_sel).get("load")
+            if load_note:
+                render_report_note(
+                    load_note["title"],
+                    load_note["summary"],
+                    load_note.get("focuses"),
+                    kicker="Lectura de carga",
+                )
 
             st.markdown("---")
 
@@ -3256,6 +3684,15 @@ with tab_eval:
             else:
                 col.metric(label, "—")
 
+        eval_note = generate_module_insights(dict(st.session_state), athlete_sel).get("evaluations")
+        if eval_note:
+            render_report_note(
+                eval_note["title"],
+                eval_note["summary"],
+                eval_note.get("focuses"),
+                kicker="Lectura de evaluacion",
+            )
+
         st.markdown("---")
         c_eval_1, c_eval_2 = st.columns([1.05, 0.95])
         with c_eval_1:
@@ -3366,6 +3803,15 @@ with tab_profile:
                 if "NM_Profile" in last_j.index:
                     st.markdown(f"**Perfil NM:** {last_j['NM_Profile']}")
 
+            profile_note = generate_module_insights(dict(st.session_state), ath_p).get("profile")
+            if profile_note:
+                render_report_note(
+                    profile_note["title"],
+                    profile_note["summary"],
+                    profile_note.get("focuses"),
+                    kicker="Sintesis integrada",
+                )
+
             maxes_df_profile = st.session_state.maxes_df
             if maxes_df_profile is not None and "Athlete" in maxes_df_profile.columns:
                 maxes_ath = maxes_df_profile[maxes_df_profile["Athlete"] == ath_p]
@@ -3435,6 +3881,15 @@ with tab_team:
 
             st.dataframe(team_table.style.apply(color_zona, axis=1),
                          use_container_width=True, hide_index=True)
+
+        team_note = generate_module_insights(dict(st.session_state), "Todos").get("team")
+        if team_note:
+            render_report_note(
+                team_note["title"],
+                team_note["summary"],
+                team_note.get("focuses"),
+                kicker="Lectura del equipo",
+            )
 
     maxes_df_team = st.session_state.maxes_df
     if maxes_df_team is not None and "Exercise Name" in maxes_df_team.columns:
@@ -3529,23 +3984,55 @@ with tab_report:
             or st.session_state.maxes_df is not None
             or st.session_state.rep_load_df is not None
         ):
-            athletes_r = set()
-            if st.session_state.rpe_df is not None:
-                athletes_r.update(st.session_state.rpe_df["Athlete"].dropna().unique())
-            if st.session_state.jump_df is not None:
-                athletes_r.update(st.session_state.jump_df["Athlete"].dropna().unique())
-            if st.session_state.maxes_df is not None and "Athlete" in st.session_state.maxes_df.columns:
-                athletes_r.update(st.session_state.maxes_df["Athlete"].dropna().unique())
-            if st.session_state.rep_load_df is not None and "Athlete" in st.session_state.rep_load_df.columns:
-                athletes_r.update(st.session_state.rep_load_df["Athlete"].dropna().unique())
+            athletes_r = collect_report_athletes(dict(st.session_state))
             report_athlete = st.selectbox(
                 "Filtrar por atleta (opcional)",
-                ["Todos"] + sorted(athletes_r), key="sel_report_ath")
+                ["Todos"] + athletes_r, key="sel_report_ath")
 
     st.markdown("---")
 
-    if st.button("Generar reporte Excel"):
-        sheets = {}
+    report_state = dict(st.session_state)
+    executive_df = build_executive_summary_df(report_state, report_athlete)
+    report_insights = generate_module_insights(report_state, report_athlete)
+    report_note = report_insights.get("report")
+    profile_note = report_insights.get("profile")
+
+    render_subsection_header("Vista previa exportable", "bloques listos para excel y salida visual", kicker="Preview")
+    if not executive_df.empty:
+        st.dataframe(executive_df, use_container_width=True, hide_index=True)
+
+    preview_left, preview_right = st.columns(2)
+    with preview_left:
+        if report_note:
+            render_report_note(
+                report_note["title"],
+                report_note["summary"],
+                report_note.get("focuses"),
+                kicker="Reporte",
+            )
+    with preview_right:
+        if profile_note:
+            render_report_note(
+                profile_note["title"],
+                profile_note["summary"],
+                profile_note.get("focuses"),
+                kicker="Focos",
+            )
+
+    st.markdown("---")
+
+    if st.button("Preparar exportables"):
+        sheets = build_report_sheets(
+            report_state,
+            report_athlete,
+            include_acwr=include_acwr,
+            include_mono=include_mono,
+            include_wellness=include_wellness,
+            include_jumps=include_jumps,
+            include_maxes=include_maxes,
+            include_volume=include_volume,
+            include_completion=include_completion,
+        )
 
         # ACWR
         if include_acwr and st.session_state.acwr_dict:
@@ -3607,14 +4094,24 @@ with tab_report:
             _alert("No hay datos para exportar. Cargá archivos primero.", "y")
         else:
             excel_bytes = export_excel(sheets)
+            pdf_bytes = generate_visual_report_pdf(report_state, report_athlete)
             ath_label = report_athlete.replace(" ", "_") if report_athlete != "Todos" else "Equipo"
-            st.download_button(
-                label="Descargar reporte Excel",
-                data=excel_bytes,
-                file_name=f"Threshold_SC_Reporte_{ath_label}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-            _alert(f"Reporte generado con {len(sheets)} hojas.", "g")
+            dl_1, dl_2 = st.columns(2)
+            with dl_1:
+                st.download_button(
+                    label="Descargar reporte Excel",
+                    data=excel_bytes,
+                    file_name=f"Threshold_SC_Reporte_{ath_label}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            with dl_2:
+                st.download_button(
+                    label="Descargar reporte visual PDF",
+                    data=pdf_bytes,
+                    file_name=f"Threshold_SC_Reporte_{ath_label}.pdf",
+                    mime="application/pdf",
+                )
+            _alert(f"Reporte generado con {len(sheets)} hojas y un PDF ejecutivo.", "g")
 
     # ── Qué falta para el reporte completo ──
     st.markdown("---")

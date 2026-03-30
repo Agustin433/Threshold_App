@@ -1,31 +1,11 @@
 """Vista dedicada de perfil de atleta."""
+
 import streamlit as st
-from local_store import build_load_models, load_recent_state
+
+from modules.page_state import collect_state_athletes, ensure_page_state
 
 
-def ensure_state():
-    keys = [
-        "rpe_df", "wellness_df", "completion_df", "rep_load_df",
-        "raw_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict",
-    ]
-    for key in keys:
-        if key not in st.session_state:
-            st.session_state[key] = None
-
-    stored_state = load_recent_state()
-    for key in keys:
-        if st.session_state[key] is None:
-            st.session_state[key] = stored_state.get(key)
-
-    if st.session_state.rpe_df is not None and (
-        st.session_state.acwr_dict is None or st.session_state.mono_dict is None
-    ):
-        acwr_dict, mono_dict = build_load_models(st.session_state.rpe_df)
-        st.session_state.acwr_dict = acwr_dict or None
-        st.session_state.mono_dict = mono_dict or None
-
-
-ensure_state()
+ensure_page_state(load_models=True)
 
 st.header("Perfil del Atleta")
 st.caption("La carga y el procesamiento se hacen desde la app principal.")
@@ -36,20 +16,12 @@ rdf = st.session_state.rpe_df
 wdf = st.session_state.wellness_df
 maxes_df = st.session_state.maxes_df
 
-athletes = set()
-if jdf is not None:
-    athletes.update(jdf["Athlete"].dropna().unique())
-if rdf is not None:
-    athletes.update(rdf["Athlete"].dropna().unique())
-if wdf is not None:
-    athletes.update(wdf["Athlete"].dropna().unique())
-if maxes_df is not None and "Athlete" in maxes_df.columns:
-    athletes.update(maxes_df["Athlete"].dropna().unique())
+athletes = collect_state_athletes()
 
 if not athletes:
     st.info("Todavia no hay datos de atletas cargados.")
 else:
-    athlete = st.selectbox("Atleta", sorted(athletes))
+    athlete = st.selectbox("Atleta", athletes)
 
     c1, c2, c3 = st.columns(3)
     if st.session_state.acwr_dict and athlete in st.session_state.acwr_dict:
@@ -94,4 +66,3 @@ else:
             use_container_width=True,
             hide_index=True,
         )
-
