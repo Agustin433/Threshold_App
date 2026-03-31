@@ -78,12 +78,14 @@ from modules.jump_analysis import (
     calc_zscores as shared_calc_zscores,
 )
 from modules.report_generator import (
+    REPORT_AUDIENCE_OPTIONS,
     build_executive_summary_df,
     build_report_sheets,
     collect_report_athletes,
     export_excel as shared_export_excel,
     generate_module_insights,
     generate_visual_report_pdf,
+    normalize_report_audience,
 )
 try:
     from PIL import Image
@@ -119,6 +121,10 @@ BRAND_ASSET_DIR = APP_ROOT / "assets" / "brand"
 
 _BRAND_ASSET_NAMES = {
     "icon": [
+        "untitled-1.png",
+        "untitled-1.jpg",
+        "untitled-1.jpeg",
+        "untitled-1.svg",
         "threshold-isotype.png",
         "threshold-isotype.jpg",
         "threshold-isotype.jpeg",
@@ -133,6 +139,10 @@ _BRAND_ASSET_NAMES = {
         "isotype.svg",
     ],
     "wordmark": [
+        "untitled-2.png",
+        "untitled-2.jpg",
+        "untitled-2.jpeg",
+        "untitled-2.svg",
         "threshold-wordmark.png",
         "threshold-wordmark.jpg",
         "threshold-wordmark.jpeg",
@@ -4363,6 +4373,13 @@ with tab_report:
     with col_r2:
         render_subsection_header("Opciones", "alcance del archivo a exportar", kicker="Filtro")
         report_athlete = "Todos"
+        audience_choice = st.selectbox(
+            "Destinatario del PDF",
+            list(REPORT_AUDIENCE_OPTIONS.keys()),
+            index=1,
+            key="sel_report_audience",
+        )
+        report_audience = normalize_report_audience(REPORT_AUDIENCE_OPTIONS[audience_choice])
         if (
             st.session_state.rpe_df is not None
             or st.session_state.jump_df is not None
@@ -4378,9 +4395,11 @@ with tab_report:
 
     report_state = dict(st.session_state)
     executive_df = build_executive_summary_df(report_state, report_athlete)
-    report_insights = generate_module_insights(report_state, report_athlete)
+    report_insights = generate_module_insights(report_state, report_athlete, report_audience)
     report_note = report_insights.get("report")
     profile_note = report_insights.get("profile")
+    if report_audience in {"atleta", "cliente"} and report_athlete == "Todos":
+        st.info("Para un PDF de atleta o cliente conviene elegir un atleta puntual para personalizar mejor el contenido.")
 
     render_subsection_header("Vista previa exportable", "bloques listos para excel y salida visual", kicker="Preview")
     if not executive_df.empty:
@@ -4410,6 +4429,7 @@ with tab_report:
         sheets = build_report_sheets(
             report_state,
             report_athlete,
+            report_audience=report_audience,
             include_acwr=include_acwr,
             include_mono=include_mono,
             include_wellness=include_wellness,
@@ -4484,8 +4504,9 @@ with tab_report:
             _alert("No hay datos para exportar. Cargá archivos primero.", "y")
         else:
             excel_bytes = export_excel(sheets)
-            pdf_bytes = generate_visual_report_pdf(report_state, report_athlete)
+            pdf_bytes = generate_visual_report_pdf(report_state, report_athlete, report_audience)
             ath_label = report_athlete.replace(" ", "_") if report_athlete != "Todos" else "Equipo"
+            audience_label = audience_choice.replace(" ", "_")
             dl_1, dl_2 = st.columns(2)
             with dl_1:
                 st.download_button(
@@ -4498,10 +4519,10 @@ with tab_report:
                 st.download_button(
                     label="Descargar reporte visual PDF",
                     data=pdf_bytes,
-                    file_name=f"Threshold_SC_Reporte_{ath_label}.pdf",
+                    file_name=f"Threshold_SC_Reporte_{ath_label}_{audience_label}.pdf",
                     mime="application/pdf",
                 )
-            _alert(f"Reporte generado con {len(sheets)} hojas y un PDF ejecutivo.", "g")
+            _alert(f"Reporte generado con {len(sheets)} hojas y un PDF para {audience_choice}.", "g")
 
     # ── Qué falta para el reporte completo ──
     st.markdown("---")

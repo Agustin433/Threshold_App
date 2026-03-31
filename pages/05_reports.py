@@ -4,11 +4,13 @@ import streamlit as st
 
 from modules.page_state import ensure_page_state
 from modules.report_generator import (
+    REPORT_AUDIENCE_OPTIONS,
     build_executive_summary_df,
     build_report_sheets,
     collect_report_athletes,
     export_excel,
     generate_visual_report_pdf,
+    normalize_report_audience,
 )
 
 
@@ -19,9 +21,13 @@ st.caption("Esta vista exporta Excel. La carga de archivos se hace desde la app 
 st.page_link("app.py", label="Abrir dashboard principal")
 
 report_athlete = "Todos"
+audience_choice = st.selectbox("Destinatario del PDF", list(REPORT_AUDIENCE_OPTIONS.keys()), index=1)
+report_audience = normalize_report_audience(REPORT_AUDIENCE_OPTIONS[audience_choice])
 athletes = collect_report_athletes(dict(st.session_state))
 if athletes:
     report_athlete = st.selectbox("Filtrar por atleta", ["Todos"] + athletes)
+if report_audience in {"atleta", "cliente"} and report_athlete == "Todos":
+    st.info("Para un PDF de atleta o cliente conviene elegir un atleta puntual.")
 
 include_acwr = st.checkbox("ACWR + sRPE", value=True)
 include_mono = st.checkbox("Monotonia + Strain", value=True)
@@ -40,6 +46,7 @@ if st.button("Generar reporte Excel"):
     sheets = build_report_sheets(
         dict(st.session_state),
         report_athlete,
+        report_audience=report_audience,
         include_acwr=include_acwr,
         include_mono=include_mono,
         include_wellness=include_wellness,
@@ -51,7 +58,8 @@ if st.button("Generar reporte Excel"):
     if not sheets:
         st.warning("No hay datos para exportar.")
     else:
-        pdf_bytes = generate_visual_report_pdf(dict(st.session_state), report_athlete)
+        pdf_bytes = generate_visual_report_pdf(dict(st.session_state), report_athlete, report_audience)
+        audience_slug = audience_choice.replace(" ", "_")
         c1, c2 = st.columns(2)
         with c1:
             st.download_button(
@@ -64,6 +72,6 @@ if st.button("Generar reporte Excel"):
             st.download_button(
                 "Descargar reporte visual PDF",
                 data=pdf_bytes,
-                file_name=f"Threshold_SC_Reporte_{report_athlete.replace(' ', '_')}.pdf",
+                file_name=f"Threshold_SC_Reporte_{report_athlete.replace(' ', '_')}_{audience_slug}.pdf",
                 mime="application/pdf",
             )
