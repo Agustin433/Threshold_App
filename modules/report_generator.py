@@ -264,6 +264,30 @@ def _compact_lines(items: list[str | None]) -> list[str]:
     return [item for item in items if item and _ascii_text(item).strip()]
 
 
+def _count_phrase(count: int, singular: str, plural: str | None = None) -> str:
+    label = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count} {label}"
+
+
+def _current_focus_text(row: pd.Series, *, audience: str) -> str:
+    profile = _ascii_text(row.get("Perfil NM")).lower().strip()
+    acwr = _coerce_float(row.get("ACWR EWMA"))
+    cmj_delta = _coerce_float(row.get("CMJ vs BL %"))
+    eval_available = _row_has_eval_data(row)
+
+    if not eval_available:
+        return "Hacer nueva evaluacion" if audience == "cliente" else "Nueva evaluacion"
+    if "poca base" in profile:
+        return "Construir fuerza base" if audience == "cliente" else "Fuerza base"
+    if cmj_delta is not None and cmj_delta <= -5:
+        return "Recuperar potencia" if audience == "cliente" else "Recuperar CMJ"
+    if acwr is not None and acwr > 1.5:
+        return "Ordenar carga" if audience == "cliente" else "Regular carga"
+    if acwr is not None and acwr < 0.8:
+        return "Ganar continuidad" if audience == "cliente" else "Subir estimulo"
+    return "Sostener progreso" if audience == "cliente" else "Sostener perfil"
+
+
 def build_executive_summary_df(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
@@ -1297,7 +1321,7 @@ def _build_dashboard_page(
         title_text = _ascii_text(focus_row.get("Atleta", report_athlete))
     else:
         focus_row = summary_df.iloc[0]
-        title_text = f"{len(summary_df)} atleta(s) visibles"
+        title_text = _count_phrase(len(summary_df), "atleta visible", "atletas visibles")
 
     _pdf_text(commands, 48, 730, title_text, font="F2", size=22, color="#221F20")
     dashboard_note = {
@@ -1329,14 +1353,17 @@ def _build_dashboard_page(
             if state.get(key) is not None and not state.get(key).empty
         ]
     )
+    athletes_label = "Atleta visible" if len(summary_df) == 1 else "Atletas visibles"
+    datasets_label = "Fuente activa" if datasets_count == 1 else "Fuentes activas"
+    adherence_label = "Adherencia del atleta" if report_athlete != "Todos" else "Adherencia promedio"
 
     _pdf_rect(commands, 48, 392, 499, 78, "#FEFEFE")
     _pdf_stroke_rect(commands, 48, 392, 499, 78, color="#D8DEE4")
     pulse_title = "Pulso del reporte" if audience == "profe" else "Lectura rápida"
     _pdf_text(commands, 64, 438, pulse_title, font="F2", size=12, color="#221F20")
-    _pdf_text(commands, 64, 414, f"Atletas visibles: {athletes_text}", size=10, color="#5A595B")
-    _pdf_text(commands, 220, 414, f"Datasets activos: {datasets_count}", size=10, color="#5A595B")
-    _pdf_text(commands, 392, 414, f"Completion promedio: {completion_text}", size=10, color="#5A595B")
+    _pdf_text(commands, 64, 414, f"{athletes_label}: {athletes_text}", size=10, color="#5A595B")
+    _pdf_text(commands, 220, 414, f"{datasets_label}: {datasets_count}", size=10, color="#5A595B")
+    _pdf_text(commands, 392, 414, f"{adherence_label}: {completion_text}", size=10, color="#5A595B")
 
     _pdf_text(commands, 48, 346, "Nota de exportación", font="F2", size=12, color="#221F20")
     _pdf_multiline(
@@ -1578,7 +1605,7 @@ def generate_module_insights(
         "overview": {
             "title": "Lectura general",
             "summary": (
-                f"{len(active_datasets)} fuentes activas y {len(athletes)} atletas visibles dentro de la ventana operativa actual."
+                f"{_count_phrase(len(active_datasets), 'fuente activa')} y {_count_phrase(len(athletes), 'atleta visible', 'atletas visibles')} dentro de la ventana operativa actual."
                 if active_datasets else
                 "Todavía no hay información suficiente para construir una lectura ejecutiva."
             ),
@@ -1701,16 +1728,29 @@ def generate_module_insights(
         }
 
     completion_mean = _team_completion_mean(state)
+    individual_completion = _focus_completion_value(state, report_athlete) if report_athlete != "Todos" else None
     insights["team"] = {
-        "title": "Adherencia del equipo",
+        "title": "Adherencia del plan" if report_athlete != "Todos" else "Adherencia del equipo",
         "summary": (
-            f"Adherencia promedio del equipo: {completion_mean:.1f}%."
-            if completion_mean is not None else
-            "No hay información de adherencia cargada para evaluar ejecución."
+            f"Adherencia individual reciente: {individual_completion:.1f}%."
+            if report_athlete != "Todos" and individual_completion is not None else
+            (
+                f"Adherencia promedio del equipo: {completion_mean:.1f}%."
+                if completion_mean is not None else
+                "No hay información de adherencia cargada para evaluar ejecución."
+            )
         ),
         "focuses": [
-            "Si la adherencia baja, revisar progresiones, disponibilidad y fricción operativa.",
-            "Alinear carga y adherencia para entender si el volumen planificado realmente se ejecuta.",
+            (
+                "Si la adherencia baja, revisar barreras de cumplimiento, disponibilidad y organización semanal."
+                if report_athlete != "Todos" else
+                "Si la adherencia baja, revisar progresiones, disponibilidad y fricción operativa."
+            ),
+            (
+                "Cruzar adherencia con carga y bienestar para entender si el plan realmente se está sosteniendo."
+                if report_athlete != "Todos" else
+                "Alinear carga y adherencia para entender si el volumen planificado realmente se ejecuta."
+            ),
         ],
     }
 
@@ -1767,10 +1807,6 @@ def _audience_dashboard_cards(
                 cards.append(("Perfil actual", _short_profile_label(focus_row.get("Perfil NM")), "#0D3C5E"))
             if _coerce_float(focus_row.get("CMJ cm")) is not None:
                 cards.append(("CMJ", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm"), "#0D3C5E"))
-            if _coerce_float(focus_row.get("DRI")) is not None:
-                cards.append(("DRI", _display_metric(focus_row.get("DRI"), digits=2), "#134263"))
-            if _coerce_float(focus_row.get("IMTP N")) is not None:
-                cards.append(("IMTP", _display_metric(focus_row.get("IMTP N"), digits=0, suffix=" N"), "#134263"))
         else:
             cards.append(("Evaluación reciente", "Pendiente", "#708C9F"))
 
@@ -1780,8 +1816,7 @@ def _audience_dashboard_cards(
             cards.append(("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
         if completion_value is not None:
             cards.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%"), "#708C9F"))
-        if not eval_available and len(cards) < 4:
-            cards.append(("Próximo foco", "Nueva batería de tests", "#5A595B"))
+        cards.append(("Objetivo actual", _current_focus_text(focus_row, audience="atleta"), "#5A595B"))
         return cards[:6]
 
     if audience == "cliente":
@@ -1800,11 +1835,10 @@ def _audience_dashboard_cards(
         if wellness_available:
             cards.append(("Bienestar", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
         if completion_value is not None:
-            cards.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%"), "#708C9F"))
+            cards.append(("Constancia", _display_metric(completion_value, digits=1, suffix="%"), "#708C9F"))
         if eval_available and _has_text(focus_row.get("Perfil NM")):
             cards.append(("Perfil actual", _short_profile_label(focus_row.get("Perfil NM")), "#5A595B"))
-        elif load_available and _coerce_float(focus_row.get("ACWR EWMA")) is not None:
-            cards.append(("Carga reciente", _display_metric(focus_row.get("ACWR EWMA"), digits=2), "#134263"))
+        cards.append(("Próximo foco", _current_focus_text(focus_row, audience="cliente"), "#134263"))
         return cards[:6]
 
     if load_available and _coerce_float(focus_row.get("ACWR EWMA")) is not None:
@@ -1840,21 +1874,22 @@ def _audience_metric_rows(
 
     if audience == "cliente":
         if load_available and _has_text(focus_row.get("Zona")):
-            rows.append(("Estado actual", _display_zone(focus_row.get("Zona"))))
+            rows.append(("Cómo venís hoy", _display_zone(focus_row.get("Zona"))))
         if eval_available and _coerce_float(focus_row.get("CMJ vs BL %")) is not None:
-            rows.append(("Cambio reciente", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="% vs base")))
+            rows.append(("Cambio desde tu base", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%")))
         elif not eval_available:
-            rows.append(("Evaluación reciente", "Aún no contamos con una medición física comparable."))
+            rows.append(("Chequeo físico", "Todavía no contamos con una medición física comparable."))
         if eval_available and _coerce_float(focus_row.get("CMJ cm")) is not None:
-            rows.append(("Salto vertical hoy", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm")))
+            rows.append(("Tu salto hoy", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm")))
         if wellness_available:
             rows.append(("Bienestar reciente", _display_metric(focus_row.get("Wellness 3d"), digits=1)))
         if completion_value is not None:
-            rows.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%")))
+            rows.append(("Constancia del plan", _display_metric(completion_value, digits=1, suffix="%")))
         if eval_available and _has_text(focus_row.get("Perfil NM")):
             rows.append(("Lectura actual", _profile_text(focus_row)))
         elif load_available or wellness_available:
-            rows.append(("Seguimiento actual", "Ya hay información reciente para seguir tu proceso."))
+            rows.append(("Lo que estamos mirando", "Ya hay información reciente para seguir tu proceso."))
+        rows.append(("Objetivo actual", _current_focus_text(focus_row, audience="cliente")))
         return rows or [("Estado actual", "Falta información reciente para resumir tu progreso.")]
 
     if audience == "atleta":
@@ -1881,7 +1916,8 @@ def _audience_metric_rows(
         if wellness_available:
             rows.append(("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1)))
         if completion_value is not None:
-            rows.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%")))
+            rows.append(("Adherencia al plan", _display_metric(completion_value, digits=1, suffix="%")))
+        rows.append(("Objetivo actual", _current_focus_text(focus_row, audience="atleta")))
         if not eval_available:
             rows.append(("Próxima acción", "Programar una nueva batería de evaluaciones."))
         return rows
@@ -1951,7 +1987,7 @@ def _audience_blocks(
             [
                 f"Estado actual: {_display_zone(row.get('Zona'))}." if load_available and _has_text(row.get("Zona")) else None,
                 f"Bienestar reciente: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
-                f"Adherencia promedio: {_display_metric(completion_value, digits=1, suffix='%')}." if completion_value is not None else None,
+                f"Constancia reciente: {_display_metric(completion_value, digits=1, suffix='%')}." if completion_value is not None else None,
                 f"Salto vertical actual: {_display_metric(row.get('CMJ cm'), digits=1, suffix=' cm')}." if eval_available and _coerce_float(row.get("CMJ cm")) is not None else None,
             ]
         ) or ["Seguimos construyendo información útil para entender mejor tu evolución."]
@@ -1971,6 +2007,11 @@ def _audience_blocks(
                 "title": "Lo que vamos a seguir mejorando",
                 "summary": "Todavía hay margen de mejora y eso orienta lo que conviene trabajar ahora.",
                 "focuses": gaps,
+            },
+            {
+                "title": "Objetivo actual",
+                "summary": f"El foco inmediato del trabajo es {_current_focus_text(row, audience='cliente').lower()}.",
+                "focuses": gaps[:2] or ["Vamos a sostener el proceso y seguir ordenando la progresión."],
             },
             {
                 "title": "Próximos pasos",
@@ -2028,6 +2069,11 @@ def _audience_blocks(
             "focuses": gaps,
         },
         {
+            "title": "Objetivo actual",
+            "summary": f"El foco inmediato del bloque es {_current_focus_text(row, audience='atleta').lower()}.",
+            "focuses": gaps[:2] or ["La prioridad es sostener el perfil actual sin perder disponibilidad."],
+        },
+        {
             "title": "Siguientes pasos",
             "summary": "Próximas prioridades de trabajo con un lenguaje cuasi técnico y accionable.",
             "focuses": next_steps,
@@ -2058,7 +2104,7 @@ def _build_trend_page(
         "cliente": [
             ("Progreso de salto", _cmj_series(state, report_athlete), "#0D3C5E"),
             ("Bienestar reciente", _wellness_series(state, report_athlete), "#2F6B52"),
-            ("Carga reciente", _acwr_series(state, report_athlete), "#708C9F"),
+            ("Seguimiento del proceso", _acwr_series(state, report_athlete), "#708C9F"),
         ],
     }[audience]
     panels = [(title, series, color) for title, series, color in candidates if len(series) >= 2][:2]
@@ -2090,6 +2136,154 @@ def _build_trend_page(
         _pdf_chart_panel(commands, 48, 408, 499, 280, title=first_title, series=first_series, line_color=first_color)
         _pdf_chart_panel(commands, 48, 96, 499, 280, title=second_title, series=second_series, line_color=second_color)
     return "\n".join(commands)
+
+
+def report_plotly_export_ready() -> bool:
+    try:
+        import plotly.io as pio  # noqa: F401
+        import kaleido  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _build_report_chart_theme() -> dict:
+    colors = {
+        "bg": "#F4F6F8",
+        "card": "#FEFEFE",
+        "navy": "#0D3C5E",
+        "steel": "#134263",
+        "black": "#221F20",
+        "white": "#221F20",
+        "gray": "#5A595B",
+        "muted": "#708C9F",
+        "border": "#D8DEE4",
+        "blue": "#0D3C5E",
+        "green": "#2F6B52",
+        "yellow": "#C4A464",
+        "orange": "#B87445",
+        "red": "#B56B73",
+    }
+    return {
+        "colors": colors,
+        "layout": dict(
+            template="plotly_white",
+            paper_bgcolor=colors["bg"],
+            plot_bgcolor=colors["card"],
+            font=dict(family="Helvetica", color=colors["black"], size=11),
+            margin=dict(l=44, r=28, t=68, b=46),
+        ),
+        "grid": "rgba(34, 31, 32, 0.08)",
+        "grid_soft": "rgba(34, 31, 32, 0.05)",
+        "reference_line": "rgba(34, 31, 32, 0.18)",
+        "reference_fill": "rgba(13, 60, 94, 0.06)",
+        "legend": dict(
+            orientation="h",
+            y=-0.18,
+            bgcolor="rgba(254, 254, 254, 0.92)",
+            bordercolor=colors["border"],
+            borderwidth=1,
+            font=dict(size=9, color=colors["gray"]),
+        ),
+        "monotony_high": 2.0,
+    }
+
+
+def _team_mean_for_radar(jdf: pd.DataFrame) -> dict[str, float]:
+    z_keys = ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"]
+    return {key: float(jdf[key].mean()) for key in z_keys if key in jdf.columns and not jdf[key].dropna().empty}
+
+
+def collect_report_plotly_figures(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str = "Todos",
+    report_audience: str = "profe",
+) -> list[dict[str, object]]:
+    if report_athlete == "Todos":
+        return []
+
+    try:
+        from charts.load_charts import chart_acwr, chart_wellness
+        from charts.dashboard_charts import chart_cmj_trend, chart_radar
+    except Exception:
+        return []
+
+    audience = normalize_report_audience(report_audience)
+    theme = _build_report_chart_theme()
+    figures: list[dict[str, object]] = []
+
+    jdf = state.get("jump_df")
+    if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and report_athlete in jdf["Athlete"].values:
+        athlete_jdf = jdf[jdf["Athlete"] == report_athlete].sort_values("Date")
+        latest_row = athlete_jdf.iloc[-1]
+        if audience in {"atleta", "profe"}:
+            figures.append(
+                {
+                    "slug": "radar_perfil",
+                    "title": "Perfil neuromuscular",
+                    "figure": chart_radar(latest_row, report_athlete, _team_mean_for_radar(jdf), theme=theme),
+                }
+            )
+        if len(_cmj_series(state, report_athlete)) >= 2:
+            figures.append(
+                {
+                    "slug": "cmj_trend",
+                    "title": "Tendencia de CMJ",
+                    "figure": chart_cmj_trend(jdf, report_athlete, theme=theme),
+                }
+            )
+
+    acwr_dict = state.get("acwr_dict") or {}
+    acwr_df = acwr_dict.get(report_athlete)
+    if acwr_df is not None and not acwr_df.empty and len(_acwr_series(state, report_athlete)) >= 2:
+        figures.append(
+            {
+                "slug": "acwr",
+                "title": "Carga reciente",
+                "figure": chart_acwr(acwr_df, report_athlete, "ACWR_EWMA", theme=theme),
+            }
+        )
+
+    wdf = state.get("wellness_df")
+    if wdf is not None and not wdf.empty and "Athlete" in wdf.columns:
+        athlete_wdf = wdf[wdf["Athlete"] == report_athlete].sort_values("Date")
+        if not athlete_wdf.empty and len(_wellness_series(state, report_athlete)) >= 2:
+            figures.append(
+                {
+                    "slug": "wellness",
+                    "title": "Bienestar reciente",
+                    "figure": chart_wellness(athlete_wdf, report_athlete, theme=theme),
+                }
+            )
+
+    if audience == "cliente":
+        preferred = {"cmj_trend", "wellness", "acwr"}
+        figures = [item for item in figures if item["slug"] in preferred][:2]
+    elif audience == "atleta":
+        preferred = {"radar_perfil", "cmj_trend", "wellness", "acwr"}
+        figures = [item for item in figures if item["slug"] in preferred][:3]
+    else:
+        preferred = {"radar_perfil", "cmj_trend", "acwr", "wellness"}
+        figures = [item for item in figures if item["slug"] in preferred][:4]
+
+    return figures
+
+
+def export_plotly_figure_png(
+    figure: object,
+    *,
+    width: int = 1200,
+    height: int = 700,
+    scale: int = 2,
+) -> bytes | None:
+    try:
+        import plotly.io as pio
+    except Exception:
+        return None
+    try:
+        return pio.to_image(figure, format="png", width=width, height=height, scale=scale)
+    except Exception:
+        return None
 
 
 def _build_pdf_document(page_contents: list[str]) -> bytes:
