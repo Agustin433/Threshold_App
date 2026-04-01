@@ -276,7 +276,7 @@ def _current_focus_text(row: pd.Series, *, audience: str) -> str:
     eval_available = _row_has_eval_data(row)
 
     if not eval_available:
-        return "Hacer nueva evaluacion" if audience == "cliente" else "Nueva evaluacion"
+        return "Hacer nueva evaluación" if audience == "cliente" else "Nueva evaluación"
     if "poca base" in profile:
         return "Construir fuerza base" if audience == "cliente" else "Fuerza base"
     if cmj_delta is not None and cmj_delta <= -5:
@@ -1605,7 +1605,7 @@ def generate_module_insights(
         "overview": {
             "title": "Lectura general",
             "summary": (
-                f"{_count_phrase(len(active_datasets), 'fuente activa')} y {_count_phrase(len(athletes), 'atleta visible', 'atletas visibles')} dentro de la ventana operativa actual."
+                f"{_count_phrase(len(active_datasets), 'fuente activa', 'fuentes activas')} y {_count_phrase(len(athletes), 'atleta visible', 'atletas visibles')} dentro de la ventana operativa actual."
                 if active_datasets else
                 "Todavía no hay información suficiente para construir una lectura ejecutiva."
             ),
@@ -2286,6 +2286,424 @@ def export_plotly_figure_png(
         return None
 
 
+def _resolve_brand_asset_path(kind: str = "wordmark") -> Path | None:
+    patterns = {
+        "wordmark": [
+            "threshold_logo_horizontal.*",
+            "threshold_wordmark.*",
+            "Untitled-2.*",
+            "untitled-2.*",
+        ],
+        "icon": [
+            "threshold_isotipo.*",
+            "threshold_icon.*",
+            "Untitled-1.*",
+            "untitled-1.*",
+        ],
+    }
+    for pattern in patterns.get(kind, []):
+        matches = sorted(BRAND_ASSET_DIR.glob(pattern))
+        if matches:
+            return matches[0]
+    return None
+
+
+def _generate_visual_report_pdf_reportlab(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str = "Todos",
+    report_audience: str = "profe",
+) -> bytes | None:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        from xml.sax.saxutils import escape
+    except Exception:
+        return None
+
+    audience = normalize_report_audience(report_audience)
+    summary_df = build_executive_summary_df(state, report_athlete)
+    insights = generate_module_insights(state, report_athlete, audience)
+    blocks = _audience_blocks(state, report_athlete, summary_df, insights, audience)
+    charts = collect_report_plotly_figures(state, report_athlete, audience)
+
+    palette = {
+        "bg": colors.HexColor("#F4F6F8"),
+        "card": colors.HexColor("#FEFEFE"),
+        "navy": colors.HexColor("#0D3C5E"),
+        "steel": colors.HexColor("#134263"),
+        "ink": colors.HexColor("#221F20"),
+        "muted": colors.HexColor("#708C9F"),
+        "gray": colors.HexColor("#5A595B"),
+        "line": colors.HexColor("#D8DEE4"),
+    }
+
+    styles = getSampleStyleSheet()
+    styles.add(
+        ParagraphStyle(
+            name="ReportTitle",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=23,
+            leading=28,
+            textColor=palette["navy"],
+            spaceAfter=8,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ReportSection",
+            parent=styles["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=16,
+            leading=20,
+            textColor=palette["navy"],
+            spaceAfter=8,
+            spaceBefore=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ReportBody",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=10,
+            leading=14,
+            textColor=palette["ink"],
+            spaceAfter=6,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ReportMuted",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=13,
+            textColor=palette["gray"],
+            spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="CardLabel",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=8,
+            leading=10,
+            textColor=palette["gray"],
+            spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="CardValue",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=15,
+            leading=18,
+            textColor=palette["ink"],
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="BlockTitle",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=14,
+            textColor=palette["ink"],
+            spaceAfter=5,
+        )
+    )
+
+    def _p(text: object, style_name: str = "ReportBody") -> Paragraph:
+        safe = escape(_ascii_text(text) or "").replace("\n", "<br/>")
+        return Paragraph(safe, styles[style_name])
+
+    def _fit_image(path: Path, max_width_mm: float, max_height_mm: float) -> Image | None:
+        try:
+            reader = ImageReader(str(path))
+            width, height = reader.getSize()
+        except Exception:
+            return None
+        max_width = max_width_mm * mm
+        max_height = max_height_mm * mm
+        scale = min(max_width / width, max_height / height)
+        return Image(str(path), width=width * scale, height=height * scale)
+
+    def _metric_cards_table(cards: list[tuple[str, str, str]]) -> Table:
+        rows = []
+        row: list[object] = []
+        for idx, (label, value, _) in enumerate(cards, start=1):
+            cell = Table(
+                [[_p(label, "CardLabel")], [_p(value, "CardValue")]],
+                colWidths=[54 * mm],
+            )
+            cell.setStyle(
+                TableStyle(
+                    [
+                        ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                        ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                        ("TOPPADDING", (0, 0), (-1, -1), 7),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ]
+                )
+            )
+            row.append(cell)
+            if idx % 3 == 0:
+                rows.append(row)
+                row = []
+        if row:
+            while len(row) < 3:
+                row.append("")
+            rows.append(row)
+        table = Table(rows, colWidths=[56 * mm, 56 * mm, 56 * mm], hAlign="LEFT")
+        table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        return table
+
+    def _summary_meta_table() -> Table:
+        datasets_count = len(
+            [
+                key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
+                if state.get(key) is not None and not state.get(key).empty
+            ]
+        )
+        athletes_count = len(summary_df)
+        completion_value = _focus_completion_value(state, report_athlete)
+        completion_text = _display_metric(completion_value, digits=1, suffix="%") if completion_value is not None else "Sin dato"
+        adherence_label = "Adherencia del atleta" if report_athlete != "Todos" else "Adherencia promedio"
+        data = [
+            [
+                _p(f"<b>{'Atleta visible' if athletes_count == 1 else 'Atletas visibles'}</b><br/>{athletes_count}", "ReportMuted"),
+                _p(f"<b>{'Fuente activa' if datasets_count == 1 else 'Fuentes activas'}</b><br/>{datasets_count}", "ReportMuted"),
+                _p(f"<b>{adherence_label}</b><br/>{completion_text}", "ReportMuted"),
+            ]
+        ]
+        table = Table(data, colWidths=[56 * mm, 56 * mm, 56 * mm], hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        return table
+
+    def _metric_table(rows: list[tuple[str, str]], *, title: str) -> list[object]:
+        data = [[_p(label, "CardLabel"), _p(value, "ReportBody")] for label, value in rows]
+        table = Table(data, colWidths=[58 * mm, 112 * mm], hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.4, palette["line"]),
+                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        return [_p(title, "ReportSection"), table]
+
+    def _snapshot_table() -> Table | None:
+        if summary_df.empty:
+            return None
+        display_df = summary_df.copy().fillna("-")
+        keep_cols = [col for col in ["Atleta", "ACWR EWMA", "Zona", "Wellness 3d", "CMJ cm", "DRI", "IMTP N", "Perfil NM"] if col in display_df.columns]
+        if not keep_cols:
+            return None
+        display_df = display_df[keep_cols]
+        display_df = display_df.rename(
+            columns={
+                "ACWR EWMA": "ACWR",
+                "Wellness 3d": "Wellness",
+                "CMJ cm": "CMJ",
+                "IMTP N": "IMTP",
+            }
+        )
+        data: list[list[object]] = [[_p(col, "CardLabel") for col in display_df.columns]]
+        for _, row in display_df.iterrows():
+            data.append([_p(_snapshot_value(col, row.get(col, "-")), "ReportBody") for col in display_df.columns])
+        widths_map = {
+            "Atleta": 38 * mm,
+            "ACWR": 18 * mm,
+            "Zona": 24 * mm,
+            "Wellness": 24 * mm,
+            "CMJ": 18 * mm,
+            "DRI": 18 * mm,
+            "IMTP": 22 * mm,
+            "Perfil NM": 36 * mm,
+        }
+        col_widths = [widths_map.get(col, 24 * mm) for col in display_df.columns]
+        table = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
+                    ("BACKGROUND", (0, 0), (-1, 0), palette["navy"]),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("BACKGROUND", (0, 1), (-1, -1), palette["card"]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        return table
+
+    def _chart_story(chart_payload: dict[str, object]) -> list[object]:
+        image_bytes = export_plotly_figure_png(chart_payload.get("figure"))
+        if not image_bytes:
+            return []
+        image = Image(BytesIO(image_bytes), width=175 * mm, height=102 * mm)
+        image.hAlign = "LEFT"
+        return [
+            _p(chart_payload.get("title", "Gráfico"), "ReportSection"),
+            image,
+        ]
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=14 * mm,
+    )
+
+    story: list[object] = []
+    wordmark = _resolve_brand_asset_path("wordmark")
+    if wordmark is not None:
+        logo = _fit_image(wordmark, 150, 28)
+        if logo is not None:
+            story.append(logo)
+            story.append(Spacer(1, 8 * mm))
+
+    subtitle = {
+        "atleta": "Reporte individual para atleta",
+        "profe": "Reporte técnico para profesional",
+        "cliente": "Reporte de progreso",
+    }[audience]
+    target_name = report_athlete if report_athlete != "Todos" else "Resumen general"
+    story.extend(
+        [
+            _p(subtitle, "ReportMuted"),
+            _p(target_name, "ReportTitle"),
+            _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M} | Ventana visible: últimas 6 semanas", "ReportMuted"),
+            Spacer(1, 4 * mm),
+            Table(
+                [[_p(insights.get("report", {}).get("summary", "Reporte listo para revisión."), "ReportBody")]],
+                colWidths=[174 * mm],
+                style=TableStyle(
+                    [
+                        ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                        ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                        ("TOPPADDING", (0, 0), (-1, -1), 8),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ]
+                ),
+            ),
+            Spacer(1, 6 * mm),
+            _p("Focos prioritarios", "ReportSection"),
+        ]
+    )
+    for focus in insights.get("report", {}).get("focuses", []):
+        story.append(_p(f"- {focus}", "ReportBody"))
+    story.append(PageBreak())
+
+    if not summary_df.empty:
+        focus_row = summary_df.iloc[0]
+        story.extend(
+            [
+                _p("Resumen ejecutivo", "ReportSection"),
+                _p(
+                    {
+                        "atleta": "Lectura cuasi técnica de tu estado actual, perfil y prioridades inmediatas.",
+                        "profe": "Última foto integrada para revisar disponibilidad, perfil y toma de decisiones.",
+                        "cliente": "Lectura clara del estado actual y del progreso reciente.",
+                    }[audience],
+                    "ReportMuted",
+                ),
+                _metric_cards_table(_audience_dashboard_cards(state, focus_row, report_athlete, audience)),
+                Spacer(1, 5 * mm),
+                _summary_meta_table(),
+                Spacer(1, 5 * mm),
+            ]
+        )
+
+        if report_athlete != "Todos":
+            story.extend(_metric_table(_audience_metric_rows(state, focus_row, report_athlete, audience), title="Indicadores principales"))
+        else:
+            snapshot = _snapshot_table()
+            if snapshot is not None:
+                story.append(_p("Tabla ejecutiva integrada", "ReportSection"))
+                story.append(snapshot)
+
+    for chart in charts:
+        chart_story = _chart_story(chart)
+        if chart_story:
+            story.append(PageBreak())
+            story.extend(chart_story)
+
+    if blocks:
+        story.append(PageBreak())
+        header = {
+            "profe": "Interpretación y focos",
+            "atleta": "Fortalezas y próximos pasos",
+            "cliente": "Lectura simple y próximos pasos",
+        }[audience]
+        story.append(_p(header, "ReportSection"))
+        for block in blocks:
+            box_story = [
+                _p(block.get("title", "Bloque"), "BlockTitle"),
+                _p(block.get("summary", ""), "ReportBody"),
+            ]
+            for item in block.get("focuses", []):
+                box_story.append(_p(f"- {item}", "ReportBody"))
+            table = Table(
+                [[box_story]],
+                colWidths=[174 * mm],
+                style=TableStyle(
+                    [
+                        ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                        ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                        ("TOPPADDING", (0, 0), (-1, -1), 8),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ]
+                ),
+            )
+            story.append(table)
+            story.append(Spacer(1, 4 * mm))
+
+    try:
+        doc.build(story)
+    except Exception:
+        return None
+    return buffer.getvalue()
+
+
 def _build_pdf_document(page_contents: list[str]) -> bytes:
     objects: list[bytes] = []
     objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
@@ -2342,6 +2760,10 @@ def generate_visual_report_pdf(
     report_audience: str = "profe",
 ) -> bytes | None:
     audience = normalize_report_audience(report_audience)
+    premium_pdf = _generate_visual_report_pdf_reportlab(state, report_athlete, audience)
+    if premium_pdf:
+        return premium_pdf
+
     summary_df = build_executive_summary_df(state, report_athlete)
     insights = generate_module_insights(state, report_athlete, audience)
 
