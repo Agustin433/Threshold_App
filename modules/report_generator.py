@@ -288,6 +288,74 @@ def _current_focus_text(row: pd.Series, *, audience: str) -> str:
     return "Sostener progreso" if audience == "cliente" else "Sostener perfil"
 
 
+def _objective_focuses_from_row(row: pd.Series, *, audience: str) -> list[str]:
+    focus = _current_focus_text(row, audience=audience)
+    profile = _ascii_text(row.get("Perfil NM")).lower().strip()
+    acwr = _coerce_float(row.get("ACWR EWMA"))
+    cmj_delta = _coerce_float(row.get("CMJ vs BL %"))
+    eval_available = _row_has_eval_data(row)
+
+    if not eval_available:
+        return [
+            "Necesitamos una referencia objetiva para ordenar mejor el siguiente bloque.",
+            "La próxima evaluación va a permitir medir cambios reales y ajustar el plan.",
+        ]
+    if "poca base" in profile:
+        return [
+            "Esta prioridad busca mejorar la base de fuerza que sostiene el resto del perfil.",
+            "Si responde bien, después va a tener más sentido pedir reactividad o velocidad.",
+        ]
+    if cmj_delta is not None and cmj_delta <= -5:
+        return [
+            "La prioridad es recuperar calidad de expresión antes de volver a escalar el trabajo.",
+            "El próximo control debería mostrar una mejor respuesta de salto y disponibilidad.",
+        ]
+    if acwr is not None and acwr > 1.5:
+        return [
+            "El foco inmediato es bajar ruido y recuperar tolerancia para volver a producir bien.",
+            "Si la carga se ordena, las próximas semanas deberían mostrar mejor disponibilidad.",
+        ]
+    if acwr is not None and acwr < 0.8:
+        return [
+            "La prioridad es recuperar continuidad de estímulo sin perder control del proceso.",
+            "El próximo tramo debería dar una señal más clara sobre la adaptación real.",
+        ]
+    return [
+        f"El foco inmediato es {focus.lower()} sin perder calidad en el resto de las variables.",
+        "La próxima revisión debería confirmar si esta prioridad ya se está trasladando al rendimiento.",
+    ]
+
+
+def _technical_planning_focuses(row: pd.Series, completion_value: float | None) -> list[str]:
+    focuses: list[str] = []
+    profile = _ascii_text(row.get("Perfil NM")).lower().strip()
+    acwr = _coerce_float(row.get("ACWR EWMA"))
+    monotony = _coerce_float(row.get("Monotonia"))
+    wellness = _coerce_float(row.get("Wellness 3d"))
+    cmj_delta = _coerce_float(row.get("CMJ vs BL %"))
+
+    if "poca base" in profile:
+        focuses.append("Priorizar fuerza base y fuerza máxima antes de aumentar la densidad reactiva.")
+    if cmj_delta is not None and cmj_delta <= -5:
+        focuses.append("Controlar fatiga reciente y repetir control corto de CMJ antes de progresar volumen reactivo.")
+    elif cmj_delta is not None and cmj_delta >= 5:
+        focuses.append("La salida vertical acompaña; se puede sostener o transferir sin abrir demasiados frentes.")
+    if acwr is not None and acwr > 1.5:
+        focuses.append("Reducir densidad o exposición del próximo microciclo para salir de zona alta.")
+    elif acwr is not None and acwr < 0.8:
+        focuses.append("Subir continuidad de estímulo para salir de subcarga y ganar lectura más estable.")
+    if monotony is not None and monotony > 2.0:
+        focuses.append("Aumentar variabilidad semanal para bajar monotonía antes de seguir acumulando strain.")
+    if wellness is not None and wellness < 15:
+        focuses.append("Seguir recuperación diaria y cruzar wellness con adherencia para evitar falsas lecturas.")
+    if completion_value is not None and completion_value < 70:
+        focuses.append("La adherencia actual limita la interpretación del bloque; conviene intervenir primero sobre cumplimiento.")
+    if not focuses:
+        focuses.append("Sostener el bloque actual y recontrolar en la próxima ventana para confirmar tendencia.")
+    focuses.append("En la próxima medición, volver a controlar CMJ, perfil neuromuscular y disponibilidad general.")
+    return list(dict.fromkeys(focuses))[:4]
+
+
 def build_executive_summary_df(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
@@ -333,159 +401,15 @@ def build_executive_summary_df(
     completion_mean = _team_completion_mean(state)
     if completion_mean is not None:
         summary_df["Completion equipo %"] = completion_mean
-    return summary_df.fillna("—")
-
-
-def generate_module_insights(
-    state: dict[str, pd.DataFrame | None],
-    report_athlete: str = "Todos",
-    report_audience: str = "profe",
-) -> dict[str, dict[str, object]]:
-    audience = normalize_report_audience(report_audience)
-    summary_df = build_executive_summary_df(state, report_athlete)
-    athletes = _selected_athletes(state, report_athlete)
-    active_datasets = [
-        key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
-        if state.get(key) is not None and not state.get(key).empty
-    ]
-
-    insights: dict[str, dict[str, object]] = {}
-
-    insights["overview"] = {
-        "title": "Lectura general",
-        "summary": (
-            f"{len(active_datasets)} dataset(s) activos y {len(athletes)} atleta(s) visibles en la ventana operativa actual."
-            if active_datasets else
-            "Todavía no hay datasets activos para construir una lectura ejecutiva."
-        ),
-        "focuses": [
-            "Sostener la continuidad de carga y evaluaciones dentro de la misma ventana operativa.",
-            "Priorizar datasets faltantes antes de compartir un reporte externo." if len(active_datasets) < 4 else "La base de datos ya permite una lectura integrada de carga, wellness y rendimiento.",
-        ],
-    }
-
-    if report_athlete != "Todos" and not summary_df.empty:
-        row = summary_df.iloc[0]
-        load_notes = []
-        acwr = _coerce_float(row.get("ACWR EWMA"))
-        monotony = _coerce_float(row.get("Monotonia"))
-        wellness = _coerce_float(row.get("Wellness 3d"))
-        if acwr is not None:
-            if acwr > 1.5:
-                load_notes.append("Bajar carga aguda y revisar tolerancia de la semana.")
-            elif acwr < 0.8:
-                load_notes.append("Verificar si la subcarga es planificada o si falta estímulo.")
-            else:
-                load_notes.append("La relación agudo-crónica se mantiene en una zona de trabajo útil.")
-        if monotony is not None and monotony > 2.0:
-            load_notes.append("Aumentar variabilidad del microciclo para reducir monotonía.")
-        if wellness is not None and wellness < 15:
-            load_notes.append("Seguir recuperación diaria porque el wellness reciente está deprimido.")
-
-        cmj_delta = _coerce_float(row.get("CMJ vs BL %"))
-        eval_focus = []
-        if cmj_delta is not None:
-            if cmj_delta <= -5:
-                eval_focus.append("El CMJ cae respecto a la base; conviene mirar fatiga y exposición reciente.")
-            elif cmj_delta >= 5:
-                eval_focus.append("La salida vertical está por encima de la base reciente.")
-            else:
-                eval_focus.append("La evaluación se mantiene cerca de la línea base del atleta.")
-        if row.get("Perfil NM") not in [None, "—"]:
-            eval_focus.append(f"Perfil neuromuscular actual: {row.get('Perfil NM')}.")
-
-        insights["load"] = {
-            "title": "Lectura de carga",
-            "summary": f"ACWR {row.get('ACWR EWMA', '—')} | Monotonía {row.get('Monotonia', '—')} | Wellness 3 días {row.get('Wellness 3d', '—')}.",
-            "focuses": load_notes or ["Sin suficientes datos para una lectura de carga completa."],
-        }
-        insights["evaluations"] = {
-            "title": "Lectura de evaluación",
-            "summary": (
-                f"CMJ {row.get('CMJ cm', '—')} cm | EUR {row.get('EUR', '—')} | DRI {row.get('DRI', '—')} | IMTP {row.get('IMTP N', '—')} N."
-            ),
-            "focuses": eval_focus or ["Sin suficientes evaluaciones para construir una interpretación estable."],
-        }
-        insights["profile"] = {
-            "title": "Foco del atleta",
-            "summary": f"El perfil integrado de {report_athlete} combina carga reciente, percepción de recuperación y última evaluación.",
-            "focuses": list(dict.fromkeys((load_notes + eval_focus)))[:3] or ["Seguir acumulando historial para una lectura individual más precisa."],
-        }
-    else:
-        zone_counts = summary_df["Zona"].value_counts().to_dict() if "Zona" in summary_df.columns else {}
-        profile_counts = summary_df["Perfil NM"].value_counts().to_dict() if "Perfil NM" in summary_df.columns else {}
-        zone_text = ", ".join(f"{key}: {value}" for key, value in zone_counts.items()) if zone_counts else "sin zonas de carga disponibles"
-        profile_text = ", ".join(f"{key}: {value}" for key, value in profile_counts.items()) if profile_counts else "sin perfiles neuromusculares disponibles"
-
-        insights["load"] = {
-            "title": "Lectura de carga",
-            "summary": f"Distribucion actual del equipo: {zone_text}.",
-            "focuses": [
-                "Revisar atletas en alto riesgo o precaucion antes del siguiente microciclo." if any(key in zone_counts for key in ["Alto riesgo", "Precaucion"]) else "La distribucion de carga no muestra acumulacion marcada de riesgo.",
-                "Monitorear la monotonia de quienes concentran mas strain semanal.",
-            ],
-        }
-        insights["evaluations"] = {
-            "title": "Lectura de evaluación",
-            "summary": f"Perfiles neuromusculares visibles: {profile_text}.",
-            "focuses": [
-                "Cruzar los perfiles reactivos con la carga reciente para decidir exposicion pliometrica.",
-                "Usar IMTP, EUR y DRI para separar necesidades de fuerza base vs reactividad.",
-            ],
-        }
-        insights["profile"] = {
-            "title": "Lectura del equipo",
-            "summary": "La lectura grupal resume la foto actual del plantel dentro de la ventana operativa visible.",
-            "focuses": [
-                "Identificar atletas fuera de rango antes de programar el siguiente bloque.",
-                "Completar wellness y evaluaciones faltantes para cerrar la lectura por jugador.",
-            ],
-        }
-
-    completion_mean = _team_completion_mean(state)
-    insights["team"] = {
-        "title": "Adherencia del equipo",
-        "summary": (
-            f"Completion promedio del equipo: {completion_mean:.1f}%."
-            if completion_mean is not None else
-            "No hay completion cargado para evaluar adherencia."
-        ),
-        "focuses": [
-            "Si la adherencia baja, revisar progresiones, disponibilidad y fricción operativa.",
-            "Alinear reporte de carga y completion para entender si el volumen planificado realmente se ejecuta.",
-        ],
-    }
-    insights["report"] = {
-        "title": "Estado del reporte" if audience == "profe" else "Enfoque del reporte",
-        "summary": (
-            f"Versión técnica pensada para seguimiento detallado y toma de decisiones sobre {report_athlete}."
-            if audience == "profe" else
-            (
-                f"Versión orientada al atleta, con foco en evaluaciones, perfil actual y próximos pasos de trabajo para {report_athlete}."
-                if audience == "atleta" else
-                f"Versión amigable para cliente, enfocada en explicar punto de partida, estado actual y próximos pasos de {report_athlete}."
-            )
-        ),
-        "focuses": (
-            [
-                "Verificar datasets faltantes antes de exportar para terceros.",
-                "Usar el resumen ejecutivo como portada operativa para cuerpo técnico y clientes.",
-            ]
-            if audience == "profe" else
-            (
-                [
-                    "Destacar fortalezas, oportunidades y foco inmediato en lenguaje cuasi técnico.",
-                    "Ordenar la información para que el atleta entienda qué sigue y por qué.",
-                ]
-                if audience == "atleta" else
-                [
-                    "Simplificar el lenguaje y evitar tecnicismos innecesarios.",
-                    "Mostrar progreso, estado actual y próximos pasos con claridad.",
-                ]
-            )
-        ),
-    }
-    return insights
+    
+    # Convert all columns to string type to ensure Arrow serialization compatibility
+    # This avoids mixing numeric and string types which causes Arrow errors
+    for col in summary_df.columns:
+        summary_df[col] = summary_df[col].apply(
+            lambda x: "—" if pd.isna(x) or x is None else str(x) if not isinstance(x, str) else x
+        )
+    
+    return summary_df
 
 
 def build_interpretation_sheet(
@@ -976,143 +900,6 @@ def _next_steps_from_row(row: pd.Series, *, audience: str) -> list[str]:
     ]
 
 
-def _audience_dashboard_cards(
-    state: dict[str, pd.DataFrame | None],
-    focus_row: pd.Series,
-    report_athlete: str,
-    audience: str,
-) -> list[tuple[str, str, str]]:
-    completion_value = (
-        _athlete_completion_mean(state, report_athlete)
-        if report_athlete != "Todos" else
-        _team_completion_mean(state)
-    )
-    if audience == "atleta":
-        return [
-            ("Perfil actual", _short_profile_label(focus_row.get("Perfil NM")), "#0D3C5E"),
-            ("CMJ", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm"), "#0D3C5E"),
-            ("DRI", _display_metric(focus_row.get("DRI"), digits=2), "#134263"),
-            ("IMTP", _display_metric(focus_row.get("IMTP N"), digits=0, suffix=" N"), "#134263"),
-            ("ACWR", _display_metric(focus_row.get("ACWR EWMA"), digits=2), _zone_color(focus_row.get("Zona"))),
-            ("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"),
-        ]
-    if audience == "cliente":
-        return [
-            ("Estado actual", _display_zone(focus_row.get("Zona")), _zone_color(focus_row.get("Zona"))),
-            ("Salto vertical", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm"), "#0D3C5E"),
-            ("Progreso CMJ", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%"), "#134263"),
-            ("Bienestar", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"),
-            ("Adherencia", _display_metric(completion_value, digits=1, suffix="%"), "#708C9F"),
-            ("Perfil", _short_profile_label(focus_row.get("Perfil NM")), "#5A595B"),
-        ]
-    return [
-        ("ACWR EWMA", _display_metric(focus_row.get("ACWR EWMA"), digits=2), _zone_color(focus_row.get("Zona"))),
-        ("Zona de carga", _display_zone(focus_row.get("Zona")), "#708C9F"),
-        ("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"),
-        ("Monotonía", _display_metric(focus_row.get("Monotonia"), digits=2), "#5A595B"),
-        ("CMJ", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm"), "#0D3C5E"),
-        ("IMTP", _display_metric(focus_row.get("IMTP N"), digits=0, suffix=" N"), "#134263"),
-    ]
-
-
-def _audience_metric_rows(
-    state: dict[str, pd.DataFrame | None],
-    focus_row: pd.Series,
-    report_athlete: str,
-    audience: str,
-) -> list[tuple[str, str]]:
-    completion_value = _athlete_completion_mean(state, report_athlete)
-    if audience == "cliente":
-        return [
-            ("Estado actual", _display_zone(focus_row.get("Zona"))),
-            ("Punto de referencia", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="% vs base")),
-            ("Salto vertical hoy", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm")),
-            ("Bienestar reciente", _display_metric(focus_row.get("Wellness 3d"), digits=1)),
-            ("Adherencia", _display_metric(completion_value, digits=1, suffix="%")),
-            ("Perfil actual", _ascii_text(focus_row.get("Perfil NM")).strip() or "-"),
-        ]
-    return [
-        ("Perfil neuromuscular", _ascii_text(focus_row.get("Perfil NM")).strip() or "-"),
-        ("CMJ", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm")),
-        ("DRI", _display_metric(focus_row.get("DRI"), digits=2)),
-        ("IMTP", _display_metric(focus_row.get("IMTP N"), digits=0, suffix=" N")),
-        ("ACWR", _display_metric(focus_row.get("ACWR EWMA"), digits=2)),
-        ("Monotonía", _display_metric(focus_row.get("Monotonia"), digits=2)),
-        ("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1)),
-        ("Completion", _display_metric(completion_value, digits=1, suffix="%")),
-    ]
-
-
-def _audience_blocks(
-    state: dict[str, pd.DataFrame | None],
-    report_athlete: str,
-    summary_df: pd.DataFrame,
-    insights: dict[str, dict[str, object]],
-    audience: str,
-) -> list[dict[str, object]]:
-    if audience == "profe" or report_athlete == "Todos" or summary_df.empty:
-        ordered_keys = ["overview", "load", "evaluations", "profile", "team", "report"]
-        return [insights[key] for key in ordered_keys if insights.get(key)]
-
-    row = summary_df.iloc[0]
-    strengths = _strengths_from_row(row, audience=audience)
-    gaps = _gaps_from_row(row, audience=audience)
-    next_steps = _next_steps_from_row(row, audience=audience)
-
-    if audience == "cliente":
-        return [
-            {
-                "title": "Punto de partida",
-                "summary": "Tomamos como referencia tus primeras evaluaciones y la evolución del bloque reciente.",
-                "focuses": [
-                    f"Tu cambio frente a la base reciente hoy es {_display_metric(row.get('CMJ vs BL %'), digits=1, suffix='%')} en CMJ.",
-                    f"El estado general actual se lee como {_display_zone(row.get('Zona'))}.",
-                ],
-            },
-            {
-                "title": "Dónde estás hoy",
-                "summary": f"Hoy tu salto vertical está en {_display_metric(row.get('CMJ cm'), digits=1, suffix=' cm')} y tu perfil actual se describe como {_ascii_text(row.get('Perfil NM')).strip() or 'sin perfil definido'}.",
-                "focuses": strengths,
-            },
-            {
-                "title": "Lo que vamos a trabajar",
-                "summary": "Estos son los puntos con más margen de mejora para el próximo tramo.",
-                "focuses": gaps,
-            },
-            {
-                "title": "Siguientes pasos",
-                "summary": "Plan de acción inmediato para seguir progresando sin perder claridad.",
-                "focuses": next_steps,
-            },
-        ]
-
-    return [
-        {
-            "title": "Perfil actual",
-            "summary": f"Perfil neuromuscular: {_ascii_text(row.get('Perfil NM')).strip() or '-'} | CMJ {_display_metric(row.get('CMJ cm'), digits=1, suffix=' cm')} | DRI {_display_metric(row.get('DRI'), digits=2)} | IMTP {_display_metric(row.get('IMTP N'), digits=0, suffix=' N')}.",
-            "focuses": [
-                f"ACWR actual: {_display_metric(row.get('ACWR EWMA'), digits=2)} en zona {_display_zone(row.get('Zona'))}.",
-                f"Wellness reciente: {_display_metric(row.get('Wellness 3d'), digits=1)}.",
-            ],
-        },
-        {
-            "title": "Fortalezas actuales",
-            "summary": "Variables que hoy acompañan bien tu rendimiento y tu disponibilidad.",
-            "focuses": strengths,
-        },
-        {
-            "title": "Cosas a mejorar",
-            "summary": "Variables a vigilar para que el próximo bloque sea más sólido.",
-            "focuses": gaps,
-        },
-        {
-            "title": "Siguientes pasos",
-            "summary": "Próximas prioridades de trabajo con un lenguaje cuasi técnico y accionable.",
-            "focuses": next_steps,
-        },
-    ]
-
-
 def _pdf_label_value_card(
     commands: list[str],
     x: int,
@@ -1501,39 +1288,6 @@ def _build_snapshot_pages(summary_df: pd.DataFrame) -> list[str]:
 
         pages.append("\n".join(commands))
     return pages
-
-
-def _build_trend_page(
-    state: dict[str, pd.DataFrame | None],
-    report_athlete: str,
-    report_audience: str,
-) -> str | None:
-    if report_athlete == "Todos":
-        return None
-
-    audience = normalize_report_audience(report_audience)
-    cmj_series = _cmj_series(state, report_athlete)
-    secondary_series = _acwr_series(state, report_athlete) if audience == "profe" else _wellness_series(state, report_athlete)
-    if len(cmj_series) < 2 and len(secondary_series) < 2:
-        return None
-
-    commands: list[str] = []
-    _pdf_rect(commands, 0, 0, 595, 842, "#F4F6F8")
-    title = "Tendencias clave" if audience != "cliente" else "Evolución reciente"
-    subtitle = (
-        "Dos curvas simples para seguir cómo se movió el rendimiento y la disponibilidad."
-        if audience == "cliente" else
-        "Lectura visual mínima para seguir evolución reciente sin sobrecargar el reporte."
-    )
-    _pdf_text(commands, 48, 800, title, font="F2", size=18, color="#0D3C5E")
-    _pdf_text(commands, 48, 778, subtitle, size=10, color="#5A595B")
-    _pdf_line(commands, 48, 766, 547, 766, color="#D8DEE4")
-
-    _pdf_chart_panel(commands, 48, 408, 499, 280, title="CMJ", series=cmj_series, line_color="#0D3C5E")
-    secondary_title = "ACWR EWMA" if audience == "profe" else "Wellness 3 días"
-    secondary_color = "#708C9F" if audience == "profe" else "#2F6B52"
-    _pdf_chart_panel(commands, 48, 96, 499, 280, title=secondary_title, series=secondary_series, line_color=secondary_color)
-    return "\n".join(commands)
 
 
 def _build_insight_pages(
@@ -1948,7 +1702,7 @@ def _audience_blocks(
     insights: dict[str, dict[str, object]],
     audience: str,
 ) -> list[dict[str, object]]:
-    if audience == "profe" or report_athlete == "Todos" or summary_df.empty:
+    if report_athlete == "Todos" or summary_df.empty:
         ordered_keys = ["overview", "load", "evaluations", "profile", "team", "report"]
         return [insights[key] for key in ordered_keys if insights.get(key)]
 
@@ -1957,6 +1711,44 @@ def _audience_blocks(
     load_available = _row_has_load_data(row)
     wellness_available = _row_has_wellness_data(row)
     completion_value = _focus_completion_value(state, report_athlete)
+
+    if audience == "profe":
+        integrated_focuses = _compact_lines(
+            [
+                f"Perfil actual: {_profile_text(row)}." if _has_text(row.get("Perfil NM")) else None,
+                f"ACWR {_display_metric(row.get('ACWR EWMA'), digits=2)} en zona {_display_zone(row.get('Zona'))}." if load_available and _coerce_float(row.get("ACWR EWMA")) is not None else None,
+                f"CMJ {_display_metric(row.get('CMJ cm'), digits=1, suffix=' cm')} y DRI {_display_metric(row.get('DRI'), digits=2)}." if eval_available and _coerce_float(row.get("CMJ cm")) is not None and _coerce_float(row.get("DRI")) is not None else None,
+                f"IMTP {_display_metric(row.get('IMTP N'), digits=0, suffix=' N')}." if eval_available and _coerce_float(row.get("IMTP N")) is not None else None,
+            ]
+        )
+        planning_focuses = _technical_planning_focuses(row, completion_value)
+        return [
+            {
+                "title": "Carga actual",
+                "summary": insights.get("load", {}).get("summary", "Sin lectura de carga disponible."),
+                "focuses": insights.get("load", {}).get("focuses", []),
+            },
+            {
+                "title": "Evaluación actual",
+                "summary": insights.get("evaluations", {}).get("summary", "Sin evaluación reciente disponible."),
+                "focuses": insights.get("evaluations", {}).get("focuses", []),
+            },
+            {
+                "title": "Lectura integrada",
+                "summary": "Cruce actual entre carga, evaluación y disponibilidad para orientar decisiones del próximo bloque.",
+                "focuses": integrated_focuses or ["Todavía no hay datos suficientes para una síntesis técnica robusta."],
+            },
+            {
+                "title": "Implicancias para la planificación",
+                "summary": "Prioridades concretas para decidir qué cualidad empujar y qué controlar en la próxima ventana.",
+                "focuses": planning_focuses,
+            },
+            {
+                "title": insights.get("team", {}).get("title", "Adherencia del plan"),
+                "summary": insights.get("team", {}).get("summary", "Sin lectura de adherencia disponible."),
+                "focuses": insights.get("team", {}).get("focuses", []),
+            },
+        ]
 
     strengths = _strengths_from_row(row, audience=audience)
     gaps = _gaps_from_row(row, audience=audience)
@@ -1969,6 +1761,7 @@ def _audience_blocks(
         )[:3]
 
     if audience == "cliente":
+        objective_focuses = _objective_focuses_from_row(row, audience="cliente")
         if eval_available:
             zone_text = (
                 f" y tu estado general se lee como {_display_zone(row.get('Zona'))}"
@@ -2011,7 +1804,7 @@ def _audience_blocks(
             {
                 "title": "Objetivo actual",
                 "summary": f"El foco inmediato del trabajo es {_current_focus_text(row, audience='cliente').lower()}.",
-                "focuses": gaps[:2] or ["Vamos a sostener el proceso y seguir ordenando la progresión."],
+                "focuses": objective_focuses or ["Vamos a sostener el proceso y seguir ordenando la progresión."],
             },
             {
                 "title": "Próximos pasos",
@@ -2056,6 +1849,8 @@ def _audience_blocks(
             ) or ["La prioridad es completar una nueva evaluación para definir mejor el perfil actual."],
         }
 
+    objective_focuses = _objective_focuses_from_row(row, audience="atleta")
+
     return [
         first_block,
         {
@@ -2071,7 +1866,7 @@ def _audience_blocks(
         {
             "title": "Objetivo actual",
             "summary": f"El foco inmediato del bloque es {_current_focus_text(row, audience='atleta').lower()}.",
-            "focuses": gaps[:2] or ["La prioridad es sostener el perfil actual sin perder disponibilidad."],
+            "focuses": objective_focuses or ["La prioridad es sostener el perfil actual sin perder disponibilidad."],
         },
         {
             "title": "Siguientes pasos",
@@ -2261,10 +2056,10 @@ def collect_report_plotly_figures(
         figures = [item for item in figures if item["slug"] in preferred][:2]
     elif audience == "atleta":
         preferred = {"radar_perfil", "cmj_trend", "wellness", "acwr"}
-        figures = [item for item in figures if item["slug"] in preferred][:3]
+        figures = [item for item in figures if item["slug"] in preferred][:2]
     else:
         preferred = {"radar_perfil", "cmj_trend", "acwr", "wellness"}
-        figures = [item for item in figures if item["slug"] in preferred][:4]
+        figures = [item for item in figures if item["slug"] in preferred][:2]
 
     return figures
 
@@ -2280,10 +2075,19 @@ def export_plotly_figure_png(
         import plotly.io as pio
     except Exception:
         return None
+    last_error = None
     try:
-        return pio.to_image(figure, format="png", width=width, height=height, scale=scale)
+        return pio.to_image(figure, format="png", width=width, height=height, scale=scale, engine="kaleido")
+    except Exception as exc:
+        last_error = exc
+    try:
+        import kaleido
+        chrome_path = kaleido.get_chrome_sync()
+        if chrome_path:
+            return pio.to_image(figure, format="png", width=width, height=height, scale=scale, engine="kaleido")
     except Exception:
-        return None
+        pass
+    return None
 
 
 def _resolve_brand_asset_path(kind: str = "wordmark") -> Path | None:
@@ -2480,9 +2284,9 @@ def _generate_visual_report_pdf_reportlab(
         adherence_label = "Adherencia del atleta" if report_athlete != "Todos" else "Adherencia promedio"
         data = [
             [
-                _p(f"<b>{'Atleta visible' if athletes_count == 1 else 'Atletas visibles'}</b><br/>{athletes_count}", "ReportMuted"),
-                _p(f"<b>{'Fuente activa' if datasets_count == 1 else 'Fuentes activas'}</b><br/>{datasets_count}", "ReportMuted"),
-                _p(f"<b>{adherence_label}</b><br/>{completion_text}", "ReportMuted"),
+                _p(f"{'Atleta visible' if athletes_count == 1 else 'Atletas visibles'}\n{athletes_count}", "ReportMuted"),
+                _p(f"{'Fuente activa' if datasets_count == 1 else 'Fuentes activas'}\n{datasets_count}", "ReportMuted"),
+                _p(f"{adherence_label}\n{completion_text}", "ReportMuted"),
             ]
         ]
         table = Table(data, colWidths=[56 * mm, 56 * mm, 56 * mm], hAlign="LEFT")

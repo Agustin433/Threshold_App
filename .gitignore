@@ -1,8 +1,13 @@
 __pycache__/
 *.py[cod]
+.local/
 .venv/
 venv/
+.vendor/
+.deps_smoke/
 .env
 .streamlit/secrets.toml
+data/store/*.csv
+!data/store/.gitkeep
 .DS_Store
 .vscode/

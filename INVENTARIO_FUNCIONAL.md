@@ -1,11 +1,13 @@
 # Inventario Funcional Actual
 
+> Nota: este archivo es historico. Para el mapa operativo vigente, usar `PROJECT_MAP.md` y `RUNBOOK.md`.
+
 ## Estado general
 
 - La app real hoy vive casi toda en `app.py`.
 - La navegación principal funcional está armada como tabs dentro de `app.py`: `Overview`, `Load Monitoring`, `Evaluaciones`, `Perfil Atleta`, `Team Dashboard` y `Reporte`.
-- Los archivos subidos no se guardan en base de datos ni en disco. Se leen en memoria, se procesan y se guardan en `st.session_state` mientras dura la sesión.
-- Hay una segunda navegación en `pages/`, pero hoy esas páginas son placeholders y no contienen la lógica real.
+- Los archivos subidos se persisten localmente en `.local/store` y se reflejan en `st.session_state`.
+- Hay una segunda navegación en `pages/`, pero hoy son vistas secundarias simplificadas frente a `app.py`.
 
 ## Qué tiene hoy
 
@@ -384,12 +386,10 @@ Las columnas esperadas del módulo son:
 - `chart_cmj_trend`
 - `parse_jump_eval`
 - `modules/report_generator.generate_report`
-- `modules/strength_analysis.analyze_imtp`
-- `modules/strength_analysis.calculate_e1rm`
 - `charts/dashboard_charts.create_team_comparison`
 - `charts/load_charts.plot_acwr_trend`
 - `charts/load_charts.plot_srpe_trend`
-- parte de `modules/*` y `charts/*` quedó como base de una modularización futura, pero la app actual no la usa
+- parte de `modules/*` y `charts/*` quedó como base de una modularización futura, pero los stubs y samples legacy ya fueron podados del repo para evitar confusión
 
 ## Lo que falta para que el producto quede más sólido
 

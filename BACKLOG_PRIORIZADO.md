@@ -1,9 +1,11 @@
 # Backlog Priorizado - Threshold S&C
 
+> Nota: este backlog sigue siendo util como roadmap, pero `PROJECT_MAP.md` y `RUNBOOK.md` describen mejor el estado operativo actual.
+
 ## Estado actual
 
 - La app principal funciona desde `app.py`.
-- La persistencia local guarda historial en `data/store`.
+- La persistencia local guarda historial en `.local/store` y migra automaticamente desde `data/store` si hace falta.
 - La ventana operativa visible carga las ultimas 6 semanas.
 - Las evaluaciones trabajan con carga individual consolidada en `jump_df`.
 - La app exporta Excel y un PDF ejecutivo basico.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shutil
 from difflib import SequenceMatcher
 from itertools import combinations
 from pathlib import Path
@@ -12,7 +14,22 @@ RECENT_WEEKS = 6
 RECENT_DAYS = RECENT_WEEKS * 7
 MONOTONY_HIGH = 2.0
 
-STORE_DIR = Path(__file__).resolve().parent / "data" / "store"
+APP_ROOT = Path(__file__).resolve().parent
+STORE_DIR_ENV_VAR = "THRESHOLD_STORE_DIR"
+LEGACY_STORE_DIR = APP_ROOT / "data" / "store"
+
+
+def _resolve_store_dir() -> Path:
+    configured = os.environ.get(STORE_DIR_ENV_VAR, "").strip()
+    if not configured:
+        return APP_ROOT / ".local" / "store"
+    candidate = Path(configured).expanduser()
+    if not candidate.is_absolute():
+        candidate = APP_ROOT / candidate
+    return candidate.resolve()
+
+
+STORE_DIR = _resolve_store_dir()
 ATHLETE_REGISTRY_PATH = STORE_DIR / "athletes.csv"
 
 DATASET_SPECS: dict[str, dict[str, object]] = {
@@ -80,11 +97,30 @@ ACWR_ZONES = (
 
 def _ensure_store_dir() -> None:
     STORE_DIR.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_store()
 
 
 def _dataset_path(state_key: str) -> Path:
     spec = DATASET_SPECS[state_key]
     return STORE_DIR / str(spec["filename"])
+
+
+def _legacy_dataset_path(state_key: str) -> Path:
+    spec = DATASET_SPECS[state_key]
+    return LEGACY_STORE_DIR / str(spec["filename"])
+
+
+def _migrate_legacy_store() -> None:
+    if STORE_DIR == LEGACY_STORE_DIR or not LEGACY_STORE_DIR.exists():
+        return
+
+    copy_pairs = [(LEGACY_STORE_DIR / "athletes.csv", ATHLETE_REGISTRY_PATH)]
+    copy_pairs.extend((_legacy_dataset_path(state_key), _dataset_path(state_key)) for state_key in DATASET_SPECS)
+
+    for source, target in copy_pairs:
+        if source.exists() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
 
 
 def normalize_athlete_name(value: object) -> str:
@@ -107,6 +143,7 @@ def collect_athlete_names(*frames: pd.DataFrame | None) -> list[str]:
 
 
 def load_athlete_registry() -> list[str]:
+    _ensure_store_dir()
     if not ATHLETE_REGISTRY_PATH.exists():
         return []
     df = pd.read_csv(ATHLETE_REGISTRY_PATH)
@@ -228,6 +265,7 @@ def merge_dataset(existing: pd.DataFrame, incoming: pd.DataFrame, state_key: str
 
 
 def read_full_dataset(state_key: str) -> pd.DataFrame:
+    _ensure_store_dir()
     path = _dataset_path(state_key)
     if not path.exists():
         return pd.DataFrame()

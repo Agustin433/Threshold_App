@@ -97,6 +97,51 @@ EVALUATION_DB_COLUMN_MAP = {
 }
 SUPABASE_EVALUATIONS_TABLE = "evaluations"
 
+UPLOAD_CONTRACTS: dict[str, dict[str, object]] = {
+    "rpe": {
+        "label": "RPE + Tiempo",
+        "extensions": ("xlsx",),
+        "expected_format": "TeamBuildr Questionnaire Report (.xlsx)",
+        "examples": ("questionnaire-report.xlsx",),
+    },
+    "wellness": {
+        "label": "Wellness 3Q",
+        "extensions": ("xlsx",),
+        "expected_format": "TeamBuildr Questionnaire Report (.xlsx)",
+        "examples": ("questionnaire-report_wellness.xlsx",),
+    },
+    "completion": {
+        "label": "Completion Report",
+        "extensions": ("csv",),
+        "expected_format": "TeamBuildr Completion Report (.csv)",
+        "examples": ("completion.csv",),
+    },
+    "rep_load": {
+        "label": "Rep/Load Report",
+        "extensions": ("csv",),
+        "expected_format": "TeamBuildr Rep/Load Report (.csv)",
+        "examples": ("rep_load.csv",),
+    },
+    "raw_workouts": {
+        "label": "Raw Data Report - Workouts",
+        "extensions": ("csv",),
+        "expected_format": "TeamBuildr Raw Data Report - Workouts (.csv)",
+        "examples": ("raw_workouts.csv",),
+    },
+    "maxes": {
+        "label": "Raw Data Report - Maxes",
+        "extensions": ("csv",),
+        "expected_format": "TeamBuildr Raw Data Report - Maxes (.csv)",
+        "examples": ("maxes.csv",),
+    },
+    "forceplate": {
+        "label": "Evaluacion individual",
+        "extensions": ("xlsx",),
+        "expected_format": "Export de plataforma de fuerza (.xlsx)",
+        "examples": ("cmj.xlsx", "sj.xlsx", "dj.xlsx", "imtp.xlsx"),
+    },
+}
+
 
 def _read_xlsx_rows(file_bytes: bytes) -> list[list[object]]:
     with zipfile.ZipFile(BytesIO(file_bytes)) as workbook:
@@ -161,6 +206,92 @@ def _missing_columns_message(
     )
 
 
+def _preview_values(series: pd.Series, limit: int = 5) -> str:
+    examples: list[str] = []
+    for value in series.tolist():
+        if pd.isna(value):
+            continue
+        text = str(value).strip()
+        if not text or text in examples:
+            continue
+        examples.append(text)
+        if len(examples) >= limit:
+            break
+    return ", ".join(examples) if examples else "sin ejemplos legibles"
+
+
+def _resolve_filename(file_or_name) -> str:
+    if isinstance(file_or_name, str):
+        return file_or_name
+    return str(getattr(file_or_name, "name", "") or "")
+
+
+def _ensure_supported_extension(
+    file_or_name,
+    report_name: str,
+    allowed_extensions: tuple[str, ...],
+) -> None:
+    filename = _resolve_filename(file_or_name)
+    if not filename:
+        return
+
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    allowed = {ext.lower().lstrip(".") for ext in allowed_extensions}
+    if suffix in allowed:
+        return
+
+    expected = ", ".join(f".{ext}" for ext in sorted(allowed))
+    raise ValueError(
+        f"{report_name}: formato no soportado para {filename}. "
+        f"Subi un archivo {expected}."
+    )
+
+
+def _require_valid_dates(
+    df: pd.DataFrame,
+    report_name: str,
+    parsed_date_col: str,
+    source_date_col: str,
+) -> pd.DataFrame:
+    valid_df = df.dropna(subset=[parsed_date_col]).copy()
+    if not valid_df.empty:
+        return valid_df
+
+    examples = _preview_values(df[source_date_col]) if source_date_col in df.columns else "sin ejemplos legibles"
+    raise ValueError(
+        f"{report_name}: se leyeron {len(df)} fila(s), pero ninguna fecha fue valida en "
+        f"'{source_date_col}'. Ejemplos detectados: {examples}."
+    )
+
+
+def _require_numeric_content(
+    df: pd.DataFrame,
+    report_name: str,
+    column_name: str,
+    label: str,
+) -> None:
+    if column_name in df.columns and df[column_name].notna().any():
+        return
+    raise ValueError(
+        f"{report_name}: no se detectaron valores numericos validos para {label}."
+    )
+
+
+def _require_any_numeric_content(
+    df: pd.DataFrame,
+    report_name: str,
+    columns: dict[str, str],
+) -> None:
+    for column_name in columns:
+        if column_name in df.columns and df[column_name].notna().any():
+            return
+
+    labels = ", ".join(columns.values())
+    raise ValueError(
+        f"{report_name}: no se detectaron valores numericos validos para {labels}."
+    )
+
+
 def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     """Read CSV exports with multiple encoding fallbacks."""
     if isinstance(file, (str, os.PathLike, Path)):
@@ -204,8 +335,22 @@ def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     ) from first_error
 
 
-def parse_xlsx_questionnaire(file_bytes: bytes, mode: str = "rpe") -> pd.DataFrame:
+def parse_xlsx_questionnaire(
+    file_bytes: bytes,
+    mode: str = "rpe",
+    filename: str | None = None,
+) -> pd.DataFrame:
     """Parse TeamBuildr questionnaire report exports."""
+    if mode not in {"rpe", "wellness"}:
+        raise ValueError("Modo de cuestionario no soportado. Usa 'rpe' o 'wellness'.")
+    contract_key = "rpe" if mode == "rpe" else "wellness"
+    contract = UPLOAD_CONTRACTS[contract_key]
+    _ensure_supported_extension(
+        filename,
+        str(contract["label"]),
+        tuple(contract["extensions"]),
+    )
+
     try:
         rows = _read_xlsx_rows(file_bytes)
     except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
@@ -215,6 +360,8 @@ def parse_xlsx_questionnaire(file_bytes: bytes, mode: str = "rpe") -> pd.DataFra
 
     records = []
     current_athlete = None
+    dated_rows = 0
+    athlete_blocks = 0
 
     for row in rows:
         if not row or all(value in ("", "-", None) for value in row):
@@ -230,11 +377,13 @@ def parse_xlsx_questionnaire(file_bytes: bytes, mode: str = "rpe") -> pd.DataFra
             and any(char.isalpha() for char in first)
         ):
             current_athlete = first
+            athlete_blocks += 1
             continue
 
         if not current_athlete or not is_date:
             continue
 
+        dated_rows += 1
         try:
             date = pd.to_datetime(first, format="%b %d, %Y")
         except Exception:
@@ -272,7 +421,17 @@ def parse_xlsx_questionnaire(file_bytes: bytes, mode: str = "rpe") -> pd.DataFra
                 )
 
     if not records:
-        report_label = "RPE + Tiempo" if mode == "rpe" else "Wellness 3Q"
+        report_label = str(contract["label"])
+        if athlete_blocks == 0:
+            raise ValueError(
+                f"El archivo de {report_label} se pudo abrir, pero no se detectaron bloques de atletas. "
+                "Verifica que sea el export correcto de TeamBuildr Questionnaire Report."
+            )
+        if dated_rows == 0:
+            raise ValueError(
+                f"El archivo de {report_label} se pudo abrir, pero no se detectaron filas con fecha "
+                "en formato TeamBuildr (por ejemplo: Apr 06, 2026)."
+            )
         raise ValueError(
             f"El archivo de {report_label} se pudo abrir, pero no produjo registros validos. "
             "Verifica que sea el export correcto de TeamBuildr y que incluya atletas, fechas y respuestas."
@@ -282,6 +441,11 @@ def parse_xlsx_questionnaire(file_bytes: bytes, mode: str = "rpe") -> pd.DataFra
 
 
 def parse_completion_report(file) -> pd.DataFrame:
+    _ensure_supported_extension(
+        file,
+        str(UPLOAD_CONTRACTS["completion"]["label"]),
+        tuple(UPLOAD_CONTRACTS["completion"]["extensions"]),
+    )
     df = _read_csv_with_fallback(file)
     df.columns = [col.strip().strip('"') for col in df.columns]
     date_options = ["Dates", "Date", "Fecha"]
@@ -307,11 +471,24 @@ def parse_completion_report(file) -> pd.DataFrame:
     df["Completed"] = pd.to_numeric(df[completed_col], errors="coerce")
     if athlete_col:
         df["Athlete"] = df[athlete_col].astype(str).str.strip().str.title()
-    df["Pct"] = df["Completed"] / df["Assigned"] * 100
-    return df.dropna(subset=["Date"])
+    df = _require_valid_dates(df, "Completion Report", "Date", date_col)
+    _require_numeric_content(df, "Completion Report", "Assigned", "Assigned/Asignado")
+    _require_numeric_content(df, "Completion Report", "Completed", "Completed/Completado")
+    df["Pct"] = (df["Completed"] / df["Assigned"].where(df["Assigned"] > 0)) * 100
+    valid_df = df.dropna(subset=["Pct"]).copy()
+    if valid_df.empty:
+        raise ValueError(
+            "Completion Report: no se pudo calcular el porcentaje porque 'Assigned' es 0 o invalido en todas las filas."
+        )
+    return valid_df
 
 
 def parse_rep_load_report(file) -> pd.DataFrame:
+    _ensure_supported_extension(
+        file,
+        str(UPLOAD_CONTRACTS["rep_load"]["label"]),
+        tuple(UPLOAD_CONTRACTS["rep_load"]["extensions"]),
+    )
     df = _read_csv_with_fallback(file)
     df.columns = [col.strip().strip('"') for col in df.columns]
     date_options = ["Date", "Dates", "Fecha"]
@@ -357,11 +534,25 @@ def parse_rep_load_report(file) -> pd.DataFrame:
         df["Reps_Completed"] = pd.to_numeric(df["Reps_Completed"].astype(str).str.replace("--", ""), errors="coerce")
     if "Athlete" in df.columns:
         df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
-    return df.dropna(subset=["Date"])
+    df = _require_valid_dates(df, "Rep/Load Report", "Date", "Date")
+    _require_any_numeric_content(
+        df,
+        "Rep/Load Report",
+        {
+            "Reps_Completed": "repeticiones completadas",
+            "Load_kg": "carga completada",
+        },
+    )
+    return df
 
 
 def parse_raw_workouts(file) -> pd.DataFrame:
     """Robust raw workout parser that tolerates column variants."""
+    _ensure_supported_extension(
+        file,
+        str(UPLOAD_CONTRACTS["raw_workouts"]["label"]),
+        tuple(UPLOAD_CONTRACTS["raw_workouts"]["extensions"]),
+    )
     df = _read_csv_with_fallback(file)
     df.columns = [col.strip().strip('"') for col in df.columns]
     date_options = ["Assigned Date", "Date", "Workout Date", "Fecha"]
@@ -399,11 +590,20 @@ def parse_raw_workouts(file) -> pd.DataFrame:
         df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
     tag_series = df["Tags"] if "Tags" in df.columns else pd.Series(index=df.index, dtype=object)
     df["Category"] = tag_series.map(TAG_CATEGORIES).fillna("Sin categoria")
-    return df.dropna(subset=["Assigned Date"])
+    df = _require_valid_dates(df, "Raw Data Report - Workouts", "Assigned Date", "Assigned Date")
+    _require_numeric_content(df, "Raw Data Report - Workouts", "Result", "resultado/carga")
+    _require_numeric_content(df, "Raw Data Report - Workouts", "Reps", "repeticiones")
+    _require_numeric_content(df, "Raw Data Report - Workouts", "Volume_Load", "volumen calculado")
+    return df
 
 
 def parse_maxes_health(file) -> pd.DataFrame:
     """Robust parser for TeamBuildr maxes exports."""
+    _ensure_supported_extension(
+        file,
+        str(UPLOAD_CONTRACTS["maxes"]["label"]),
+        tuple(UPLOAD_CONTRACTS["maxes"]["extensions"]),
+    )
     df = _read_csv_with_fallback(file)
     df.columns = [col.strip().strip('"') for col in df.columns]
     date_options = ["Added Date", "Date", "Fecha"]
@@ -440,6 +640,8 @@ def parse_maxes_health(file) -> pd.DataFrame:
         df["Athlete"] = "Sin atleta"
     if exercise_col:
         df["Exercise Name"] = df[exercise_col]
+    df = _require_valid_dates(df, "Raw Data Report - Maxes", "Added Date", date_col)
+    _require_numeric_content(df, "Raw Data Report - Maxes", "Max Value", "valor maximo")
     return df
 
 
@@ -506,9 +708,23 @@ def _extract_best(values: list[float], agg: str) -> float | None:
     return round(sum(values) / len(values), 3)
 
 
-def parse_forceplate_file(file_bytes: bytes, test_type: str) -> dict[str, object]:
+def parse_forceplate_file(
+    file_bytes: bytes,
+    test_type: str,
+    filename: str | None = None,
+) -> dict[str, object]:
     """Parse one force plate file and return mapped KPIs."""
-    raw = _read_forceplate_xlsx(file_bytes)
+    _ensure_supported_extension(
+        filename,
+        str(UPLOAD_CONTRACTS["forceplate"]["label"]),
+        tuple(UPLOAD_CONTRACTS["forceplate"]["extensions"]),
+    )
+    try:
+        raw = _read_forceplate_xlsx(file_bytes)
+    except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+        raise ValueError(
+            "El archivo de evaluacion debe ser un .xlsx valido exportado desde la plataforma de fuerza."
+        ) from exc
     metric_map = TEST_MAPS.get(test_type, {})
     result: dict[str, object] = {"test_type": test_type}
     for metric_name, (col_name, agg) in metric_map.items():
@@ -522,9 +738,13 @@ def parse_jump_eval(file) -> pd.DataFrame:
     """Compatibility parser for standard tabular evaluation files."""
     filename = file.name.lower() if hasattr(file, "name") else ""
     if filename.endswith(".csv"):
+        _ensure_supported_extension(file, "Evaluaciones tabulares", ("csv",))
         df = _read_csv_with_fallback(file)
+        raw_date_series = df.get("Date", df.get("Fecha", pd.Series(dtype=object)))
     else:
+        _ensure_supported_extension(file, "Evaluaciones tabulares", ("xlsx", "xls"))
         df = pd.read_excel(file)
+        raw_date_series = df.get("Date", df.get("Fecha", pd.Series(dtype=object)))
     df.columns = [col.strip() for col in df.columns]
     df["Date"] = pd.to_datetime(
         df.get("Date", df.get("Fecha", pd.Timestamp.today())),
@@ -534,4 +754,10 @@ def parse_jump_eval(file) -> pd.DataFrame:
     for column in ["CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "IMTP_N"]:
         if column in df.columns:
             df[column] = pd.to_numeric(df[column], errors="coerce")
+    df = _require_valid_dates(
+        df.assign(__source_date=raw_date_series),
+        "Evaluaciones tabulares",
+        "Date",
+        "__source_date",
+    )
     return df
