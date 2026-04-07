@@ -1949,6 +1949,29 @@ def _dataset_row_signature(state_key: str, payload: dict[str, object]) -> str:
     return hashlib.sha1(signature.encode("utf-8")).hexdigest()
 
 
+def _json_safe_value(value):
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("utf-8", errors="ignore")
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if pd.isna(value):
+        return None
+    if isinstance(value, (np.integer, np.floating, np.bool_)):
+        return value.item()
+    if isinstance(value, (str, int, float, bool, list, dict)):
+        return value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except TypeError:
+            pass
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def _dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict]:
     if state_key not in REMOTE_DATASET_KEYS or df is None or df.empty:
         return []
@@ -2154,7 +2177,8 @@ def load_evaluations() -> pd.DataFrame:
     keep_cols = [c for c in rename_map.values() if c in df.columns]
     return _prepare_jump_df(df[keep_cols])
 
-
+# Legacy note: the concrete remote helpers above are kept temporarily for controlled cleanup.
+# Runtime uses the shared implementations from modules.remote_store via the aliases below.
 _dataset_df_to_remote_records = shared_dataset_df_to_remote_records
 _jump_df_to_db_records = shared_jump_df_to_db_records
 save_remote_dataset = shared_save_remote_dataset
@@ -4401,14 +4425,14 @@ with tab_profile:
             if maxes_df_profile is not None and "Athlete" in maxes_df_profile.columns:
                 maxes_ath = maxes_df_profile[maxes_df_profile["Athlete"] == ath_p]
                 if not maxes_ath.empty and "Exercise Name" in maxes_ath.columns:
-                    exercises_ath = sorted(maxes_ath["Exercise Name"].dropna().unique())
+                    exercises_ath = sorted(maxes_ath.loc[:, "Exercise Name"].dropna().unique())
                     if exercises_ath:
                         render_subsection_header("Maximos del atleta", "progresion historica por ejercicio", kicker="Fuerza")
                         max_ex = st.selectbox("Ejercicio maximo", exercises_ath, key="sel_profile_max_ex")
                         st.plotly_chart(
                             chart_maxes_trend(maxes_ath, max_ex),
                             use_container_width=False,
-                            key="profile_max_trend"
+                            key="profile_max_trend",
                         )
 
         # Cuadrantes (solo si hay datos grupales)

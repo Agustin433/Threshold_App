@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -17,12 +15,7 @@ from local_store import (
     STORE_DIR,
     build_load_models,
     load_recent_state,
-    normalize_athlete_name,
     overwrite_dataset,
-)
-from modules.data_loader import (
-    EVALUATION_DB_COLUMN_MAP,
-    EVALUATION_PERSIST_COLUMNS,
 )
 from modules.remote_store import (
     REMOTE_DATASET_KEYS,
@@ -83,106 +76,7 @@ def create_history_backup(
     }
 
 
-def _json_safe_value(value):
-    if value is None or pd.isna(value):
-        return None
-    if isinstance(value, pd.Timestamp):
-        return value.date().isoformat()
-    if isinstance(value, np.datetime64):
-        return pd.Timestamp(value).date().isoformat()
-    if isinstance(value, (np.integer, int)):
-        return int(value)
-    if isinstance(value, (np.floating, float)):
-        if not np.isfinite(value):
-            return None
-        return float(value)
-    if isinstance(value, (np.bool_, bool)):
-        return bool(value)
-    return value
-
-
-def _dataset_event_date(value) -> str | None:
-    parsed = pd.to_datetime(value, errors="coerce")
-    if pd.isna(parsed):
-        return None
-    return parsed.date().isoformat()
-
-
-def _dataset_row_signature(state_key: str, payload: dict[str, object]) -> str:
-    spec = DATASET_SPECS.get(state_key, {})
-    dedupe_cols = spec.get("dedupe_cols") or sorted(payload.keys())
-    key_payload = {col: payload.get(col) for col in dedupe_cols if col in payload}
-    if not key_payload:
-        key_payload = payload
-    serialized = json.dumps(key_payload, sort_keys=True, ensure_ascii=False, default=str)
-    return __import__("hashlib").sha1(serialized.encode("utf-8")).hexdigest()
-
-
-def _dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict]:
-    if state_key not in REMOTE_DATASET_KEYS or df is None or df.empty:
-        return []
-
-    spec = DATASET_SPECS.get(state_key, {})
-    date_col = spec.get("date_col")
-    athlete_col = spec.get("athlete_col")
-    records: list[dict] = []
-
-    for _, row in df.iterrows():
-        payload: dict[str, object] = {}
-        for col in df.columns:
-            safe_value = _json_safe_value(row.get(col))
-            if safe_value is not None:
-                payload[col] = safe_value
-        if not payload:
-            continue
-
-        if athlete_col and athlete_col in payload:
-            payload[athlete_col] = normalize_athlete_name(payload[athlete_col])
-
-        record = {
-            "dataset_key": state_key,
-            "row_key": _dataset_row_signature(state_key, payload),
-            "payload": payload,
-        }
-        if athlete_col and payload.get(athlete_col):
-            record["athlete"] = normalize_athlete_name(payload[athlete_col])
-        if date_col:
-            event_date = _dataset_event_date(payload.get(date_col))
-            if event_date:
-                record["event_date"] = event_date
-        records.append(record)
-    return records
-
-
-def _jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
-    if df is None or df.empty:
-        return []
-
-    records: list[dict] = []
-    for _, row in df.iterrows():
-        record: dict[str, object] = {}
-        for app_col in EVALUATION_PERSIST_COLUMNS:
-            if app_col not in row.index:
-                continue
-            value = row[app_col]
-            if pd.isna(value):
-                continue
-            db_col = EVALUATION_DB_COLUMN_MAP[app_col]
-            if app_col == "Date":
-                record[db_col] = pd.Timestamp(value).date().isoformat()
-            elif app_col == "Athlete":
-                record[db_col] = normalize_athlete_name(value)
-            elif isinstance(value, (np.integer, int)):
-                record[db_col] = int(value)
-            elif isinstance(value, (np.floating, float)):
-                record[db_col] = float(value)
-            else:
-                record[db_col] = value
-        if record.get("athlete") and record.get("date"):
-            records.append(record)
-    return records
-
-
+# Runtime now uses the shared remote serializers from modules.remote_store.
 _dataset_df_to_remote_records = shared_dataset_df_to_remote_records
 _jump_df_to_db_records = shared_jump_df_to_db_records
 
