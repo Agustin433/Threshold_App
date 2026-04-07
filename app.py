@@ -80,6 +80,12 @@ from modules.remote_store import (
     _supabase_dataset_store_config,
     _supabase_evaluations_config,
     _supabase_request,
+    dataset_df_to_remote_records as shared_dataset_df_to_remote_records,
+    jump_df_to_db_records as shared_jump_df_to_db_records,
+    load_remote_dataset as shared_load_remote_dataset,
+    load_remote_evaluations as shared_load_remote_evaluations,
+    save_remote_dataset as shared_save_remote_dataset,
+    save_remote_evaluations as shared_save_remote_evaluations,
     supabase_dataset_store_enabled,
     supabase_evaluations_enabled,
 )
@@ -1924,24 +1930,6 @@ def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
     return _prepare_jump_df(pd.DataFrame(rows.values()))
 
 
-def _json_safe_value(value):
-    if value is None or pd.isna(value):
-        return None
-    if isinstance(value, pd.Timestamp):
-        return value.date().isoformat()
-    if isinstance(value, np.datetime64):
-        return pd.Timestamp(value).date().isoformat()
-    if isinstance(value, (np.integer, int)):
-        return int(value)
-    if isinstance(value, (np.floating, float)):
-        if not np.isfinite(value):
-            return None
-        return float(value)
-    if isinstance(value, (np.bool_, bool)):
-        return bool(value)
-    return value
-
-
 def _dataset_event_date(value) -> str | None:
     if value in [None, "", "â€”", "-"]:
         return None
@@ -2165,6 +2153,14 @@ def load_evaluations() -> pd.DataFrame:
     df = pd.DataFrame(rows).rename(columns=rename_map)
     keep_cols = [c for c in rename_map.values() if c in df.columns]
     return _prepare_jump_df(df[keep_cols])
+
+
+_dataset_df_to_remote_records = shared_dataset_df_to_remote_records
+_jump_df_to_db_records = shared_jump_df_to_db_records
+save_remote_dataset = shared_save_remote_dataset
+load_remote_dataset = shared_load_remote_dataset
+save_evaluation = shared_save_remote_evaluations
+load_evaluations = shared_load_remote_evaluations
 
 
 def rename_evaluation_athlete_remote(old_name: str, new_name: str) -> dict[str, int | bool]:

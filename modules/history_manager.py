@@ -29,6 +29,10 @@ from modules.remote_store import (
     _supabase_dataset_store_config,
     _supabase_evaluations_config,
     _supabase_request,
+    dataset_df_to_remote_records as shared_dataset_df_to_remote_records,
+    jump_df_to_db_records as shared_jump_df_to_db_records,
+    load_remote_dataset as shared_load_remote_dataset,
+    load_remote_evaluations_frame as shared_load_remote_evaluations_frame,
     supabase_dataset_store_enabled,
     supabase_evaluations_enabled,
 )
@@ -179,6 +183,10 @@ def _jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
     return records
 
 
+_dataset_df_to_remote_records = shared_dataset_df_to_remote_records
+_jump_df_to_db_records = shared_jump_df_to_db_records
+
+
 def _chunked(items: list[str], chunk_size: int = 100) -> list[list[str]]:
     return [items[idx: idx + chunk_size] for idx in range(0, len(items), chunk_size)]
 
@@ -237,58 +245,8 @@ def replace_local_history(state_key: str, df: pd.DataFrame | None) -> pd.DataFra
 
 def load_remote_history_frame(state_key: str) -> pd.DataFrame:
     if state_key == "jump_df":
-        if not supabase_evaluations_enabled():
-            return pd.DataFrame()
-        _, _, table = _supabase_evaluations_config()
-        rows = []
-        offset = 0
-        page_size = 1000
-        while True:
-            batch = _supabase_request(
-                "GET",
-                table,
-                query={"select": "*", "order": "date.asc,athlete.asc", "limit": page_size, "offset": offset},
-                evaluations=True,
-            ) or []
-            if not batch:
-                break
-            rows.extend(batch)
-            if len(batch) < page_size:
-                break
-            offset += page_size
-        if not rows:
-            return pd.DataFrame()
-        rename_map = {db_col: app_col for app_col, db_col in EVALUATION_DB_COLUMN_MAP.items()}
-        return pd.DataFrame(rows).rename(columns=rename_map)
-
-    if not supabase_dataset_store_enabled() or state_key not in REMOTE_DATASET_KEYS:
-        return pd.DataFrame()
-
-    _, _, table = _supabase_dataset_store_config()
-    rows = []
-    offset = 0
-    page_size = 1000
-    while True:
-        batch = _supabase_request(
-            "GET",
-            table,
-            query={
-                "select": "payload",
-                "dataset_key": f"eq.{state_key}",
-                "order": "event_date.asc.nullslast,row_key.asc",
-                "limit": page_size,
-                "offset": offset,
-            },
-        ) or []
-        if not batch:
-            break
-        rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        offset += page_size
-
-    payloads = [row.get("payload") for row in rows if isinstance(row.get("payload"), dict)]
-    return pd.DataFrame(payloads) if payloads else pd.DataFrame()
+        return shared_load_remote_evaluations_frame()
+    return shared_load_remote_dataset(state_key)
 
 
 def replace_remote_history(state_key: str, df: pd.DataFrame | None) -> dict[str, object]:
