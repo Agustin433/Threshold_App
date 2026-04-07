@@ -142,6 +142,13 @@ Resultado esperado:
 - menos friccion operativa
 - entregables mas presentables
 
+Estado actual implementado:
+
+- completion con selector `Todos` / atleta en dashboard principal y `pages/04_team_dashboard.py`
+- cola de evaluaciones con resumen por atleta-fecha, deteccion de duplicados y vista previa consolidada
+- exportables Excel con orden final de hojas, resumen de completion y preview de secciones antes de descargar
+- branding consistente en header, sidebar, portada, favicon y portada PDF cuando existen assets oficiales
+
 ### Fase 2: continuidad y escalado
 
 Objetivo: que el sistema sea mas util entre sesiones, equipos o dispositivos.

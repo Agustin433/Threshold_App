@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+import unittest
+from io import BytesIO
+
+import pandas as pd
+from openpyxl import load_workbook
+
+from modules.report_generator import build_report_sheets, collect_report_athletes, export_excel
+
+
+class Phase1ReportingTest(unittest.TestCase):
+    def test_collect_report_athletes_uses_all_supported_datasets(self):
+        state = {
+            "rpe_df": None,
+            "wellness_df": pd.DataFrame(
+                [{"Athlete": "Carla Diaz", "Date": "2026-04-03", "Wellness_Score": 21}]
+            ),
+            "completion_df": pd.DataFrame(
+                [{"Athlete": "Ana Lopez", "Date": "2026-04-02", "Pct": 90}]
+            ),
+            "rep_load_df": None,
+            "raw_df": pd.DataFrame(
+                [{"Athlete": "Bruno Rey", "Assigned Date": "2026-04-04", "Volume_Load": 520}]
+            ),
+            "maxes_df": pd.DataFrame(
+                [{"Athlete": "Dario Paz", "Exercise Name": "Back Squat", "Max Value": 140}]
+            ),
+            "jump_df": None,
+        }
+
+        self.assertEqual(
+            collect_report_athletes(state),
+            ["Ana Lopez", "Bruno Rey", "Carla Diaz", "Dario Paz"],
+        )
+
+    def test_completion_exports_include_summary_and_expected_sheet_names(self):
+        completion_df = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Date": "2026-04-02", "Assigned": 10, "Completed": 9, "Pct": 90},
+                {"Athlete": "Ana Lopez", "Date": "2026-04-03", "Assigned": 8, "Completed": 8, "Pct": 100},
+                {"Athlete": "Bruno Rey", "Date": "2026-04-02", "Assigned": 12, "Completed": 9, "Pct": 75},
+            ]
+        )
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": completion_df,
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": None,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Todos",
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=False,
+            include_maxes=False,
+            include_volume=False,
+            include_completion=True,
+        )
+
+        self.assertIn("Completion_Resumen", sheets)
+        self.assertIn("Completion_Rate", sheets)
+        self.assertIn("Reporte_Meta", sheets)
+
+        workbook = load_workbook(BytesIO(export_excel(sheets)))
+        sheetnames = workbook.sheetnames
+
+        for sheet_name in ["01_Resumen", "02_Interpretacion", "03_Completion_Resumen", "10_Completion_Detalle", "99_Meta"]:
+            self.assertIn(sheet_name, sheetnames)
+
+        ordered_indexes = [sheetnames.index(name) for name in ["01_Resumen", "02_Interpretacion", "03_Completion_Resumen", "10_Completion_Detalle", "99_Meta"]]
+        self.assertEqual(ordered_indexes, sorted(ordered_indexes))
+
+        summary_sheet = workbook["03_Completion_Resumen"]
+        self.assertEqual(summary_sheet["A2"].value, "Equipo")
+        self.assertEqual(summary_sheet["C2"].number_format, '0.0"%"')
+
+
+if __name__ == "__main__":
+    unittest.main()

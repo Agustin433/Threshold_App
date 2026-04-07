@@ -80,6 +80,8 @@ from modules.jump_analysis import (
 )
 from modules.report_generator import (
     REPORT_AUDIENCE_OPTIONS,
+    REPORT_SHEET_ORDER,
+    REPORT_SHEET_EXPORT_NAMES,
     build_executive_summary_df,
     build_report_sheets,
     collect_report_athletes,
@@ -2925,15 +2927,36 @@ def _brand_wordmark_markup(image_class: str, fallback_class: str) -> str:
     return f'<div class="{fallback_class}">Threshold S&amp;C</div>'
 
 
+def _brand_icon_markup(size_px: int = 52) -> str:
+    if _LOGO_ICON_SRC:
+        return (
+            f'<img src="{_LOGO_ICON_SRC}" alt="Threshold icon" '
+            f'style="width:{size_px}px;height:{size_px}px;object-fit:contain;'
+            'border-radius:16px;background:rgba(255,255,255,0.96);'
+            'padding:10px;box-shadow:0 14px 30px rgba(13,60,94,0.12);"/>'
+        )
+    return (
+        f'<div style="width:{size_px}px;height:{size_px}px;border-radius:16px;'
+        'display:flex;align-items:center;justify-content:center;'
+        'background:linear-gradient(135deg,#0D3C5E 0%,#134263 100%);'
+        'color:#FEFEFE;font-weight:700;letter-spacing:0.08em;'
+        'box-shadow:0 14px 30px rgba(13,60,94,0.12);">T</div>'
+    )
+
+
 def render_brand_cover():
     wordmark = _brand_wordmark_markup("brand-wordmark", "brand-wordmark-fallback")
+    brand_icon = _brand_icon_markup(56)
     st.markdown(f"""
 <div class="brand-cover">
   <div class="brand-header-row">
     <div>
       <div class="brand-kicker">Threshold S&amp;C Intelligence System</div>
-      <div class="brand-logo-plaque">
-        {wordmark}
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        {brand_icon}
+        <div class="brand-logo-plaque">
+          {wordmark}
+        </div>
       </div>
       <div class="brand-subtitle">
         Plataforma de reportes de rendimiento para monitoreo de carga, evaluaciones y seguimiento
@@ -3441,11 +3464,133 @@ def _pending_upload_rows(uploaded_files: dict[str, object]) -> list[dict[str, st
     return rows
 
 
+def _evaluation_metric_fields(record: dict[str, object]) -> list[str]:
+    fields: list[str] = []
+    for key, value in record.items():
+        if key in {"Athlete", "Date", "test_type"} or key.startswith("__") or key.endswith("_reps"):
+            continue
+        if value is None:
+            continue
+        if isinstance(value, float) and pd.isna(value):
+            continue
+        fields.append(key)
+    return sorted(fields)
+
+
+def _evaluation_record_signature(record: dict[str, object]) -> tuple[str, pd.Timestamp | None, str]:
+    athlete = normalize_athlete_name(record.get("Athlete"))
+    record_date = pd.to_datetime(record.get("Date"), errors="coerce")
+    normalized_date = None if pd.isna(record_date) else record_date.normalize()
+    return athlete, normalized_date, str(record.get("test_type", "")).strip().upper()
+
+
+def _evaluation_day_signature(record: dict[str, object]) -> tuple[str, pd.Timestamp | None]:
+    athlete, record_date, _ = _evaluation_record_signature(record)
+    return athlete, record_date
+
+
+def _pending_evaluation_impact(record: dict[str, object], pending_records: list[dict], history_df: pd.DataFrame | None) -> str:
+    athlete, record_date, test_type = _evaluation_record_signature(record)
+    if not athlete or record_date is None:
+        return "Incompleto"
+
+    same_day_pending = sum(
+        1
+        for item in pending_records
+        if _evaluation_day_signature(item) == (athlete, record_date)
+    )
+    same_test_pending = sum(
+        1
+        for item in pending_records
+        if _evaluation_record_signature(item) == (athlete, record_date, test_type)
+    )
+
+    history_match = False
+    if history_df is not None and not history_df.empty and {"Athlete", "Date"}.issubset(history_df.columns):
+        athlete_series = history_df["Athlete"].astype(str).str.strip().str.title()
+        date_series = pd.to_datetime(history_df["Date"], errors="coerce").dt.normalize()
+        history_match = bool(((athlete_series == athlete) & (date_series == record_date)).any())
+
+    if same_test_pending > 1:
+        return "Duplica test pendiente"
+    if history_match and same_day_pending > 1:
+        return "Actualiza fecha existente y fusiona tests"
+    if history_match:
+        return "Actualiza fecha existente"
+    if same_day_pending > 1:
+        return "Se fusiona con otros tests del dia"
+    return "Nuevo"
+
+
+def _pending_evaluation_rows(pending_records: list[dict], history_df: pd.DataFrame | None) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for idx, record in enumerate(pending_records):
+        record_date = pd.to_datetime(record.get("Date"), errors="coerce")
+        metric_fields = _evaluation_metric_fields(record)
+        rows.append(
+            {
+                "#": idx + 1,
+                "Atleta": record.get("Athlete", "Sin atleta"),
+                "Fecha": record_date.strftime("%d/%m/%Y") if not pd.isna(record_date) else "Sin fecha",
+                "Test": record.get("test_type", "-"),
+                "Estado": _pending_evaluation_impact(record, pending_records, history_df),
+                "Archivo": record.get("__source_file", "archivo"),
+                "Metricas": record.get("__metric_count", "-"),
+                "Campos": ", ".join(metric_fields[:6]) if metric_fields else "-",
+            }
+        )
+    return rows
+
+
+def _pending_evaluation_group_rows(pending_records: list[dict], history_df: pd.DataFrame | None) -> list[dict[str, object]]:
+    grouped: dict[tuple[str, str], dict[str, object]] = {}
+    for record in pending_records:
+        athlete, record_date = _evaluation_day_signature(record)
+        date_text = record_date.strftime("%d/%m/%Y") if record_date is not None else "Sin fecha"
+        key = (athlete or "Sin atleta", date_text)
+        row = grouped.setdefault(
+            key,
+            {
+                "Atleta": athlete or "Sin atleta",
+                "Fecha": date_text,
+                "Tests": [],
+                "Pendientes": 0,
+                "Metricas": 0,
+                "Actualiza historial": "No",
+            },
+        )
+        row["Pendientes"] += 1
+        row["Metricas"] += int(record.get("__metric_count", 0) or 0)
+        test_label = str(record.get("test_type", "-"))
+        if test_label not in row["Tests"]:
+            row["Tests"].append(test_label)
+        impact = _pending_evaluation_impact(record, pending_records, history_df)
+        if "Actualiza" in impact:
+            row["Actualiza historial"] = "Si"
+
+    def _sort_key(item: dict[str, object]) -> tuple[str, float]:
+        parsed_date = pd.to_datetime(item["Fecha"], format="%d/%m/%Y", errors="coerce")
+        date_value = parsed_date.timestamp() if not pd.isna(parsed_date) else float("-inf")
+        return str(item["Atleta"]), -date_value
+
+    return [
+        {
+            **row,
+            "Tests": ", ".join(row["Tests"]),
+        }
+        for row in sorted(grouped.values(), key=_sort_key)
+    ]
+
+
 with st.sidebar:
     sidebar_wordmark = _brand_wordmark_markup("sidebar-brand-wordmark", "sidebar-wordmark-fallback")
+    sidebar_icon = _brand_icon_markup(42)
     st.markdown(f"""
 <div class="sidebar-brand-shell">
-  {sidebar_wordmark}
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    {sidebar_icon}
+    {sidebar_wordmark}
+  </div>
   <div class="sidebar-brand-caption">
     Reportes de rendimiento y seguimiento
   </div>
@@ -3566,23 +3711,54 @@ with st.sidebar:
                     eval_type,
                     filename=getattr(eval_file, "name", None),
                 )
-                metric_count = len([
-                    key for key, value in record.items()
-                    if key not in {"test_type"} and not key.endswith("_reps") and value is not None
-                ])
-                if metric_count == 0:
+                metric_fields = _evaluation_metric_fields(record)
+                if not metric_fields:
                     raise ValueError("no se detectaron métricas válidas para el tipo de test seleccionado.")
                 record["Athlete"] = eval_athlete_name
                 record["Date"] = pd.Timestamp(eval_date)
                 record["__source_file"] = getattr(eval_file, "name", "archivo")
-                record["__metric_count"] = metric_count
+                record["__metric_fields"] = metric_fields
+                record["__metric_count"] = len(metric_fields)
                 persist_athlete_names([eval_athlete_name])
                 if "eval_records" not in st.session_state:
                     st.session_state.eval_records = []
-                st.session_state.eval_records.append(record)
+                pending_records = st.session_state.eval_records
+                record_signature = _evaluation_record_signature(record)
+                replace_idx = next(
+                    (
+                        idx
+                        for idx, pending_record in enumerate(pending_records)
+                        if _evaluation_record_signature(pending_record) == record_signature
+                    ),
+                    None,
+                )
+                if replace_idx is not None:
+                    pending_records[replace_idx] = record
+                    action_label = "actualizada en la cola"
+                else:
+                    pending_records.append(record)
+                    action_label = "agregada a la cola"
+                st.session_state.eval_records = pending_records
+                same_day_total = sum(
+                    1
+                    for item in pending_records
+                    if _evaluation_day_signature(item) == _evaluation_day_signature(record)
+                )
+                history_impact = _pending_evaluation_impact(record, pending_records, st.session_state.jump_df)
+                impact_parts = []
+                if same_day_total > 1:
+                    impact_parts.append(
+                        f"se consolidará junto con {same_day_total - 1} test(s) del mismo día"
+                    )
+                if "Actualiza" in history_impact:
+                    impact_parts.append("actualiza historial existente")
+                impact_suffix = f" ({'; '.join(impact_parts)})." if impact_parts else "."
                 _push_notice(
                     "success",
-                    f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): agregada para {eval_athlete_name} con {metric_count} métricas.",
+                    (
+                        f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): "
+                        f"{action_label} para {eval_athlete_name} con {len(metric_fields)} métricas{impact_suffix}"
+                    ),
                 )
             except Exception as exc:
                 _push_notice(
@@ -3593,6 +3769,7 @@ with st.sidebar:
 
         if "eval_records" in st.session_state and st.session_state.eval_records:
             pending_records = st.session_state.eval_records
+            history_df = st.session_state.jump_df
             n = len(pending_records)
             pending_athletes = len(
                 {
@@ -3601,28 +3778,36 @@ with st.sidebar:
                     if normalize_athlete_name(record.get("Athlete"))
                 }
             )
+            pending_days = len(
+                {
+                    _evaluation_day_signature(record)
+                    for record in pending_records
+                    if _evaluation_day_signature(record)[0] and _evaluation_day_signature(record)[1] is not None
+                }
+            )
+            grouped_rows = _pending_evaluation_group_rows(pending_records, history_df)
+            detail_rows = _pending_evaluation_rows(pending_records, history_df)
+            updates_existing = sum(1 for row in grouped_rows if row.get("Actualiza historial") == "Si")
+            duplicate_tests = sum(1 for row in detail_rows if row.get("Estado") == "Duplica test pendiente")
             st.caption(f"{n} test(s) pendientes de consolidacion - {pending_athletes} atleta(s)")
+            summary_cols = st.columns(4)
+            summary_cols[0].metric("Tests pendientes", n)
+            summary_cols[1].metric("Atletas", pending_athletes)
+            summary_cols[2].metric("Fechas activas", pending_days)
+            summary_cols[3].metric("Actualizan historial", updates_existing)
 
-            pending_rows = []
-            pending_labels = []
-            for idx, record in enumerate(pending_records):
-                record_date = pd.to_datetime(record.get("Date"), errors="coerce")
-                record_date_text = record_date.strftime("%d/%m/%Y") if not pd.isna(record_date) else "Sin fecha"
-                pending_rows.append(
-                    {
-                        "#": idx + 1,
-                        "Atleta": record.get("Athlete", "Sin atleta"),
-                        "Fecha": record_date_text,
-                        "Test": record.get("test_type", "-"),
-                        "Archivo": record.get("__source_file", "archivo"),
-                        "Metricas": record.get("__metric_count", "-"),
-                    }
-                )
-                pending_labels.append(
-                    f"{idx + 1}. {record.get('Athlete', 'Sin atleta')} | {record_date_text} | {record.get('test_type', '-')}"
+            if duplicate_tests:
+                st.warning(
+                    f"Hay {duplicate_tests} test(s) duplicados en la cola. Conviene revisarlos antes de procesar todo."
                 )
 
-            st.dataframe(pd.DataFrame(pending_rows), use_container_width=False, hide_index=True)
+            if grouped_rows:
+                st.caption("Resumen por atleta y fecha")
+                st.dataframe(pd.DataFrame(grouped_rows), use_container_width=False, hide_index=True)
+
+            if detail_rows:
+                with st.expander("Detalle de la cola", expanded=duplicate_tests > 0):
+                    st.dataframe(pd.DataFrame(detail_rows), use_container_width=False, hide_index=True)
 
             preview_df = _records_to_jump_df(pending_records)
             if not preview_df.empty:
@@ -3641,6 +3826,10 @@ with st.sidebar:
                     )
 
             remove_col, clear_col = st.columns(2)
+            pending_labels = [
+                f"{row['#']}. {row['Atleta']} | {row['Fecha']} | {row['Test']} | {row['Estado']}"
+                for row in detail_rows
+            ]
             with remove_col:
                 pending_to_remove = st.selectbox(
                     "Quitar test pendiente",
@@ -4487,13 +4676,8 @@ with tab_report:
             key="sel_report_audience",
         )
         report_audience = normalize_report_audience(REPORT_AUDIENCE_OPTIONS[audience_choice])
-        if (
-            st.session_state.rpe_df is not None
-            or st.session_state.jump_df is not None
-            or st.session_state.maxes_df is not None
-            or st.session_state.rep_load_df is not None
-        ):
-            athletes_r = collect_report_athletes(dict(st.session_state))
+        athletes_r = collect_report_athletes(dict(st.session_state))
+        if athletes_r:
             report_athlete = st.selectbox(
                 "Filtrar por atleta (opcional)",
                 ["Todos"] + athletes_r, key="sel_report_ath")
@@ -4546,70 +4730,21 @@ with tab_report:
             include_completion=include_completion,
         )
 
-        # ACWR
-        if include_acwr and st.session_state.acwr_dict:
-            acwr_all = []
-            for ath, adf in st.session_state.acwr_dict.items():
-                adf_copy = adf.copy()
-                adf_copy["Athlete"] = ath
-                if report_athlete != "Todos" and ath != report_athlete:
-                    continue
-                acwr_all.append(adf_copy)
-            if acwr_all:
-                sheets["ACWR_sRPE"] = pd.concat(acwr_all).round(2)
-
-        # Monotonía
-        if include_mono and st.session_state.mono_dict:
-            mono_all = []
-            for ath, mdf in st.session_state.mono_dict.items():
-                if report_athlete != "Todos" and ath != report_athlete:
-                    continue
-                mdf_copy = mdf.copy()
-                mdf_copy["Athlete"] = ath
-                mono_all.append(mdf_copy)
-            if mono_all:
-                sheets["Monotonia_Strain"] = pd.concat(mono_all).round(2)
-
-        # Wellness
-        if include_wellness and st.session_state.wellness_df is not None:
-            wdf_r = st.session_state.wellness_df
-            if report_athlete != "Todos":
-                wdf_r = wdf_r[wdf_r["Athlete"] == report_athlete]
-            sheets["Wellness"] = wdf_r.round(2)
-
-        # Jumps
-        if include_jumps and st.session_state.jump_df is not None:
-            jdf_r = st.session_state.jump_df
-            if report_athlete != "Todos":
-                jdf_r = jdf_r[jdf_r["Athlete"] == report_athlete]
-            sheets["Evaluaciones_Saltos"] = jdf_r.round(2)
-
-        # Maxes
-        if include_maxes and st.session_state.maxes_df is not None:
-            max_df_r = st.session_state.maxes_df
-            if report_athlete != "Todos" and "Athlete" in max_df_r.columns:
-                max_df_r = max_df_r[max_df_r["Athlete"] == report_athlete]
-            sheets["Maximos_Ejercicios"] = max_df_r
-
-        # Volume
-        if include_volume and st.session_state.rep_load_df is not None:
-            rep_df_r = st.session_state.rep_load_df
-            if report_athlete != "Todos" and "Athlete" in rep_df_r.columns:
-                rep_df_r = rep_df_r[rep_df_r["Athlete"] == report_athlete]
-            sheets["Volumen_Sesion"] = rep_df_r
-
-        # Completion
-        if include_completion and st.session_state.completion_df is not None:
-            comp_df_r = st.session_state.completion_df
-            if report_athlete != "Todos" and "Athlete" in comp_df_r.columns:
-                filtered_comp = comp_df_r[comp_df_r["Athlete"] == report_athlete]
-                if not filtered_comp.empty:
-                    comp_df_r = filtered_comp
-            sheets["Completion_Rate"] = comp_df_r
-
         if not sheets:
             _alert("No hay datos para exportar. Cargá archivos primero.", "y")
         else:
+            ordered_sheet_names = [name for name in REPORT_SHEET_ORDER if name in sheets]
+            ordered_sheet_names.extend(name for name in sheets if name not in ordered_sheet_names)
+            export_rows = [
+                {
+                    "Seccion": sheet_name.replace("_", " "),
+                    "Hoja Excel": REPORT_SHEET_EXPORT_NAMES.get(sheet_name, sheet_name),
+                    "Filas": len(sheets[sheet_name]),
+                }
+                for sheet_name in ordered_sheet_names
+            ]
+            st.caption("Paquete exportable listo para descargar")
+            st.dataframe(pd.DataFrame(export_rows), use_container_width=False, hide_index=True)
             excel_bytes = export_excel(sheets)
             pdf_bytes = generate_visual_report_pdf(report_state, report_athlete, report_audience)
             ath_label = report_athlete.replace(" ", "_") if report_athlete != "Todos" else "Equipo"

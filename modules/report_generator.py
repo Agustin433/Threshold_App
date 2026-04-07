@@ -17,9 +17,9 @@ APP_ROOT = Path(__file__).resolve().parent.parent
 BRAND_ASSET_DIR = APP_ROOT / "assets" / "brand"
 
 REPORT_SHEET_ORDER = [
-    "Reporte_Meta",
     "Resumen_Ejecutivo",
     "Interpretacion",
+    "Completion_Resumen",
     "ACWR_sRPE",
     "Monotonia_Strain",
     "Wellness",
@@ -27,7 +27,22 @@ REPORT_SHEET_ORDER = [
     "Maximos_Ejercicios",
     "Volumen_Sesion",
     "Completion_Rate",
+    "Reporte_Meta",
 ]
+
+REPORT_SHEET_EXPORT_NAMES = {
+    "Resumen_Ejecutivo": "01_Resumen",
+    "Interpretacion": "02_Interpretacion",
+    "Completion_Resumen": "03_Completion_Resumen",
+    "ACWR_sRPE": "04_Carga_ACWR",
+    "Monotonia_Strain": "05_Carga_Monotonia",
+    "Wellness": "06_Wellness",
+    "Evaluaciones_Saltos": "07_Evaluaciones",
+    "Maximos_Ejercicios": "08_Maximos",
+    "Volumen_Sesion": "09_Volumen",
+    "Completion_Rate": "10_Completion_Detalle",
+    "Reporte_Meta": "99_Meta",
+}
 
 DATASET_LABELS = {
     "rpe_df": "RPE + Tiempo",
@@ -69,7 +84,7 @@ def report_audience_label(audience: str | None) -> str:
 
 def collect_report_athletes(state: dict[str, pd.DataFrame | None]) -> list[str]:
     athletes: set[str] = set()
-    for key in ["rpe_df", "jump_df", "maxes_df", "rep_load_df"]:
+    for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]:
         frame = state.get(key)
         if frame is None or frame.empty or "Athlete" not in frame.columns:
             continue
@@ -547,6 +562,9 @@ def build_report_sheets(
             filtered_df = df[df["Athlete"] == report_athlete]
             if not filtered_df.empty:
                 df = filtered_df
+        summary_df = _build_completion_summary_sheet(df, report_athlete)
+        if not summary_df.empty:
+            sheets["Completion_Resumen"] = summary_df
         sheets["Completion_Rate"] = df
         if not df.empty:
             included_sections.append("Completion")
@@ -563,16 +581,135 @@ def _ordered_sheet_items(data_dict: dict[str, pd.DataFrame]) -> list[tuple[str, 
     return [(name, data_dict[name]) for name in ordered_names]
 
 
+def _preferred_columns(df: pd.DataFrame, ordered_columns: list[str]) -> pd.DataFrame:
+    selected = [column for column in ordered_columns if column in df.columns]
+    selected.extend(column for column in df.columns if column not in selected)
+    return df[selected]
+
+
+def _normalize_date_like_columns(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+    for column in result.columns:
+        col_text = str(column).lower()
+        if "date" in col_text or "fecha" in col_text or "semana" in col_text:
+            parsed = pd.to_datetime(result[column], errors="coerce")
+            if parsed.notna().any():
+                result[column] = parsed
+    return result
+
+
+def _sort_export_frame(df: pd.DataFrame, sort_columns: list[str], ascending: list[bool]) -> pd.DataFrame:
+    valid_columns = [column for column in sort_columns if column in df.columns]
+    if not valid_columns:
+        return df.reset_index(drop=True)
+    valid_ascending = ascending[: len(valid_columns)]
+    return df.sort_values(valid_columns, ascending=valid_ascending, na_position="last").reset_index(drop=True)
+
+
+def _build_completion_summary_sheet(df: pd.DataFrame | None, report_athlete: str) -> pd.DataFrame:
+    if df is None or df.empty or not {"Date", "Pct"}.issubset(df.columns):
+        return pd.DataFrame()
+
+    result = df.copy()
+    result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
+    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
+    result = result.dropna(subset=["Date", "Pct"])
+    if result.empty:
+        return pd.DataFrame()
+
+    scope_label = report_athlete if report_athlete != "Todos" else "Equipo"
+    grouped = (
+        result.groupby("Date", as_index=False)
+        .agg(
+            Pct_Promedio=("Pct", "mean"),
+            Sesiones=("Pct", "size"),
+        )
+        .sort_values("Date", ascending=False)
+        .reset_index(drop=True)
+    )
+    grouped.insert(0, "Alcance", scope_label)
+    if "Athlete" in result.columns:
+        athlete_counts = (
+            result.groupby("Date")["Athlete"]
+            .nunique(dropna=True)
+            .reset_index(name="Atletas")
+        )
+        grouped = grouped.merge(athlete_counts, on="Date", how="left")
+    return grouped
+
+
+def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
+    result = _normalize_date_like_columns(df)
+
+    if sheet_name == "ACWR_sRPE":
+        result = _preferred_columns(
+            result,
+            ["Athlete", "Date", "sRPE_diario", "Aguda_7d", "Cronica_28d", "ACWR", "EWMA_Aguda", "EWMA_Cronica", "ACWR_EWMA", "Zona"],
+        )
+        return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
+    if sheet_name == "Monotonia_Strain":
+        result = _preferred_columns(
+            result,
+            ["Athlete", "Semana", "Carga_Semanal", "Monotonia", "Strain"],
+        )
+        return _sort_export_frame(result, ["Athlete", "Semana"], [True, False])
+    if sheet_name == "Wellness":
+        result = _preferred_columns(
+            result,
+            ["Athlete", "Date", "Sueno_hs", "Estres", "Dolor", "Wellness_Score"],
+        )
+        return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
+    if sheet_name == "Evaluaciones_Saltos":
+        result = _preferred_columns(
+            result,
+            ["Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "EUR", "DRI", "IMTP_N", "NM_Profile"],
+        )
+        return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
+    if sheet_name == "Maximos_Ejercicios":
+        result = _preferred_columns(
+            result,
+            ["Athlete", "Exercise Name", "Added Date", "Max Value"],
+        )
+        return _sort_export_frame(result, ["Athlete", "Added Date", "Exercise Name"], [True, False, True])
+    if sheet_name == "Volumen_Sesion":
+        result = _preferred_columns(
+            result,
+            ["Athlete", "Date", "Exercise", "Reps_Assigned", "Reps_Completed", "Load_kg"],
+        )
+        if "Date" not in result.columns and "Assigned Date" in result.columns:
+            result = _preferred_columns(
+                result,
+                ["Athlete", "Assigned Date", "Exercise", "Reps_Assigned", "Reps_Completed", "Load_kg", "Volume_Load", "Category"],
+            )
+            return _sort_export_frame(result, ["Athlete", "Assigned Date", "Exercise"], [True, False, True])
+        return _sort_export_frame(result, ["Athlete", "Date", "Exercise"], [True, False, True])
+    if sheet_name == "Completion_Resumen":
+        result = _preferred_columns(
+            result,
+            ["Alcance", "Date", "Pct_Promedio", "Sesiones", "Atletas"],
+        )
+        return _sort_export_frame(result, ["Date"], [False])
+    if sheet_name == "Completion_Rate":
+        result = _preferred_columns(
+            result,
+            ["Athlete", "Date", "Assigned", "Completed", "Pct"],
+        )
+        return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
+    return result.reset_index(drop=True)
+
+
 def _format_excel_sheet(worksheet, df: pd.DataFrame, sheet_name: str) -> None:
     header_fill = PatternFill(fill_type="solid", fgColor="0D3C5E")
     header_font = Font(color="FEFEFE", bold=True)
     body_font = Font(color="221F20")
     thin_side = Side(style="thin", color="D8DEE4")
     border = Border(bottom=thin_side)
+    stripe_fill = PatternFill(fill_type="solid", fgColor="F7FAFC")
 
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = worksheet.dimensions
     worksheet.sheet_view.showGridLines = False
+    worksheet.row_dimensions[1].height = 22
 
     for cell in worksheet[1]:
         cell.fill = header_fill
@@ -580,15 +717,21 @@ def _format_excel_sheet(worksheet, df: pd.DataFrame, sheet_name: str) -> None:
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = border
 
-    for row in worksheet.iter_rows(min_row=2):
+    for row_idx, row in enumerate(worksheet.iter_rows(min_row=2), start=2):
         for cell in row:
             cell.font = body_font
-            cell.alignment = Alignment(vertical="top")
+            cell.alignment = Alignment(vertical="top", wrap_text=sheet_name in {"Interpretacion", "Reporte_Meta"})
             cell.border = border
+            if row_idx % 2 == 0:
+                cell.fill = stripe_fill
 
     date_like_cols = [
         idx for idx, col in enumerate(df.columns, start=1)
         if "date" in str(col).lower() or "fecha" in str(col).lower() or "semana" in str(col).lower()
+    ]
+    percent_like_cols = [
+        idx for idx, col in enumerate(df.columns, start=1)
+        if "pct" in str(col).lower() or "%" in str(col) or "completion promedio" in str(col).lower()
     ]
     numeric_like_cols = [
         idx for idx, col in enumerate(df.columns, start=1)
@@ -603,9 +746,13 @@ def _format_excel_sheet(worksheet, df: pd.DataFrame, sheet_name: str) -> None:
         for cell in worksheet[get_column_letter(col_idx)][1:]:
             cell.alignment = Alignment(horizontal="right", vertical="top")
 
+    for col_idx in percent_like_cols:
+        for cell in worksheet[get_column_letter(col_idx)][1:]:
+            cell.number_format = '0.0"%"'
+
     for idx, column in enumerate(df.columns, start=1):
         values = [str(column)] + ["" if pd.isna(value) else str(value) for value in df[column].head(200)]
-        max_len = min(max(len(value) for value in values) + 2, 36)
+        max_len = min(max(len(value) for value in values) + 2, 42)
         worksheet.column_dimensions[get_column_letter(idx)].width = max(12, max_len)
 
     if sheet_name == "Reporte_Meta":
@@ -619,9 +766,11 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         for sheet_name, df in _ordered_sheet_items(data_dict):
             if df is not None and not df.empty:
-                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
-                worksheet = writer.book[sheet_name[:31]]
-                _format_excel_sheet(worksheet, df, sheet_name)
+                prepared_df = _prepare_export_frame(sheet_name, df)
+                export_name = REPORT_SHEET_EXPORT_NAMES.get(sheet_name, sheet_name)[:31]
+                prepared_df.to_excel(writer, sheet_name=export_name, index=False)
+                worksheet = writer.book[export_name]
+                _format_excel_sheet(worksheet, prepared_df, sheet_name)
     return buffer.getvalue()
 
 
@@ -2095,12 +2244,18 @@ def _resolve_brand_asset_path(kind: str = "wordmark") -> Path | None:
         "wordmark": [
             "threshold_logo_horizontal.*",
             "threshold_wordmark.*",
+            "threshold-wordmark.*",
+            "threshold-horizontal.*",
+            "wordmark.*",
             "Untitled-2.*",
             "untitled-2.*",
         ],
         "icon": [
             "threshold_isotipo.*",
             "threshold_icon.*",
+            "threshold-isotype.*",
+            "threshold-icon.*",
+            "isotype.*",
             "Untitled-1.*",
             "untitled-1.*",
         ],
@@ -2395,11 +2550,31 @@ def _generate_visual_report_pdf_reportlab(
 
     story: list[object] = []
     wordmark = _resolve_brand_asset_path("wordmark")
-    if wordmark is not None:
-        logo = _fit_image(wordmark, 150, 28)
-        if logo is not None:
-            story.append(logo)
-            story.append(Spacer(1, 8 * mm))
+    icon = _resolve_brand_asset_path("icon")
+    wordmark_logo = _fit_image(wordmark, 150, 28) if wordmark is not None else None
+    icon_logo = _fit_image(icon, 18, 18) if icon is not None else None
+    if icon_logo is not None and wordmark_logo is not None:
+        brand_table = Table(
+            [[icon_logo, wordmark_logo]],
+            colWidths=[22 * mm, 128 * mm],
+            style=TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            ),
+        )
+        story.append(brand_table)
+        story.append(Spacer(1, 8 * mm))
+    elif wordmark_logo is not None:
+        story.append(wordmark_logo)
+        story.append(Spacer(1, 8 * mm))
+    elif icon_logo is not None:
+        story.append(icon_logo)
+        story.append(Spacer(1, 8 * mm))
 
     subtitle = {
         "atleta": "Reporte individual para atleta",

@@ -1,10 +1,13 @@
 """Vista dedicada de exportacion de reportes."""
 
+import pandas as pd
 import streamlit as st
 
 from modules.page_state import ensure_page_state
 from modules.report_generator import (
     REPORT_AUDIENCE_OPTIONS,
+    REPORT_SHEET_ORDER,
+    REPORT_SHEET_EXPORT_NAMES,
     build_executive_summary_df,
     build_report_sheets,
     collect_report_athletes,
@@ -58,6 +61,18 @@ if st.button("Generar reporte Excel"):
     if not sheets:
         st.warning("No hay datos para exportar.")
     else:
+        ordered_sheet_names = [name for name in REPORT_SHEET_ORDER if name in sheets]
+        ordered_sheet_names.extend(name for name in sheets if name not in ordered_sheet_names)
+        sheet_rows = [
+            {
+                "Seccion": sheet_name.replace("_", " "),
+                "Hoja Excel": REPORT_SHEET_EXPORT_NAMES.get(sheet_name, sheet_name),
+                "Filas": len(sheets[sheet_name]),
+            }
+            for sheet_name in ordered_sheet_names
+        ]
+        st.caption("Paquete exportable listo")
+        st.dataframe(pd.DataFrame(sheet_rows), use_container_width=True, hide_index=True)
         pdf_bytes = generate_visual_report_pdf(dict(st.session_state), report_athlete, report_audience)
         audience_slug = audience_choice.replace(" ", "_")
         c1, c2 = st.columns(2)
