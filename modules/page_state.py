@@ -40,7 +40,7 @@ def ensure_page_state(load_models: bool = True) -> None:
 
 
 def collect_state_athletes(dataset_keys: list[str] | None = None) -> list[str]:
-    keys = dataset_keys or ["rpe_df", "wellness_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
+    keys = dataset_keys or ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
     athletes: set[str] = set()
     for key in keys:
         frame = st.session_state.get(key)

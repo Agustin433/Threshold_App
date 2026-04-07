@@ -173,6 +173,31 @@ def _athlete_completion_mean(state: dict[str, pd.DataFrame | None], athlete: str
     return _team_completion_mean(state)
 
 
+def _completion_plot_df(state: dict[str, pd.DataFrame | None], athlete: str = "Todos") -> pd.DataFrame:
+    cdf = state.get("completion_df")
+    if cdf is None or cdf.empty or not {"Date", "Pct"}.issubset(cdf.columns):
+        return pd.DataFrame(columns=["Date", "Pct"])
+
+    result = cdf.copy()
+    result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
+    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
+    result = result.dropna(subset=["Date", "Pct"])
+    if result.empty:
+        return pd.DataFrame(columns=["Date", "Pct"])
+
+    if athlete != "Todos" and "Athlete" in result.columns:
+        athlete_df = result[result["Athlete"].astype(str).str.strip() == athlete]
+        if not athlete_df.empty:
+            result = athlete_df
+
+    return (
+        result.groupby("Date", as_index=False)["Pct"]
+        .mean()
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+
+
 def _cmj_series(state: dict[str, pd.DataFrame | None], athlete: str) -> list[tuple[str, float]]:
     jdf = state.get("jump_df")
     if jdf is None or jdf.empty or "Athlete" not in jdf.columns or "CMJ_cm" not in jdf.columns:
@@ -2143,20 +2168,60 @@ def collect_report_plotly_figures(
     report_athlete: str = "Todos",
     report_audience: str = "profe",
 ) -> list[dict[str, object]]:
-    if report_athlete == "Todos":
-        return []
-
     try:
-        from charts.load_charts import chart_acwr, chart_wellness
-        from charts.dashboard_charts import chart_cmj_trend, chart_radar
+        from charts.load_charts import chart_acwr, chart_completion, chart_wellness
+        from charts.dashboard_charts import (
+            chart_cmj_trend,
+            chart_quadrant_cmj_imtp,
+            chart_quadrant_dri_sj,
+            chart_radar,
+        )
     except Exception:
         return []
 
     audience = normalize_report_audience(report_audience)
     theme = _build_report_chart_theme()
     figures: list[dict[str, object]] = []
-
     jdf = state.get("jump_df")
+
+    if report_athlete == "Todos":
+        completion_plot_df = _completion_plot_df(state, "Todos")
+        if not completion_plot_df.empty:
+            figures.append(
+                {
+                    "slug": "completion_team",
+                    "title": "Adherencia del equipo",
+                    "figure": chart_completion(completion_plot_df, theme=theme, athlete_label="Todos"),
+                }
+            )
+
+        if jdf is not None and not jdf.empty and "Athlete" in jdf.columns:
+            latest_team = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+            if len(latest_team) > 1 and {"CMJ_cm", "IMTP_N"}.issubset(latest_team.columns):
+                figures.append(
+                    {
+                        "slug": "quadrant_cmj_imtp",
+                        "title": "Mapa de potencia y fuerza máxima",
+                        "figure": chart_quadrant_cmj_imtp(latest_team, theme=theme),
+                    }
+                )
+            if len(latest_team) > 1 and {"DRI", "SJ_cm"}.issubset(latest_team.columns):
+                figures.append(
+                    {
+                        "slug": "quadrant_dri_sj",
+                        "title": "Mapa de reactividad y fuerza concéntrica",
+                        "figure": chart_quadrant_dri_sj(latest_team, theme=theme),
+                    }
+                )
+
+        if audience == "cliente":
+            preferred = {"completion_team", "quadrant_cmj_imtp"}
+        elif audience == "atleta":
+            preferred = {"completion_team", "quadrant_cmj_imtp"}
+        else:
+            preferred = {"completion_team", "quadrant_cmj_imtp", "quadrant_dri_sj"}
+        return [item for item in figures if item["slug"] in preferred][:2]
+
     if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and report_athlete in jdf["Athlete"].values:
         athlete_jdf = jdf[jdf["Athlete"] == report_athlete].sort_values("Date")
         latest_row = athlete_jdf.iloc[-1]
@@ -2185,8 +2250,8 @@ def collect_report_plotly_figures(
                 "slug": "acwr",
                 "title": "Carga reciente",
                 "figure": chart_acwr(acwr_df, report_athlete, "ACWR_EWMA", theme=theme),
-            }
-        )
+                }
+            )
 
     wdf = state.get("wellness_df")
     if wdf is not None and not wdf.empty and "Athlete" in wdf.columns:
@@ -2200,14 +2265,24 @@ def collect_report_plotly_figures(
                 }
             )
 
+    completion_plot_df = _completion_plot_df(state, report_athlete)
+    if not completion_plot_df.empty and len(completion_plot_df) >= 2:
+        figures.append(
+            {
+                "slug": "completion",
+                "title": "Adherencia reciente",
+                "figure": chart_completion(completion_plot_df, theme=theme, athlete_label=report_athlete),
+            }
+        )
+
     if audience == "cliente":
-        preferred = {"cmj_trend", "wellness", "acwr"}
+        preferred = {"cmj_trend", "wellness", "acwr", "completion"}
         figures = [item for item in figures if item["slug"] in preferred][:2]
     elif audience == "atleta":
-        preferred = {"radar_perfil", "cmj_trend", "wellness", "acwr"}
+        preferred = {"radar_perfil", "cmj_trend", "wellness", "acwr", "completion"}
         figures = [item for item in figures if item["slug"] in preferred][:2]
     else:
-        preferred = {"radar_perfil", "cmj_trend", "acwr", "wellness"}
+        preferred = {"radar_perfil", "cmj_trend", "acwr", "wellness", "completion"}
         figures = [item for item in figures if item["slug"] in preferred][:2]
 
     return figures

@@ -57,37 +57,37 @@ Threshold S&C es una app en Streamlit para:
 Crear entorno virtual si hace falta:
 
 ```powershell
-python -m venv .venv
+py -3.13 -m venv .venv
 ```
 
-Activarlo:
+Instalar dependencias en el entorno local del repo:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Activacion opcional:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-Instalar dependencias:
+Comando recomendado para correr la app:
 
 ```powershell
-pip install -r requirements.txt
-```
-
-Correr la app:
-
-```powershell
-python -m streamlit run app.py
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 Headless:
 
 ```powershell
-python -m streamlit run app.py --server.headless true
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.headless true
 ```
 
 Smoke test automatizado:
 
 ```powershell
-python -m unittest discover -s tests -p "test_*.py"
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
 
 ## 5. Donde mirar primero si algo falla
@@ -157,6 +157,13 @@ Objetivo: que el sistema sea mas util entre sesiones, equipos o dispositivos.
 - Mejorar PDF ejecutivo real
 - Equiparar mas las `pages/` con el dashboard principal
 - Empezar gestion de historial desde UI
+
+Estado actual implementado:
+
+- `pages/06_history_manager.py` permite revisar, descargar, recortar y vaciar historial local por dataset
+- esa misma vista permite publicar el dataset local a Supabase o reemplazar local desde remoto por dataset
+- `pages/01_load_monitoring.py`, `pages/02_jump_evaluation.py` y `pages/03_athlete_profile.py` ya tienen charts y lectura operativa, no solo tablas
+- el PDF visual ahora puede incluir charts de equipo para reportes `Todos` y sumar completion / cuadrantes cuando hay datos
 
 ### Fase 3: mantenimiento y refactor
 

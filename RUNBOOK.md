@@ -4,28 +4,28 @@ Runbook operativo para levantar la app localmente y resolver los fallos mas prob
 
 ## 1. Requisitos previos
 
-- Python 3.11+ o 3.12+ recomendado.
+- Python 3.13 recomendado y validado en esta maquina.
 - PowerShell en Windows.
 - Acceso al directorio del proyecto.
 
 ## 2. Preparacion del entorno
 
-Si no existe un entorno virtual:
+Crear el entorno virtual del proyecto:
 
 ```powershell
-python -m venv .venv
+py -3.13 -m venv .venv
 ```
 
-Activar el entorno:
+Instalar dependencias declaradas sin depender de activacion manual:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Activacion opcional en PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-```
-
-Instalar dependencias declaradas:
-
-```powershell
-pip install -r requirements.txt
 ```
 
 La persistencia local se guarda por defecto en `.local/store`.
@@ -57,16 +57,22 @@ Si no configuras Supabase, la app sigue funcionando en modo local.
 
 ## 4. Comando exacto para correr la app
 
-Desde la raiz del proyecto:
+Comando recomendado y verificado desde la raiz del proyecto:
 
 ```powershell
-python -m streamlit run app.py
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 Version headless util para pruebas:
 
 ```powershell
-python -m streamlit run app.py --server.headless true
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.headless true
+```
+
+Si activaste el entorno antes, tambien funciona:
+
+```powershell
+python -m streamlit run app.py
 ```
 
 ## 5. Que deberias ver si arranca bien
@@ -206,6 +212,7 @@ Revisar:
 6. Descargar Excel.
 7. Probar PDF.
 8. Si usas Supabase, probar sincronizacion manual.
+9. Revisar `pages/06_history_manager.py` para confirmar filtros, descarga y push/pull de historial.
 
 Si queres una validacion automatizada del repo, usar tambien el workflow `.github/workflows/smoke-check.yml`.
 
@@ -220,6 +227,7 @@ python -m unittest discover -s tests -p "test_*.py"
 - La persistencia local usa CSV en `.local/store`.
 - `data/store` queda como ruta legacy de migracion.
 - La app principal es la experiencia mas completa; `pages/` son vistas secundarias.
+- `pages/06_history_manager.py` es la vista recomendada para auditar o recortar historial sin tocar los CSV a mano.
 - `app.py` es grande y mezcla UI con orquestacion y parte del acceso a datos.
 - Si algo falla, casi siempre el primer triangulo de revision es:
   - `app.py`

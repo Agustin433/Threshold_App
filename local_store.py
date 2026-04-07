@@ -283,6 +283,29 @@ def save_dataset(state_key: str, df: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def overwrite_dataset(state_key: str, df: pd.DataFrame | None) -> pd.DataFrame:
+    _ensure_store_dir()
+    path = _dataset_path(state_key)
+
+    if df is None or df.empty:
+        if path.exists():
+            path.unlink()
+        return pd.DataFrame()
+
+    normalized = _dedupe_dataset_frame(df, state_key)
+    if normalized.empty:
+        if path.exists():
+            path.unlink()
+        return normalized
+
+    athlete_col = DATASET_SPECS[state_key].get("athlete_col")
+    if athlete_col and athlete_col in normalized.columns:
+        persist_athlete_names(normalized[athlete_col].dropna().tolist())
+
+    normalized.to_csv(path, index=False)
+    return normalized
+
+
 def filter_recent_window(df: pd.DataFrame, date_col: str, weeks: int = RECENT_WEEKS) -> pd.DataFrame:
     if df is None or df.empty or date_col not in df.columns:
         return pd.DataFrame() if df is None else df
@@ -310,6 +333,15 @@ def load_recent_state(weeks: int = RECENT_WEEKS) -> dict[str, pd.DataFrame | Non
     state: dict[str, pd.DataFrame | None] = {}
     for state_key in DATASET_SPECS:
         df = load_recent_dataset(state_key, weeks=weeks)
+        state[state_key] = None if df.empty else df
+    return state
+
+
+def load_full_history_state(keys: list[str] | None = None) -> dict[str, pd.DataFrame | None]:
+    selected_keys = keys or list(DATASET_SPECS.keys())
+    state: dict[str, pd.DataFrame | None] = {}
+    for state_key in selected_keys:
+        df = read_full_dataset(state_key)
         state[state_key] = None if df.empty else df
     return state
 
