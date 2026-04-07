@@ -92,6 +92,27 @@ class Phase2HistoryTest(unittest.TestCase):
             self.assertEqual(loaded["Date"].iloc[0].strftime("%Y-%m-%d"), "2026-04-03")
             self.assertEqual(loaded["Athlete"].iloc[0], "Ana Lopez")
 
+    def test_overwrite_dataset_to_empty_does_not_restore_from_legacy_copy(self):
+        with isolated_store() as (local_store, _tmp_root):
+            legacy_path = local_store.LEGACY_STORE_DIR / "completion_history.csv"
+            legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "Pct": 90},
+                    {"Athlete": "Bruno Rey", "Date": "2026-04-02", "Pct": 75},
+                ]
+            ).to_csv(legacy_path, index=False)
+
+            migrated = local_store.read_full_dataset("completion_df")
+            self.assertEqual(len(migrated), 2)
+
+            emptied = local_store.overwrite_dataset("completion_df", pd.DataFrame())
+            reloaded = local_store.read_full_dataset("completion_df")
+
+            self.assertTrue(emptied.empty)
+            self.assertTrue(reloaded.empty)
+            self.assertTrue((local_store.STORE_DIR / "completion_history.csv").exists())
+
     def test_team_report_figures_include_completion_or_quadrants(self):
         from modules.report_generator import collect_report_plotly_figures
 

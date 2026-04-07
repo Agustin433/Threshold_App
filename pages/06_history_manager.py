@@ -18,6 +18,8 @@ from modules.history_manager import (
 )
 from modules.page_state import ensure_page_state
 
+SUCCESS_FLASH_KEY = "history_success_flash"
+
 
 def _dataset_options() -> list[tuple[str, str]]:
     return [(state_key, DATASET_LABELS.get(state_key, state_key)) for state_key in DATASET_SPECS]
@@ -42,6 +44,15 @@ ensure_page_state(load_models=True)
 st.header("Gestion de Historial")
 st.caption("Revisa, descarga, recorta y sincroniza el historial persistido sin editar archivos manualmente.")
 st.page_link("app.py", label="Abrir dashboard principal")
+
+flash_message = st.session_state.pop(SUCCESS_FLASH_KEY, None)
+if isinstance(flash_message, dict):
+    message = str(flash_message.get("message", "")).strip()
+    backup_notice = str(flash_message.get("backup_notice", "")).strip()
+    if message:
+        st.success(message)
+    if backup_notice:
+        st.info(backup_notice)
 
 full_state = load_full_history_state()
 summary_rows = build_dataset_summaries(full_state, keys=list(DATASET_SPECS.keys()))
@@ -191,8 +202,10 @@ else:
                 except Exception as exc:
                     _render_operation_error("No se pudo vaciar el dataset", exc, backup_info)
                 else:
-                    st.success(f"Se vacio {selected_label} del historial local.")
-                    st.info(_backup_notice(backup_info))
+                    st.session_state[SUCCESS_FLASH_KEY] = {
+                        "message": f"Se vacio {selected_label} del historial local.",
+                        "backup_notice": _backup_notice(backup_info),
+                    }
                     st.rerun()
 
 st.markdown("---")

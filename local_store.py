@@ -123,6 +123,34 @@ def _migrate_legacy_store() -> None:
             shutil.copy2(source, target)
 
 
+def _empty_dataset_columns(state_key: str, columns: list[str] | None = None) -> list[str]:
+    if columns:
+        unique_columns: list[str] = []
+        for column in columns:
+            if column and column not in unique_columns:
+                unique_columns.append(str(column))
+        if unique_columns:
+            return unique_columns
+
+    spec = DATASET_SPECS[state_key]
+    fallback_columns: list[str] = []
+    athlete_col = spec.get("athlete_col")
+    date_col = spec.get("date_col")
+    dedupe_cols = spec.get("dedupe_cols") or []
+
+    for column in [athlete_col, date_col, *dedupe_cols]:
+        if column and column not in fallback_columns:
+            fallback_columns.append(str(column))
+
+    return fallback_columns or ["_empty"]
+
+
+def _persist_empty_dataset(state_key: str, columns: list[str] | None = None) -> pd.DataFrame:
+    empty_df = pd.DataFrame(columns=_empty_dataset_columns(state_key, columns))
+    empty_df.to_csv(_dataset_path(state_key), index=False)
+    return empty_df
+
+
 def normalize_athlete_name(value: object) -> str:
     if value is None or pd.isna(value):
         return ""
@@ -288,15 +316,12 @@ def overwrite_dataset(state_key: str, df: pd.DataFrame | None) -> pd.DataFrame:
     path = _dataset_path(state_key)
 
     if df is None or df.empty:
-        if path.exists():
-            path.unlink()
-        return pd.DataFrame()
+        existing_columns = read_full_dataset(state_key).columns.tolist() if path.exists() else None
+        return _persist_empty_dataset(state_key, existing_columns)
 
     normalized = _dedupe_dataset_frame(df, state_key)
     if normalized.empty:
-        if path.exists():
-            path.unlink()
-        return normalized
+        return _persist_empty_dataset(state_key, df.columns.tolist())
 
     athlete_col = DATASET_SPECS[state_key].get("athlete_col")
     if athlete_col and athlete_col in normalized.columns:
