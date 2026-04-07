@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -16,6 +18,7 @@ from local_store import (
     DATASET_LABELS,
     DATASET_SPECS,
     RECENT_WEEKS,
+    STORE_DIR,
     build_load_models,
     load_recent_state,
     normalize_athlete_name,
@@ -29,6 +32,7 @@ from modules.data_loader import (
 
 SUPABASE_DATASETS_TABLE = "dataset_rows"
 REMOTE_DATASET_KEYS = ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df"]
+HISTORY_BACKUP_DIRNAME = "_history_backups"
 
 
 def _get_secret_or_env(name: str, default=None):
@@ -38,6 +42,49 @@ def _get_secret_or_env(name: str, default=None):
     except Exception:
         pass
     return os.getenv(name, default)
+
+
+def _history_backup_dir(state_key: str):
+    backup_dir = STORE_DIR / HISTORY_BACKUP_DIRNAME / state_key
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    return backup_dir
+
+
+def _slugify_backup_token(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower())
+    cleaned = cleaned.strip("_")
+    return cleaned or "snapshot"
+
+
+def create_history_backup(
+    state_key: str,
+    df: pd.DataFrame | None,
+    *,
+    source: str,
+    action: str,
+) -> dict[str, object]:
+    backup_df = df.copy() if df is not None else pd.DataFrame()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    source_token = _slugify_backup_token(source)
+    action_token = _slugify_backup_token(action)
+    backup_dir = _history_backup_dir(state_key)
+
+    backup_path = backup_dir / f"{timestamp}_{state_key}_{source_token}_{action_token}.csv"
+    counter = 2
+    while backup_path.exists():
+        backup_path = backup_dir / f"{timestamp}_{state_key}_{source_token}_{action_token}_{counter}.csv"
+        counter += 1
+
+    backup_df.to_csv(backup_path, index=False)
+    return {
+        "path": str(backup_path),
+        "filename": backup_path.name,
+        "rows": int(len(backup_df)),
+        "source": source,
+        "action": action,
+        "dataset": DATASET_LABELS.get(state_key, state_key),
+        "state_key": state_key,
+    }
 
 
 def _supabase_dataset_store_config() -> tuple[str | None, str | None, str]:

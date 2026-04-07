@@ -1,4 +1,4 @@
-"""Vista de gestión de historial local y remoto."""
+"""Vista de gestion de historial local y remoto."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import streamlit as st
 
 from local_store import DATASET_LABELS, DATASET_SPECS, build_dataset_summaries, load_full_history_state
 from modules.history_manager import (
+    create_history_backup,
     filter_history_frame,
     load_remote_history_frame,
     refresh_session_state_from_store,
@@ -22,10 +23,24 @@ def _dataset_options() -> list[tuple[str, str]]:
     return [(state_key, DATASET_LABELS.get(state_key, state_key)) for state_key in DATASET_SPECS]
 
 
+def _backup_notice(backup_info: dict[str, object]) -> str:
+    rows = int(backup_info.get("rows", 0))
+    return (
+        f"Backup previo disponible ({rows} fila(s)): `{backup_info['filename']}` en `{backup_info['path']}`. "
+        "Si algo sale mal, podes restaurar este CSV manualmente."
+    )
+
+
+def _render_operation_error(prefix: str, exc: Exception, backup_info: dict[str, object] | None) -> None:
+    detail = _backup_notice(backup_info) if backup_info else "No se genero backup previo."
+    st.error(f"{prefix}. {detail}")
+    st.caption(f"Detalle tecnico: {exc}")
+
+
 ensure_page_state(load_models=True)
 
-st.header("Gestión de Historial")
-st.caption("Revisá, descargá, recortá y sincronizá el historial persistido sin editar archivos manualmente.")
+st.header("Gestion de Historial")
+st.caption("Revisa, descarga, recorta y sincroniza el historial persistido sin editar archivos manualmente.")
 st.page_link("app.py", label="Abrir dashboard principal")
 
 full_state = load_full_history_state()
@@ -106,14 +121,15 @@ metrics[2].metric(
 )
 if date_col in full_df.columns and not full_df.empty:
     latest_date = pd.to_datetime(full_df[date_col], errors="coerce").dropna()
-    metrics[3].metric("Última fecha", latest_date.max().strftime("%d/%m/%Y") if not latest_date.empty else "-")
+    metrics[3].metric("Ultima fecha", latest_date.max().strftime("%d/%m/%Y") if not latest_date.empty else "-")
 else:
-    metrics[3].metric("Última fecha", "-")
+    metrics[3].metric("Ultima fecha", "-")
 
 if full_df.empty:
-    st.info("Todavía no hay historial local para este dataset.")
+    st.info("Todavia no hay historial local para este dataset.")
 else:
     st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+    st.caption("Antes de cada accion destructiva local se genera un backup automatico en `.local/store/_history_backups/`.")
 
     csv_bytes = filtered_df.to_csv(index=False).encode("utf-8") if not filtered_df.empty else b""
     action_left, action_center, action_right = st.columns(3)
@@ -134,12 +150,24 @@ else:
             if filtered_df.empty:
                 st.warning("No hay filas filtradas para borrar.")
             elif not confirm_delete:
-                st.warning("Activá la confirmación antes de borrar filas del historial.")
+                st.warning("Activa la confirmacion antes de borrar filas del historial.")
             else:
-                remaining_df = full_df.loc[~filtered_mask].copy()
-                replace_local_history(selected_key, remaining_df)
-                st.success(f"Se actualizaron {selected_label} en local. Se borraron {len(filtered_df)} fila(s).")
-                st.rerun()
+                backup_info = None
+                try:
+                    backup_info = create_history_backup(
+                        selected_key,
+                        full_df,
+                        source="local",
+                        action="delete_filtered_rows",
+                    )
+                    remaining_df = full_df.loc[~filtered_mask].copy()
+                    replace_local_history(selected_key, remaining_df)
+                except Exception as exc:
+                    _render_operation_error("No se pudo completar el borrado", exc, backup_info)
+                else:
+                    st.success(f"Se actualizaron {selected_label} en local. Se borraron {len(filtered_df)} fila(s).")
+                    st.info(_backup_notice(backup_info))
+                    st.rerun()
     with action_right:
         confirm_clear = st.checkbox(
             "Confirmo vaciar todo el dataset local",
@@ -149,34 +177,86 @@ else:
             if full_df.empty:
                 st.warning("No hay historial local para vaciar.")
             elif not confirm_clear:
-                st.warning("Activá la confirmación antes de vaciar el dataset.")
+                st.warning("Activa la confirmacion antes de vaciar el dataset.")
             else:
-                replace_local_history(selected_key, pd.DataFrame())
-                st.success(f"Se vació {selected_label} del historial local.")
-                st.rerun()
+                backup_info = None
+                try:
+                    backup_info = create_history_backup(
+                        selected_key,
+                        full_df,
+                        source="local",
+                        action="clear_local_dataset",
+                    )
+                    replace_local_history(selected_key, pd.DataFrame())
+                except Exception as exc:
+                    _render_operation_error("No se pudo vaciar el dataset", exc, backup_info)
+                else:
+                    st.success(f"Se vacio {selected_label} del historial local.")
+                    st.info(_backup_notice(backup_info))
+                    st.rerun()
 
 st.markdown("---")
-st.markdown("### Sincronización remota")
+st.markdown("### Sincronizacion remota")
 remote_enabled = supabase_evaluations_enabled() if selected_key == "jump_df" else supabase_dataset_store_enabled()
 
 if remote_enabled:
-    st.caption("Las acciones de esta sección reemplazan el dataset remoto o el local completo para este origen.")
+    st.caption("Las acciones de esta seccion reemplazan el dataset remoto o el local completo para este origen.")
+    st.caption("Antes de cada accion destructiva remota se genera un backup local recuperable en `.local/store/_history_backups/`.")
     remote_left, remote_right = st.columns(2)
     with remote_left:
+        confirm_push_remote = st.checkbox(
+            "Confirmo publicar y reemplazar el dataset remoto completo",
+            key=f"confirm_push_remote_{selected_key}",
+        )
         if st.button("Publicar local -> Supabase", key=f"push_remote_{selected_key}"):
-            stats = replace_remote_history(selected_key, full_df)
-            st.success(
-                f"{selected_label}: Supabase actualizado. Upserts: {stats['upserted']} · Eliminados remotos: {stats['deleted']}."
-            )
+            if not confirm_push_remote:
+                st.warning("Activa la confirmacion antes de sobrescribir el dataset remoto.")
+            else:
+                backup_info = None
+                try:
+                    remote_before_df = load_remote_history_frame(selected_key)
+                    backup_info = create_history_backup(
+                        selected_key,
+                        remote_before_df,
+                        source="remote",
+                        action="replace_remote_with_local",
+                    )
+                    stats = replace_remote_history(selected_key, full_df)
+                except Exception as exc:
+                    _render_operation_error("No se pudo actualizar Supabase", exc, backup_info)
+                else:
+                    st.success(
+                        f"{selected_label}: Supabase actualizado. Upserts: {stats['upserted']} · Eliminados remotos: {stats['deleted']}."
+                    )
+                    st.info(_backup_notice(backup_info))
     with remote_right:
+        confirm_pull_remote = st.checkbox(
+            "Confirmo reemplazar el dataset local completo con Supabase",
+            key=f"confirm_pull_remote_{selected_key}",
+        )
         if st.button("Reemplazar local <- Supabase", key=f"pull_remote_{selected_key}"):
-            remote_df = load_remote_history_frame(selected_key)
-            replace_local_history(selected_key, remote_df)
-            st.success(f"{selected_label}: historial local reemplazado con {len(remote_df)} fila(s) de Supabase.")
-            st.rerun()
+            if not confirm_pull_remote:
+                st.warning("Activa la confirmacion antes de reemplazar el dataset local.")
+            else:
+                backup_info = None
+                try:
+                    backup_info = create_history_backup(
+                        selected_key,
+                        full_df,
+                        source="local",
+                        action="replace_local_from_remote",
+                    )
+                    remote_df = load_remote_history_frame(selected_key)
+                    replace_local_history(selected_key, remote_df)
+                except Exception as exc:
+                    _render_operation_error("No se pudo reemplazar el historial local", exc, backup_info)
+                else:
+                    st.success(f"{selected_label}: historial local reemplazado con {len(remote_df)} fila(s) de Supabase.")
+                    st.info(_backup_notice(backup_info))
+                    st.rerun()
 else:
-    st.info("Supabase no está configurado para este tipo de historial. La gestión sigue disponible en modo local.")
+    st.info("Supabase no esta configurado para este tipo de historial. La gestion sigue disponible en modo local.")
 
 if st.button("Recargar estado desde el store local", key="reload_history_state"):
     refresh_session_state_from_store()
-    st.success("Se recargó el estado visible desde el historial local.")
+    st.success("Se recargo el estado visible desde el historial local.")
