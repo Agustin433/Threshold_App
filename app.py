@@ -3613,7 +3613,12 @@ with st.sidebar:
             hydrate_remote_datasets(force=True, show_success=True)
             st.rerun()
     else:
-        st.caption("Datasets TeamBuildr en modo local. Configura SUPABASE_DATASETS_TABLE para persistencia remota.")
+        st.info(
+            "Supabase no esta configurado para los datasets TeamBuildr. "
+            "La app sigue funcionando en modo local: podes cargar archivos, "
+            "guardar historial en esta maquina y usar dashboards y reportes. "
+            "Lo que no se hara es la sincronizacion remota con Supabase."
+        )
 
     if st.session_state.dataset_sync_notice:
         dataset_notice = st.session_state.dataset_sync_notice
@@ -3862,7 +3867,11 @@ with st.sidebar:
                 hydrate_evaluations_from_store(force=True, show_success=True)
                 st.rerun()
         else:
-            st.caption("Historial de evaluaciones en modo local. Configura SUPABASE_URL y SUPABASE_KEY para persistir.")
+            st.info(
+                "Supabase no esta configurado para el historial de evaluaciones. "
+                "Podes seguir cargando, consolidando y guardando evaluaciones en local en esta maquina. "
+                "Lo que no se hara es la sincronizacion remota ni la recuperacion desde Supabase."
+            )
 
         if st.session_state.eval_sync_notice:
             notice = st.session_state.eval_sync_notice

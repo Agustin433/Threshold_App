@@ -255,7 +255,11 @@ if remote_enabled:
                     st.info(_backup_notice(backup_info))
                     st.rerun()
 else:
-    st.info("Supabase no esta configurado para este tipo de historial. La gestion sigue disponible en modo local.")
+    st.info(
+        "Supabase no esta configurado para este historial. "
+        "En esta pantalla igual podes revisar, descargar, filtrar, borrar y vaciar el historial local con backup. "
+        "Lo que no esta disponible es publicar a Supabase ni reemplazar el historial local desde Supabase."
+    )
 
 if st.button("Recargar estado desde el store local", key="reload_history_state"):
     refresh_session_state_from_store()
