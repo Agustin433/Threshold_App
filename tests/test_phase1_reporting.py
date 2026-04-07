@@ -2,14 +2,32 @@ from __future__ import annotations
 
 import unittest
 from io import BytesIO
+from unittest.mock import patch
 
 import pandas as pd
 from openpyxl import load_workbook
 
-from modules.report_generator import build_report_sheets, collect_report_athletes, export_excel
+from modules.report_generator import build_report_sheets, collect_report_athletes, export_excel, export_plotly_figure_png
 
 
 class Phase1ReportingTest(unittest.TestCase):
+    def test_export_plotly_figure_png_avoids_deprecated_engine_argument(self):
+        figure = object()
+
+        with patch("plotly.io.to_image", side_effect=[RuntimeError("first try"), b"png-bytes"]) as mocked_to_image:
+            with patch("kaleido.get_chrome_sync", return_value="chrome.exe"):
+                exported = export_plotly_figure_png(figure, width=640, height=360, scale=1)
+
+        self.assertEqual(exported, b"png-bytes")
+        self.assertEqual(mocked_to_image.call_count, 2)
+        first_call = mocked_to_image.call_args_list[0]
+        second_call = mocked_to_image.call_args_list[1]
+        self.assertNotIn("engine", first_call.kwargs)
+        self.assertNotIn("engine", second_call.kwargs)
+        self.assertEqual(first_call.kwargs["width"], 640)
+        self.assertEqual(first_call.kwargs["height"], 360)
+        self.assertEqual(first_call.kwargs["scale"], 1)
+
     def test_collect_report_athletes_uses_all_supported_datasets(self):
         state = {
             "rpe_df": None,

@@ -2299,16 +2299,15 @@ def export_plotly_figure_png(
         import plotly.io as pio
     except Exception:
         return None
-    last_error = None
     try:
-        return pio.to_image(figure, format="png", width=width, height=height, scale=scale, engine="kaleido")
-    except Exception as exc:
-        last_error = exc
+        return pio.to_image(figure, format="png", width=width, height=height, scale=scale)
+    except Exception:
+        pass
     try:
         import kaleido
         chrome_path = kaleido.get_chrome_sync()
         if chrome_path:
-            return pio.to_image(figure, format="png", width=width, height=height, scale=scale, engine="kaleido")
+            return pio.to_image(figure, format="png", width=width, height=height, scale=scale)
     except Exception:
         pass
     return None
