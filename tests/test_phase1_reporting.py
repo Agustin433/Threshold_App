@@ -118,7 +118,7 @@ class Phase1ReportingTest(unittest.TestCase):
                     "EUR": 1.167,
                     "DRI": 1.6,
                     "IMTP_N": 1820,
-                    "NM_Profile": "Reactivo / Poca Base",
+                    "NM_Profile": "Reactivo",
                 }
             ]
         )

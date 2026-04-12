@@ -26,6 +26,7 @@ import warnings
 from charts.dashboard_charts import (
     chart_cmj_trend as shared_chart_cmj_trend,
     chart_quadrant_cmj_imtp as shared_chart_quadrant_cmj_imtp,
+    chart_quadrant_exploratory as shared_chart_quadrant_exploratory,
     chart_quadrant_dri_sj as shared_chart_quadrant_dri_sj,
     chart_radar as shared_chart_radar,
 )
@@ -70,6 +71,9 @@ from modules.data_loader import (
 from modules.jump_analysis import (
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
+    build_jump_feedback_lines as shared_build_jump_feedback_lines,
+    build_jump_flag_rows as shared_build_jump_flag_rows,
+    build_jump_metric_table as shared_build_jump_metric_table,
     calc_dri as shared_calc_dri,
     calc_eur as shared_calc_eur,
     calc_nm_profile as shared_calc_nm_profile,
@@ -1857,25 +1861,8 @@ def _calc_eur_from_records(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """Perfil neuromuscular usando EUR ratio y DRI."""
-    if "EUR" not in df.columns or "DRI" not in df.columns:
-        return df
-    eur_ratio = _normalize_eur_series_to_ratio(df["EUR"])
-    conditions = [
-        (eur_ratio >= 1.20) & (df["DRI"] >= 1.5),
-        (eur_ratio >= 1.20) & (df["DRI"] <  1.5),
-        (eur_ratio <  1.20) & (df["DRI"] >= 1.5),
-        (eur_ratio <  1.20) & (df["DRI"] <  1.5),
-    ]
-    labels = [
-        "Reactivo-Elastico",
-        "Elastico / CEA-Lento",
-        "Reactivo / Poca Base",
-        "Fuerza-Concentrica",
-    ]
-    df["EUR"] = eur_ratio
-    df["NM_Profile"] = np.select(conditions, labels, default="Sin datos")
-    return df
+    """DEPRECATED local wrapper. Runtime uses the shared neuromuscular profile."""
+    return shared_calc_nm_profile(df)
 
 
 def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
@@ -2978,6 +2965,57 @@ def render_report_note(title: str, summary: str, focuses: list[str] | None = Non
     )
 
 
+def render_jump_flag_chips(flags: list[dict[str, str]]):
+    if not flags:
+        return
+
+    palette = {
+        "green": ("rgba(111,143,120,0.16)", "#446555"),
+        "yellow": ("rgba(196,164,100,0.18)", "#7C5D1F"),
+        "red": ("rgba(181,107,115,0.18)", "#7B3D45"),
+        "gray": ("rgba(112,140,159,0.16)", "#41515E"),
+    }
+    chips = []
+    for flag in flags:
+        bg, fg = palette.get(flag.get("level"), ("rgba(112,140,159,0.16)", "#41515E"))
+        chips.append(
+            f'<span style="display:inline-flex;align-items:center;padding:0.35rem 0.7rem;'
+            f'border-radius:999px;background:{bg};color:{fg};font-size:0.88rem;'
+            'font-weight:600;border:1px solid rgba(13,60,94,0.08);">'
+            f"{html.escape(str(flag.get('text', '')))}</span>"
+        )
+    st.markdown(
+        f'<div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin:0.2rem 0 0.9rem;">{"".join(chips)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_jump_feedback(lines: list[str], *, kicker: str = "Devolucion automatica"):
+    if not lines:
+        return
+
+    body = "".join(
+        f'<div style="margin:0 0 0.38rem;color:#221F20;">{html.escape(str(line))}</div>'
+        for line in lines
+    )
+    st.markdown(
+        f"""
+<div style="
+  background:#FEFEFE;
+  border:1px solid rgba(13,60,94,0.10);
+  border-radius:16px;
+  padding:1rem 1.1rem;
+  box-shadow:0 1px 0 rgba(13,60,94,0.04);
+  margin:0.25rem 0 0.8rem 0;
+">
+  <div style="font-size:0.68rem;letter-spacing:0.16em;text-transform:uppercase;color:#708C9F;margin-bottom:0.4rem;">{html.escape(kicker)}</div>
+  {body}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
     if val is None or ref is None:
         return
@@ -3033,6 +3071,9 @@ calc_zscores = shared_calc_zscores
 calc_nm_profile = shared_calc_nm_profile
 _prepare_jump_df = shared_prepare_jump_df
 _records_to_jump_df = shared_records_to_jump_df
+build_jump_feedback_lines = shared_build_jump_feedback_lines
+build_jump_flag_rows = shared_build_jump_flag_rows
+build_jump_metric_table = shared_build_jump_metric_table
 export_excel = shared_export_excel
 
 chart_acwr = _bind_chart(shared_chart_acwr)
@@ -3042,6 +3083,7 @@ chart_volume_by_tag = _bind_chart(shared_chart_volume_by_tag)
 chart_maxes_trend = _bind_chart(shared_chart_maxes_trend)
 chart_radar = _bind_chart(shared_chart_radar)
 chart_quadrant_cmj_imtp = _bind_chart(shared_chart_quadrant_cmj_imtp)
+chart_quadrant_exploratory = _bind_chart(shared_chart_quadrant_exploratory)
 chart_quadrant_dri_sj = _bind_chart(shared_chart_quadrant_dri_sj)
 chart_completion = _bind_chart(shared_chart_completion)
 chart_cmj_trend = _bind_chart(shared_chart_cmj_trend)
@@ -4272,19 +4314,15 @@ with tab_eval:
         sel_ts = pd.Timestamp(selected_date)
         selected_rows = hist_j[hist_j["Date"] == sel_ts].sort_values("Date")
         selected_row = selected_rows.iloc[-1] if not selected_rows.empty else hist_j.iloc[-1]
-        latest_team = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
-        z_keys = ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"]
-        team_mean = {k: latest_team[k].mean() for k in z_keys if k in latest_team.columns}
-
         st.markdown("---")
         metric_cols = st.columns(6)
         metric_config = [
             ("CMJ", "CMJ_cm", "cm", ".1f"),
             ("SJ", "SJ_cm", "cm", ".1f"),
             ("DJ", "DJ_cm", "cm", ".1f"),
-            ("DJ TC", "DJ_tc_ms", "ms", ".0f"),
+            ("DJ RSI", "DJ_RSI", "m/s", ".2f"),
+            ("IMTP relPF", "IMTP_relPF", "N/kg", ".2f"),
             ("EUR (ratio)", "EUR", "", ".3f"),
-            ("IMTP", "IMTP_N", "N", ".0f"),
         ]
         for col, (label, key, unit, fmt) in zip(metric_cols, metric_config):
             value = selected_row.get(key)
@@ -4293,27 +4331,29 @@ with tab_eval:
                 col.metric(label, f"{value:{fmt}}{suffix}")
             else:
                 col.metric(label, "—")
-        st.caption("Referencia EUR (ratio): 1.0–1.35.")
+        st.caption(
+            "Referencia EUR (ratio): 1.00-1.35. Los benchmarks externos son orientativos para futbol profesional masculino."
+        )
 
-        eval_note = generate_module_insights(dict(st.session_state), athlete_sel).get("evaluations")
-        if eval_note:
-            render_report_note(
-                eval_note["title"],
-                eval_note["summary"],
-                eval_note.get("focuses"),
-                kicker="Lectura de evaluacion",
-            )
+        render_jump_flag_chips(build_jump_flag_rows(selected_row))
+        render_jump_feedback(build_jump_feedback_lines(selected_row), kicker="Lectura de evaluacion")
 
         st.markdown("---")
         c_eval_1, c_eval_2 = st.columns([1.05, 0.95])
         with c_eval_1:
             st.plotly_chart(
-                chart_radar(selected_row, athlete_sel, team_mean),
+                chart_radar(selected_row, athlete_sel, None),
                 use_container_width=False,
                 key="ev_radar_individual",
             )
         with c_eval_2:
-            if "CMJ_cm" in hist_j.columns and hist_j["CMJ_cm"].notna().any():
+            render_subsection_header("Lectura por variable", "z-score y semaforo por eje activo", kicker="Lectura")
+            st.dataframe(
+                build_jump_metric_table(selected_row),
+                use_container_width=False,
+                hide_index=True,
+            )
+            if "CMJ_cm" in hist_j.columns and hist_j["CMJ_cm"].notna().sum() >= 2:
                 st.plotly_chart(
                     chart_cmj_trend(jdf, athlete_sel),
                     use_container_width=False,
@@ -4367,16 +4407,18 @@ with tab_profile:
         with col_radar:
             if jdf is not None and ath_p in jdf["Athlete"].values:
                 ath_row = jdf[jdf["Athlete"] == ath_p].sort_values("Date").iloc[-1]
-                # Media del equipo
-                z_keys = ["CMJ_Z","SJ_Z","DJtc_Z","EUR_Z","DRI_Z","IMTP_Z"]
-                team_mean = {k: jdf[k].mean() for k in z_keys if k in jdf.columns}
-                st.plotly_chart(chart_radar(ath_row, ath_p, team_mean),
+                st.plotly_chart(chart_radar(ath_row, ath_p, None),
                                 use_container_width=False, key="radar_profile")
             else:
                 _alert("Sin datos de evaluaciones para este atleta. El radar requiere datos de saltos.", "b")
 
         with col_info:
             render_subsection_header(ath_p, "contexto integrado de carga, wellness y evaluacion", kicker="Atleta")
+
+            if jdf is not None and ath_p in jdf["Athlete"].values:
+                last_j = jdf[jdf["Athlete"] == ath_p].sort_values("Date").iloc[-1]
+                render_jump_flag_chips(build_jump_flag_rows(last_j))
+                render_jump_feedback(build_jump_feedback_lines(last_j), kicker="Lectura de perfil")
 
             # ACWR
             if st.session_state.acwr_dict and ath_p in st.session_state.acwr_dict:
@@ -4398,34 +4440,29 @@ with tab_profile:
 
             # Jump KPIs
             if jdf is not None and ath_p in jdf["Athlete"].values:
-                last_j = jdf[jdf["Athlete"] == ath_p].sort_values("Date").iloc[-1]
                 render_subsection_header("KPIs de evaluacion", "ultima referencia consolidada del atleta", kicker="Rendimiento")
                 kpi_display = {
                     "CMJ": ("CMJ_cm", "cm"), "SJ": ("SJ_cm", "cm"),
-                    "DJ": ("DJ_cm", "cm"), "DJ TC": ("DJ_tc_ms", "ms"),
-                    "EUR (ratio)": ("EUR", "ratio"), "DRI": ("DRI", "u.a."),
+                    "DJ": ("DJ_cm", "cm"), "DJ RSI": ("DJ_RSI", "m/s"),
+                    "EUR (ratio)": ("EUR", "ratio"), "IMTP relPF": ("IMTP_relPF", "N/kg"),
                     "IMTP": ("IMTP_N", "N"),
                 }
                 rows_kpi = []
                 for label, (col, unit) in kpi_display.items():
                     if col in last_j.index and pd.notna(last_j[col]):
-                        fmt = ".3f" if col in {"EUR", "DRI"} else ".1f"
+                        fmt = ".3f" if col in {"EUR", "DJ_RSI"} else ".2f" if col in {"IMTP_relPF"} else ".1f"
                         rows_kpi.append({"KPI": label, "Valor": f"{last_j[col]:{fmt}} {unit}".strip()})
                 if rows_kpi:
                     st.dataframe(pd.DataFrame(rows_kpi), hide_index=True,
                                  use_container_width=False)
+                st.dataframe(
+                    build_jump_metric_table(last_j),
+                    hide_index=True,
+                    use_container_width=False,
+                )
 
                 if "NM_Profile" in last_j.index:
                     st.markdown(f"**Perfil NM:** {last_j['NM_Profile']}")
-
-            profile_note = generate_module_insights(dict(st.session_state), ath_p).get("profile")
-            if profile_note:
-                render_report_note(
-                    profile_note["title"],
-                    profile_note["summary"],
-                    profile_note.get("focuses"),
-                    kicker="Sintesis integrada",
-                )
 
             maxes_df_profile = st.session_state.maxes_df
             if maxes_df_profile is not None and "Athlete" in maxes_df_profile.columns:
@@ -4444,15 +4481,19 @@ with tab_profile:
         # Cuadrantes (solo si hay datos grupales)
         if jdf is not None and len(jdf["Athlete"].unique()) > 1:
             st.markdown("---")
-            render_subsection_header("Cuadrantes grupales", "comparacion relativa dentro del equipo", kicker="Comparacion")
+            render_subsection_header("Cuadrantes grupales", "perfilado relativo con z-scores", kicker="Comparacion")
             c_q1, c_q2 = st.columns(2)
+            latest_jdf = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
             with c_q1:
-                latest_jdf = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
-                if "CMJ_cm" in latest_jdf.columns and "IMTP_N" in latest_jdf.columns:
-                    st.plotly_chart(chart_quadrant_cmj_imtp(latest_jdf), use_container_width=False, key="quad_cmj_imtp_profile")
+                st.plotly_chart(chart_quadrant_dri_sj(latest_jdf), use_container_width=False, key="quad_dri_sj_profile")
             with c_q2:
-                if "DRI" in latest_jdf.columns and "SJ_cm" in latest_jdf.columns:
-                    st.plotly_chart(chart_quadrant_dri_sj(latest_jdf), use_container_width=False, key="quad_dri_sj_profile")
+                st.plotly_chart(chart_quadrant_cmj_imtp(latest_jdf), use_container_width=False, key="quad_cmj_imtp_profile")
+            with st.expander("DRI experimental", expanded=False):
+                st.plotly_chart(
+                    chart_quadrant_exploratory(latest_jdf),
+                    use_container_width=False,
+                    key="quad_dri_experimental_profile",
+                )
         elif jdf is not None:
             _alert("Los gráficos de cuadrante requieren datos de múltiples atletas para comparar.", "b")
 

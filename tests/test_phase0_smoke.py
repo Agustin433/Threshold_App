@@ -102,6 +102,10 @@ def _forceplate_bytes() -> bytes:
         ["RSI", 1.45, 1.61],
         ["Concentric Time (ms)", 505, 490],
         ["Propulsive Max Force (N)", 1810, 1840],
+        ["Propulsive Relative Impulse (N*s/Kg)", 2.21, 2.35],
+        ["Landing Max Force (N)", 3120, 3205],
+        ["Landing Asymmetry Max Force (%)", 4.2, 3.8],
+        ["Stabilization Time (ms)", 1180, 1125],
     ]
     return _build_minimal_xlsx(rows)
 
@@ -166,7 +170,7 @@ class Phase0SmokeTest(unittest.TestCase):
 
             self.assertEqual(len(loaded), 1)
             self.assertAlmostEqual(float(loaded.loc[0, "EUR"]), 1.167, places=3)
-            self.assertEqual(loaded.loc[0, "NM_Profile"], "Reactivo / Poca Base")
+            self.assertEqual(loaded.loc[0, "NM_Profile"], "Reactivo")
             self.assertNotIn(16.7, loaded["EUR"].tolist())
             self.assertIsNotNone(recent_jump_df)
             self.assertAlmostEqual(float(recent_jump_df.loc[0, "EUR"]), 1.167, places=3)
@@ -245,6 +249,11 @@ class Phase0SmokeTest(unittest.TestCase):
         self.assertIn("Volume_Load", raw_df.columns)
         self.assertIn("Max Value", maxes_df.columns)
         self.assertIn("CMJ_cm", forceplate_record)
+        self.assertIn("CMJ_propulsive_PF_N", forceplate_record)
+        self.assertIn("CMJ_rel_impulse", forceplate_record)
+        self.assertIn("CMJ_landing_force_N", forceplate_record)
+        self.assertIn("CMJ_landing_asym_pct", forceplate_record)
+        self.assertIn("CMJ_stabilization_ms", forceplate_record)
 
     def test_invalid_extensions_raise_clear_errors(self):
         with self.assertRaisesRegex(ValueError, r"Completion Report: formato no soportado"):

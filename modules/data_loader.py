@@ -37,10 +37,15 @@ _CMJ_MAP = {
     "Concentric Time (ms)": ("CMJ_conc_ms", "min"),
     "Braking Time (ms)": ("CMJ_brake_ms", "min"),
     "Contraction Time (ms)": ("CMJ_contraction_ms", "min"),
-    "Propulsive Max Force (N)": ("CMJ_peak_force_N", "max"),
+    "Propulsive Max Force (N)": ("CMJ_propulsive_PF_N", "max"),
     "Maximum propulsive power (w)": ("CMJ_peak_power_W", "max"),
     "Propuslive Asymmetry Max Force (%)": ("CMJ_asym_pct", "mean"),
+    "Propulsive Asymmetry Max Force (%)": ("CMJ_asym_pct", "mean"),
     "Braking Asymmetry Max Force (%)": ("CMJ_brake_asym_pct", "mean"),
+    "Propulsive Relative Impulse (N*s/Kg)": ("CMJ_rel_impulse", "max"),
+    "Landing Max Force (N)": ("CMJ_landing_force_N", "max"),
+    "Landing Asymmetry Max Force (%)": ("CMJ_landing_asym_pct", "mean"),
+    "Stabilization Time (ms)": ("CMJ_stabilization_ms", "min"),
     "weight (kg)": ("BW_kg", "mean"),
     "Flight Time (ms)": ("CMJ_flight_ms", "max"),
 }
@@ -82,6 +87,13 @@ _IMTP_MAP = {
 }
 
 TEST_MAPS = {"CMJ": _CMJ_MAP, "SJ": _SJ_MAP, "DJ": _DJ_MAP, "IMTP": _IMTP_MAP}
+LOCAL_ONLY_EVALUATION_COLUMNS = {
+    "CMJ_propulsive_PF_N",
+    "CMJ_rel_impulse",
+    "CMJ_landing_force_N",
+    "CMJ_landing_asym_pct",
+    "CMJ_stabilization_ms",
+}
 RAW_EVALUATION_COLUMNS = sorted(
     {
         metric_name
@@ -93,7 +105,7 @@ EVALUATION_PERSIST_COLUMNS = ["Athlete", "Date"] + RAW_EVALUATION_COLUMNS
 EVALUATION_DB_COLUMN_MAP = {
     "Athlete": "athlete",
     "Date": "date",
-    **{col: col.lower() for col in RAW_EVALUATION_COLUMNS},
+    **{col: col.lower() for col in RAW_EVALUATION_COLUMNS if col not in LOCAL_ONLY_EVALUATION_COLUMNS},
 }
 SUPABASE_EVALUATIONS_TABLE = "evaluations"
 

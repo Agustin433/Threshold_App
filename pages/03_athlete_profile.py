@@ -1,13 +1,70 @@
 """Vista dedicada de perfil de atleta."""
 
+from __future__ import annotations
+
+import html
+
 import pandas as pd
 import streamlit as st
 
-from charts.dashboard_charts import chart_radar
+from charts.dashboard_charts import (
+    chart_quadrant_cmj_imtp,
+    chart_quadrant_dri_sj,
+    chart_quadrant_exploratory,
+    chart_radar,
+)
 from charts.load_charts import chart_maxes_trend
+from modules.jump_analysis import (
+    build_jump_feedback_lines,
+    build_jump_flag_rows,
+    build_jump_metric_table,
+)
 from modules.page_state import collect_state_athletes, ensure_page_state
-from modules.page_visuals import build_page_theme, render_insight_block
-from modules.report_generator import build_executive_summary_df, generate_module_insights
+from modules.page_visuals import build_page_theme
+from modules.report_generator import build_executive_summary_df
+
+
+def _render_flag_chips(flags: list[dict[str, str]]) -> None:
+    if not flags:
+        return
+
+    palette = {
+        "green": ("rgba(111,143,120,0.16)", "#446555"),
+        "yellow": ("rgba(196,164,100,0.18)", "#7C5D1F"),
+        "red": ("rgba(181,107,115,0.18)", "#7B3D45"),
+        "gray": ("rgba(112,140,159,0.16)", "#41515E"),
+    }
+    chips = []
+    for flag in flags:
+        bg, fg = palette.get(flag["level"], ("rgba(112,140,159,0.16)", "#41515E"))
+        chips.append(
+            f'<span style="display:inline-flex;align-items:center;padding:0.35rem 0.7rem;'
+            f'border-radius:999px;background:{bg};color:{fg};font-size:0.88rem;'
+            'font-weight:600;border:1px solid rgba(13,60,94,0.08);">'
+            f"{html.escape(flag['text'])}</span>"
+        )
+    st.markdown(
+        f'<div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin:0.2rem 0 0.9rem;">{"".join(chips)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_feedback(lines: list[str]) -> None:
+    if not lines:
+        return
+    content = "".join(
+        f'<div style="margin:0 0 0.38rem;color:#221F20;">{html.escape(line)}</div>'
+        for line in lines
+    )
+    st.markdown(
+        '<div style="background:#FEFEFE;border:1px solid rgba(13,60,94,0.10);'
+        'border-radius:16px;padding:1rem 1.1rem;margin:0.6rem 0 1rem;'
+        'box-shadow:0 1px 0 rgba(13,60,94,0.04);">'
+        '<div style="font-size:0.78rem;letter-spacing:0.08em;text-transform:uppercase;'
+        'color:#708C9F;font-weight:700;margin-bottom:0.55rem;">Devolucion automatica</div>'
+        f"{content}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 ensure_page_state(load_models=True)
@@ -25,7 +82,7 @@ maxes_df = st.session_state.maxes_df
 athletes = collect_state_athletes()
 
 if not athletes:
-    st.info("Todavía no hay datos de atletas cargados.")
+    st.info("Todavia no hay datos de atletas cargados.")
 else:
     athlete = st.selectbox("Atleta", athletes)
     executive_df = build_executive_summary_df(dict(st.session_state), athlete)
@@ -41,27 +98,43 @@ else:
         metrics[0].metric("ACWR EWMA", f"{acwr_last['ACWR_EWMA'].iloc[-1]:.2f}" if not acwr_last.empty else "-")
     if wdf is not None and athlete in wdf["Athlete"].values:
         w_last = wdf[wdf["Athlete"] == athlete].sort_values("Date").tail(3)
-        metrics[1].metric("Wellness 3 días", f"{w_last['Wellness_Score'].mean():.1f}" if not w_last.empty else "-")
+        metrics[1].metric("Wellness 3 dias", f"{w_last['Wellness_Score'].mean():.1f}" if not w_last.empty else "-")
     if jdf is not None and athlete in jdf["Athlete"].values:
         j_last = jdf[jdf["Athlete"] == athlete].sort_values("Date").tail(1)
-        metrics[2].metric("Último CMJ", f"{j_last['CMJ_cm'].iloc[-1]:.1f} cm" if "CMJ_cm" in j_last.columns and not j_last.empty else "-")
+        metrics[2].metric("Ultimo CMJ", f"{j_last['CMJ_cm'].iloc[-1]:.1f} cm" if "CMJ_cm" in j_last.columns and not j_last.empty else "-")
         metrics[3].metric("Perfil NM", j_last["NM_Profile"].iloc[-1] if "NM_Profile" in j_last.columns and not j_last.empty else "-")
-
-    render_insight_block(generate_module_insights(dict(st.session_state), athlete).get("profile"), fallback_title="Síntesis integrada")
 
     if jdf is not None and athlete in jdf["Athlete"].values:
         latest_team = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
-        team_mean = {key: latest_team[key].mean() for key in ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"] if key in latest_team.columns}
         latest_row = jdf[jdf["Athlete"] == athlete].sort_values("Date").iloc[-1]
+
         st.markdown("### Perfil neuromuscular")
-        st.plotly_chart(chart_radar(latest_row, athlete, team_mean, theme=theme), use_container_width=True)
+        _render_flag_chips(build_jump_flag_rows(latest_row))
+        _render_feedback(build_jump_feedback_lines(latest_row))
+
+        radar_col, table_col = st.columns([1.1, 0.9])
+        with radar_col:
+            st.plotly_chart(chart_radar(latest_row, athlete, None, theme=theme), use_container_width=True)
+        with table_col:
+            st.markdown("### Lectura por variable")
+            st.dataframe(build_jump_metric_table(latest_row), use_container_width=True, hide_index=True)
+
+        if len(latest_team) > 1:
+            st.markdown("### Cuadrantes")
+            quad_left, quad_right = st.columns(2)
+            with quad_left:
+                st.plotly_chart(chart_quadrant_dri_sj(latest_team, theme=theme), use_container_width=True)
+            with quad_right:
+                st.plotly_chart(chart_quadrant_cmj_imtp(latest_team, theme=theme), use_container_width=True)
+            with st.expander("DRI experimental", expanded=False):
+                st.plotly_chart(chart_quadrant_exploratory(latest_team, theme=theme), use_container_width=True)
 
     if maxes_df is not None and "Athlete" in maxes_df.columns:
         athlete_maxes = maxes_df[maxes_df["Athlete"] == athlete]
         if not athlete_maxes.empty and "Exercise Name" in athlete_maxes.columns:
             exercises = sorted(athlete_maxes["Exercise Name"].dropna().unique())
             if exercises:
-                st.markdown("### Progresión de máximos")
+                st.markdown("### Progresion de maximos")
                 selected_exercise = st.selectbox("Ejercicio", exercises, key="profile_page_exercise")
                 st.plotly_chart(chart_maxes_trend(athlete_maxes, selected_exercise, theme=theme), use_container_width=True)
 
@@ -90,7 +163,7 @@ else:
                 hide_index=True,
             )
         if maxes_df is not None and "Athlete" in maxes_df.columns and athlete in maxes_df["Athlete"].values:
-            st.markdown("### Máximos")
+            st.markdown("### Maximos")
             st.dataframe(
                 maxes_df[maxes_df["Athlete"] == athlete].sort_values("Added Date", ascending=False),
                 use_container_width=True,
