@@ -47,6 +47,86 @@ METRIC_LABELS = {
     "CMJ_rel_impulse": "Impulso Relativo Propulsivo",
 }
 
+VARIABLE_META: dict[str, dict[str, object]] = {
+    "CMJ_cm": {
+        "label": "CMJ",
+        "higher_is_better": True,
+        "fallback_pct": 1.5,
+        "fmt": "{:.1f}",
+        "enabled_default": True,
+    },
+    "SJ_cm": {
+        "label": "SJ",
+        "higher_is_better": True,
+        "fallback_pct": 1.5,
+        "fmt": "{:.1f}",
+        "enabled_default": True,
+    },
+    "DJ_cm": {
+        "label": "DJ",
+        "higher_is_better": True,
+        "fallback_pct": 1.5,
+        "fmt": "{:.1f}",
+        "enabled_default": True,
+    },
+    "DJ_RSI": {
+        "label": "DJ RSI",
+        "higher_is_better": True,
+        "fallback_pct": 2.0,
+        "fmt": "{:.2f}",
+        "enabled_default": True,
+    },
+    "DJ_tc_ms": {
+        "label": "DJ TC",
+        "higher_is_better": False,
+        "fallback_pct": 2.0,
+        "fmt": "{:.0f}",
+        "enabled_default": True,
+    },
+    "IMTP_N": {
+        "label": "IMTP",
+        "higher_is_better": True,
+        "fallback_pct": 2.0,
+        "fmt": "{:.0f}",
+        "enabled_default": True,
+    },
+    "IMTP_relPF": {
+        "label": "IMTP relPF",
+        "higher_is_better": True,
+        "fallback_pct": 2.0,
+        "fmt": "{:.2f}",
+        "enabled_default": True,
+    },
+    "EUR": {
+        "label": "EUR (ratio)",
+        "higher_is_better": True,
+        "fallback_pct": 2.0,
+        "fmt": "{:.3f}",
+        "enabled_default": True,
+    },
+    "DSI": {
+        "label": "DSI",
+        "higher_is_better": True,
+        "fallback_pct": 3.0,
+        "fmt": "{:.2f}",
+        "enabled_default": False,
+    },
+    "CMJ_rel_impulse": {
+        "label": "Impulso Relativo Propulsivo",
+        "higher_is_better": True,
+        "fallback_pct": 2.0,
+        "fmt": "{:.2f}",
+        "enabled_default": False,
+    },
+}
+
+TEMPORAL_SIGNAL_BADGES = {
+    "mejora relevante": "↑ mejora relevante",
+    "caida relevante": "↓ caida relevante",
+    "sin cambio relevante": "~ sin cambio relevante",
+    "sin dato anterior": "— sin dato anterior",
+}
+
 SEMAPHORE_LABELS = (
     (1.0, "Verde"),
     (0.0, "Amarillo"),
@@ -528,6 +608,219 @@ def semaphore_label(z_value: float | int | None) -> str:
     if -1.0 <= value < 0.0:
         return "Naranja"
     return "Rojo"
+
+
+def _default_temporal_variables(athlete_df: pd.DataFrame, variables: list[str] | None = None) -> list[str]:
+    if variables is not None:
+        return [variable for variable in variables if variable in athlete_df.columns]
+
+    ordered = [
+        variable
+        for variable, meta in VARIABLE_META.items()
+        if meta.get("enabled_default", False)
+    ]
+    optional = ["DSI", "CMJ_rel_impulse"]
+    selected = [variable for variable in ordered if variable in athlete_df.columns]
+    for variable in optional:
+        if variable in athlete_df.columns and athlete_df[variable].notna().any():
+            selected.append(variable)
+    return selected
+
+
+def compute_swc_delta(
+    athlete_df: pd.DataFrame,
+    current_date,
+    variables: list[str] | None = None,
+) -> pd.DataFrame:
+    columns = [
+        "Variable",
+        "Label",
+        "Valor_actual",
+        "Valor_anterior",
+        "Fecha_actual",
+        "Fecha_anterior",
+        "Delta_abs",
+        "Delta_pct",
+        "Threshold_abs",
+        "Threshold_method",
+        "N_valid",
+        "Signal",
+        "Higher_is_better",
+    ]
+    if athlete_df is None or athlete_df.empty or "Date" not in athlete_df.columns:
+        return pd.DataFrame(columns=columns)
+
+    working_df = athlete_df.copy()
+    working_df["Date"] = pd.to_datetime(working_df["Date"], errors="coerce").dt.normalize()
+    current_ts = pd.Timestamp(current_date).normalize()
+    working_df = working_df[working_df["Date"].notna() & (working_df["Date"] <= current_ts)].sort_values("Date")
+    if working_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    current_rows = working_df[working_df["Date"] == current_ts].sort_values("Date")
+    current_row = current_rows.iloc[-1] if not current_rows.empty else working_df.iloc[-1]
+    current_row_date = pd.Timestamp(current_row["Date"]).normalize()
+
+    selected_variables = _default_temporal_variables(working_df, variables=variables)
+    rows: list[dict[str, object]] = []
+    for variable in selected_variables:
+        if variable not in VARIABLE_META or variable not in working_df.columns:
+            continue
+
+        meta = VARIABLE_META[variable]
+        series = pd.to_numeric(working_df[variable], errors="coerce")
+        valid_rows = working_df.loc[series.notna(), ["Date"]].copy()
+        valid_rows[variable] = series.loc[series.notna()].values
+        if valid_rows.empty:
+            continue
+
+        current_value = pd.to_numeric(pd.Series([current_row.get(variable)]), errors="coerce").iloc[0]
+        previous_rows = valid_rows[valid_rows["Date"] < current_row_date].sort_values("Date")
+        previous_value = pd.to_numeric(previous_rows[variable], errors="coerce").iloc[-1] if not previous_rows.empty else np.nan
+        previous_date = previous_rows["Date"].iloc[-1] if not previous_rows.empty else pd.NaT
+        valid_until_current = valid_rows[valid_rows["Date"] <= current_row_date]
+        n_valid = int(len(valid_until_current))
+
+        delta_abs = np.nan
+        delta_pct = np.nan
+        threshold_abs = np.nan
+        threshold_method = pd.NA
+        signal = "sin dato anterior"
+
+        if pd.notna(current_value) and pd.notna(previous_value):
+            delta_abs = float(current_value) - float(previous_value)
+            if float(previous_value) > 0:
+                delta_pct = ((float(current_value) - float(previous_value)) / float(previous_value)) * 100
+
+            if n_valid >= 3:
+                std_value = pd.to_numeric(valid_until_current[variable], errors="coerce").std()
+                if pd.notna(std_value):
+                    threshold_abs = abs(0.2 * float(std_value))
+                    threshold_method = "Hopkins"
+            elif float(previous_value) > 0:
+                threshold_abs = abs(float(previous_value) * (float(meta["fallback_pct"]) / 100))
+                threshold_method = "Fijo"
+
+            if pd.notna(threshold_abs):
+                threshold_abs = float(threshold_abs)
+                if bool(meta["higher_is_better"]):
+                    if delta_abs > threshold_abs:
+                        signal = "mejora relevante"
+                    elif delta_abs < -threshold_abs:
+                        signal = "caida relevante"
+                    else:
+                        signal = "sin cambio relevante"
+                else:
+                    if delta_abs < -threshold_abs:
+                        signal = "mejora relevante"
+                    elif delta_abs > threshold_abs:
+                        signal = "caida relevante"
+                    else:
+                        signal = "sin cambio relevante"
+
+        rows.append(
+            {
+                "Variable": variable,
+                "Label": str(meta["label"]),
+                "Valor_actual": float(current_value) if pd.notna(current_value) else np.nan,
+                "Valor_anterior": float(previous_value) if pd.notna(previous_value) else np.nan,
+                "Fecha_actual": current_row_date,
+                "Fecha_anterior": pd.Timestamp(previous_date).normalize() if pd.notna(previous_date) else pd.NaT,
+                "Delta_abs": float(delta_abs) if pd.notna(delta_abs) else np.nan,
+                "Delta_pct": float(delta_pct) if pd.notna(delta_pct) else np.nan,
+                "Threshold_abs": float(threshold_abs) if pd.notna(threshold_abs) else np.nan,
+                "Threshold_method": threshold_method,
+                "N_valid": n_valid,
+                "Signal": signal,
+                "Higher_is_better": bool(meta["higher_is_better"]),
+            }
+        )
+
+    return pd.DataFrame(rows, columns=columns)
+
+
+def build_jump_temporal_context(delta_df: pd.DataFrame) -> list[str]:
+    if delta_df is None or delta_df.empty or "Signal" not in delta_df.columns:
+        return []
+
+    comparable = delta_df[delta_df["Signal"] != "sin dato anterior"].copy()
+    if comparable.empty:
+        return []
+
+    lines: list[str] = []
+    improvements = comparable[comparable["Signal"] == "mejora relevante"]
+    declines = comparable[comparable["Signal"] == "caida relevante"]
+
+    if not improvements.empty:
+        improvement_date = pd.to_datetime(improvements["Fecha_anterior"], errors="coerce").dropna().max()
+        improvement_vars = ", ".join(improvements["Label"].dropna().astype(str).unique().tolist())
+        if pd.notna(improvement_date):
+            lines.append(
+                f"Respecto a la evaluacion anterior ({pd.Timestamp(improvement_date).strftime('%d/%m/%Y')}): mejora relevante en {improvement_vars}."
+            )
+        else:
+            lines.append(f"Respecto a la evaluacion anterior: mejora relevante en {improvement_vars}.")
+
+    if not declines.empty:
+        decline_date = pd.to_datetime(declines["Fecha_anterior"], errors="coerce").dropna().max()
+        decline_vars = ", ".join(declines["Label"].dropna().astype(str).unique().tolist())
+        if pd.notna(decline_date):
+            lines.append(
+                f"Respecto a la evaluacion anterior ({pd.Timestamp(decline_date).strftime('%d/%m/%Y')}): caida relevante en {decline_vars}. Revisar contexto de carga previa."
+            )
+        else:
+            lines.append(f"Respecto a la evaluacion anterior: caida relevante en {decline_vars}. Revisar contexto de carga previa.")
+
+    if declines.empty and improvements.empty and comparable["Signal"].eq("sin cambio relevante").all():
+        lines.append("Cambios sin relevancia practica respecto a la evaluacion anterior. Continuar seguimiento.")
+
+    return lines
+
+
+def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
+    if delta_df is None or delta_df.empty:
+        return pd.DataFrame(columns=["Variable", "Actual", "Anterior", "Delta abs", "Delta %", "Threshold", "Senal"])
+
+    rows: list[dict[str, object]] = []
+    for _, row in delta_df.iterrows():
+        meta = VARIABLE_META.get(str(row["Variable"]), {})
+        formatter = meta.get("fmt", "{:.2f}")
+
+        def _fmt_value(value) -> str:
+            if value is None or pd.isna(value):
+                return "-"
+            return str(formatter).format(float(value))
+
+        threshold_text = "-"
+        threshold_value = row.get("Threshold_abs")
+        threshold_method = row.get("Threshold_method")
+        if pd.notna(threshold_value):
+            threshold_text = _fmt_value(threshold_value)
+            if threshold_method == "Hopkins":
+                threshold_text = f"{threshold_text} (Hopkins, N={int(row.get('N_valid', 0))})"
+            elif threshold_method == "Fijo":
+                threshold_text = f"{threshold_text} (Fijo)"
+
+        delta_pct = row.get("Delta_pct")
+        delta_pct_text = f"{float(delta_pct):+.1f}%" if pd.notna(delta_pct) else "-"
+        delta_abs = row.get("Delta_abs")
+        delta_abs_text = _fmt_value(delta_abs) if pd.notna(delta_abs) else "-"
+        if pd.notna(delta_abs):
+            delta_abs_text = f"{float(delta_abs):+.{3 if row['Variable'] == 'EUR' else 2}f}".rstrip("0").rstrip(".")
+
+        rows.append(
+            {
+                "Variable": row["Label"],
+                "Actual": _fmt_value(row.get("Valor_actual")),
+                "Anterior": _fmt_value(row.get("Valor_anterior")),
+                "Delta abs": delta_abs_text,
+                "Delta %": delta_pct_text,
+                "Threshold": threshold_text,
+                "Senal": TEMPORAL_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-"))),
+            }
+        )
+
+    return pd.DataFrame(rows, columns=["Variable", "Actual", "Anterior", "Delta abs", "Delta %", "Threshold", "Senal"])
 
 
 def build_jump_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:

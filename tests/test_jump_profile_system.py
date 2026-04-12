@@ -7,9 +7,12 @@ import pandas as pd
 from charts.dashboard_charts import chart_radar
 from modules.jump_analysis import (
     _prepare_jump_df,
+    build_jump_delta_display_table,
     build_jump_feedback_lines,
     build_jump_flag_rows,
     build_jump_metric_table,
+    build_jump_temporal_context,
+    compute_swc_delta,
 )
 
 
@@ -94,6 +97,55 @@ def _sample_jump_df() -> pd.DataFrame:
                     "CMJ_propulsive_PF_N": 3300,
                     "CMJ_rel_impulse": 2.95,
                     "CMJ_contraction_ms": 430,
+                },
+            ]
+        )
+    )
+
+
+def _temporal_jump_df() -> pd.DataFrame:
+    return _prepare_jump_df(
+        pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta Delta",
+                    "Date": "2026-04-01",
+                    "CMJ_cm": 30,
+                    "SJ_cm": 28,
+                    "DJ_cm": 24,
+                    "DJ_tc_ms": 220,
+                    "IMTP_N": 2500,
+                    "BW_kg": 78,
+                },
+                {
+                    "Athlete": "Atleta Delta",
+                    "Date": "2026-04-08",
+                    "CMJ_cm": 31,
+                    "SJ_cm": 29,
+                    "DJ_cm": 25,
+                    "DJ_tc_ms": 210,
+                    "IMTP_N": 2550,
+                    "BW_kg": 78,
+                },
+                {
+                    "Athlete": "Atleta Delta",
+                    "Date": "2026-04-15",
+                    "CMJ_cm": 32,
+                    "SJ_cm": 30,
+                    "DJ_cm": 26,
+                    "DJ_tc_ms": 205,
+                    "IMTP_N": 2600,
+                    "BW_kg": 78,
+                },
+                {
+                    "Athlete": "Atleta Delta",
+                    "Date": "2026-04-22",
+                    "CMJ_cm": 34,
+                    "SJ_cm": 31,
+                    "DJ_cm": 27,
+                    "DJ_tc_ms": 225,
+                    "IMTP_N": 2800,
+                    "BW_kg": 78,
                 },
             ]
         )
@@ -258,6 +310,46 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertAlmostEqual(float(impulse_row["Valor"]), 3.0, places=3)
         self.assertAlmostEqual(float(impulse_row["Z"]), 1.22, places=2)
+
+    def test_compute_swc_delta_handles_first_second_and_hopkins_cases(self):
+        jump_df = _temporal_jump_df()
+
+        first_delta = compute_swc_delta(jump_df, "2026-04-01")
+        second_delta = compute_swc_delta(jump_df, "2026-04-08")
+        fourth_delta = compute_swc_delta(jump_df, "2026-04-22")
+
+        self.assertTrue(first_delta["Signal"].eq("sin dato anterior").all())
+
+        cmj_second = second_delta[second_delta["Variable"] == "CMJ_cm"].iloc[0]
+        self.assertEqual(cmj_second["Threshold_method"], "Fijo")
+        self.assertAlmostEqual(float(cmj_second["Threshold_abs"]), 0.45, places=2)
+        self.assertEqual(cmj_second["Signal"], "mejora relevante")
+
+        cmj_fourth = fourth_delta[fourth_delta["Variable"] == "CMJ_cm"].iloc[0]
+        self.assertEqual(cmj_fourth["Threshold_method"], "Hopkins")
+        self.assertEqual(cmj_fourth["Signal"], "mejora relevante")
+
+    def test_compute_swc_delta_inverts_signal_for_lower_is_better_variables(self):
+        jump_df = _temporal_jump_df()
+        fourth_delta = compute_swc_delta(jump_df, "2026-04-22")
+        dj_tc_delta = fourth_delta[fourth_delta["Variable"] == "DJ_tc_ms"].iloc[0]
+
+        self.assertFalse(bool(dj_tc_delta["Higher_is_better"]))
+        self.assertEqual(dj_tc_delta["Threshold_method"], "Hopkins")
+        self.assertGreater(float(dj_tc_delta["Delta_abs"]), 0)
+        self.assertEqual(dj_tc_delta["Signal"], "caida relevante")
+
+    def test_temporal_context_and_display_table_use_relevant_signals(self):
+        jump_df = _temporal_jump_df()
+        fourth_delta = compute_swc_delta(jump_df, "2026-04-22")
+
+        temporal_lines = build_jump_temporal_context(fourth_delta)
+        display_df = build_jump_delta_display_table(fourth_delta)
+
+        self.assertTrue(any("mejora relevante en" in line and "CMJ" in line for line in temporal_lines))
+        self.assertTrue(any("caida relevante en" in line and "DJ TC" in line for line in temporal_lines))
+        self.assertIn("↑ mejora relevante", display_df["Senal"].tolist())
+        self.assertIn("↓ caida relevante", display_df["Senal"].tolist())
 
 
 if __name__ == "__main__":

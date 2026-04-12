@@ -73,13 +73,16 @@ from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import (
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
+    build_jump_delta_display_table as shared_build_jump_delta_display_table,
     build_jump_feedback_lines as shared_build_jump_feedback_lines,
     build_jump_flag_rows as shared_build_jump_flag_rows,
     build_jump_metric_table as shared_build_jump_metric_table,
+    build_jump_temporal_context as shared_build_jump_temporal_context,
     calc_dri as shared_calc_dri,
     calc_eur as shared_calc_eur,
     calc_nm_profile as shared_calc_nm_profile,
     calc_zscores as shared_calc_zscores,
+    compute_swc_delta as shared_compute_swc_delta,
 )
 from modules.remote_store import (
     REMOTE_DATASET_KEYS,
@@ -3091,6 +3094,31 @@ def render_jump_feedback(lines: list[str], *, kicker: str = "Devolucion automati
     )
 
 
+def render_jump_temporal_delta_table(delta_df: pd.DataFrame):
+    display_df = build_jump_delta_display_table(delta_df)
+    if display_df.empty:
+        st.caption("No hay variables comparables para esta evaluacion.")
+        return
+
+    signal_palette = {
+        "mejora relevante": ("rgba(111,143,120,0.16)", "#446555"),
+        "caida relevante": ("rgba(181,107,115,0.18)", "#7B3D45"),
+        "sin cambio relevante": ("rgba(112,140,159,0.16)", "#41515E"),
+        "sin dato anterior": ("rgba(196,164,100,0.12)", "#6D5D3C"),
+    }
+    signal_values = delta_df["Signal"].reset_index(drop=True)
+
+    def _style_signal(column: pd.Series) -> list[str]:
+        styles: list[str] = []
+        for idx, _ in enumerate(column):
+            bg, fg = signal_palette.get(signal_values.iloc[idx], ("rgba(112,140,159,0.16)", "#41515E"))
+            styles.append(f"background-color: {bg}; color: {fg}; font-weight: 700;")
+        return styles
+
+    styler = display_df.style.apply(_style_signal, subset=["Senal"])
+    st.dataframe(styler, use_container_width=False, hide_index=True)
+
+
 def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
     if val is None or ref is None:
         return
@@ -3150,6 +3178,9 @@ _records_to_jump_df = shared_records_to_jump_df
 build_jump_feedback_lines = shared_build_jump_feedback_lines
 build_jump_flag_rows = shared_build_jump_flag_rows
 build_jump_metric_table = shared_build_jump_metric_table
+build_jump_delta_display_table = shared_build_jump_delta_display_table
+build_jump_temporal_context = shared_build_jump_temporal_context
+compute_swc_delta = shared_compute_swc_delta
 export_excel = shared_export_excel
 
 chart_acwr = _bind_chart(shared_chart_acwr)
@@ -4420,6 +4451,9 @@ with tab_eval:
         sel_ts = pd.Timestamp(selected_date)
         selected_rows = hist_j[hist_j["Date"] == sel_ts].sort_values("Date")
         selected_row = selected_rows.iloc[-1] if not selected_rows.empty else hist_j.iloc[-1]
+        delta_df = compute_swc_delta(hist_j, selected_date)
+        temporal_lines = build_jump_temporal_context(delta_df)
+        feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
         st.markdown("---")
         metric_cols = st.columns(6)
         metric_config = [
@@ -4441,8 +4475,19 @@ with tab_eval:
             "Referencia EUR (ratio): 1.00-1.35. Los benchmarks externos son orientativos para futbol profesional masculino."
         )
 
+        render_subsection_header(
+            "Cambios vs evaluacion anterior",
+            "lectura de cambio relevante por variable",
+            kicker="Temporal",
+        )
+        render_jump_temporal_delta_table(delta_df)
+        if not delta_df.empty and delta_df["Signal"].eq("sin dato anterior").all():
+            st.caption(
+                "Primera evaluacion registrada para este atleta. El threshold individual tipo Hopkins estara disponible a partir de la tercera medicion valida por variable."
+            )
+
         render_jump_flag_chips(build_jump_flag_rows(selected_row))
-        render_jump_feedback(build_jump_feedback_lines(selected_row), kicker="Lectura de evaluacion")
+        render_jump_feedback(feedback_lines, kicker="Lectura de evaluacion")
 
         st.markdown("---")
         c_eval_1, c_eval_2 = st.columns([1.05, 0.95])
