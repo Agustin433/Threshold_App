@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from modules.jump_analysis import _prepare_jump_df
 from modules.load_monitoring import calc_acwr, calc_monotony_strain
 
 RECENT_WEEKS = 6
@@ -298,7 +299,13 @@ def read_full_dataset(state_key: str) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
     df = pd.read_csv(path)
-    return _sort_frame(_normalize_frame(df, DATASET_SPECS[state_key]), DATASET_SPECS[state_key])
+    normalized = _sort_frame(_normalize_frame(df, DATASET_SPECS[state_key]), DATASET_SPECS[state_key])
+    if state_key == "jump_df":
+        # Re-canonicalize historical EUR values on read so legacy percentages
+        # (for example 16.7) become ratio values (1.167) without rewriting the
+        # stored CSV schema.
+        normalized = _prepare_jump_df(normalized)
+    return normalized
 
 
 def save_dataset(state_key: str, df: pd.DataFrame) -> pd.DataFrame:

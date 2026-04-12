@@ -133,6 +133,44 @@ def isolated_store():
 
 
 class Phase0SmokeTest(unittest.TestCase):
+    def test_jump_records_compute_eur_as_ratio(self):
+        jump_df = _records_to_jump_df(
+            [
+                {"Athlete": "Ana Lopez", "Date": pd.Timestamp("2026-04-03"), "CMJ_cm": 35},
+                {"Athlete": "Ana Lopez", "Date": pd.Timestamp("2026-04-03"), "SJ_cm": 30},
+            ]
+        )
+
+        self.assertEqual(len(jump_df), 1)
+        self.assertAlmostEqual(float(jump_df.loc[0, "EUR"]), 1.167, places=3)
+        self.assertNotIn(16.7, jump_df["EUR"].tolist())
+
+    def test_jump_history_read_normalizes_legacy_eur_percentages(self):
+        with isolated_store() as (local_store, _):
+            local_store._ensure_store_dir()
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-04-03",
+                        "EUR": 16.7,
+                        "DRI": 1.6,
+                        "IMTP_N": 1820,
+                    }
+                ]
+            ).to_csv(local_store.STORE_DIR / "evaluations_history.csv", index=False)
+
+            loaded = local_store.read_full_dataset("jump_df")
+            recent_state = local_store.load_recent_state()
+            recent_jump_df = recent_state["jump_df"]
+
+            self.assertEqual(len(loaded), 1)
+            self.assertAlmostEqual(float(loaded.loc[0, "EUR"]), 1.167, places=3)
+            self.assertEqual(loaded.loc[0, "NM_Profile"], "Reactivo / Poca Base")
+            self.assertNotIn(16.7, loaded["EUR"].tolist())
+            self.assertIsNotNone(recent_jump_df)
+            self.assertAlmostEqual(float(recent_jump_df.loc[0, "EUR"]), 1.167, places=3)
+
     def test_parsers_accept_valid_exports(self):
         rpe_df = data_loader.parse_xlsx_questionnaire(
             _questionnaire_bytes("rpe"),

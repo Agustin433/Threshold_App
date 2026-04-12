@@ -7,7 +7,13 @@ from unittest.mock import patch
 import pandas as pd
 from openpyxl import load_workbook
 
-from modules.report_generator import build_report_sheets, collect_report_athletes, export_excel, export_plotly_figure_png
+from modules.report_generator import (
+    build_executive_summary_df,
+    build_report_sheets,
+    collect_report_athletes,
+    export_excel,
+    export_plotly_figure_png,
+)
 
 
 class Phase1ReportingTest(unittest.TestCase):
@@ -100,6 +106,58 @@ class Phase1ReportingTest(unittest.TestCase):
         summary_sheet = workbook["03_Completion_Resumen"]
         self.assertEqual(summary_sheet["A2"].value, "Equipo")
         self.assertEqual(summary_sheet["C2"].number_format, '0.0"%"')
+
+    def test_jump_reports_label_eur_as_ratio(self):
+        jump_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-03",
+                    "CMJ_cm": 35,
+                    "SJ_cm": 30,
+                    "EUR": 1.167,
+                    "DRI": 1.6,
+                    "IMTP_N": 1820,
+                    "NM_Profile": "Reactivo / Poca Base",
+                }
+            ]
+        )
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": jump_df,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+
+        summary_df = build_executive_summary_df(state, report_athlete="Ana Lopez")
+        self.assertIn("EUR (ratio)", summary_df.columns)
+        self.assertNotIn("EUR", summary_df.columns)
+        self.assertEqual(summary_df.loc[0, "EUR (ratio)"], "1.167")
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Ana Lopez",
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=True,
+            include_maxes=False,
+            include_volume=False,
+            include_completion=False,
+        )
+
+        workbook = load_workbook(BytesIO(export_excel(sheets)))
+        eval_sheet = workbook["07_Evaluaciones"]
+        headers = [cell.value for cell in eval_sheet[1]]
+        self.assertIn("EUR (ratio)", headers)
+        self.assertNotIn("EUR", headers)
+        eur_column = headers.index("EUR (ratio)") + 1
+        self.assertEqual(eval_sheet.cell(row=2, column=eur_column).value, 1.17)
 
 
 if __name__ == "__main__":

@@ -1662,7 +1662,7 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
 
 
 def _legacy_calc_eur_percentage_unused(df: pd.DataFrame) -> pd.DataFrame:
-    """EUR = (CMJ - SJ) / SJ × 100. Bosco 1982."""
+    """DEPRECATED: legacy EUR percentage formula, kept only for historical reference."""
     if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
         df["EUR"] = ((df["CMJ_cm"] - df["SJ_cm"]) / df["SJ_cm"]) * 100
     return df
@@ -1701,8 +1701,8 @@ def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
 
 def _legacy_calc_eur_from_records_unused(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calcula EUR agrupando registros CMJ y SJ del mismo atleta y fecha.
-    EUR = (CMJ_cm - SJ_cm) / SJ_cm × 100  (Bosco 1982)
+    DEPRECATED: legacy EUR percentage formula grouped by athlete/date.
+    EUR = (CMJ_cm - SJ_cm) / SJ_cm × 100.
 
     Si no hay datos de SJ, no crashea — EUR queda como NaN.
     Se puede completar después agregando el test SJ y reprocesando.
@@ -1757,7 +1757,7 @@ def _legacy_calc_eur_from_records_unused(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _legacy_calc_nm_profile_unused(df: pd.DataFrame) -> pd.DataFrame:
-    """Perfil neuromuscular 4-cuadrantes basado en EUR + DRI."""
+    """DEPRECATED: neuromuscular profile thresholds for legacy EUR percentage."""
     if "EUR" not in df.columns or "DRI" not in df.columns:
         return df
     conditions = [
@@ -1841,11 +1841,11 @@ def parse_maxes_health(file) -> pd.DataFrame:
 
 def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
     """EUR canonico = ratio CMJ/SJ."""
+    if "EUR" in df.columns:
+        df["EUR"] = _normalize_eur_series_to_ratio(df["EUR"])
     if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
         mask = df["CMJ_cm"].notna() & df["SJ_cm"].notna() & (df["SJ_cm"] != 0)
         df.loc[mask, "EUR"] = (df.loc[mask, "CMJ_cm"] / df.loc[mask, "SJ_cm"]).round(3)
-        if "EUR" in df.columns:
-            df["EUR"] = _normalize_eur_series_to_ratio(df["EUR"])
     return df
 
 
@@ -2550,7 +2550,7 @@ def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str) -> go.Figure:
 def chart_radar(df_row: pd.Series, athlete: str,
                 team_mean: dict = None) -> go.Figure:
     cats = ["CMJ\nAltura", "SJ\nF.Concéntrica", "DJ\nReactividad",
-            "EUR\nElasticidad", "DRI\nÍnd. Reactivo", "IMTP\nF.Máxima"]
+            "EUR\nRatio", "DRI\nÍnd. Reactivo", "IMTP\nF.Máxima"]
     z_keys = ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"]
 
     vals = [float(df_row.get(k, 0) or 0) for k in z_keys]
@@ -3751,8 +3751,9 @@ with st.sidebar:
                         ]
                         if col in preview_df.columns
                     ]
+                    preview_display = preview_df[preview_cols].rename(columns={"EUR": "EUR (ratio)"})
                     st.dataframe(
-                        preview_df[preview_cols].sort_values(["Athlete", "Date"]),
+                        preview_display.sort_values(["Athlete", "Date"]),
                         use_container_width=False,
                         hide_index=True,
                     )
@@ -4282,7 +4283,7 @@ with tab_eval:
             ("SJ", "SJ_cm", "cm", ".1f"),
             ("DJ", "DJ_cm", "cm", ".1f"),
             ("DJ TC", "DJ_tc_ms", "ms", ".0f"),
-            ("EUR", "EUR", "", ".3f"),
+            ("EUR (ratio)", "EUR", "", ".3f"),
             ("IMTP", "IMTP_N", "N", ".0f"),
         ]
         for col, (label, key, unit, fmt) in zip(metric_cols, metric_config):
@@ -4292,6 +4293,7 @@ with tab_eval:
                 col.metric(label, f"{value:{fmt}}{suffix}")
             else:
                 col.metric(label, "—")
+        st.caption("Referencia EUR (ratio): 1.0–1.35.")
 
         eval_note = generate_module_insights(dict(st.session_state), athlete_sel).get("evaluations")
         if eval_note:
@@ -4324,12 +4326,16 @@ with tab_eval:
         render_subsection_header("Detalle de la evaluacion seleccionada", "registro consolidado para la fecha elegida", kicker="Detalle")
         detail_df = selected_rows if not selected_rows.empty else hist_j.tail(1)
         detail_cols = [c for c in detail_df.columns if not c.endswith("_reps")]
-        st.dataframe(detail_df[detail_cols], use_container_width=False, hide_index=True)
+        st.dataframe(
+            detail_df[detail_cols].rename(columns={"EUR": "EUR (ratio)"}),
+            use_container_width=False,
+            hide_index=True,
+        )
 
         with st.expander("Historial completo del atleta"):
             display_cols = [c for c in hist_j.columns if not c.endswith("_reps")]
             st.dataframe(
-                hist_j[display_cols].sort_values("Date", ascending=False),
+                hist_j[display_cols].rename(columns={"EUR": "EUR (ratio)"}).sort_values("Date", ascending=False),
                 use_container_width=False,
                 hide_index=True,
             )
@@ -4397,7 +4403,7 @@ with tab_profile:
                 kpi_display = {
                     "CMJ": ("CMJ_cm", "cm"), "SJ": ("SJ_cm", "cm"),
                     "DJ": ("DJ_cm", "cm"), "DJ TC": ("DJ_tc_ms", "ms"),
-                    "EUR": ("EUR", "ratio"), "DRI": ("DRI", "u.a."),
+                    "EUR (ratio)": ("EUR", "ratio"), "DRI": ("DRI", "u.a."),
                     "IMTP": ("IMTP_N", "N"),
                 }
                 rows_kpi = []
@@ -4597,7 +4603,7 @@ with tab_report:
         include_acwr     = st.checkbox("ACWR + sRPE diario", value=True)
         include_mono     = st.checkbox("Monotonia + strain semanal", value=True)
         include_wellness = st.checkbox("Wellness historico", value=True)
-        include_jumps    = st.checkbox("Evaluaciones de saltos (EUR, DRI, Z-scores)", value=True)
+        include_jumps    = st.checkbox("Evaluaciones de saltos (EUR ratio, DRI, Z-scores)", value=True)
         include_maxes    = st.checkbox("Progresion de maximos", value=True)
         include_volume   = st.checkbox("Volumen por sesion (Rep/Load)", value=True)
         include_completion = st.checkbox("Completion rate", value=True)

@@ -18,7 +18,7 @@ def _theme_parts(theme: dict) -> tuple[dict, dict, str, str, str, dict]:
 
 def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, *, theme: dict) -> go.Figure:
     colors, layout, grid, _, reference_line, _ = _theme_parts(theme)
-    categories = ["CMJ\nAltura", "SJ\nF.Concentrica", "DJ\nReactividad", "EUR\nElasticidad", "DRI\nInd. Reactivo", "IMTP\nF.Maxima"]
+    categories = ["CMJ\nAltura", "SJ\nF.Concentrica", "DJ\nReactividad", "EUR\nRatio", "DRI\nInd. Reactivo", "IMTP\nF.Maxima"]
     z_keys = ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"]
 
     values = [float(df_row.get(key, 0) or 0) for key in z_keys]

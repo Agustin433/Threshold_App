@@ -46,13 +46,14 @@ else:
         ("SJ", "SJ_cm", "cm", ".1f"),
         ("DJ", "DJ_cm", "cm", ".1f"),
         ("DJ TC", "DJ_tc_ms", "ms", ".0f"),
-        ("EUR", "EUR", "", ".3f"),
+        ("EUR (ratio)", "EUR", "", ".3f"),
         ("IMTP", "IMTP_N", "N", ".0f"),
     ]
     for column, (label, key, unit, fmt) in zip(metrics, metric_config):
         value = selected_row.get(key)
         suffix = f" {unit}".rstrip()
         column.metric(label, f"{value:{fmt}}{suffix}" if pd.notna(value) else "-")
+    st.caption("Referencia EUR (ratio): 1.0-1.35.")
 
     render_insight_block(generate_module_insights(dict(st.session_state), athlete).get("evaluations"), fallback_title="Lectura de evaluación")
 
@@ -67,12 +68,16 @@ else:
 
     st.markdown("### Detalle de la evaluación seleccionada")
     detail_cols = [column for column in selected_rows.columns if not column.endswith("_reps")]
-    st.dataframe(selected_rows[detail_cols], use_container_width=True, hide_index=True)
+    st.dataframe(
+        selected_rows[detail_cols].rename(columns={"EUR": "EUR (ratio)"}),
+        use_container_width=True,
+        hide_index=True,
+    )
 
     with st.expander("Historial completo del atleta", expanded=False):
         history_cols = [column for column in athlete_hist.columns if not column.endswith("_reps")]
         st.dataframe(
-            athlete_hist[history_cols].sort_values("Date", ascending=False),
+            athlete_hist[history_cols].rename(columns={"EUR": "EUR (ratio)"}).sort_values("Date", ascending=False),
             use_container_width=True,
             hide_index=True,
         )

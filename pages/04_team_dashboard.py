@@ -155,7 +155,11 @@ if jdf is not None and not jdf.empty:
         for col in ["Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "EUR", "DRI", "IMTP_N", "NM_Profile"]
         if col in latest.columns
     ]
-    st.dataframe(latest[show_cols], use_container_width=True, hide_index=True)
+    st.dataframe(
+        latest[show_cols].rename(columns={"EUR": "EUR (ratio)"}),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 if maxes_df is not None and not maxes_df.empty:
     st.markdown("### Maximos")

@@ -61,6 +61,7 @@ REPORT_AUDIENCE_OPTIONS = {
 }
 
 REPORT_AUDIENCE_LABELS = {value: key for key, value in REPORT_AUDIENCE_OPTIONS.items()}
+EUR_RATIO_LABEL = "EUR (ratio)"
 
 
 def normalize_report_audience(audience: str | None) -> str:
@@ -80,6 +81,12 @@ def normalize_report_audience(audience: str | None) -> str:
 
 def report_audience_label(audience: str | None) -> str:
     return REPORT_AUDIENCE_LABELS.get(normalize_report_audience(audience), "Profe")
+
+
+def _summary_eur_value(row: pd.Series | None) -> object:
+    if row is None:
+        return None
+    return row.get(EUR_RATIO_LABEL, row.get("EUR"))
 
 
 def collect_report_athletes(state: dict[str, pd.DataFrame | None]) -> list[str]:
@@ -267,7 +274,7 @@ def _has_text(value: object) -> bool:
 def _row_has_eval_data(row: pd.Series | None) -> bool:
     if row is None:
         return False
-    numeric_cols = ["CMJ cm", "CMJ vs BL %", "EUR", "DRI", "IMTP N"]
+    numeric_cols = ["CMJ cm", "CMJ vs BL %", EUR_RATIO_LABEL, "EUR", "DRI", "IMTP N"]
     return any(_coerce_float(row.get(col)) is not None for col in numeric_cols) or _has_text(row.get("Perfil NM"))
 
 
@@ -424,7 +431,7 @@ def build_executive_summary_df(
             row["Fecha evaluación"] = pd.to_datetime(jump_row["Date"]).strftime("%d/%m/%Y")
             row["CMJ cm"] = _round_or_none(jump_row.get("CMJ_cm"), 1)
             row["CMJ vs BL %"] = _cmj_delta_vs_baseline(state, athlete)
-            row["EUR"] = _round_or_none(jump_row.get("EUR"), 3)
+            row[EUR_RATIO_LABEL] = _round_or_none(jump_row.get("EUR"), 3)
             row["DRI"] = _round_or_none(jump_row.get("DRI"), 3)
             row["IMTP N"] = _round_or_none(jump_row.get("IMTP_N"), 0)
             row["Perfil NM"] = jump_row.get("NM_Profile")
@@ -689,6 +696,7 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
             result,
             ["Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "EUR", "DRI", "IMTP_N", "NM_Profile"],
         )
+        result = result.rename(columns={"EUR": EUR_RATIO_LABEL})
         return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
     if sheet_name == "Maximos_Ejercicios":
         result = _preferred_columns(
@@ -1593,7 +1601,7 @@ def generate_module_insights(
         eval_summary_parts = _compact_lines(
             [
                 f"CMJ {_display_metric(row.get('CMJ cm'), digits=1, suffix=' cm')}" if _coerce_float(row.get("CMJ cm")) is not None else None,
-                f"EUR {_display_metric(row.get('EUR'), digits=2)}" if _coerce_float(row.get("EUR")) is not None else None,
+                f"{EUR_RATIO_LABEL} {_display_metric(_summary_eur_value(row), digits=2)}" if _coerce_float(_summary_eur_value(row)) is not None else None,
                 f"DRI {_display_metric(row.get('DRI'), digits=2)}" if _coerce_float(row.get("DRI")) is not None else None,
                 f"IMTP {_display_metric(row.get('IMTP N'), digits=0, suffix=' N')}" if _coerce_float(row.get("IMTP N")) is not None else None,
             ]
@@ -1643,7 +1651,7 @@ def generate_module_insights(
             "summary": f"Perfiles neuromusculares visibles: {profile_text}.",
             "focuses": [
                 "Cruzar los perfiles reactivos con la carga reciente para decidir exposición pliométrica.",
-                "Usar IMTP, EUR y DRI para separar necesidades de fuerza base vs reactividad.",
+                f"Usar IMTP, {EUR_RATIO_LABEL} y DRI para separar necesidades de fuerza base vs reactividad.",
             ],
         }
         insights["profile"] = {
@@ -1830,8 +1838,9 @@ def _audience_metric_rows(
                 rows.append(("DRI", _display_metric(focus_row.get("DRI"), digits=2)))
             if _coerce_float(focus_row.get("IMTP N")) is not None:
                 rows.append(("IMTP", _display_metric(focus_row.get("IMTP N"), digits=0, suffix=" N")))
-            if _coerce_float(focus_row.get("EUR")) is not None:
-                rows.append(("EUR", _display_metric(focus_row.get("EUR"), digits=2)))
+            focus_eur = _summary_eur_value(focus_row)
+            if _coerce_float(focus_eur) is not None:
+                rows.append((EUR_RATIO_LABEL, _display_metric(focus_eur, digits=2)))
             if _coerce_float(focus_row.get("CMJ vs BL %")) is not None:
                 rows.append(("Cambio vs base", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%")))
         else:

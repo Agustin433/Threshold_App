@@ -85,7 +85,7 @@ else:
         if jdf is not None and athlete in jdf["Athlete"].values:
             st.markdown("### Evaluaciones")
             st.dataframe(
-                jdf[jdf["Athlete"] == athlete].sort_values("Date", ascending=False),
+                jdf[jdf["Athlete"] == athlete].rename(columns={"EUR": "EUR (ratio)"}).sort_values("Date", ascending=False),
                 use_container_width=True,
                 hide_index=True,
             )

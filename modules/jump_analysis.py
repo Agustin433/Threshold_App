@@ -7,7 +7,7 @@ import pandas as pd
 
 
 def _normalize_eur_series_to_ratio(series: pd.Series) -> pd.Series:
-    """Normalize EUR values to a CMJ/SJ ratio."""
+    """Normalize EUR values to a canonical CMJ/SJ ratio."""
     result = pd.to_numeric(series, errors="coerce")
     pct_mask = result > 5
     result.loc[pct_mask] = 1 + (result.loc[pct_mask] / 100)
@@ -16,11 +16,13 @@ def _normalize_eur_series_to_ratio(series: pd.Series) -> pd.Series:
 
 def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
     """Canonical EUR as a CMJ/SJ ratio."""
+    if "EUR" in df.columns:
+        # Historical files may still store EUR as percentage. Normalize first so
+        # downstream z-scores and NM profile always see ratio values.
+        df["EUR"] = _normalize_eur_series_to_ratio(df["EUR"])
     if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
         mask = df["CMJ_cm"].notna() & df["SJ_cm"].notna() & (df["SJ_cm"] != 0)
         df.loc[mask, "EUR"] = (df.loc[mask, "CMJ_cm"] / df.loc[mask, "SJ_cm"]).round(3)
-        if "EUR" in df.columns:
-            df["EUR"] = _normalize_eur_series_to_ratio(df["EUR"])
     return df
 
 
