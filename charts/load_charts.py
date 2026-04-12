@@ -55,28 +55,14 @@ def chart_acwr(
         )
     )
 
-    ewma_width = 3 if selected_method == "ACWR_EWMA" else 1.5
-    classic_width = 3 if selected_method == "ACWR_Classic" else 1.5
-    classic_dash = "solid" if selected_method == "ACWR_Classic" else "dot"
-
     fig.add_trace(
         go.Scatter(
             x=acwr_df["Date"],
             y=acwr_df["ACWR_EWMA"],
             name="ACWR EWMA",
             mode="lines",
-            line=dict(color=colors["steel"], width=ewma_width),
+            line=dict(color=colors["steel"], width=3),
             hovertemplate="%{x|%d/%m}<br>ACWR EWMA: %{y:.2f}<extra></extra>",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=acwr_df["Date"],
-            y=acwr_df["ACWR_Classic"],
-            name="ACWR Clasico",
-            mode="lines",
-            line=dict(color=colors["yellow"], width=classic_width, dash=classic_dash),
-            hovertemplate="%{x|%d/%m}<br>ACWR Clasico: %{y:.2f}<extra></extra>",
         )
     )
 

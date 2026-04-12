@@ -2277,7 +2277,7 @@ _LEGEND = dict(
     font=dict(size=9, color=C["gray"]),
 )
 
-def chart_acwr(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR_EWMA") -> go.Figure:
+def _legacy_chart_acwr_unused(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR_EWMA") -> go.Figure:
     fig = go.Figure()
 
     # Bandas de zona
@@ -2304,24 +2304,19 @@ def chart_acwr(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR
         hovertemplate="%{x|%d/%m}<br>sRPE: %{y:.0f} UA<extra></extra>",
     ))
 
-    ewma_width = 3 if selected_method == "ACWR_EWMA" else 1.5
-    classic_width = 3 if selected_method == "ACWR_Classic" else 1.5
-    classic_dash = "solid" if selected_method == "ACWR_Classic" else "dot"
 
     # ACWR EWMA
     fig.add_trace(go.Scatter(
         x=acwr_df["Date"], y=acwr_df["ACWR_EWMA"],
         name="ACWR EWMA", mode="lines",
-        line=dict(color=C["steel"], width=ewma_width),
+        line=dict(color=C["steel"], width=3),
         hovertemplate="%{x|%d/%m}<br>ACWR EWMA: %{y:.2f}<extra></extra>",
     ))
 
-    # ACWR Clásico
+    # Legacy trace removed
     fig.add_trace(go.Scatter(
-        x=acwr_df["Date"], y=acwr_df["ACWR_Classic"],
-        name="ACWR Clásico", mode="lines",
-        line=dict(color=C["yellow"], width=classic_width, dash=classic_dash),
-        hovertemplate="%{x|%d/%m}<br>ACWR Clásico: %{y:.2f}<extra></extra>",
+        name="Legacy hidden", mode="lines",
+        hovertemplate="%{x|%d/%m}<br>Legacy hidden: %{y:.2f}<extra></extra>",
     ))
 
     fig.update_layout(
@@ -2333,6 +2328,63 @@ def chart_acwr(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR
         yaxis2=dict(title="sRPE (UA)", overlaying="y", side="right",
                     range=[0, acwr_df["sRPE_diario"].max() * 4],
                     showgrid=False, color=C["muted"]),
+        legend=_LEGEND,
+        height=420,
+    )
+    return fig
+
+
+def chart_acwr(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR_EWMA") -> go.Figure:
+    fig = go.Figure()
+
+    band_data = [
+        (0.0, 0.8, "rgba(112,140,159,0.10)", "Subcarga"),
+        (0.8, 1.3, "rgba(111,143,120,0.10)", "Ã“ptimo"),
+        (1.3, 1.5, "rgba(196,164,100,0.12)", "PrecauciÃ³n"),
+        (1.5, 3.0, "rgba(181,107,115,0.10)", "Alto riesgo"),
+    ]
+    for y0, y1, color, label in band_data:
+        fig.add_hrect(
+            y0=y0,
+            y1=y1,
+            fillcolor=color,
+            layer="below",
+            line_width=0,
+            annotation_text=label,
+            annotation_position="right",
+            annotation_font=dict(size=9, color=C["muted"]),
+        )
+
+    fig.add_trace(go.Bar(
+        x=acwr_df["Date"],
+        y=acwr_df["sRPE_diario"],
+        name="sRPE diario",
+        marker_color="rgba(112,140,159,0.35)",
+        yaxis="y2",
+        hovertemplate="%{x|%d/%m}<br>sRPE: %{y:.0f} UA<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=acwr_df["Date"],
+        y=acwr_df["ACWR_EWMA"],
+        name="ACWR EWMA",
+        mode="lines",
+        line=dict(color=C["steel"], width=3),
+        hovertemplate="%{x|%d/%m}<br>ACWR EWMA: %{y:.2f}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        **_DARK,
+        title=dict(text=f"<b>ACWR + sRPE Diario â€” {athlete}</b>", font=dict(size=14, color=C["navy"])),
+        xaxis=dict(title="Fecha", gridcolor=_GRID_SOFT, zeroline=False),
+        yaxis=dict(title="ACWR", range=[0, 2.5], gridcolor=_GRID_SOFT, zeroline=False),
+        yaxis2=dict(
+            title="sRPE (UA)",
+            overlaying="y",
+            side="right",
+            range=[0, acwr_df["sRPE_diario"].max() * 4],
+            showgrid=False,
+            color=C["muted"],
+        ),
         legend=_LEGEND,
         height=420,
     )
@@ -4159,16 +4211,13 @@ with tab_load:
 
         with st.expander("Opciones de visualizacion", expanded=True):
             athlete_sel = st.selectbox("Seleccionar atleta", athletes_load, key="sel_load")
-            method_sel = st.radio("Método ACWR", ["EWMA (recomendado)", "Clásico 7:28"],
-                                   horizontal=True, key="acwr_method")
 
         sub_rpe = rdf[rdf["Athlete"] == athlete_sel]
         acwr_df = (st.session_state.acwr_dict or {}).get(athlete_sel)
         mono_df = (st.session_state.mono_dict or {}).get(athlete_sel)
         if mono_df is None:
             mono_df = pd.DataFrame(columns=["Semana", "Monotonia", "Strain", "Alerta"])
-        acwr_col = "ACWR_EWMA" if method_sel.startswith("EWMA") else "ACWR_Classic"
-        acwr_label = "ACWR EWMA" if acwr_col == "ACWR_EWMA" else "ACWR Clasico"
+        acwr_label = "ACWR EWMA"
 
         if acwr_df is None:
             st.warning("Sin datos de ACWR para este atleta.")
@@ -4177,10 +4226,6 @@ with tab_load:
             last_sessions = sub_rpe.tail(3)
             last_acwr = acwr_df[acwr_df["sRPE_diario"] > 0].tail(1)
             last_mono = mono_df.tail(1) if mono_df is not None else pd.DataFrame()
-            if not last_acwr.empty and acwr_col != "ACWR_EWMA":
-                last_acwr = last_acwr.copy()
-                last_acwr["ACWR_EWMA"] = last_acwr[acwr_col]
-
             c1,c2,c3,c4,c5 = st.columns(5)
             c1.metric("sRPE última sesión",
                       f"{last_sessions['sRPE'].iloc[-1]:.0f} UA" if not last_sessions.empty else "—")
@@ -4225,7 +4270,7 @@ with tab_load:
 
             # Gráfico ACWR
             render_subsection_header("Tendencia de carga", "acwr diario con contexto de sRPE", kicker="Analisis")
-            st.plotly_chart(chart_acwr(acwr_df, athlete_sel, acwr_col), use_container_width=False, key="acwr_main")
+            st.plotly_chart(chart_acwr(acwr_df, athlete_sel, "ACWR_EWMA"), use_container_width=False, key="acwr_main")
 
             c_mono, c_well = st.columns(2)
             with c_mono:
