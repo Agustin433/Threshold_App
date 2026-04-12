@@ -64,8 +64,10 @@ from modules.data_loader import (
     parse_forceplate_file as shared_parse_forceplate_file,
     parse_jump_eval as shared_parse_jump_eval,
     parse_maxes_health as shared_parse_maxes_health,
+    prepare_raw_workouts_df as shared_prepare_raw_workouts_df,
     parse_raw_workouts as shared_parse_raw_workouts,
     parse_rep_load_report as shared_parse_rep_load_report,
+    summarize_raw_workouts_quality as shared_summarize_raw_workouts_quality,
     parse_xlsx_questionnaire as shared_parse_xlsx_questionnaire,
 )
 from modules.jump_analysis import (
@@ -1434,6 +1436,7 @@ def _legacy_parse_raw_workouts_unused(file) -> pd.DataFrame:
     df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
     df["Result"] = pd.to_numeric(df["Result"], errors="coerce")
     df["Reps"]   = pd.to_numeric(df["Reps"],   errors="coerce")
+    # DEPRECATED: legacy raw volume metric kept only as reference.
     df["Volume_Load"] = df["Result"] * df["Reps"]
     df["Category"] = df["Tags"].map(TAG_CATEGORIES).fillna("Sin categoría")
     return df.dropna(subset=["Assigned Date"])
@@ -1806,6 +1809,7 @@ def parse_raw_workouts(file) -> pd.DataFrame:
     df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
     df["Result"] = pd.to_numeric(df["Result"], errors="coerce")
     df["Reps"] = pd.to_numeric(df["Reps"], errors="coerce")
+    # DEPRECATED: runtime now uses modules.data_loader.parse_raw_workouts.
     df["Volume_Load"] = df["Result"] * df["Reps"]
     if "Athlete" in df.columns:
         df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
@@ -3113,6 +3117,8 @@ parse_xlsx_questionnaire = shared_parse_xlsx_questionnaire
 parse_completion_report = shared_parse_completion_report
 parse_rep_load_report = shared_parse_rep_load_report
 parse_raw_workouts = shared_parse_raw_workouts
+prepare_raw_workouts_df = shared_prepare_raw_workouts_df
+summarize_raw_workouts_quality = shared_summarize_raw_workouts_quality
 parse_maxes_health = shared_parse_maxes_health
 parse_forceplate_file = shared_parse_forceplate_file
 parse_jump_eval = shared_parse_jump_eval
@@ -4300,15 +4306,27 @@ with tab_load:
             # Volumen por patrón
             raw_df_state = st.session_state.raw_df
             if raw_df_state is not None:
+                prepared_raw_df = prepare_raw_workouts_df(raw_df_state)
                 st.markdown("---")
-                render_subsection_header("Volumen por patron de movimiento", "distribucion de carga externa por tags", kicker="Volumen")
+                render_subsection_header(
+                    "Carga externa por tipo de estimulo",
+                    "tonelaje, contactos y exposiciones por categoria",
+                    kicker="Volumen",
+                )
                 athletes_raw = (
-                    sorted(raw_df_state["Athlete"].dropna().unique()) if "Athlete" in raw_df_state.columns else
-                    sorted(raw_df_state["Name"].dropna().unique()) if "Name" in raw_df_state.columns else
+                    sorted(prepared_raw_df["Athlete"].dropna().unique()) if "Athlete" in prepared_raw_df.columns else
+                    sorted(prepared_raw_df["Name"].dropna().unique()) if "Name" in prepared_raw_df.columns else
                     [athlete_sel]
                 ) or [athlete_sel]
                 ath_raw = st.selectbox("Atleta", athletes_raw, key="sel_raw_vol")
-                st.plotly_chart(chart_volume_by_tag(raw_df_state, ath_raw), use_container_width=False, key="volume_tag")
+                st.plotly_chart(chart_volume_by_tag(prepared_raw_df, ath_raw), use_container_width=False, key="volume_tag")
+
+                raw_quality = summarize_raw_workouts_quality(prepared_raw_df)
+                with st.expander("Calidad de datos - Raw", expanded=False):
+                    if raw_quality.empty:
+                        st.caption("Sin observaciones de calidad para el raw visible.")
+                    else:
+                        st.dataframe(raw_quality, use_container_width=True, hide_index=True)
 
 
 # ─────────────────────────────────────────────────────────────────────

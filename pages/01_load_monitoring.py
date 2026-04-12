@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from charts.load_charts import chart_acwr, chart_monotony_strain, chart_volume_by_tag, chart_wellness
+from modules.data_loader import prepare_raw_workouts_df, summarize_raw_workouts_quality
 from modules.page_state import ensure_page_state
 from modules.page_visuals import build_page_theme, render_insight_block
 from modules.report_generator import generate_module_insights
@@ -79,10 +80,17 @@ else:
             st.dataframe(athlete_wdf.sort_values("Date", ascending=False), use_container_width=True, hide_index=True)
 
     if raw_df is not None:
-        athlete_col = "Athlete" if "Athlete" in raw_df.columns else "Name" if "Name" in raw_df.columns else None
-        if athlete_col and athlete in raw_df[athlete_col].astype(str).values:
-            st.markdown("### Volumen por patron")
-            st.plotly_chart(chart_volume_by_tag(raw_df, athlete, theme=theme), use_container_width=True)
+        prepared_raw_df = prepare_raw_workouts_df(raw_df)
+        athlete_col = "Athlete" if "Athlete" in prepared_raw_df.columns else "Name" if "Name" in prepared_raw_df.columns else None
+        if athlete_col and athlete in prepared_raw_df[athlete_col].astype(str).values:
+            st.markdown("### Carga externa por tipo de estimulo")
+            st.plotly_chart(chart_volume_by_tag(prepared_raw_df, athlete, theme=theme), use_container_width=True)
+            with st.expander("Calidad de datos - Raw", expanded=False):
+                raw_quality = summarize_raw_workouts_quality(prepared_raw_df)
+                if raw_quality.empty:
+                    st.caption("Sin observaciones de calidad para el raw visible.")
+                else:
+                    st.dataframe(raw_quality, use_container_width=True, hide_index=True)
 
     with st.expander("Sesiones recientes", expanded=False):
         display_cols = [col for col in ["Date", "RPE", "Duration_min", "sRPE"] if col in sub_rpe.columns]

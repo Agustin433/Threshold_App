@@ -15,21 +15,40 @@ _DATE_RE = re.compile(
     r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}$"
 )
 
-TAG_CATEGORIES = {
-    "Empuje Horizontal": "Push H",
-    "Empuje Vertical": "Push V",
-    "Traccion Horizontal": "Pull H",
-    "Traccion Vertical": "Pull V",
-    "Dominante de Rodilla": "Dom. Rodilla",
-    "Dominante de Rodilla/Stance_Split": "Dom. Rodilla",
-    "Dominante de Cadera": "Dom. Cadera",
-    "DLO": "DLO",
-    "Jump_Plyo": "Plyo/Saltos",
-    "Jump_Ballistic": "Balistico",
-    "Accessories MMSS": "Accesorios MMSS",
-    "Accessories MMII/Ham_Curl": "Accesorios MMII",
-    "Neck": "Cuello/Trapecio",
+TAG_CATEGORY_MAP = {
+    "Dominante de Cadera": "strength_loaded",
+    "Dominante de Rodilla": "strength_loaded",
+    "Empuje Horizontal": "strength_loaded",
+    "Empuje Vertical": "strength_loaded",
+    "Traccion Horizontal": "strength_loaded",
+    "Traccion Vertical": "strength_loaded",
+    "Jump_Loaded": "strength_loaded",
+    "Stance_SingleLeg": "strength_loaded",
+    "Stance_Split": "strength_loaded",
+    "Biceps": "strength_loaded",
+    "Triceps": "strength_loaded",
+    "Ham_Curl": "strength_loaded",
+    "Neck": "strength_loaded",
+    "Accessories MMII": "strength_loaded",
+    "Accessories MMSS": "strength_loaded",
+    "DLO": "olympic_derivatives",
+    "Jump_Ballistic": "plyo_jump",
+    "Jump_Plyo": "plyo_jump",
+    "Balistic MMSS": "plyo_jump",
+    "Plyo MMSS": "plyo_jump",
+    "Split_Jump": "plyo_jump",
+    "Catch_Landing": "landing_mechanics",
+    "Iso_Overcoming": "iso",
+    "Iso_Yielding": "iso",
+    "OSCI": "iso",
+    "Core": "core_stability",
+    "Stretch MMII": "mobility_prehab",
+    "Stretch MMSS": "mobility_prehab",
+    "Wall Drill": "mobility_prehab",
+    "ju": "invalid",
 }
+
+_TAG_TOKEN_RE = re.compile(r"[|,;/]+")
 
 _CMJ_MAP = {
     "Height Jump (cm)": ("CMJ_cm", "max"),
@@ -558,6 +577,242 @@ def parse_rep_load_report(file) -> pd.DataFrame:
     return df
 
 
+def _split_tag_tokens(value) -> list[str]:
+    if pd.isna(value):
+        return []
+    text = str(value).strip()
+    if not text:
+        return []
+    return [token.strip() for token in _TAG_TOKEN_RE.split(text) if token.strip()]
+
+
+def _classify_raw_tag(value) -> tuple[str, str, bool, bool]:
+    tokens = _split_tag_tokens(value)
+    if not tokens:
+        return "untagged", "untagged", False, True
+
+    for token in tokens:
+        if TAG_CATEGORY_MAP.get(token) == "invalid":
+            return "invalid", token, True, False
+
+    for token in tokens:
+        category = TAG_CATEGORY_MAP.get(token)
+        if category:
+            return category, token, False, False
+
+    return "untagged", tokens[0], False, True
+
+
+def _first_positive(series: pd.Series, fallback: pd.Series) -> pd.Series:
+    if series is None:
+        return fallback
+    if fallback is None:
+        return series
+    return series.where(series.notna() & (series > 0), fallback)
+
+
+def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
+    if raw_df is None:
+        return None
+
+    df = raw_df.copy()
+    column_aliases = {
+        "Assigned Date": ["Date", "Workout Date", "Fecha"],
+        "Athlete": ["Name", "Player", "Athlete Name", "Atleta"],
+        "Tags": ["Tag", "Labels"],
+        "Exercise": ["Exercise Name", "Movement", "Ejercicio"],
+        "Sets": ["Set Count", "Completed Sets", "Sets Completed"],
+        "Duration_s": [
+            "Duration (s)",
+            "Duration",
+            "Seconds",
+            "Time (s)",
+            "Time",
+            "Hold Time (s)",
+            "Hold Time",
+        ],
+    }
+    for target_col, options in column_aliases.items():
+        if target_col in df.columns:
+            continue
+        source_col = next((option for option in options if option in df.columns), None)
+        if source_col:
+            df[target_col] = df[source_col]
+
+    if df.empty:
+        for column in [
+            "Date",
+            "Category",
+            "stimulus_category",
+            "Volume_Load",
+            "Volume_Load_legacy",
+            "Volume_Load_kg",
+            "Contacts",
+            "Exposures",
+            "is_invalid",
+            "is_untagged",
+        ]:
+            if column not in df.columns:
+                df[column] = pd.Series(dtype=object if column in {"Category", "stimulus_category"} else "float64")
+        if "is_invalid" in df.columns:
+            df["is_invalid"] = df["is_invalid"].astype(bool)
+        if "is_untagged" in df.columns:
+            df["is_untagged"] = df["is_untagged"].astype(bool)
+        return df
+
+    if "Assigned Date" in df.columns:
+        df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
+    elif "Date" in df.columns:
+        df["Assigned Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    else:
+        df["Assigned Date"] = pd.NaT
+    df["Date"] = df["Assigned Date"]
+
+    for column in ["Result", "Reps", "Sets", "Duration_s"]:
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    if "Athlete" in df.columns:
+        df["Athlete"] = (
+            df["Athlete"]
+            .where(df["Athlete"].notna(), "")
+            .astype(str)
+            .str.strip()
+            .str.title()
+            .replace("", pd.NA)
+        )
+    if "Exercise" in df.columns:
+        df["Exercise"] = (
+            df["Exercise"]
+            .where(df["Exercise"].notna(), "")
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+        )
+    if "Tags" in df.columns:
+        df["Tags"] = (
+            df["Tags"]
+            .where(df["Tags"].notna(), "")
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+        )
+
+    tag_info = (
+        df["Tags"].apply(_classify_raw_tag)
+        if "Tags" in df.columns
+        else pd.Series([("untagged", "untagged", False, True)] * len(df), index=df.index)
+    )
+    classified = pd.DataFrame(
+        list(tag_info),
+        index=df.index,
+        columns=["stimulus_category", "Category", "is_invalid", "is_untagged"],
+    )
+    for column in classified.columns:
+        df[column] = classified[column]
+
+    result = pd.to_numeric(df.get("Result", pd.Series(index=df.index, dtype="float64")), errors="coerce")
+    reps = pd.to_numeric(df.get("Reps", pd.Series(index=df.index, dtype="float64")), errors="coerce")
+    sets = pd.to_numeric(df.get("Sets", pd.Series(index=df.index, dtype="float64")), errors="coerce")
+    duration_s = pd.to_numeric(df.get("Duration_s", pd.Series(index=df.index, dtype="float64")), errors="coerce")
+
+    df["Volume_Load_legacy"] = result * reps
+    # Backwards-compatible alias while downstream modules still expect Volume_Load.
+    df["Volume_Load"] = df["Volume_Load_legacy"]
+
+    df["Volume_Load_kg"] = pd.Series(index=df.index, dtype="float64")
+    df["Contacts"] = pd.Series(index=df.index, dtype="float64")
+    df["Exposures"] = pd.Series(index=df.index, dtype="float64")
+
+    strength_mask = df["stimulus_category"].eq("strength_loaded")
+    valid_strength = strength_mask & result.gt(0) & reps.gt(0)
+    df.loc[valid_strength, "Volume_Load_kg"] = (result.loc[valid_strength] * reps.loc[valid_strength]).round(3)
+
+    contacts_mask = df["stimulus_category"].isin(["plyo_jump", "landing_mechanics"]) & reps.gt(0)
+    df.loc[contacts_mask, "Contacts"] = reps.loc[contacts_mask]
+
+    dlo_mask = df["stimulus_category"].eq("olympic_derivatives") & reps.gt(0)
+    # DLO se monitorea por exposicion tecnica, no por tonelaje acumulado.
+    df.loc[dlo_mask, "Exposures"] = reps.loc[dlo_mask]
+
+    iso_mask = df["stimulus_category"].eq("iso")
+    df.loc[iso_mask, "Exposures"] = _first_positive(duration_s, sets).loc[iso_mask]
+
+    core_mask = df["stimulus_category"].eq("core_stability")
+    df.loc[core_mask, "Exposures"] = _first_positive(sets, reps).loc[core_mask]
+
+    mobility_mask = df["stimulus_category"].eq("mobility_prehab")
+    df.loc[mobility_mask, "Exposures"] = _first_positive(sets, reps).loc[mobility_mask]
+
+    df["is_invalid"] = df["is_invalid"].astype(bool)
+    df["is_untagged"] = df["is_untagged"].astype(bool)
+    return df
+
+
+def summarize_raw_workouts_quality(raw_df: pd.DataFrame | None) -> pd.DataFrame:
+    prepared = prepare_raw_workouts_df(raw_df)
+    if prepared is None or prepared.empty:
+        return pd.DataFrame(columns=["Detalle", "Filas", "Contexto"])
+
+    def _format_dates(values: pd.Series) -> str:
+        dates = pd.to_datetime(values, errors="coerce").dropna().dt.strftime("%Y-%m-%d").unique().tolist()
+        return ", ".join(dates[:4]) if dates else "-"
+
+    def _format_exercises(values: pd.Series) -> str:
+        exercises = values.dropna().astype(str).str.strip()
+        exercises = [value for value in exercises.unique().tolist() if value]
+        return ", ".join(exercises[:4]) if exercises else "-"
+
+    issues: list[dict[str, object]] = []
+
+    invalid_rows = prepared[prepared["is_invalid"]]
+    if not invalid_rows.empty:
+        issues.append(
+            {
+                "Detalle": 'Tag invalido ("ju")',
+                "Filas": int(len(invalid_rows)),
+                "Contexto": f"Fechas: {_format_dates(invalid_rows['Assigned Date'])}",
+            }
+        )
+
+    untagged_rows = prepared[prepared["is_untagged"]]
+    if not untagged_rows.empty:
+        issues.append(
+            {
+                "Detalle": "Filas sin tag clasificado",
+                "Filas": int(len(untagged_rows)),
+                "Contexto": f"Ejercicios: {_format_exercises(untagged_rows.get('Exercise', pd.Series(dtype=object)))}",
+            }
+        )
+
+    zero_result_rows = prepared[
+        prepared["stimulus_category"].eq("strength_loaded")
+        & pd.to_numeric(prepared.get("Result", pd.Series(index=prepared.index, dtype="float64")), errors="coerce").eq(0)
+    ]
+    if not zero_result_rows.empty:
+        issues.append(
+            {
+                "Detalle": "Result = 0 en strength_loaded",
+                "Filas": int(len(zero_result_rows)),
+                "Contexto": f"Fechas: {_format_dates(zero_result_rows['Assigned Date'])}",
+            }
+        )
+
+    zero_reps_rows = prepared[
+        pd.to_numeric(prepared.get("Reps", pd.Series(index=prepared.index, dtype="float64")), errors="coerce").eq(0)
+    ]
+    if not zero_reps_rows.empty:
+        issues.append(
+            {
+                "Detalle": "Reps = 0",
+                "Filas": int(len(zero_reps_rows)),
+                "Contexto": f"Fechas: {_format_dates(zero_reps_rows['Assigned Date'])}",
+            }
+        )
+
+    return pd.DataFrame(issues, columns=["Detalle", "Filas", "Contexto"])
+
+
 def parse_raw_workouts(file) -> pd.DataFrame:
     """Robust raw workout parser that tolerates column variants."""
     _ensure_supported_extension(
@@ -572,11 +827,26 @@ def parse_raw_workouts(file) -> pd.DataFrame:
     result_options = ["Result", "Load", "Weight", "Carga"]
     reps_options = ["Reps", "Rep Count", "Completed Reps"]
     tags_options = ["Tags", "Tag", "Labels"]
+    exercise_options = ["Exercise", "Exercise Name", "Movement", "Ejercicio"]
+    sets_options = ["Sets", "Set Count", "Completed Sets", "Sets Completed"]
+    duration_options = [
+        "Duration_s",
+        "Duration (s)",
+        "Duration",
+        "Seconds",
+        "Time (s)",
+        "Time",
+        "Hold Time (s)",
+        "Hold Time",
+    ]
     date_col = next((col for col in date_options if col in df.columns), None)
     athlete_col = next((col for col in athlete_options if col in df.columns), None)
     result_col = next((col for col in result_options if col in df.columns), None)
     reps_col = next((col for col in reps_options if col in df.columns), None)
     tags_col = next((col for col in tags_options if col in df.columns), None)
+    exercise_col = next((col for col in exercise_options if col in df.columns), None)
+    sets_col = next((col for col in sets_options if col in df.columns), None)
+    duration_col = next((col for col in duration_options if col in df.columns), None)
     if not date_col or not result_col or not reps_col:
         missing_map: dict[str, list[str]] = {}
         if not date_col:
@@ -592,21 +862,35 @@ def parse_raw_workouts(file) -> pd.DataFrame:
         rename_map[athlete_col] = "Athlete"
     if tags_col:
         rename_map[tags_col] = "Tags"
+    if exercise_col:
+        rename_map[exercise_col] = "Exercise"
+    if sets_col:
+        rename_map[sets_col] = "Sets"
+    if duration_col:
+        rename_map[duration_col] = "Duration_s"
 
     df = df.rename(columns=rename_map)
     df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
     df["Result"] = pd.to_numeric(df["Result"], errors="coerce")
     df["Reps"] = pd.to_numeric(df["Reps"], errors="coerce")
-    df["Volume_Load"] = df["Result"] * df["Reps"]
+    if "Sets" in df.columns:
+        df["Sets"] = pd.to_numeric(df["Sets"], errors="coerce")
+    if "Duration_s" in df.columns:
+        df["Duration_s"] = pd.to_numeric(df["Duration_s"], errors="coerce")
     if "Athlete" in df.columns:
         df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
-    tag_series = df["Tags"] if "Tags" in df.columns else pd.Series(index=df.index, dtype=object)
-    df["Category"] = tag_series.map(TAG_CATEGORIES).fillna("Sin categoria")
     df = _require_valid_dates(df, "Raw Data Report - Workouts", "Assigned Date", "Assigned Date")
-    _require_numeric_content(df, "Raw Data Report - Workouts", "Result", "resultado/carga")
-    _require_numeric_content(df, "Raw Data Report - Workouts", "Reps", "repeticiones")
-    _require_numeric_content(df, "Raw Data Report - Workouts", "Volume_Load", "volumen calculado")
-    return df
+    _require_any_numeric_content(
+        df,
+        "Raw Data Report - Workouts",
+        {
+            "Result": "resultado/carga",
+            "Reps": "repeticiones",
+            "Sets": "sets",
+            "Duration_s": "duracion",
+        },
+    )
+    return prepare_raw_workouts_df(df)
 
 
 def parse_maxes_health(file) -> pd.DataFrame:

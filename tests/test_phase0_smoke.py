@@ -12,6 +12,7 @@ from xml.sax.saxutils import escape
 
 import pandas as pd
 
+from charts.load_charts import chart_volume_by_tag
 from modules import data_loader
 from modules.jump_analysis import _records_to_jump_df
 
@@ -112,6 +113,25 @@ def _forceplate_bytes() -> bytes:
 
 def _csv_bytes(text: str) -> bytes:
     return text.strip().encode("utf-8")
+
+
+def _chart_theme() -> dict:
+    return {
+        "colors": {
+            "navy": "#0D3C5E",
+            "steel": "#134263",
+            "blue": "#6E8C9F",
+            "green": "#6F8F78",
+            "yellow": "#C4A464",
+            "orange": "#B56B73",
+            "gray": "#7A8690",
+            "muted": "#7A8690",
+        },
+        "layout": {},
+        "grid": "rgba(0,0,0,0.1)",
+        "grid_soft": "rgba(0,0,0,0.06)",
+        "legend": {},
+    }
 
 
 @contextmanager
@@ -247,6 +267,11 @@ class Phase0SmokeTest(unittest.TestCase):
         self.assertTrue(completion_df["Pct"].notna().all())
         self.assertIn("Load_kg", rep_load_df.columns)
         self.assertIn("Volume_Load", raw_df.columns)
+        self.assertIn("Volume_Load_legacy", raw_df.columns)
+        self.assertIn("Volume_Load_kg", raw_df.columns)
+        self.assertIn("Contacts", raw_df.columns)
+        self.assertIn("Exposures", raw_df.columns)
+        self.assertIn("stimulus_category", raw_df.columns)
         self.assertIn("Max Value", maxes_df.columns)
         self.assertIn("CMJ_cm", forceplate_record)
         self.assertIn("CMJ_propulsive_PF_N", forceplate_record)
@@ -254,6 +279,87 @@ class Phase0SmokeTest(unittest.TestCase):
         self.assertIn("CMJ_landing_force_N", forceplate_record)
         self.assertIn("CMJ_landing_asym_pct", forceplate_record)
         self.assertIn("CMJ_stabilization_ms", forceplate_record)
+
+    def test_raw_workouts_split_external_load_by_stimulus(self):
+        raw_df = data_loader.parse_raw_workouts(
+            NamedBytesIO(
+                _csv_bytes(
+                    """
+                    Assigned Date,Result,Reps,Sets,Duration (s),Tags,Athlete,Exercise
+                    2026-04-02,80,5,4,,Dominante de Rodilla,Juan Perez,Back Squat
+                    2026-04-03,60,3,3,,DLO,Juan Perez,Hang Clean
+                    2026-04-04,,24,6,,Jump_Plyo,Juan Perez,Pogo
+                    2026-04-05,,12,4,,Catch_Landing,Juan Perez,Drop Catch
+                    2026-04-06,1500,1,3,30,Iso_Overcoming,Juan Perez,Mid Thigh Pull Hold
+                    2026-04-07,,12,4,,Core,Juan Perez,Dead Bug
+                    2026-04-08,,10,2,,Stretch MMII,Juan Perez,Hip Mobility
+                    2026-04-09,0,6,3,,Empuje Horizontal,Juan Perez,Bench Press
+                    2026-04-10,40,0,3,,Empuje Vertical,Juan Perez,Push Press
+                    2026-04-11,20,8,3,,ju,Juan Perez,Dirty Tag
+                    2026-04-12,15,10,3,,UnknownTag,Juan Perez,Unknown Drill
+                    """
+                ),
+                "raw_workouts.csv",
+            )
+        )
+
+        strength_row = raw_df[raw_df["Tags"] == "Dominante de Rodilla"].iloc[0]
+        dlo_row = raw_df[raw_df["Tags"] == "DLO"].iloc[0]
+        plyo_row = raw_df[raw_df["Tags"] == "Jump_Plyo"].iloc[0]
+        iso_row = raw_df[raw_df["Tags"] == "Iso_Overcoming"].iloc[0]
+        core_row = raw_df[raw_df["Tags"] == "Core"].iloc[0]
+        mobility_row = raw_df[raw_df["Tags"] == "Stretch MMII"].iloc[0]
+        invalid_row = raw_df[raw_df["Tags"] == "ju"].iloc[0]
+        untagged_row = raw_df[raw_df["Tags"] == "UnknownTag"].iloc[0]
+
+        self.assertEqual(strength_row["stimulus_category"], "strength_loaded")
+        self.assertEqual(strength_row["Category"], "Dominante de Rodilla")
+        self.assertAlmostEqual(float(strength_row["Volume_Load_kg"]), 400.0, places=3)
+        self.assertTrue(pd.isna(raw_df[raw_df["Tags"] == "Empuje Horizontal"].iloc[0]["Volume_Load_kg"]))
+        self.assertEqual(dlo_row["stimulus_category"], "olympic_derivatives")
+        self.assertEqual(float(dlo_row["Exposures"]), 3.0)
+        self.assertEqual(plyo_row["stimulus_category"], "plyo_jump")
+        self.assertEqual(float(plyo_row["Contacts"]), 24.0)
+        self.assertEqual(iso_row["stimulus_category"], "iso")
+        self.assertEqual(float(iso_row["Exposures"]), 30.0)
+        self.assertEqual(core_row["stimulus_category"], "core_stability")
+        self.assertEqual(float(core_row["Exposures"]), 4.0)
+        self.assertEqual(mobility_row["stimulus_category"], "mobility_prehab")
+        self.assertEqual(float(mobility_row["Exposures"]), 2.0)
+        self.assertTrue(bool(invalid_row["is_invalid"]))
+        self.assertTrue(bool(untagged_row["is_untagged"]))
+
+        quality_df = data_loader.summarize_raw_workouts_quality(raw_df)
+        issues = set(quality_df["Detalle"].tolist())
+        self.assertIn('Tag invalido ("ju")', issues)
+        self.assertIn("Filas sin tag clasificado", issues)
+        self.assertIn("Result = 0 en strength_loaded", issues)
+        self.assertIn("Reps = 0", issues)
+
+    def test_volume_panel_uses_new_external_load_columns(self):
+        raw_df = data_loader.parse_raw_workouts(
+            NamedBytesIO(
+                _csv_bytes(
+                    """
+                    Assigned Date,Result,Reps,Sets,Tags,Athlete,Exercise
+                    2026-04-02,80,5,4,Dominante de Rodilla,Juan Perez,Back Squat
+                    2026-04-03,,20,5,Jump_Plyo,Juan Perez,Pogo
+                    2026-04-04,60,3,3,DLO,Juan Perez,Hang Clean
+                    """
+                ),
+                "raw_workouts.csv",
+            )
+        )
+
+        figure = chart_volume_by_tag(raw_df, "Juan Perez", theme=_chart_theme())
+        trace_names = {trace.name for trace in figure.data}
+        annotation_texts = [annotation.text for annotation in figure.layout.annotations]
+
+        self.assertIn("Dominante de Rodilla", trace_names)
+        self.assertIn("Jump_Plyo", trace_names)
+        self.assertIn("DLO", trace_names)
+        self.assertTrue(any("Fuerza con carga" in text for text in annotation_texts))
+        self.assertTrue(any("Pliometria y aterrizajes" in text for text in annotation_texts))
 
     def test_invalid_extensions_raise_clear_errors(self):
         with self.assertRaisesRegex(ValueError, r"Completion Report: formato no soportado"):

@@ -6,6 +6,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from modules.data_loader import prepare_raw_workouts_df
+
 
 def _theme_parts(theme: dict) -> tuple[dict, dict, str, str, dict]:
     colors = theme["colors"]
@@ -182,16 +184,17 @@ def chart_wellness(w_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figur
 
 def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, legend = _theme_parts(theme)
-    required_cols = {"Assigned Date", "Category", "Volume_Load"}
-    if not required_cols.issubset(raw_df.columns):
+    prepared = prepare_raw_workouts_df(raw_df)
+    required_cols = {"Assigned Date", "Category", "stimulus_category", "Volume_Load_kg", "Contacts", "Exposures"}
+    if prepared is None or not required_cols.issubset(prepared.columns):
         fig = go.Figure()
         fig.update_layout(
             **layout,
             height=360,
-            title=dict(text="<b>Volumen por patron de movimiento</b>", font=dict(color=colors["navy"], size=13)),
+            title=dict(text="<b>Carga externa por tipo de estimulo</b>", font=dict(color=colors["navy"], size=13)),
             annotations=[
                 dict(
-                    text="Faltan columnas para graficar volumen.",
+                    text="Faltan columnas para graficar la distribucion externa.",
                     x=0.5,
                     y=0.5,
                     xref="paper",
@@ -203,10 +206,75 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> g
         )
         return fig
 
-    athlete_col = "Athlete" if "Athlete" in raw_df.columns else "Name"
-    athlete_df = raw_df[raw_df[athlete_col] == athlete] if athlete_col in raw_df.columns else raw_df
-    grouped = athlete_df.groupby(["Assigned Date", "Category"])["Volume_Load"].sum().reset_index()
-    pivot = grouped.pivot(index="Assigned Date", columns="Category", values="Volume_Load").fillna(0)
+    athlete_col = "Athlete" if "Athlete" in prepared.columns else "Name"
+    athlete_df = prepared[prepared[athlete_col] == athlete] if athlete_col in prepared.columns else prepared
+    athlete_df = athlete_df[
+        ~athlete_df["is_invalid"].fillna(False)
+        & ~athlete_df["is_untagged"].fillna(False)
+    ].copy()
+
+    if athlete_df.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            **layout,
+            height=360,
+            title=dict(text=f"<b>Carga externa por tipo de estimulo - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+            annotations=[
+                dict(
+                    text="No hay datos clasificados para el periodo seleccionado.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
+    athlete_df["Week_Start"] = athlete_df["Assigned Date"].dt.normalize() - pd.to_timedelta(
+        athlete_df["Assigned Date"].dt.weekday,
+        unit="D",
+    )
+
+    sections = [
+        {
+            "title": "Fuerza con carga",
+            "question": "Como se distribuyo el tonelaje por patron",
+            "categories": ["strength_loaded"],
+            "value_col": "Volume_Load_kg",
+            "yaxis": "kg x rep",
+        },
+        {
+            "title": "Pliometria y aterrizajes",
+            "question": "Cuantos contactos pliometricos hubo",
+            "categories": ["plyo_jump", "landing_mechanics"],
+            "value_col": "Contacts",
+            "yaxis": "Contactos",
+        },
+        {
+            "title": "Derivados olimpicos",
+            "question": "Cuantas exposiciones a DLO",
+            "categories": ["olympic_derivatives"],
+            "value_col": "Exposures",
+            "yaxis": "Exposiciones",
+        },
+        {
+            "title": "Iso y estabilidad",
+            "question": "Cuanto trabajo de iso y estabilidad",
+            "categories": ["iso", "core_stability"],
+            "value_col": "Exposures",
+            "yaxis": "Exposiciones",
+        },
+        {
+            "title": "Movilidad y prehab",
+            "question": "Cuanta exposicion a prehab y movilidad",
+            "categories": ["mobility_prehab"],
+            "value_col": "Exposures",
+            "yaxis": "Exposiciones",
+        },
+    ]
 
     palette = [
         colors["navy"],
@@ -224,26 +292,93 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> g
         "#7F96A6",
     ]
 
-    fig = go.Figure()
-    for idx, column in enumerate(pivot.columns):
-        fig.add_trace(
-            go.Bar(
-                x=pivot.index,
-                y=pivot[column],
-                name=column,
-                marker_color=palette[idx % len(palette)],
-                hovertemplate=f"<b>{column}</b><br>%{{x|%d/%m}}<br>Vol: %{{y:.0f}} kg·rep<extra></extra>",
-            )
+    active_sections: list[dict[str, object]] = []
+    for section in sections:
+        section_df = athlete_df[
+            athlete_df["stimulus_category"].isin(section["categories"])
+            & athlete_df[section["value_col"]].notna()
+            & athlete_df[section["value_col"]].gt(0)
+        ].copy()
+        if section_df.empty:
+            continue
+        grouped = (
+            section_df.groupby(["Week_Start", "Category"])[section["value_col"]]
+            .sum()
+            .reset_index()
         )
+        active_sections.append({**section, "grouped": grouped})
+
+    if not active_sections:
+        fig = go.Figure()
+        fig.update_layout(
+            **layout,
+            height=360,
+            title=dict(text=f"<b>Carga externa por tipo de estimulo - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+            annotations=[
+                dict(
+                    text="No hay categorias con carga externa util para mostrar.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
+    fig = make_subplots(
+        rows=len(active_sections),
+        cols=1,
+        shared_xaxes=False,
+        vertical_spacing=0.08,
+        subplot_titles=[
+            f"{section['title']} - {section['question']}"
+            for section in active_sections
+        ],
+    )
+
+    color_lookup: dict[str, str] = {}
+    palette_index = 0
+    for row_index, section in enumerate(active_sections, start=1):
+        grouped = section["grouped"]
+        category_names = grouped["Category"].dropna().astype(str).unique().tolist()
+        for category_name in category_names:
+            if category_name not in color_lookup:
+                color_lookup[category_name] = palette[palette_index % len(palette)]
+                palette_index += 1
+            category_df = grouped[grouped["Category"] == category_name]
+            fig.add_trace(
+                go.Bar(
+                    x=category_df["Week_Start"],
+                    y=category_df[section["value_col"]],
+                    name=category_name,
+                    legendgroup=category_name,
+                    marker_color=color_lookup[category_name],
+                    hovertemplate=f"<b>{category_name}</b><br>Semana: %{{x|%d/%m}}<br>Valor: %{{y:.1f}}<extra></extra>",
+                    showlegend=row_index == 1,
+                ),
+                row=row_index,
+                col=1,
+            )
+        fig.update_yaxes(
+            title_text=section["yaxis"],
+            gridcolor=grid_soft,
+            zeroline=False,
+            row=row_index,
+            col=1,
+        )
+
     fig.update_layout(
         **layout,
         barmode="stack",
-        height=400,
-        title=dict(text=f"<b>Volumen por Patron de Movimiento - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
-        xaxis=dict(title="Fecha", gridcolor=grid_soft, zeroline=False),
-        yaxis=dict(title="kg x reps", gridcolor=grid_soft, zeroline=False),
+        height=max(340, 240 * len(active_sections)),
+        title=dict(text=f"<b>Carga externa por tipo de estimulo - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
         legend=legend,
     )
+    for row_index in range(1, len(active_sections) + 1):
+        fig.update_xaxes(title="Semana", gridcolor=grid_soft, zeroline=False, row=row_index, col=1)
     return fig
 
 
