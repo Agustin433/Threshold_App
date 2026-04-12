@@ -1,34 +1,50 @@
 # Runbook
 
-Runbook operativo para levantar la app localmente y resolver los fallos mas probables.
+Guia operativa para correr la app, validar lo basico y ubicar rapido los puntos de falla mas probables.
 
 ## 1. Requisitos previos
 
-- Python 3.13 recomendado y validado en esta maquina.
-- PowerShell en Windows.
-- Acceso al directorio del proyecto.
+- Windows + PowerShell
+- Python 3.13 validado en esta maquina
+- acceso a la raiz del repo
 
 ## 2. Preparacion del entorno
 
-Crear el entorno virtual del proyecto:
+Crear el entorno virtual:
 
 ```powershell
 py -3.13 -m venv .venv
 ```
 
-Instalar dependencias declaradas sin depender de activacion manual:
+Instalar dependencias:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Activacion opcional en PowerShell:
+La app ya no requiere `PYTHONPATH` manual para funcionar.
+
+## 3. Comando exacto para correr la app
+
+Comando recomendado y verificado:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-La persistencia local se guarda por defecto en `.local/store`.
+Version headless util para checks rapidos:
+
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.headless true
+```
+
+## 4. Persistencia local
+
+La persistencia local vive por defecto en:
+
+```text
+.local/store
+```
 
 Si queres usar otra carpeta:
 
@@ -36,200 +52,138 @@ Si queres usar otra carpeta:
 $env:THRESHOLD_STORE_DIR = "C:\ruta\privada\threshold-store"
 ```
 
-## 3. Configuracion opcional de Supabase
+Notas importantes:
 
-Copiar el ejemplo:
+- `data/store` queda como ruta legacy
+- si existe historial legacy, la app puede migrarlo a `.local/store`
+- el flujo `Vaciar dataset local` ya fue corregido para que el dataset quede realmente vacio sin repoblarse inmediatamente
+
+## 5. Configuracion opcional de Supabase
+
+Crear el archivo de secretos:
 
 ```powershell
 Copy-Item .streamlit\secrets.example.toml .streamlit\secrets.toml
 ```
 
-Editar `.streamlit\secrets.toml` si se quiere persistencia remota.
-
-Claves usadas por la app:
+Completar:
 
 - `SUPABASE_URL`
 - `SUPABASE_KEY`
 - `SUPABASE_EVALUATIONS_TABLE`
 - `SUPABASE_DATASETS_TABLE`
 
-Si no configuras Supabase, la app sigue funcionando en modo local.
+Si Supabase no esta configurado:
 
-## 4. Comando exacto para correr la app
+- la app sigue funcionando localmente
+- los dashboards siguen funcionando
+- la gestion de historial local sigue funcionando
+- lo que no esta disponible es la sincronizacion remota
 
-Comando recomendado y verificado desde la raiz del proyecto:
+## 6. Que deberias ver si arranca bien
 
-```powershell
-.\.venv\Scripts\python.exe -m streamlit run app.py
-```
+- Streamlit abre `app.py`
+- aparece el sidebar con branding y carga de archivos
+- si no hay datos, la app sigue usable en estado vacio
+- si hay datos en `.local/store`, la app los hidrata al inicio
+- la pagina `pages/06_history_manager.py` permite revisar historial local
 
-Version headless util para pruebas:
+## 7. Flujos validados en este bloque
 
-```powershell
-.\.venv\Scripts\python.exe -m streamlit run app.py --server.headless true
-```
+Validados manual o funcionalmente durante esta etapa:
 
-Si activaste el entorno antes, tambien funciona:
+- arranque local de la app
+- carga y procesamiento local
+- visualizacion del dashboard principal
+- gestion de historial local con backup
+- exportacion Excel
+- exportacion visual basada en Plotly/Kaleido
 
-```powershell
-python -m streamlit run app.py
-```
+Validados con cobertura automatica puntual:
 
-## 5. Que deberias ver si arranca bien
+- helpers de reporting
+- backups y reemplazo de historial
+- capa remota compartida
+- fix de vaciado local sin repoblacion legacy inmediata
 
-- Streamlit levanta la app principal con tabs.
-- Sidebar con branding y zona de carga de archivos.
-- Sin datos cargados, la app muestra estado vacio pero usable.
-- Si existen datos en `.local/store`, la app hidrata estado local al inicio.
-- Si solo existe historial viejo en `data/store`, la app lo migra automaticamente.
+Para una pasada operativa completa, usar `SMOKE_TEST_CHECKLIST.md`.
 
-## 6. Primeros archivos a revisar si algo falla
+## 8. Smoke test rapido recomendado
 
-### Si no arranca la app
+1. Correr `.\.venv\Scripts\python.exe -m streamlit run app.py`.
+2. Confirmar que la UI abre.
+3. Cargar al menos un archivo de ejemplo.
+4. Procesar datos.
+5. Confirmar que aparecen tablas y metricas.
+6. Entrar a `Gestion de Historial`.
+7. Probar descarga CSV.
+8. Si hace falta, probar `Vaciar dataset local` sobre un dataset de prueba y verificar que queda en 0 filas.
+9. Probar exportacion Excel.
+10. Si el entorno lo permite, probar exportacion visual/PDF.
 
-Revisar en este orden:
+## 9. Fallos comunes
 
-- `app.py`
-- `.streamlit/config.toml`
-- `requirements.txt`
-- `README.md`
-
-### Si falla la carga de archivos
-
-Revisar:
-
-- `modules/data_loader.py`
-- `local_store.py`
-- el archivo subido
-
-### Si falla el estado entre paginas
-
-Revisar:
-
-- `modules/page_state.py`
-- `local_store.py`
-- `pages/*.py`
-
-### Si fallan los calculos de carga
-
-Revisar:
-
-- `modules/load_monitoring.py`
-- `local_store.py`
-- `app.py`
-
-### Si fallan las evaluaciones
-
-Revisar:
-
-- `modules/data_loader.py`
-- `modules/jump_analysis.py`
-- `app.py`
-
-### Si falla el reporte
-
-Revisar:
-
-- `modules/report_generator.py`
-- `requirements.txt`
-- si estan instalados `reportlab` y `kaleido`
-
-## 7. Fallos comunes y como resolverlos
-
-### Error: `ModuleNotFoundError: No module named 'streamlit'`
-
-Solucion:
+### `ModuleNotFoundError: No module named 'streamlit'`
 
 ```powershell
-pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### Error: `ModuleNotFoundError: No module named 'PIL'`
-
-Solucion:
+### `ModuleNotFoundError: No module named 'PIL'`
 
 ```powershell
-pip install Pillow
+.\.venv\Scripts\python.exe -m pip install Pillow
 ```
 
-### Error: `ModuleNotFoundError: No module named 'reportlab'`
+### `ModuleNotFoundError: No module named 'reportlab'`
 
 Impacto:
 
-- El PDF visual no funciona completo.
+- el PDF visual puede fallar
 
-Solucion:
-
-```powershell
-pip install reportlab
-```
-
-### Error: `ModuleNotFoundError: No module named 'kaleido'`
+### `ModuleNotFoundError: No module named 'kaleido'`
 
 Impacto:
 
-- La exportacion de graficos a imagen no funciona.
+- la exportacion de imagenes de Plotly puede fallar
 
-Solucion:
+### La app arranca pero no aparecen datos
 
-```powershell
-pip install kaleido
-```
+Revisar:
 
-### Fallo al sincronizar con Supabase
+- `.local/store`
+- el parser correspondiente
+- si los datos quedan dentro de la ventana operativa
+
+### La sincronizacion con Supabase no funciona
 
 Revisar:
 
 - `.streamlit/secrets.toml`
 - conectividad
-- tablas creadas segun:
-  - `supabase_evaluations_schema.sql`
-  - `supabase_dataset_store_schema.sql`
+- tablas configuradas
 
-### Los datos no aparecen aunque la app corre
+### `Vaciar dataset local` no deja el dataset en 0 filas
 
-Revisar:
+El flujo ya fue corregido. Si volviera a aparecer:
 
-- `.local/store`
-- si el parser produjo filas validas
-- si el dataset cae dentro de la ventana activa de 6 semanas
+- revisar `local_store.py`
+- revisar si hay escritura externa sobre `.local/store`
+- revisar que el dataset probado sea realmente el seleccionado en `Gestion de Historial`
 
-### El reporte sale raro o incompleto
+## 10. Archivos clave para diagnostico
 
-Revisar:
-
-- si hay suficientes datos cargados
+- `app.py`
+- `local_store.py`
+- `modules/data_loader.py`
+- `modules/history_manager.py`
+- `modules/remote_store.py`
 - `modules/report_generator.py`
-- si faltan dependencias opcionales
+- `pages/06_history_manager.py`
 
-## 8. Smoke test minimo recomendado
+## 11. Deuda tecnica vigente
 
-1. Correr `streamlit run app.py`.
-2. Verificar que abre la UI principal.
-3. Cargar un archivo de ejemplo por tipo.
-4. Presionar `PROCESAR TODO`.
-5. Verificar tabs principales.
-6. Descargar Excel.
-7. Probar PDF.
-8. Si usas Supabase, probar sincronizacion manual.
-9. Revisar `pages/06_history_manager.py` para confirmar filtros, descarga y push/pull de historial.
-
-Si queres una validacion automatizada del repo, usar tambien el workflow `.github/workflows/smoke-check.yml`.
-
-Smoke test automatizado local:
-
-```powershell
-python -m unittest discover -s tests -p "test_*.py"
-```
-
-## 9. Observaciones operativas
-
-- La persistencia local usa CSV en `.local/store`.
-- `data/store` queda como ruta legacy de migracion.
-- La app principal es la experiencia mas completa; `pages/` son vistas secundarias.
-- `pages/06_history_manager.py` es la vista recomendada para auditar o recortar historial sin tocar los CSV a mano.
-- `app.py` es grande y mezcla UI con orquestacion y parte del acceso a datos.
-- Si algo falla, casi siempre el primer triangulo de revision es:
-  - `app.py`
-  - `modules/data_loader.py`
-  - `local_store.py`
+- `app.py` sigue siendo pesado
+- `modules/report_generator.py` sigue concentrando demasiadas responsabilidades
+- todavia no hay restauracion guiada de backups desde UI
+- faltan pruebas end-to-end de UI
