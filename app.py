@@ -67,9 +67,9 @@ from modules.data_loader import (
     prepare_raw_workouts_df as shared_prepare_raw_workouts_df,
     parse_raw_workouts as shared_parse_raw_workouts,
     parse_rep_load_report as shared_parse_rep_load_report,
-    summarize_raw_workouts_quality as shared_summarize_raw_workouts_quality,
     parse_xlsx_questionnaire as shared_parse_xlsx_questionnaire,
 )
+from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import (
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
@@ -2977,6 +2977,25 @@ def render_status_badges(items: list[tuple[str, bool]]):
     st.markdown(f'<div class="ui-badge-row">{"".join(chips)}</div>', unsafe_allow_html=True)
 
 
+def render_quality_alert_chip(message: str, tone: str = "warning"):
+    palette = {
+        "warning": ("rgba(196,164,100,0.14)", "rgba(196,164,100,0.35)", "#7A5E1E"),
+        "danger": ("rgba(181,107,115,0.14)", "rgba(181,107,115,0.35)", "#7B3A43"),
+        "info": ("rgba(110,140,159,0.12)", "rgba(110,140,159,0.28)", "#315066"),
+    }
+    bg, border, text = palette.get(tone, palette["warning"])
+    safe_message = html.escape(message)
+    st.markdown(
+        (
+            f'<div style="display:inline-block; width:100%; margin:0 0 8px 0; '
+            f'padding:8px 12px; border-radius:12px; '
+            f'background:{bg}; border:1px solid {border}; color:{text};">'
+            f"{safe_message}</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
 def render_sidebar_status_panel(items: list[tuple[str, str, bool]]):
     rows = []
     for label, detail, ok in items:
@@ -3118,7 +3137,6 @@ parse_completion_report = shared_parse_completion_report
 parse_rep_load_report = shared_parse_rep_load_report
 parse_raw_workouts = shared_parse_raw_workouts
 prepare_raw_workouts_df = shared_prepare_raw_workouts_df
-summarize_raw_workouts_quality = shared_summarize_raw_workouts_quality
 parse_maxes_health = shared_parse_maxes_health
 parse_forceplate_file = shared_parse_forceplate_file
 parse_jump_eval = shared_parse_jump_eval
@@ -4205,6 +4223,22 @@ with tab_load:
 
     rdf = st.session_state.rpe_df
     wdf = st.session_state.wellness_df
+    raw_df_state = st.session_state.raw_df
+    prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if raw_df_state is not None else None
+    athletes_list = known_athlete_names()
+    quality_report = compute_data_quality_report(
+        rdf,
+        wdf,
+        st.session_state.completion_df,
+        prepared_raw_df,
+        st.session_state.maxes_df,
+        st.session_state.jump_df,
+        athletes_list,
+        window_days=42,
+    )
+    dataset_summary = quality_report["dataset_summary"]
+    athlete_summary = quality_report["athlete_summary"]
+    alerts = quality_report["alerts"]
 
     if rdf is None:
         _alert("Carga el archivo questionnaire-report.xlsx (RPE + Tiempo) y presiona Procesar todo.", "b")
@@ -4304,9 +4338,7 @@ with tab_load:
                              use_container_width=False, hide_index=True)
 
             # Volumen por patrón
-            raw_df_state = st.session_state.raw_df
             if raw_df_state is not None:
-                prepared_raw_df = prepare_raw_workouts_df(raw_df_state)
                 st.markdown("---")
                 render_subsection_header(
                     "Carga externa por tipo de estimulo",
@@ -4321,12 +4353,23 @@ with tab_load:
                 ath_raw = st.selectbox("Atleta", athletes_raw, key="sel_raw_vol")
                 st.plotly_chart(chart_volume_by_tag(prepared_raw_df, ath_raw), use_container_width=False, key="volume_tag")
 
-                raw_quality = summarize_raw_workouts_quality(prepared_raw_df)
-                with st.expander("Calidad de datos - Raw", expanded=False):
-                    if raw_quality.empty:
-                        st.caption("Sin observaciones de calidad para el raw visible.")
-                    else:
-                        st.dataframe(raw_quality, use_container_width=True, hide_index=True)
+    with st.expander("📋 Calidad de datos", expanded=False):
+        st.markdown("**Bloque A - Cobertura por dataset**")
+        st.dataframe(dataset_summary, use_container_width=True, hide_index=True)
+
+        st.markdown("**Bloque B - Cobertura por atleta**")
+        if athlete_summary.empty:
+            st.caption("Sin datos suficientes para calcular cobertura.")
+        else:
+            st.dataframe(athlete_summary, use_container_width=True, hide_index=True)
+
+        st.markdown("**Bloque C - Alertas de calidad**")
+        if alerts:
+            for alert in alerts:
+                tone = "danger" if "ultimo test hace" in alert.lower() else "warning"
+                render_quality_alert_chip(alert, tone=tone)
+        else:
+            st.success("✅ Sin alertas de calidad activas.")
 
 
 # ─────────────────────────────────────────────────────────────────────
