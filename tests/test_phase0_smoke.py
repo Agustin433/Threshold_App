@@ -280,6 +280,71 @@ class Phase0SmokeTest(unittest.TestCase):
         self.assertIn("CMJ_landing_asym_pct", forceplate_record)
         self.assertIn("CMJ_stabilization_ms", forceplate_record)
 
+    def test_parse_questionnaire_raw_csv_builds_rpe_and_wellness_from_question_ids(self):
+        ts_day_1 = int(pd.Timestamp("2026-04-10 07:00:00").timestamp())
+        ts_day_1_pm = int(pd.Timestamp("2026-04-10 17:30:00").timestamp())
+        ts_day_2 = int(pd.Timestamp("2026-04-11 08:15:00").timestamp())
+        raw_csv = f"""
+First Name,Last Name,User ID,External ID,Response ID,Assigned Workout ID,Question,Question ID,Question Abbreviation,Result,Timestamp Complete
+Exequiel,Heredia Garcia,1,,10,9001,Cuanto te costo la sesion,103496,RPE,7,{ts_day_1}
+Exequiel,Heredia Garcia,1,,11,9001,Cuanto duro la sesion,103497,Time,60,{ts_day_1}
+Exequiel,Heredia Garcia,1,,12,9001,Sue&ntilde;o,103219,Sue&ntilde;o,8,{ts_day_1}
+Exequiel,Heredia Garcia,1,,13,9001,Estr&eacute;s,103227,Estr&eacute;s,2,{ts_day_1}
+Exequiel,Heredia Garcia,1,,14,9001,Dolor,103498,RPE,3,{ts_day_1}
+Exequiel,Heredia Garcia,1,,15,9002,Cuanto te costo la sesion,103496,RPE,5,{ts_day_1_pm}
+Exequiel,Heredia Garcia,1,,16,9002,Cuanto duro la sesion,103497,Time,45,{ts_day_1_pm}
+Exequiel,Heredia Garcia,1,,17,9003,Cuanto te costo la sesion,103496,RPE,6,{ts_day_2}
+Exequiel,Heredia Garcia,1,,18,9003,Cuanto duro la sesion,103497,Time,50,{ts_day_2}
+Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
+"""
+        rpe_df, wellness_df = data_loader.parse_questionnaire_raw_csv(
+            NamedBytesIO(_csv_bytes(raw_csv), "questionnaire_raw.csv")
+        )
+
+        self.assertEqual(
+            list(rpe_df.columns),
+            ["Date", "Athlete", "RPE", "Duration_min", "sRPE"],
+        )
+        self.assertEqual(
+            list(wellness_df.columns),
+            ["Date", "Athlete", "Sueno_hs", "Estres", "Dolor", "Wellness_Score"],
+        )
+        self.assertEqual(len(rpe_df), 2)
+        self.assertEqual(len(wellness_df), 1)
+        self.assertEqual(rpe_df.loc[0, "Athlete"], "Exequiel Heredia Garcia")
+        self.assertAlmostEqual(float(rpe_df.loc[0, "RPE"]), 6.0, places=2)
+        self.assertAlmostEqual(float(rpe_df.loc[0, "Duration_min"]), 52.5, places=2)
+        self.assertAlmostEqual(float(rpe_df.loc[0, "sRPE"]), 315.0, places=2)
+        self.assertAlmostEqual(float(wellness_df.loc[0, "Dolor"]), 3.0, places=2)
+        self.assertAlmostEqual(float(wellness_df.loc[0, "Wellness_Score"]), 13.0, places=2)
+
+    def test_raw_workouts_reimport_dedupes_by_athlete_date_exercise_and_set_number(self):
+        raw_file = NamedBytesIO(
+            _csv_bytes(
+                """
+                Assigned Date,Result,Reps,Tags,Athlete,Exercise Name,Set Number
+                2026-04-02,80,5,Dominante de Rodilla,Juan Perez,Back Squat,1
+                2026-04-02,82,5,Dominante de Rodilla,Juan Perez,Back Squat,2
+                """
+            ),
+            "raw_workouts.csv",
+        )
+        raw_df = data_loader.parse_raw_workouts(raw_file)
+
+        self.assertIn("Exercise Name", raw_df.columns)
+        self.assertIn("Set Number", raw_df.columns)
+
+        import local_store
+
+        deduped = local_store._dedupe_dataset_frame(
+            pd.concat([raw_df, raw_df], ignore_index=True),
+            "raw_df",
+        )
+
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(deduped["Set Number"].nunique(), 2)
+        self.assertEqual(deduped["Exercise Name"].dropna().iloc[0], "Back Squat")
+
     def test_raw_workouts_split_external_load_by_stimulus(self):
         raw_df = data_loader.parse_raw_workouts(
             NamedBytesIO(
@@ -290,6 +355,7 @@ class Phase0SmokeTest(unittest.TestCase):
                     2026-04-03,60,3,3,,DLO,Juan Perez,Hang Clean
                     2026-04-04,,24,6,,Jump_Plyo,Juan Perez,Pogo
                     2026-04-05,,12,4,,Catch_Landing,Juan Perez,Drop Catch
+                    2026-04-05,10,6,1,,UnknownTag,Juan Perez,10m + COD 90° + 5m
                     2026-04-06,1500,1,3,30,Iso_Overcoming,Juan Perez,Mid Thigh Pull Hold
                     2026-04-07,,12,4,,Core,Juan Perez,Dead Bug
                     2026-04-08,,10,2,,Stretch MMII,Juan Perez,Hip Mobility
@@ -306,11 +372,12 @@ class Phase0SmokeTest(unittest.TestCase):
         strength_row = raw_df[raw_df["Tags"] == "Dominante de Rodilla"].iloc[0]
         dlo_row = raw_df[raw_df["Tags"] == "DLO"].iloc[0]
         plyo_row = raw_df[raw_df["Tags"] == "Jump_Plyo"].iloc[0]
+        sprint_row = raw_df[raw_df["Exercise"] == "10m + COD 90° + 5m"].iloc[0]
         iso_row = raw_df[raw_df["Tags"] == "Iso_Overcoming"].iloc[0]
         core_row = raw_df[raw_df["Tags"] == "Core"].iloc[0]
         mobility_row = raw_df[raw_df["Tags"] == "Stretch MMII"].iloc[0]
         invalid_row = raw_df[raw_df["Tags"] == "ju"].iloc[0]
-        untagged_row = raw_df[raw_df["Tags"] == "UnknownTag"].iloc[0]
+        untagged_row = raw_df[raw_df["Exercise"] == "Unknown Drill"].iloc[0]
 
         self.assertEqual(strength_row["stimulus_category"], "strength_loaded")
         self.assertEqual(strength_row["Category"], "Dominante de Rodilla")
@@ -320,6 +387,9 @@ class Phase0SmokeTest(unittest.TestCase):
         self.assertEqual(float(dlo_row["Exposures"]), 3.0)
         self.assertEqual(plyo_row["stimulus_category"], "plyo_jump")
         self.assertEqual(float(plyo_row["Contacts"]), 24.0)
+        self.assertEqual(sprint_row["stimulus_category"], "sprint_cod")
+        self.assertEqual(float(sprint_row["Exposures"]), 6.0)
+        self.assertEqual(float(sprint_row["Distance_m"]), 60.0)
         self.assertEqual(iso_row["stimulus_category"], "iso")
         self.assertEqual(float(iso_row["Exposures"]), 30.0)
         self.assertEqual(core_row["stimulus_category"], "core_stability")
@@ -336,6 +406,23 @@ class Phase0SmokeTest(unittest.TestCase):
         self.assertIn("Result = 0 en strength_loaded", issues)
         self.assertIn("Reps = 0", issues)
 
+    def test_classify_exercise_uses_specificity_and_keywords(self):
+        cases = [
+            ("", "10m + COD 90° + 5m", "sprint_cod"),
+            ("", "Nordic Hamstring Curl", "strength_loaded"),
+            ("", "Barbell Back Squat ISO-Hold", "iso"),
+            ("", "Hang High Pull (Snatch Grip)", "olympic_derivatives"),
+            ("", "Box Jump", "plyo_jump"),
+            ("", "Barbell Split Squat Drop Catch", "landing_mechanics"),
+            ("", "90-90 Hip Stretch", "mobility_prehab"),
+            ("", "Alternating Deadbug", "core_stability"),
+            ("Dominante de Rodilla/Iso_Yielding", "Back Squat", "iso"),
+        ]
+
+        for tag, exercise_name, expected in cases:
+            with self.subTest(tag=tag, exercise_name=exercise_name):
+                self.assertEqual(data_loader.classify_exercise(tag, exercise_name), expected)
+
     def test_volume_panel_uses_new_external_load_columns(self):
         raw_df = data_loader.parse_raw_workouts(
             NamedBytesIO(
@@ -345,6 +432,7 @@ class Phase0SmokeTest(unittest.TestCase):
                     2026-04-02,80,5,4,Dominante de Rodilla,Juan Perez,Back Squat
                     2026-04-03,,20,5,Jump_Plyo,Juan Perez,Pogo
                     2026-04-04,60,3,3,DLO,Juan Perez,Hang Clean
+                    2026-04-05,10,6,1,,Juan Perez,10m + COD 90° + 5m
                     """
                 ),
                 "raw_workouts.csv",
@@ -358,8 +446,10 @@ class Phase0SmokeTest(unittest.TestCase):
         self.assertIn("Dominante de Rodilla", trace_names)
         self.assertIn("Jump_Plyo", trace_names)
         self.assertIn("DLO", trace_names)
+        self.assertIn("Sprint / COD", trace_names)
         self.assertTrue(any("Fuerza con carga" in text for text in annotation_texts))
         self.assertTrue(any("Pliometria y aterrizajes" in text for text in annotation_texts))
+        self.assertTrue(any("Sprint / COD" in text for text in annotation_texts))
 
     def test_invalid_extensions_raise_clear_errors(self):
         with self.assertRaisesRegex(ValueError, r"Completion Report: formato no soportado"):

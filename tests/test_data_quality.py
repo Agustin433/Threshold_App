@@ -55,6 +55,8 @@ class DataQualityReportTest(unittest.TestCase):
         self.assertEqual(dataset_summary.loc["Evaluaciones", "Estado"], "⚠️ parcial")
         self.assertEqual(dataset_summary.loc["Raw Workouts", "Filas"], 1)
         self.assertEqual(dataset_summary.loc["RPE + Tiempo", "Dias con dato"], 2)
+        self.assertIn("raw_category_breakdown", report)
+        self.assertIn("raw_classification_summary", report)
 
     def test_athlete_summary_and_alerts_cover_expected_cases(self):
         rpe_df = pd.DataFrame(
@@ -170,6 +172,8 @@ class DataQualityReportTest(unittest.TestCase):
         )
 
         athlete_summary = report["athlete_summary"].set_index("Atleta")
+        raw_breakdown = report["raw_category_breakdown"].set_index("Categoria")
+        raw_summary = report["raw_classification_summary"]
         alerts = report["alerts"]
 
         self.assertEqual(athlete_summary.loc["Ana Lopez", "Semaforo"], "🟢 Verde")
@@ -177,6 +181,9 @@ class DataQualityReportTest(unittest.TestCase):
         self.assertEqual(athlete_summary.loc["Carla Diaz", "Semaforo"], "🔴 Rojo")
         self.assertEqual(float(athlete_summary.loc["Ana Lopez", "% cobertura sRPE"]), 80.0)
         self.assertEqual(float(athlete_summary.loc["Ana Lopez", "% cobertura Wellness"]), 75.0)
+        self.assertEqual(int(raw_breakdown.loc["strength_loaded", "Filas"]), 3)
+        self.assertEqual(int(raw_breakdown.loc["untagged", "Filas"]), 2)
+        self.assertEqual(raw_summary["classified_pct"], 50.0)
 
         self.assertTrue(any("Carla Diaz - sin sRPE registrado en los ultimos 7 dias" in alert for alert in alerts))
         self.assertTrue(any("Bruno Rey - wellness incompleto respecto a sesiones registradas" in alert for alert in alerts))

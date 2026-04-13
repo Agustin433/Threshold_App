@@ -64,6 +64,7 @@ from modules.data_loader import (
     parse_forceplate_file as shared_parse_forceplate_file,
     parse_jump_eval as shared_parse_jump_eval,
     parse_maxes_health as shared_parse_maxes_health,
+    parse_questionnaire_raw_csv as shared_parse_questionnaire_raw_csv,
     prepare_raw_workouts_df as shared_prepare_raw_workouts_df,
     parse_raw_workouts as shared_parse_raw_workouts,
     parse_rep_load_report as shared_parse_rep_load_report,
@@ -3161,6 +3162,7 @@ SUPABASE_EVALUATIONS_TABLE = SHARED_SUPABASE_EVALUATIONS_TABLE
 UPLOAD_CONTRACTS = SHARED_UPLOAD_CONTRACTS
 
 parse_xlsx_questionnaire = shared_parse_xlsx_questionnaire
+parse_questionnaire_raw_csv = shared_parse_questionnaire_raw_csv
 parse_completion_report = shared_parse_completion_report
 parse_rep_load_report = shared_parse_rep_load_report
 parse_raw_workouts = shared_parse_raw_workouts
@@ -3227,6 +3229,8 @@ def init_state():
         st.session_state.dataset_sync_notice_kind = "info"
     if "upload_feedback" not in st.session_state:
         st.session_state.upload_feedback = []
+    if "questionnaire_upload_source" not in st.session_state:
+        st.session_state.questionnaire_upload_source = None
 
 
 init_state()
@@ -3371,6 +3375,66 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader) -> bool:
         return False
 
 
+def _run_questionnaire_raw_job(filename: str, loader) -> bool:
+    try:
+        rpe_df, wellness_df = loader()
+        if rpe_df is None or rpe_df.empty:
+            raise ValueError("se leyo el raw CSV, pero no produjo registros validos de RPE.")
+
+        rpe_sessions = int(rpe_df.attrs.get("source_session_count", len(rpe_df)))
+        wellness_days = int(len(wellness_df)) if wellness_df is not None else 0
+
+        save_dataset("rpe_df", rpe_df)
+        save_dataset("wellness_df", wellness_df)
+
+        remote_suffix_parts: list[str] = []
+        if supabase_dataset_store_enabled():
+            for state_key, dataset in (("rpe_df", rpe_df), ("wellness_df", wellness_df)):
+                if state_key not in REMOTE_DATASET_KEYS:
+                    continue
+                try:
+                    sync_stats = save_remote_dataset(state_key, dataset)
+                    st.session_state.datasets_loaded_from_store = False
+                    remote_suffix_parts.append(f"{state_key}: {sync_stats['upserted']}")
+                except Exception as remote_exc:
+                    _push_notice(
+                        "warning",
+                        f"Questionnaire Raw CSV ({filename}): {state_key} se guardo en local, "
+                        f"pero no se pudo sincronizar con Supabase ({remote_exc}).",
+                    )
+
+        rpe_visible = load_recent_dataset("rpe_df", weeks=RECENT_WEEKS)
+        wellness_visible = load_recent_dataset("wellness_df", weeks=RECENT_WEEKS)
+        summary_rows = build_dataset_summaries(
+            {"rpe_df": rpe_visible, "wellness_df": wellness_visible},
+            weeks=RECENT_WEEKS,
+            keys=["rpe_df", "wellness_df"],
+        )
+        visible_bits: list[str] = []
+        for row in summary_rows:
+            if row["Dataset"] == "RPE + Tiempo":
+                visible_bits.append(f"{row['Registros']} visibles RPE")
+            elif row["Dataset"] == "Wellness 3Q":
+                visible_bits.append(f"{row['Registros']} visibles wellness")
+
+        remote_suffix = ""
+        if remote_suffix_parts:
+            remote_suffix = " · Supabase: " + ", ".join(remote_suffix_parts)
+
+        visible_suffix = f" {' · '.join(visible_bits)}." if visible_bits else ""
+        _push_notice(
+            "success",
+            f"Questionnaire Raw CSV ({filename}): {rpe_sessions} sesiones de RPE y "
+            f"{wellness_days} dia(s) de wellness cargados desde raw CSV."
+            f"{visible_suffix}{remote_suffix}",
+        )
+        st.session_state.questionnaire_upload_source = "raw_csv"
+        return True
+    except Exception as exc:
+        _push_notice("error", f"Questionnaire Raw CSV ({filename}): {exc}")
+        return False
+
+
 def rebuild_load_state():
     acwr_dict, mono_dict = build_load_models(st.session_state.rpe_df)
     st.session_state.acwr_dict = acwr_dict or None
@@ -3510,7 +3574,7 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader) -> bool:
 
 
 def _upload_contract_rows() -> list[dict[str, str]]:
-    order = ["rpe", "wellness", "completion", "rep_load", "raw_workouts", "maxes", "forceplate"]
+    order = ["questionnaire_raw", "rpe", "wellness", "completion", "rep_load", "raw_workouts", "maxes", "forceplate"]
     rows: list[dict[str, str]] = []
     for key in order:
         contract = UPLOAD_CONTRACTS[key]
@@ -3733,6 +3797,12 @@ with st.sidebar:
                 hide_index=True,
             )
 
+        f_questionnaire_raw = st.file_uploader(
+            "Questionnaire Raw CSV (recomendado)",
+            type=list(UPLOAD_CONTRACTS["questionnaire_raw"]["extensions"]),
+            key="u_questionnaire_raw",
+            help="Export raw de cuestionarios desde TeamBuildr. Reemplaza los dos archivos xlsx por uno solo.",
+        )
         f_rpe = st.file_uploader("RPE + Tiempo (questionnaire-report.xlsx)",
                                   type=list(UPLOAD_CONTRACTS["rpe"]["extensions"]), key="u_rpe")
         f_wellness = st.file_uploader("Wellness 3Q (questionnaire-report_wellness.xlsx)",
@@ -3747,6 +3817,7 @@ with st.sidebar:
                                     type=list(UPLOAD_CONTRACTS["maxes"]["extensions"]), key="u_maxes")
         pending_dataset_rows = _pending_upload_rows(
             {
+                "questionnaire_raw": f_questionnaire_raw,
                 "rpe": f_rpe,
                 "wellness": f_wellness,
                 "completion": f_completion,
@@ -3755,6 +3826,24 @@ with st.sidebar:
                 "maxes": f_maxes,
             }
         )
+        questionnaire_replacement_needed = bool(
+            f_questionnaire_raw
+            and st.session_state.questionnaire_upload_source != "raw_csv"
+            and (
+                (st.session_state.rpe_df is not None and not st.session_state.rpe_df.empty)
+                or (st.session_state.wellness_df is not None and not st.session_state.wellness_df.empty)
+            )
+        )
+        if questionnaire_replacement_needed:
+            st.warning(
+                "El raw CSV va a reemplazar los datasets actuales de RPE y Wellness cargados en esta sesion."
+            )
+            confirm_questionnaire_raw_replace = st.checkbox(
+                "Confirmo reemplazar RPE + Wellness por Questionnaire Raw CSV",
+                key="confirm_questionnaire_raw_replace",
+            )
+        else:
+            confirm_questionnaire_raw_replace = True
         if pending_dataset_rows:
             st.caption(f"{len(pending_dataset_rows)} archivo(s) listo(s) para procesar")
             st.dataframe(
@@ -3965,28 +4054,53 @@ with st.sidebar:
             st.session_state.upload_feedback = []
             processed_any = False
             with st.spinner("Procesando..."):
+                questionnaire_conflict = bool(f_questionnaire_raw and (f_rpe or f_wellness))
+                if questionnaire_conflict:
+                    _push_notice(
+                        "warning",
+                        "Usa Questionnaire Raw CSV o los dos archivos xlsx de cuestionarios, no ambos en el mismo procesamiento.",
+                    )
+                elif f_questionnaire_raw:
+                    if confirm_questionnaire_raw_replace:
+                        processed_any = _run_questionnaire_raw_job(
+                            getattr(f_questionnaire_raw, "name", "questionnaire_raw.csv"),
+                            lambda: parse_questionnaire_raw_csv(f_questionnaire_raw),
+                        ) or processed_any
+                    else:
+                        _push_notice(
+                            "warning",
+                            "Questionnaire Raw CSV: confirma el reemplazo de RPE + Wellness para continuar.",
+                        )
                 if f_rpe:
-                    processed_any = _run_dataset_job(
-                        "RPE + Tiempo",
-                        "rpe_df",
-                        getattr(f_rpe, "name", "questionnaire-report.xlsx"),
-                        lambda: parse_xlsx_questionnaire(
-                            f_rpe.read(),
-                            mode="rpe",
-                            filename=getattr(f_rpe, "name", None),
-                        ),
-                    ) or processed_any
+                    if not questionnaire_conflict and not f_questionnaire_raw:
+                        rpe_processed = _run_dataset_job(
+                            "RPE + Tiempo",
+                            "rpe_df",
+                            getattr(f_rpe, "name", "questionnaire-report.xlsx"),
+                            lambda: parse_xlsx_questionnaire(
+                                f_rpe.read(),
+                                mode="rpe",
+                                filename=getattr(f_rpe, "name", None),
+                            ),
+                        )
+                        if rpe_processed:
+                            st.session_state.questionnaire_upload_source = "xlsx"
+                        processed_any = rpe_processed or processed_any
                 if f_wellness:
-                    processed_any = _run_dataset_job(
-                        "Wellness 3Q",
-                        "wellness_df",
-                        getattr(f_wellness, "name", "questionnaire-report_wellness.xlsx"),
-                        lambda: parse_xlsx_questionnaire(
-                            f_wellness.read(),
-                            mode="wellness",
-                            filename=getattr(f_wellness, "name", None),
-                        ),
-                    ) or processed_any
+                    if not questionnaire_conflict and not f_questionnaire_raw:
+                        wellness_processed = _run_dataset_job(
+                            "Wellness 3Q",
+                            "wellness_df",
+                            getattr(f_wellness, "name", "questionnaire-report_wellness.xlsx"),
+                            lambda: parse_xlsx_questionnaire(
+                                f_wellness.read(),
+                                mode="wellness",
+                                filename=getattr(f_wellness, "name", None),
+                            ),
+                        )
+                        if wellness_processed:
+                            st.session_state.questionnaire_upload_source = "xlsx"
+                        processed_any = wellness_processed or processed_any
                 if f_completion:
                     processed_any = _run_dataset_job(
                         "Completion Report",
@@ -4268,6 +4382,8 @@ with tab_load:
         window_days=42,
     )
     dataset_summary = quality_report["dataset_summary"]
+    raw_category_breakdown = quality_report.get("raw_category_breakdown", pd.DataFrame())
+    raw_classification_summary = quality_report.get("raw_classification_summary", {})
     athlete_summary = quality_report["athlete_summary"]
     alerts = quality_report["alerts"]
 
@@ -4387,6 +4503,13 @@ with tab_load:
     with st.expander("📋 Calidad de datos", expanded=False):
         st.markdown("**Bloque A - Cobertura por dataset**")
         st.dataframe(dataset_summary, use_container_width=True, hide_index=True)
+        if not raw_category_breakdown.empty:
+            classified_pct = raw_classification_summary.get("classified_pct", 0.0)
+            untagged_pct = raw_classification_summary.get("untagged_pct", 0.0)
+            st.caption(
+                f"Raw workouts: {classified_pct:.1f}% clasificado · {untagged_pct:.1f}% untagged"
+            )
+            st.dataframe(raw_category_breakdown, use_container_width=True, hide_index=True)
 
         st.markdown("**Bloque B - Cobertura por atleta**")
         if athlete_summary.empty:

@@ -274,6 +274,13 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> g
             "value_col": "Exposures",
             "yaxis": "Exposiciones",
         },
+        {
+            "title": "Sprint / COD",
+            "question": "Cuantos esfuerzos de sprint y COD",
+            "categories": ["sprint_cod"],
+            "value_col": "Exposures",
+            "yaxis": "Esfuerzos",
+        },
     ]
 
     palette = [

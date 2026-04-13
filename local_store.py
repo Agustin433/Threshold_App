@@ -62,7 +62,7 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
         "filename": "raw_workouts_history.csv",
         "date_col": "Assigned Date",
         "athlete_col": "Athlete",
-        "dedupe_cols": None,
+        "dedupe_cols": ["Athlete", "Assigned Date", "Exercise Name", "Set Number"],
     },
     "maxes_df": {
         "filename": "maxes_history.csv",

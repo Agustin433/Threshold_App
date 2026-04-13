@@ -186,6 +186,57 @@ def _build_dataset_summary(dataset_frames: dict[str, pd.DataFrame | None], windo
     )
 
 
+def _build_raw_category_breakdown(
+    raw_df: pd.DataFrame | None,
+    window_start: pd.Timestamp,
+    reference_ts: pd.Timestamp,
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    columns = ["Categoria", "Filas", "% del raw"]
+    summary = {
+        "total_rows": 0.0,
+        "classified_rows": 0.0,
+        "untagged_rows": 0.0,
+        "invalid_rows": 0.0,
+        "classified_pct": 0.0,
+        "untagged_pct": 0.0,
+    }
+    if raw_df is None or raw_df.empty or "stimulus_category" not in raw_df.columns:
+        return pd.DataFrame(columns=columns), summary
+
+    raw_dates = _coerce_dates(raw_df, ("Assigned Date", "Date"))
+    raw_window = raw_df.loc[(raw_dates >= window_start) & (raw_dates <= reference_ts)].copy()
+    if raw_window.empty:
+        return pd.DataFrame(columns=columns), summary
+
+    categories = (
+        raw_window["stimulus_category"]
+        .fillna("untagged")
+        .astype(str)
+        .str.strip()
+        .replace("", "untagged")
+    )
+    breakdown = (
+        categories.value_counts(dropna=False)
+        .rename_axis("Categoria")
+        .reset_index(name="Filas")
+    )
+    total_rows = float(len(raw_window))
+    breakdown["% del raw"] = ((breakdown["Filas"] / total_rows) * 100).round(1)
+
+    untagged_rows = float((categories == "untagged").sum())
+    invalid_rows = float((categories == "invalid").sum())
+    classified_rows = float(total_rows - untagged_rows - invalid_rows)
+    summary = {
+        "total_rows": total_rows,
+        "classified_rows": classified_rows,
+        "untagged_rows": untagged_rows,
+        "invalid_rows": invalid_rows,
+        "classified_pct": round((classified_rows / total_rows) * 100, 1) if total_rows > 0 else 0.0,
+        "untagged_pct": round((untagged_rows / total_rows) * 100, 1) if total_rows > 0 else 0.0,
+    }
+    return breakdown[columns], summary
+
+
 def _build_athlete_summary(
     rpe_df: pd.DataFrame | None,
     wellness_df: pd.DataFrame | None,
@@ -383,6 +434,11 @@ def compute_data_quality_report(
     }
 
     dataset_summary = _build_dataset_summary(dataset_frames, window_start, reference_ts)
+    raw_category_breakdown, raw_classification_summary = _build_raw_category_breakdown(
+        raw_df,
+        window_start,
+        reference_ts,
+    )
     athlete_summary = _build_athlete_summary(
         rpe_df,
         wellness_df,
@@ -395,6 +451,8 @@ def compute_data_quality_report(
 
     return {
         "dataset_summary": dataset_summary,
+        "raw_category_breakdown": raw_category_breakdown,
+        "raw_classification_summary": raw_classification_summary,
         "athlete_summary": athlete_summary,
         "alerts": alerts,
     }

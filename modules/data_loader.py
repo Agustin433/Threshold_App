@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 from io import BytesIO
 from pathlib import Path
@@ -49,6 +50,156 @@ TAG_CATEGORY_MAP = {
 }
 
 _TAG_TOKEN_RE = re.compile(r"[|,;/]+")
+_SPRINT_DISTANCE_RE = re.compile(r"\b\d+\s*m\b|\d+m", re.IGNORECASE)
+
+EXERCISE_KEYWORDS = {
+    "olympic_derivatives": [
+        "clean",
+        "snatch",
+        "hang",
+        "jerk",
+        "high pull",
+        "power clean",
+        "hang power",
+        "hang high",
+        "landmine push jerk",
+        "split jerk",
+    ],
+    "sprint_cod": [
+        "sprint",
+        "spinning",
+        "strides",
+        "stride",
+        "acceleration",
+        "accel",
+        "cod",
+        "cone drill",
+        "cone 5m",
+        "figure 8",
+        "banded resisted sprint",
+        "knee down",
+        "falling start",
+        "10m +",
+        "20m +",
+        "30m +",
+    ],
+    "iso": [
+        "iso-hold",
+        "iso hold",
+        "isometric",
+        "iso-catch",
+        "iso catch",
+        "-hold",
+        "hold",
+    ],
+    "landing_mechanics": [
+        "drop catch",
+        "catch",
+        "landing",
+    ],
+    "plyo_jump": [
+        "jump",
+        "broad jump",
+        "rope jump",
+        "box jump",
+        "drop jump",
+        "rebound",
+        "plyo",
+        "ballistic",
+        "split squat jump",
+        "hop",
+        "bound",
+    ],
+    "core_stability": [
+        "deadbug",
+        "pallof",
+        "plank",
+        "anti-rotation",
+        "bird dog",
+        "hollow",
+        "core",
+        "rotation",
+    ],
+    "mobility_prehab": [
+        "stretch",
+        "mobility",
+        "wall drill",
+        "wall lean",
+        "bar hang",
+        "hang",
+        "piston",
+        "corrective",
+        "pigeon",
+        "hip stretch",
+        "thoracic",
+        "prayer",
+    ],
+    "strength_loaded": [
+        "pull-up",
+        "chin-up",
+        "pull up",
+        "chin up",
+        "row",
+        "press",
+        "squat",
+        "deadlift",
+        "rdl",
+        "lunge",
+        "step-up",
+        "step up",
+        "curl",
+        "extension",
+        "raise",
+        "thrust",
+        "hinge",
+        "nordic",
+        "eccentric",
+        "bulgarian",
+        "goblet",
+        "bench",
+        "military",
+        "overhead",
+    ],
+}
+
+KEYWORD_PRIORITY_ORDER = [
+    "olympic_derivatives",
+    "sprint_cod",
+    "iso",
+    "landing_mechanics",
+    "plyo_jump",
+    "core_stability",
+    "mobility_prehab",
+    "strength_loaded",
+]
+
+CATEGORY_SPECIFICITY_ORDER = {
+    "iso": 0,
+    "olympic_derivatives": 1,
+    "sprint_cod": 2,
+    "landing_mechanics": 3,
+    "plyo_jump": 4,
+    "core_stability": 5,
+    "mobility_prehab": 6,
+    "strength_loaded": 7,
+    "untagged": 98,
+    "invalid": 99,
+}
+
+CATEGORY_DISPLAY_LABELS = {
+    "strength_loaded": "Strength / loaded",
+    "olympic_derivatives": "Olympic derivatives",
+    "plyo_jump": "Plyo / jump",
+    "landing_mechanics": "Landing mechanics",
+    "iso": "Isometric",
+    "core_stability": "Core / stability",
+    "mobility_prehab": "Mobility / prehab",
+    "sprint_cod": "Sprint / COD",
+    "untagged": "Untagged",
+    "invalid": "Invalid",
+}
+
+_TAG_CATEGORY_LOOKUP = {str(tag).strip().lower(): category for tag, category in TAG_CATEGORY_MAP.items()}
 
 _CMJ_MAP = {
     "Height Jump (cm)": ("CMJ_cm", "max"),
@@ -129,6 +280,12 @@ EVALUATION_DB_COLUMN_MAP = {
 SUPABASE_EVALUATIONS_TABLE = "evaluations"
 
 UPLOAD_CONTRACTS: dict[str, dict[str, object]] = {
+    "questionnaire_raw": {
+        "label": "Questionnaire Raw CSV",
+        "extensions": ("csv",),
+        "expected_format": "TeamBuildr Questionnaire Raw Export (.csv)",
+        "examples": ("questionnaire_raw.csv", "questionnaire-report-raw.csv"),
+    },
     "rpe": {
         "label": "RPE + Tiempo",
         "extensions": ("xlsx",),
@@ -366,6 +523,204 @@ def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     ) from first_error
 
 
+QUESTIONNAIRE_RAW_ID_MAP: dict[int, str] = {
+    103496: "RPE",
+    103497: "Duration_min",
+    103219: "Sueno_hs",
+    103227: "Estres",
+    103498: "Dolor",
+}
+
+
+def _read_binary_content(file_or_buffer) -> bytes:
+    if isinstance(file_or_buffer, (str, os.PathLike, Path)):
+        return Path(file_or_buffer).read_bytes()
+
+    if hasattr(file_or_buffer, "getvalue"):
+        raw_bytes = file_or_buffer.getvalue()
+    elif hasattr(file_or_buffer, "read"):
+        raw_bytes = file_or_buffer.read()
+        if hasattr(file_or_buffer, "seek"):
+            file_or_buffer.seek(0)
+    else:
+        raise ValueError("No se pudo leer el archivo de cuestionarios raw.")
+
+    if isinstance(raw_bytes, str):
+        return raw_bytes.encode("utf-8", errors="replace")
+    if raw_bytes is None:
+        raise ValueError("El archivo de cuestionarios raw esta vacio.")
+    return raw_bytes
+
+
+def _first_valid(series: pd.Series):
+    valid = series.dropna()
+    return valid.iloc[0] if not valid.empty else pd.NA
+
+
+def parse_questionnaire_raw_csv(filepath_or_buffer) -> tuple[pd.DataFrame, pd.DataFrame]:
+    contract = UPLOAD_CONTRACTS["questionnaire_raw"]
+    _ensure_supported_extension(
+        filepath_or_buffer,
+        str(contract["label"]),
+        tuple(contract["extensions"]),
+    )
+
+    raw_bytes = _read_binary_content(filepath_or_buffer)
+    first_error = None
+    dataframe = None
+    for encoding, encoding_errors in (("utf-8", "replace"), ("latin-1", "replace")):
+        try:
+            dataframe = pd.read_csv(
+                BytesIO(raw_bytes),
+                encoding=encoding,
+                encoding_errors=encoding_errors,
+            )
+            break
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+
+    if dataframe is None:
+        raise ValueError(
+            "Questionnaire Raw CSV: no se pudo leer el archivo como CSV valido."
+        ) from first_error
+
+    dataframe.columns = [str(col).strip() for col in dataframe.columns]
+    required_columns = {
+        "nombre": ["First Name"],
+        "apellido": ["Last Name"],
+        "workout_id": ["Assigned Workout ID"],
+        "pregunta_id": ["Question ID"],
+        "resultado": ["Result"],
+        "timestamp": ["Timestamp Complete"],
+    }
+    missing_map = {
+        label: options
+        for label, options in required_columns.items()
+        if not any(option in dataframe.columns for option in options)
+    }
+    if missing_map:
+        raise ValueError(_missing_columns_message("Questionnaire Raw CSV", dataframe, missing_map))
+
+    first_name = dataframe["First Name"].fillna("").astype(str).map(lambda value: html.unescape(value).strip())
+    last_name = dataframe["Last Name"].fillna("").astype(str).map(lambda value: html.unescape(value).strip())
+    athlete = (first_name + " " + last_name).str.replace(r"\s+", " ", regex=True).str.strip()
+    dataframe["Athlete"] = athlete.mask(athlete.eq(""), pd.NA)
+
+    complete_ts = pd.to_numeric(dataframe["Timestamp Complete"], errors="coerce")
+    dataframe["Date"] = pd.to_datetime(complete_ts, unit="s", errors="coerce").dt.normalize()
+    dataframe["Question_ID"] = pd.to_numeric(dataframe["Question ID"], errors="coerce").astype("Int64")
+    dataframe["Mapped_Field"] = dataframe["Question_ID"].map(QUESTIONNAIRE_RAW_ID_MAP)
+
+    assigned_workout = dataframe["Assigned Workout ID"].astype(str).str.strip()
+    assigned_workout = assigned_workout.mask(assigned_workout.isin({"", "nan", "None"}), pd.NA)
+    if "Response ID" in dataframe.columns:
+        response_id = dataframe["Response ID"].astype(str).str.strip()
+        response_id = response_id.mask(response_id.isin({"", "nan", "None"}), pd.NA)
+        assigned_workout = assigned_workout.fillna(response_id)
+    fallback_ids = pd.Series(range(len(dataframe)), index=dataframe.index).map(lambda idx: f"row-{idx}")
+    dataframe["Workout_Key"] = assigned_workout.fillna(fallback_ids)
+
+    result_text = dataframe["Result"].fillna("").astype(str).map(lambda value: html.unescape(value).strip())
+    dataframe["Result_num"] = pd.to_numeric(result_text.str.replace(",", ".", regex=False), errors="coerce")
+
+    filtered = dataframe[
+        dataframe["Athlete"].notna()
+        & dataframe["Date"].notna()
+        & dataframe["Mapped_Field"].notna()
+    ].copy()
+
+    if filtered.empty:
+        raise ValueError(
+            "Questionnaire Raw CSV: no se detectaron filas validas con Athlete, Date y Question ID reconocido."
+        )
+
+    pivot_df = (
+        filtered.pivot_table(
+            index=["Athlete", "Date", "Workout_Key"],
+            columns="Mapped_Field",
+            values="Result_num",
+            aggfunc="first",
+        )
+        .reset_index()
+    )
+    pivot_df.columns.name = None
+
+    rpe_columns = ["RPE", "Duration_min"]
+    present_rpe_columns = [column for column in rpe_columns if column in pivot_df.columns]
+    has_rpe_content = any(
+        column in pivot_df.columns and pivot_df[column].notna().any()
+        for column in rpe_columns
+    )
+    if not has_rpe_content:
+        raise ValueError(
+            "Questionnaire Raw CSV: no se detectaron respuestas validas de RPE/Time "
+            "(Question IDs 103496 y 103497)."
+        )
+
+    rpe_sessions = pivot_df[pivot_df[present_rpe_columns].notna().any(axis=1)].copy()
+    for column in rpe_columns:
+        if column not in rpe_sessions.columns:
+            rpe_sessions[column] = pd.NA
+    rpe_df = (
+        rpe_sessions.groupby(["Date", "Athlete"], as_index=False)
+        .agg({"RPE": "mean", "Duration_min": "mean"})
+        .sort_values(["Date", "Athlete"])
+        .reset_index(drop=True)
+    )
+    valid_srpe_mask = (
+        rpe_df["RPE"].notna()
+        & rpe_df["Duration_min"].notna()
+        & (rpe_df["RPE"] > 0)
+        & (rpe_df["Duration_min"] > 0)
+    )
+    rpe_df["sRPE"] = pd.NA
+    rpe_df.loc[valid_srpe_mask, "sRPE"] = (
+        rpe_df.loc[valid_srpe_mask, "RPE"] * rpe_df.loc[valid_srpe_mask, "Duration_min"]
+    )
+    rpe_df = rpe_df[["Date", "Athlete", "RPE", "Duration_min", "sRPE"]]
+    for column in ["RPE", "Duration_min", "sRPE"]:
+        rpe_df[column] = pd.to_numeric(rpe_df[column], errors="coerce")
+    if rpe_df.empty:
+        raise ValueError(
+            "Questionnaire Raw CSV: no se pudieron construir filas validas para rpe_df."
+        )
+    rpe_df.attrs["source_session_count"] = int(len(rpe_sessions))
+
+    wellness_columns = ["Sueno_hs", "Estres", "Dolor"]
+    present_wellness_columns = [column for column in wellness_columns if column in pivot_df.columns]
+    wellness_df = pd.DataFrame(columns=["Date", "Athlete", "Sueno_hs", "Estres", "Dolor", "Wellness_Score"])
+    if present_wellness_columns:
+        wellness_sessions = pivot_df[pivot_df[present_wellness_columns].notna().any(axis=1)].copy()
+        if not wellness_sessions.empty:
+            agg_map = {column: _first_valid for column in present_wellness_columns}
+            wellness_df = (
+                wellness_sessions.groupby(["Date", "Athlete"], as_index=False)
+                .agg(agg_map)
+                .sort_values(["Date", "Athlete"])
+                .reset_index(drop=True)
+            )
+            for column in wellness_columns:
+                if column not in wellness_df.columns:
+                    wellness_df[column] = pd.NA
+            valid_wellness_mask = wellness_df[wellness_columns].notna().all(axis=1)
+            wellness_df["Wellness_Score"] = pd.NA
+            wellness_df.loc[valid_wellness_mask, "Wellness_Score"] = (
+                wellness_df.loc[valid_wellness_mask, wellness_columns].sum(axis=1)
+            )
+            for column in wellness_columns + ["Wellness_Score"]:
+                wellness_df[column] = pd.to_numeric(wellness_df[column], errors="coerce")
+            wellness_df = wellness_df[["Date", "Athlete", "Sueno_hs", "Estres", "Dolor", "Wellness_Score"]]
+    wellness_session_count = 0
+    if present_wellness_columns:
+        wellness_session_count = int(
+            len(pivot_df[pivot_df[present_wellness_columns].notna().any(axis=1)])
+        )
+    wellness_df.attrs["source_session_count"] = wellness_session_count
+
+    return rpe_df, wellness_df
+
+
 def parse_xlsx_questionnaire(
     file_bytes: bytes,
     mode: str = "rpe",
@@ -586,21 +941,68 @@ def _split_tag_tokens(value) -> list[str]:
     return [token.strip() for token in _TAG_TOKEN_RE.split(text) if token.strip()]
 
 
-def _classify_raw_tag(value) -> tuple[str, str, bool, bool]:
-    tokens = _split_tag_tokens(value)
-    if not tokens:
-        return "untagged", "untagged", False, True
+def _tag_category(token: str) -> str | None:
+    return _TAG_CATEGORY_LOOKUP.get(str(token).strip().lower())
 
-    for token in tokens:
-        if TAG_CATEGORY_MAP.get(token) == "invalid":
-            return "invalid", token, True, False
 
-    for token in tokens:
-        category = TAG_CATEGORY_MAP.get(token)
-        if category:
-            return category, token, False, False
+def _choose_specific_category(categories: list[str]) -> str:
+    if not categories:
+        return "untagged"
+    return min(categories, key=lambda category: CATEGORY_SPECIFICITY_ORDER.get(category, 97))
 
-    return "untagged", tokens[0], False, True
+
+def _infer_exercise_category(exercise_name: str) -> str:
+    exercise_text = str(exercise_name or "").strip().lower()
+    if not exercise_text:
+        return "untagged"
+
+    for category in KEYWORD_PRIORITY_ORDER:
+        for keyword in EXERCISE_KEYWORDS[category]:
+            if keyword.lower() in exercise_text:
+                return category
+    return "untagged"
+
+
+def classify_exercise(tag: str, exercise_name: str) -> str:
+    cleaned_tag = str(tag or "").strip()
+    if cleaned_tag:
+        direct_category = _tag_category(cleaned_tag)
+        if direct_category:
+            return direct_category
+
+        if "/" in cleaned_tag:
+            token_categories = [_tag_category(token) for token in _split_tag_tokens(cleaned_tag)]
+            token_categories = [category for category in token_categories if category]
+            if token_categories:
+                return _choose_specific_category(token_categories)
+
+        token_categories = [_tag_category(token) for token in _split_tag_tokens(cleaned_tag)]
+        token_categories = [category for category in token_categories if category]
+        if token_categories:
+            return _choose_specific_category(token_categories)
+
+    return _infer_exercise_category(exercise_name)
+
+
+def _resolve_stimulus_metadata(tag, exercise_name) -> tuple[str, str, bool, bool]:
+    cleaned_tag = str(tag or "").strip()
+    category = classify_exercise(cleaned_tag, exercise_name)
+    is_invalid = category == "invalid"
+    is_untagged = category == "untagged"
+
+    tokens = _split_tag_tokens(cleaned_tag)
+    if tokens:
+        matched_tokens = [token for token in tokens if _tag_category(token) == category]
+        if matched_tokens:
+            category_label = matched_tokens[0]
+        elif is_invalid:
+            category_label = tokens[0]
+        else:
+            category_label = CATEGORY_DISPLAY_LABELS.get(category, category)
+    else:
+        category_label = CATEGORY_DISPLAY_LABELS.get(category, category)
+
+    return category, category_label, is_invalid, is_untagged
 
 
 def _first_positive(series: pd.Series, fallback: pd.Series) -> pd.Series:
@@ -621,6 +1023,8 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
         "Athlete": ["Name", "Player", "Athlete Name", "Atleta"],
         "Tags": ["Tag", "Labels"],
         "Exercise": ["Exercise Name", "Movement", "Ejercicio"],
+        "Exercise Name": ["Exercise", "Movement", "Ejercicio"],
+        "Set Number": ["Set #", "Set No", "Set No.", "SetNumber"],
         "Sets": ["Set Count", "Completed Sets", "Sets Completed"],
         "Duration_s": [
             "Duration (s)",
@@ -649,6 +1053,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
             "Volume_Load_kg",
             "Contacts",
             "Exposures",
+            "Distance_m",
             "is_invalid",
             "is_untagged",
         ]:
@@ -689,6 +1094,20 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
             .str.strip()
             .replace("", pd.NA)
         )
+    if "Exercise Name" in df.columns:
+        df["Exercise Name"] = (
+            df["Exercise Name"]
+            .where(df["Exercise Name"].notna(), "")
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+        )
+    if "Exercise" in df.columns and "Exercise Name" not in df.columns:
+        df["Exercise Name"] = df["Exercise"]
+    elif "Exercise Name" in df.columns and "Exercise" not in df.columns:
+        df["Exercise"] = df["Exercise Name"]
+    if "Set Number" in df.columns:
+        df["Set Number"] = pd.to_numeric(df["Set Number"], errors="coerce")
     if "Tags" in df.columns:
         df["Tags"] = (
             df["Tags"]
@@ -698,10 +1117,18 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
             .replace("", pd.NA)
         )
 
-    tag_info = (
-        df["Tags"].apply(_classify_raw_tag)
-        if "Tags" in df.columns
-        else pd.Series([("untagged", "untagged", False, True)] * len(df), index=df.index)
+    tag_series = df["Tags"] if "Tags" in df.columns else pd.Series("", index=df.index, dtype=object)
+    exercise_series = (
+        df["Exercise Name"]
+        if "Exercise Name" in df.columns
+        else df.get("Exercise", pd.Series("", index=df.index, dtype=object))
+    )
+    tag_info = pd.Series(
+        [
+            _resolve_stimulus_metadata(tag_value, exercise_value)
+            for tag_value, exercise_value in zip(tag_series.tolist(), exercise_series.tolist())
+        ],
+        index=df.index,
     )
     classified = pd.DataFrame(
         list(tag_info),
@@ -723,6 +1150,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     df["Volume_Load_kg"] = pd.Series(index=df.index, dtype="float64")
     df["Contacts"] = pd.Series(index=df.index, dtype="float64")
     df["Exposures"] = pd.Series(index=df.index, dtype="float64")
+    df["Distance_m"] = pd.Series(index=df.index, dtype="float64")
 
     strength_mask = df["stimulus_category"].eq("strength_loaded")
     valid_strength = strength_mask & result.gt(0) & reps.gt(0)
@@ -734,6 +1162,19 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     dlo_mask = df["stimulus_category"].eq("olympic_derivatives") & reps.gt(0)
     # DLO se monitorea por exposicion tecnica, no por tonelaje acumulado.
     df.loc[dlo_mask, "Exposures"] = reps.loc[dlo_mask]
+
+    sprint_mask = df["stimulus_category"].eq("sprint_cod")
+    valid_sprint = sprint_mask & reps.gt(0)
+    df.loc[valid_sprint, "Exposures"] = reps.loc[valid_sprint]
+    exercise_name_series = (
+        df["Exercise Name"].fillna("").astype(str)
+        if "Exercise Name" in df.columns
+        else pd.Series("", index=df.index, dtype=object)
+    )
+    sprint_distance_mask = valid_sprint & result.gt(0) & exercise_name_series.str.contains(_SPRINT_DISTANCE_RE)
+    df.loc[sprint_distance_mask, "Distance_m"] = (
+        result.loc[sprint_distance_mask] * reps.loc[sprint_distance_mask]
+    ).round(3)
 
     iso_mask = df["stimulus_category"].eq("iso")
     df.loc[iso_mask, "Exposures"] = _first_positive(duration_s, sets).loc[iso_mask]
