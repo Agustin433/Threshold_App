@@ -409,7 +409,12 @@ def load_recent_dataset(state_key: str, weeks: int = RECENT_WEEKS) -> pd.DataFra
 def load_recent_state(weeks: int = RECENT_WEEKS) -> dict[str, pd.DataFrame | None]:
     state: dict[str, pd.DataFrame | None] = {}
     for state_key in DATASET_SPECS:
-        df = load_recent_dataset(state_key, weeks=weeks)
+        if state_key == "jump_df":
+            # Evaluations are sparse historical checkpoints, so trimming them to
+            # the recent daily-data window hides valid tests after rehydration.
+            df = read_full_dataset(state_key)
+        else:
+            df = load_recent_dataset(state_key, weeks=weeks)
         state[state_key] = None if df.empty else df
     return state
 

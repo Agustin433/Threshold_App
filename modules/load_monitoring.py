@@ -32,14 +32,15 @@ def _acwr_color(value: float) -> str:
     return "#D94F4F"
 
 
-def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex, method: str = "ewma") -> pd.DataFrame:
-    """Classic 7:28 ACWR and EWMA ACWR over a daily resampled series."""
+def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """Build the canonical ACWR EWMA daily series used across the app."""
     daily = pd.Series(srpe_series.values, index=dates).sort_index()
     daily = daily.resample("D").sum().fillna(0)
 
     result = pd.DataFrame({"Date": daily.index, "sRPE_diario": daily.values})
     result["Aguda_7d"] = result["sRPE_diario"].rolling(7, min_periods=1).mean()
     result["Cronica_28d"] = result["sRPE_diario"].rolling(28, min_periods=1).mean()
+    # DEPRECATED: kept only as a legacy reference for historical inspection.
     result["ACWR_Classic"] = np.where(
         result["Cronica_28d"] > 0,
         result["Aguda_7d"] / result["Cronica_28d"],
@@ -54,7 +55,7 @@ def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex, method: str = "ew
         0,
     )
 
-    result["ACWR"] = result["ACWR_EWMA"] if method == "ewma" else result["ACWR_Classic"]
+    result["ACWR"] = result["ACWR_EWMA"]
     result["Zona"] = result["ACWR"].apply(_classify_acwr)
     result["Zona_Color"] = result["ACWR"].apply(_acwr_color)
     return result

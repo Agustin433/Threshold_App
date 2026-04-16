@@ -65,7 +65,7 @@ else:
     with chart_left:
         if acwr_df is not None and not acwr_df.empty:
             st.plotly_chart(
-                chart_acwr(acwr_df, athlete, "ACWR_EWMA", theme=theme),
+                chart_acwr(acwr_df, athlete, theme=theme),
                 use_container_width=True,
             )
     with chart_right:

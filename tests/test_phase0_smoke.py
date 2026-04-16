@@ -195,6 +195,40 @@ class Phase0SmokeTest(unittest.TestCase):
             self.assertIsNotNone(recent_jump_df)
             self.assertAlmostEqual(float(recent_jump_df.loc[0, "EUR"]), 1.167, places=3)
 
+    def test_load_recent_state_keeps_full_jump_history(self):
+        with isolated_store() as (local_store, _):
+            local_store.save_dataset(
+                "jump_df",
+                pd.DataFrame(
+                    [
+                        {"Athlete": "Ana Lopez", "Date": "2025-12-01", "CMJ_cm": 35, "SJ_cm": 30},
+                        {"Athlete": "Ana Lopez", "Date": "2026-04-12", "CMJ_cm": 36, "SJ_cm": 31},
+                    ]
+                ),
+            )
+            local_store.save_dataset(
+                "rpe_df",
+                pd.DataFrame(
+                    [
+                        {"Athlete": "Ana Lopez", "Date": "2025-12-01", "RPE": 7, "Duration_min": 60, "sRPE": 420},
+                        {"Athlete": "Ana Lopez", "Date": "2026-04-12", "RPE": 6, "Duration_min": 50, "sRPE": 300},
+                    ]
+                ),
+            )
+
+            recent_state = local_store.load_recent_state()
+            recent_jump_df = recent_state["jump_df"]
+            recent_rpe_df = recent_state["rpe_df"]
+
+            self.assertIsNotNone(recent_jump_df)
+            self.assertEqual(len(recent_jump_df), 2)
+            self.assertEqual(
+                sorted(pd.to_datetime(recent_jump_df["Date"]).dt.strftime("%Y-%m-%d").tolist()),
+                ["2025-12-01", "2026-04-12"],
+            )
+            self.assertIsNotNone(recent_rpe_df)
+            self.assertEqual(len(recent_rpe_df), 1)
+
     def test_parsers_accept_valid_exports(self):
         rpe_df = data_loader.parse_xlsx_questionnaire(
             _questionnaire_bytes("rpe"),

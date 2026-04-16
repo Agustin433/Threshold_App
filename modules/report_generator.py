@@ -542,7 +542,7 @@ def build_report_sheets(
             acwr_rows.append(tmp)
         if acwr_rows:
             sheets["ACWR_sRPE"] = pd.concat(acwr_rows, ignore_index=True).round(2)
-            included_sections.append("ACWR + sRPE")
+            included_sections.append("ACWR EWMA + sRPE")
 
     if include_mono and mono_dict:
         mono_rows = []
@@ -932,7 +932,7 @@ def _display_zone(zone: object) -> str:
 def _snapshot_value(column: str, raw_value: object) -> str:
     if column == "Atleta":
         return _ascii_text(raw_value).strip() or "-"
-    if column == "ACWR":
+    if column in {"ACWR", "ACWR EWMA"}:
         return _display_metric(raw_value, digits=2)
     if column == "Zona":
         return _display_zone(raw_value)
@@ -1011,13 +1011,13 @@ def _gaps_from_row(row: pd.Series, *, audience: str) -> list[str]:
         gaps.append(
             "La carga reciente viene alta y puede pedir una semana más controlada."
             if audience != "profe" else
-            "El ACWR queda alto y sugiere controlar densidad y exposición semanal."
+            "El ACWR EWMA queda alto y sugiere controlar densidad y exposición semanal."
         )
     elif acwr is not None and acwr < 0.8:
         gaps.append(
             "La carga reciente quedó baja; puede faltar continuidad de estímulo."
             if audience != "profe" else
-            "El ACWR cae en subcarga; conviene revisar continuidad y volumen útil."
+            "El ACWR EWMA cae en subcarga; conviene revisar continuidad y volumen útil."
         )
     if monotony is not None and monotony > 2.0:
         gaps.append(
@@ -1421,7 +1421,7 @@ def _build_snapshot_pages(summary_df: pd.DataFrame) -> list[str]:
     display_df = display_df[keep_cols]
     rename_map = {
         "Atleta": "Atleta",
-        "ACWR EWMA": "ACWR",
+        "ACWR EWMA": "ACWR EWMA",
         "Wellness 3d": "Wellness",
         "CMJ cm": "CMJ",
         "IMTP N": "IMTP",
@@ -1593,7 +1593,7 @@ def generate_module_insights(
 
         load_summary_parts = _compact_lines(
             [
-                f"ACWR {_display_metric(acwr, digits=2)}" if acwr is not None else None,
+                f"ACWR EWMA {_display_metric(acwr, digits=2)}" if acwr is not None else None,
                 f"Monotonía {_display_metric(monotony, digits=2)}" if monotony is not None else None,
                 f"Wellness 3 días {_display_metric(wellness, digits=1)}" if wellness_available else None,
             ]
@@ -1747,7 +1747,7 @@ def _audience_dashboard_cards(
             cards.append(("Evaluación reciente", "Pendiente", "#708C9F"))
 
         if load_available:
-            cards.append(("ACWR", _display_metric(focus_row.get("ACWR EWMA"), digits=2), _zone_color(focus_row.get("Zona"))))
+            cards.append(("ACWR EWMA", _display_metric(focus_row.get("ACWR EWMA"), digits=2), _zone_color(focus_row.get("Zona"))))
         if wellness_available:
             cards.append(("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
         if completion_value is not None:
@@ -1847,7 +1847,7 @@ def _audience_metric_rows(
             rows.append(("Evaluación reciente", "Sin evaluación física reciente"))
 
         if load_available and _coerce_float(focus_row.get("ACWR EWMA")) is not None:
-            rows.append(("ACWR", _display_metric(focus_row.get("ACWR EWMA"), digits=2)))
+            rows.append(("ACWR EWMA", _display_metric(focus_row.get("ACWR EWMA"), digits=2)))
         if load_available and _coerce_float(focus_row.get("Monotonia")) is not None:
             rows.append(("Monotonía", _display_metric(focus_row.get("Monotonia"), digits=2)))
         if wellness_available:
@@ -1868,7 +1868,7 @@ def _audience_metric_rows(
     if _coerce_float(focus_row.get("IMTP N")) is not None:
         rows.append(("IMTP", _display_metric(focus_row.get("IMTP N"), digits=0, suffix=" N")))
     if _coerce_float(focus_row.get("ACWR EWMA")) is not None:
-        rows.append(("ACWR", _display_metric(focus_row.get("ACWR EWMA"), digits=2)))
+        rows.append(("ACWR EWMA", _display_metric(focus_row.get("ACWR EWMA"), digits=2)))
     if _coerce_float(focus_row.get("Monotonia")) is not None:
         rows.append(("Monotonía", _display_metric(focus_row.get("Monotonia"), digits=2)))
     if wellness_available:
@@ -1899,7 +1899,7 @@ def _audience_blocks(
         integrated_focuses = _compact_lines(
             [
                 f"Perfil actual: {_profile_text(row)}." if _has_text(row.get("Perfil NM")) else None,
-                f"ACWR {_display_metric(row.get('ACWR EWMA'), digits=2)} en zona {_display_zone(row.get('Zona'))}." if load_available and _coerce_float(row.get("ACWR EWMA")) is not None else None,
+                f"ACWR EWMA {_display_metric(row.get('ACWR EWMA'), digits=2)} en zona {_display_zone(row.get('Zona'))}." if load_available and _coerce_float(row.get("ACWR EWMA")) is not None else None,
                 f"CMJ {_display_metric(row.get('CMJ cm'), digits=1, suffix=' cm')} y DRI {_display_metric(row.get('DRI'), digits=2)}." if eval_available and _coerce_float(row.get("CMJ cm")) is not None and _coerce_float(row.get("DRI")) is not None else None,
                 f"IMTP {_display_metric(row.get('IMTP N'), digits=0, suffix=' N')}." if eval_available and _coerce_float(row.get("IMTP N")) is not None else None,
             ]
@@ -2009,7 +2009,7 @@ def _audience_blocks(
         )
         profile_focuses = _compact_lines(
             [
-                f"ACWR actual: {_display_metric(row.get('ACWR EWMA'), digits=2)} en zona {_display_zone(row.get('Zona'))}." if load_available and _coerce_float(row.get("ACWR EWMA")) is not None else None,
+                f"ACWR EWMA actual: {_display_metric(row.get('ACWR EWMA'), digits=2)} en zona {_display_zone(row.get('Zona'))}." if load_available and _coerce_float(row.get("ACWR EWMA")) is not None else None,
                 f"Wellness reciente: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
                 f"Cambio frente a la base reciente: {_display_metric(row.get('CMJ vs BL %'), digits=1, suffix='%')}." if _coerce_float(row.get("CMJ vs BL %")) is not None else None,
             ]
@@ -2258,7 +2258,7 @@ def collect_report_plotly_figures(
             {
                 "slug": "acwr",
                 "title": "Carga reciente",
-                "figure": chart_acwr(acwr_df, report_athlete, "ACWR_EWMA", theme=theme),
+                "figure": chart_acwr(acwr_df, report_athlete, theme=theme),
                 }
             )
 
@@ -2571,7 +2571,7 @@ def _generate_visual_report_pdf_reportlab(
         display_df = display_df[keep_cols]
         display_df = display_df.rename(
             columns={
-                "ACWR EWMA": "ACWR",
+                "ACWR EWMA": "ACWR EWMA",
                 "Wellness 3d": "Wellness",
                 "CMJ cm": "CMJ",
                 "IMTP N": "IMTP",
@@ -2582,7 +2582,7 @@ def _generate_visual_report_pdf_reportlab(
             data.append([_p(_snapshot_value(col, row.get(col, "-")), "ReportBody") for col in display_df.columns])
         widths_map = {
             "Atleta": 38 * mm,
-            "ACWR": 18 * mm,
+            "ACWR EWMA": 18 * mm,
             "Zona": 24 * mm,
             "Wellness": 24 * mm,
             "CMJ": 18 * mm,

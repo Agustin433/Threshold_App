@@ -55,7 +55,7 @@ class LoadMonitoringEWMATest(unittest.TestCase):
             ]
         )
 
-        figure = chart_acwr(acwr_df, "Atleta Test", "ACWR_EWMA", theme=_chart_theme())
+        figure = chart_acwr(acwr_df, "Atleta Test", theme=_chart_theme())
         trace_names = [trace.name for trace in figure.data]
 
         self.assertEqual(trace_names, ["sRPE diario", "ACWR EWMA"])

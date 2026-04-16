@@ -51,6 +51,7 @@ from local_store import (
     collect_athlete_names,
     find_athlete_name_conflicts,
     load_athlete_registry,
+    read_full_dataset,
     load_recent_dataset,
     load_recent_state,
     normalize_athlete_name,
@@ -1637,15 +1638,15 @@ def parse_jump_eval(file) -> pd.DataFrame:
 # CALCULATIONS
 # ════════════════════════════════════════════════════════════════════
 
-def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex,
-              method="ewma") -> pd.DataFrame:
-    """ACWR clásico (7:28) y EWMA. Retorna DataFrame diario."""
+def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """ACWR EWMA canonico. Mantiene la columna clasica solo como referencia legacy."""
     daily = pd.Series(srpe_series.values, index=dates).sort_index()
     daily = daily.resample("D").sum().fillna(0)
 
     result = pd.DataFrame({"Date": daily.index, "sRPE_diario": daily.values})
 
     # Clásico
+    # DEPRECATED: referencia legacy para inspeccion historica, no para producto.
     result["Aguda_7d"]   = result["sRPE_diario"].rolling(7,  min_periods=1).mean()
     result["Cronica_28d"] = result["sRPE_diario"].rolling(28, min_periods=1).mean()
     result["ACWR_Classic"] = np.where(
@@ -1659,7 +1660,7 @@ def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex,
         result["EWMA_Cronica"] > 0,
         result["EWMA_Aguda"] / result["EWMA_Cronica"], 0)
 
-    result["ACWR"] = result["ACWR_EWMA"] if method == "ewma" else result["ACWR_Classic"]
+    result["ACWR"] = result["ACWR_EWMA"]
     result["Zona"] = result["ACWR"].apply(_classify_acwr)
     result["Zona_Color"] = result["ACWR"].apply(lambda x: _acwr_color(x))
     return result
@@ -2290,7 +2291,7 @@ _LEGEND = dict(
     font=dict(size=9, color=C["gray"]),
 )
 
-def _legacy_chart_acwr_unused(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR_EWMA") -> go.Figure:
+def _legacy_chart_acwr_unused(acwr_df: pd.DataFrame, athlete: str) -> go.Figure:
     fig = go.Figure()
 
     # Bandas de zona
@@ -2334,10 +2335,10 @@ def _legacy_chart_acwr_unused(acwr_df: pd.DataFrame, athlete: str, selected_meth
 
     fig.update_layout(
         **_DARK,
-        title=dict(text=f"<b>ACWR + sRPE Diario — {athlete}</b>",
+        title=dict(text=f"<b>ACWR EWMA + sRPE Diario — {athlete}</b>",
                    font=dict(size=14, color=C["navy"])),
         xaxis=dict(title="Fecha", gridcolor=_GRID_SOFT, zeroline=False),
-        yaxis=dict(title="ACWR", range=[0, 2.5], gridcolor=_GRID_SOFT, zeroline=False),
+        yaxis=dict(title="ACWR EWMA", range=[0, 2.5], gridcolor=_GRID_SOFT, zeroline=False),
         yaxis2=dict(title="sRPE (UA)", overlaying="y", side="right",
                     range=[0, acwr_df["sRPE_diario"].max() * 4],
                     showgrid=False, color=C["muted"]),
@@ -2347,7 +2348,7 @@ def _legacy_chart_acwr_unused(acwr_df: pd.DataFrame, athlete: str, selected_meth
     return fig
 
 
-def chart_acwr(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR_EWMA") -> go.Figure:
+def chart_acwr(acwr_df: pd.DataFrame, athlete: str) -> go.Figure:
     fig = go.Figure()
 
     band_data = [
@@ -2387,9 +2388,9 @@ def chart_acwr(acwr_df: pd.DataFrame, athlete: str, selected_method: str = "ACWR
 
     fig.update_layout(
         **_DARK,
-        title=dict(text=f"<b>ACWR + sRPE Diario â€” {athlete}</b>", font=dict(size=14, color=C["navy"])),
+        title=dict(text=f"<b>ACWR EWMA + sRPE Diario â€” {athlete}</b>", font=dict(size=14, color=C["navy"])),
         xaxis=dict(title="Fecha", gridcolor=_GRID_SOFT, zeroline=False),
-        yaxis=dict(title="ACWR", range=[0, 2.5], gridcolor=_GRID_SOFT, zeroline=False),
+        yaxis=dict(title="ACWR EWMA", range=[0, 2.5], gridcolor=_GRID_SOFT, zeroline=False),
         yaxis2=dict(
             title="sRPE (UA)",
             overlaying="y",
@@ -3242,6 +3243,10 @@ def init_state():
         st.session_state.questionnaire_upload_source = None
     if "weekly_summaries" not in st.session_state:
         st.session_state.weekly_summaries = {}
+    if "sidebar_upload_expanded" not in st.session_state:
+        st.session_state.sidebar_upload_expanded = False
+    if "eval_file_nonce" not in st.session_state:
+        st.session_state.eval_file_nonce = 0
 
 
 init_state()
@@ -3516,12 +3521,12 @@ def hydrate_evaluations_from_store(force: bool = False, show_success: bool = Fal
         if not remote_df.empty:
             save_dataset("jump_df", remote_df)
             persist_athlete_names(remote_df["Athlete"].dropna().tolist())
-            recent_jump_df = load_recent_dataset("jump_df", weeks=RECENT_WEEKS)
-            st.session_state.jump_df = recent_jump_df if not recent_jump_df.empty else None
+            full_jump_df = read_full_dataset("jump_df")
+            st.session_state.jump_df = full_jump_df if not full_jump_df.empty else None
             if show_success:
                 st.session_state.eval_sync_notice = (
                     f"Historial de evaluaciones cargado desde Supabase "
-                    f"({len(remote_df)} registros, ventana activa de {RECENT_WEEKS} semanas)."
+                    f"({len(full_jump_df)} registros en historial local)."
                 )
                 st.session_state.eval_sync_notice_kind = "success"
         elif force and show_success:
@@ -3805,7 +3810,14 @@ with st.sidebar:
                 )
 
     # ── Expander de carga — colapsado automáticamente cuando hay datos ──
-    with st.expander("Cargar archivos", expanded=not _data_loaded()):
+    with st.expander(
+        "Cargar archivos",
+        expanded=(
+            st.session_state.sidebar_upload_expanded
+            or bool(st.session_state.get("eval_records"))
+            or not _data_loaded()
+        ),
+    ):
         st.caption("Subi cada dataset con el formato exacto esperado por TeamBuildr o por la plataforma de fuerza.")
         with st.expander("Ver formatos esperados", expanded=False):
             st.dataframe(
@@ -3871,88 +3883,105 @@ with st.sidebar:
         st.markdown("**Evaluaciones de Saltos e IMTP**")
         st.caption("Subi archivos .xlsx exportados por la plataforma de fuerza.")
         athlete_options = ["Escribir nuevo..."] + known_athlete_names()
-        selected_eval_athlete = st.selectbox("Atleta", athlete_options,
-                                             key="eval_athlete_select")
-        eval_athlete = selected_eval_athlete
-        if selected_eval_athlete == "Escribir nuevo...":
-            eval_athlete = st.text_input("Nombre del atleta", key="eval_athlete_text",
-                                          placeholder="Ej: Mariano Diaz Romero")
-        eval_date    = st.date_input("Fecha de evaluación", key="eval_date",
-                                      value=pd.Timestamp.today())
-        eval_type    = st.selectbox("Tipo de test", ["CMJ", "SJ", "DJ", "IMTP"],
-                                     key="eval_type")
-        eval_file    = st.file_uploader("Archivo del test", type=list(UPLOAD_CONTRACTS["forceplate"]["extensions"]),
-                                         key="eval_file")
-        if st.button("Agregar evaluacion", key="btn_add_eval"):
+        eval_file_key = f"eval_file_{st.session_state.eval_file_nonce}"
+        with st.form("eval_upload_form", clear_on_submit=False):
+            selected_eval_athlete = st.selectbox(
+                "Atleta",
+                athlete_options,
+                key="eval_athlete_select",
+            )
+            typed_eval_athlete = st.text_input(
+                "Nombre del atleta (solo si elegis 'Escribir nuevo...')",
+                key="eval_athlete_text",
+                placeholder="Ej: Mariano Diaz Romero",
+            )
+            eval_date = st.date_input(
+                "Fecha de evaluación",
+                key="eval_date",
+                value=pd.Timestamp.today(),
+            )
+            eval_type = st.selectbox(
+                "Tipo de test",
+                ["CMJ", "SJ", "DJ", "IMTP"],
+                key="eval_type",
+            )
+            eval_file = st.file_uploader(
+                "Archivo del test",
+                type=list(UPLOAD_CONTRACTS["forceplate"]["extensions"]),
+                key=eval_file_key,
+            )
+            add_eval_submitted = st.form_submit_button("Agregar evaluacion")
+
+        if add_eval_submitted:
+            st.session_state.sidebar_upload_expanded = True
+            eval_athlete = typed_eval_athlete if selected_eval_athlete == "Escribir nuevo..." else selected_eval_athlete
             eval_athlete_name = normalize_athlete_name(eval_athlete)
             if not eval_athlete_name:
                 _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
-                st.rerun()
-            if not eval_file:
+            elif not eval_file:
                 _push_notice("warning", "Evaluaciones individuales: subi el archivo del test.")
-                st.rerun()
-
-            try:
-                record = parse_forceplate_file(
-                    eval_file.read(),
-                    eval_type,
-                    filename=getattr(eval_file, "name", None),
-                )
-                metric_fields = _evaluation_metric_fields(record)
-                if not metric_fields:
-                    raise ValueError("no se detectaron métricas válidas para el tipo de test seleccionado.")
-                record["Athlete"] = eval_athlete_name
-                record["Date"] = pd.Timestamp(eval_date)
-                record["__source_file"] = getattr(eval_file, "name", "archivo")
-                record["__metric_fields"] = metric_fields
-                record["__metric_count"] = len(metric_fields)
-                persist_athlete_names([eval_athlete_name])
-                if "eval_records" not in st.session_state:
-                    st.session_state.eval_records = []
-                pending_records = st.session_state.eval_records
-                record_signature = _evaluation_record_signature(record)
-                replace_idx = next(
-                    (
-                        idx
-                        for idx, pending_record in enumerate(pending_records)
-                        if _evaluation_record_signature(pending_record) == record_signature
-                    ),
-                    None,
-                )
-                if replace_idx is not None:
-                    pending_records[replace_idx] = record
-                    action_label = "actualizada en la cola"
-                else:
-                    pending_records.append(record)
-                    action_label = "agregada a la cola"
-                st.session_state.eval_records = pending_records
-                same_day_total = sum(
-                    1
-                    for item in pending_records
-                    if _evaluation_day_signature(item) == _evaluation_day_signature(record)
-                )
-                history_impact = _pending_evaluation_impact(record, pending_records, st.session_state.jump_df)
-                impact_parts = []
-                if same_day_total > 1:
-                    impact_parts.append(
-                        f"se consolidará junto con {same_day_total - 1} test(s) del mismo día"
+            else:
+                try:
+                    record = parse_forceplate_file(
+                        eval_file.read(),
+                        eval_type,
+                        filename=getattr(eval_file, "name", None),
                     )
-                if "Actualiza" in history_impact:
-                    impact_parts.append("actualiza historial existente")
-                impact_suffix = f" ({'; '.join(impact_parts)})." if impact_parts else "."
-                _push_notice(
-                    "success",
-                    (
-                        f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): "
-                        f"{action_label} para {eval_athlete_name} con {len(metric_fields)} métricas{impact_suffix}"
-                    ),
-                )
-            except Exception as exc:
-                _push_notice(
-                    "error",
-                    f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): {exc}",
-                )
-            st.rerun()
+                    metric_fields = _evaluation_metric_fields(record)
+                    if not metric_fields:
+                        raise ValueError("no se detectaron métricas válidas para el tipo de test seleccionado.")
+                    record["Athlete"] = eval_athlete_name
+                    record["Date"] = pd.Timestamp(eval_date)
+                    record["__source_file"] = getattr(eval_file, "name", "archivo")
+                    record["__metric_fields"] = metric_fields
+                    record["__metric_count"] = len(metric_fields)
+                    persist_athlete_names([eval_athlete_name])
+                    if "eval_records" not in st.session_state:
+                        st.session_state.eval_records = []
+                    pending_records = st.session_state.eval_records
+                    record_signature = _evaluation_record_signature(record)
+                    replace_idx = next(
+                        (
+                            idx
+                            for idx, pending_record in enumerate(pending_records)
+                            if _evaluation_record_signature(pending_record) == record_signature
+                        ),
+                        None,
+                    )
+                    if replace_idx is not None:
+                        pending_records[replace_idx] = record
+                        action_label = "actualizada en la cola"
+                    else:
+                        pending_records.append(record)
+                        action_label = "agregada a la cola"
+                    st.session_state.eval_records = pending_records
+                    same_day_total = sum(
+                        1
+                        for item in pending_records
+                        if _evaluation_day_signature(item) == _evaluation_day_signature(record)
+                    )
+                    history_impact = _pending_evaluation_impact(record, pending_records, st.session_state.jump_df)
+                    impact_parts = []
+                    if same_day_total > 1:
+                        impact_parts.append(
+                            f"se consolidará junto con {same_day_total - 1} test(s) del mismo día"
+                        )
+                    if "Actualiza" in history_impact:
+                        impact_parts.append("actualiza historial existente")
+                    impact_suffix = f" ({'; '.join(impact_parts)})." if impact_parts else "."
+                    _push_notice(
+                        "success",
+                        (
+                            f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): "
+                            f"{action_label} para {eval_athlete_name} con {len(metric_fields)} métricas{impact_suffix}"
+                        ),
+                    )
+                    st.session_state.eval_file_nonce += 1
+                except Exception as exc:
+                    _push_notice(
+                        "error",
+                        f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): {exc}",
+                    )
 
         if "eval_records" in st.session_state and st.session_state.eval_records:
             pending_records = st.session_state.eval_records
@@ -4156,14 +4185,21 @@ with st.sidebar:
                             raise ValueError("no se pudo consolidar ninguna evaluación individual válida.")
 
                         save_dataset("jump_df", jdf)
+                        full_jump_df = read_full_dataset("jump_df")
                         persist_athlete_names(jdf["Athlete"].dropna().tolist())
                         visible_jump_df = load_recent_dataset("jump_df", weeks=RECENT_WEEKS)
-                        jump_rows = build_dataset_summaries({"jump_df": visible_jump_df}, weeks=RECENT_WEEKS, keys=["jump_df"])
+                        st.session_state.jump_df = full_jump_df if not full_jump_df.empty else None
+                        jump_rows = build_dataset_summaries({"jump_df": full_jump_df}, weeks=RECENT_WEEKS, keys=["jump_df"])
                         if jump_rows:
                             jump_row = jump_rows[0]
+                            visible_suffix = ""
+                            if not visible_jump_df.empty:
+                                visible_suffix = (
+                                    f" · {len(visible_jump_df)} dentro de la ventana operativa de {RECENT_WEEKS} semanas"
+                                )
                             _push_notice(
                                 "success",
-                                f"Evaluaciones individuales: {jump_row['Registros']} registro(s) visibles · {jump_row['Ventana activa']}.",
+                                f"Evaluaciones individuales: {jump_row['Registros']} registro(s) en historial{visible_suffix}.",
                             )
 
                         if supabase_evaluations_enabled():
@@ -4183,13 +4219,16 @@ with st.sidebar:
                                 st.session_state.eval_sync_notice_kind = "warning"
                         else:
                             st.session_state.eval_sync_notice = (
-                                f"{len(records)} test(s) consolidados en local para {jdf['Athlete'].nunique()} atleta(s)."
+                                f"{len(records)} test(s) consolidados en local para {jdf['Athlete'].nunique()} atleta(s). "
+                                "Ya estan disponibles en el historial de Evaluaciones."
                             )
                             st.session_state.eval_sync_notice_kind = "success"
 
                         st.session_state.eval_records = []
+                        st.session_state.sidebar_upload_expanded = False
                         processed_any = True
                     except Exception as exc:
+                        st.session_state.sidebar_upload_expanded = True
                         _push_notice("error", f"Evaluaciones individuales: {exc}")
 
                 hydrate_local_store(force=True)
@@ -4537,7 +4576,7 @@ with tab_load:
                     available_cols = [column for column in display_cols if column in team_display.columns]
                     st.dataframe(team_display[available_cols], use_container_width=True, hide_index=True)
         elif acwr_df is None:
-            st.warning("Sin datos de ACWR para este atleta.")
+            st.warning("Sin datos de ACWR EWMA para este atleta.")
         else:
             # ── KPIs ──
             last_sessions = sub_rpe.tail(3)
@@ -4561,13 +4600,13 @@ with tab_load:
             if not last_acwr.empty:
                 v = last_acwr["ACWR_EWMA"].values[0]
                 if v > 1.5:
-                    _alert(f"ACWR = {v:.2f} — alto riesgo. Reducir carga aguda inmediatamente.", "r")
+                    _alert(f"ACWR EWMA = {v:.2f} — alto riesgo. Reducir carga aguda inmediatamente.", "r")
                 elif v > 1.3:
-                    _alert(f"ACWR = {v:.2f} — precaucion. Monitorear proximas 48 h.", "y")
+                    _alert(f"ACWR EWMA = {v:.2f} — precaucion. Monitorear proximas 48 h.", "y")
                 elif v < 0.8:
-                    _alert(f"ACWR = {v:.2f} — subcarga. Evaluar si es recuperacion planeada o perdida de estimulo.", "b")
+                    _alert(f"ACWR EWMA = {v:.2f} — subcarga. Evaluar si es recuperacion planeada o perdida de estimulo.", "b")
                 else:
-                    _alert(f"ACWR = {v:.2f} — zona optima.", "g")
+                    _alert(f"ACWR EWMA = {v:.2f} — zona optima.", "g")
 
             # Alerta monotonía
             if not last_mono.empty and last_mono["Alerta"].values[0]:
@@ -4586,8 +4625,8 @@ with tab_load:
             st.markdown("---")
 
             # Gráfico ACWR
-            render_subsection_header("Tendencia de carga", "acwr diario con contexto de sRPE", kicker="Analisis")
-            st.plotly_chart(chart_acwr(acwr_df, athlete_sel, "ACWR_EWMA"), use_container_width=False, key="acwr_main")
+            render_subsection_header("Tendencia de carga", "acwr ewma diario con contexto de sRPE", kicker="Analisis")
+            st.plotly_chart(chart_acwr(acwr_df, athlete_sel), use_container_width=False, key="acwr_main")
 
             c_mono, c_well = st.columns(2)
             with c_mono:
@@ -4832,7 +4871,7 @@ with tab_profile:
                     v = acwr_last["ACWR_EWMA"].values[0]
                     zona = acwr_last["Zona"].values[0]
                     color_map = {"Óptimo": "g", "Precaución": "y", "Alto riesgo": "r", "Subcarga": "b"}
-                    _alert(f"**ACWR:** {v:.2f} — {zona}", color_map.get(zona, "b"))
+                    _alert(f"**ACWR EWMA:** {v:.2f} — {zona}", color_map.get(zona, "b"))
 
             # Wellness
             if wdf is not None and ath_p in wdf["Athlete"].values:
@@ -5045,7 +5084,7 @@ with tab_report:
 
     with col_r1:
         render_subsection_header("Contenido del reporte", "seleccion de bloques para exportacion", kicker="Exportacion")
-        include_acwr     = st.checkbox("ACWR + sRPE diario", value=True)
+        include_acwr     = st.checkbox("ACWR EWMA + sRPE diario", value=True)
         include_mono     = st.checkbox("Monotonia + strain semanal", value=True)
         include_wellness = st.checkbox("Wellness historico", value=True)
         include_jumps    = st.checkbox("Evaluaciones de saltos (EUR ratio, DRI, Z-scores)", value=True)
@@ -5157,7 +5196,7 @@ with tab_report:
     st.markdown("---")
     render_subsection_header("Checklist de datos para reporte completo", "estado de las fuentes necesarias para una exportacion integral", kicker="Checklist")
     checklist = [
-        ("RPE + Tiempo (sRPE, ACWR)", st.session_state.rpe_df is not None),
+        ("RPE + Tiempo (sRPE, ACWR EWMA)", st.session_state.rpe_df is not None),
         ("Wellness 3 preguntas", st.session_state.wellness_df is not None),
         ("Completion rate", st.session_state.completion_df is not None),
         ("Rep/Load (volumen)", st.session_state.rep_load_df is not None),

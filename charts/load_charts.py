@@ -21,7 +21,6 @@ def _theme_parts(theme: dict) -> tuple[dict, dict, str, str, dict]:
 def chart_acwr(
     acwr_df: pd.DataFrame,
     athlete: str,
-    selected_method: str = "ACWR_EWMA",
     *,
     theme: dict,
 ) -> go.Figure:
@@ -71,9 +70,9 @@ def chart_acwr(
     srpe_max = acwr_df["sRPE_diario"].max() if not acwr_df.empty else 0
     fig.update_layout(
         **layout,
-        title=dict(text=f"<b>ACWR + sRPE Diario - {athlete}</b>", font=dict(size=14, color=colors["navy"])),
+        title=dict(text=f"<b>ACWR EWMA + sRPE Diario - {athlete}</b>", font=dict(size=14, color=colors["navy"])),
         xaxis=dict(title="Fecha", gridcolor=grid_soft, zeroline=False),
-        yaxis=dict(title="ACWR", range=[0, 2.5], gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="ACWR EWMA", range=[0, 2.5], gridcolor=grid_soft, zeroline=False),
         yaxis2=dict(
             title="sRPE (UA)",
             overlaying="y",
