@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from modules.data_loader import prepare_raw_workouts_df
 from modules.jump_analysis import _prepare_jump_df
 from modules.load_monitoring import calc_acwr, calc_monotony_strain
 
@@ -94,6 +95,50 @@ ACWR_ZONES = (
     (1.30, 1.50, "Precaucion", "#E8C84A"),
     (1.50, 9.99, "Alto riesgo", "#D94F4F"),
 )
+
+WEEKLY_LOAD_COLUMNS = [
+    "Athlete",
+    "week_start",
+    "weekly_sRPE",
+    "sessions_count",
+    "sRPE_mean_session",
+    "monotony",
+    "strain",
+    "ACWR_EWMA_last",
+]
+WEEKLY_WELLNESS_COLUMNS = [
+    "Athlete",
+    "week_start",
+    "Sueno_mean",
+    "Estres_mean",
+    "Dolor_mean",
+    "Wellness_mean",
+    "wellness_days",
+    "wellness_compliance",
+]
+WEEKLY_EXTERNAL_COLUMNS = [
+    "Athlete",
+    "week_start",
+    "strength_kg",
+    "plyo_contacts",
+    "landing_contacts",
+    "iso_exposures",
+    "core_exposures",
+    "mobility_exposures",
+    "olympic_exposures",
+    "sprint_exposures",
+    "sprint_distance_m",
+]
+WEEKLY_TEAM_COLUMNS = [
+    "week_start",
+    "team_sRPE_mean",
+    "team_sRPE_sum",
+    "athletes_active",
+    "team_wellness_mean",
+    "team_monotony_mean",
+    "team_strain_mean",
+    "completion_mean",
+]
 
 
 def _ensure_store_dir() -> None:
@@ -403,6 +448,259 @@ def build_load_models(rpe_df: pd.DataFrame | None) -> tuple[dict[str, pd.DataFra
         mono_dict[athlete] = filter_recent_window(mono_df, "Semana")
 
     return acwr_dict, mono_dict
+
+
+def _empty_weekly_frame(columns: list[str]) -> pd.DataFrame:
+    return pd.DataFrame(columns=columns)
+
+
+def _week_start(series: pd.Series) -> pd.Series:
+    dates = pd.to_datetime(series, errors="coerce").dt.normalize()
+    return dates - pd.to_timedelta(dates.dt.weekday, unit="D")
+
+
+def _resolve_acwr_models(
+    rpe_df: pd.DataFrame | None,
+    acwr_dict: dict[str, pd.DataFrame] | None = None,
+) -> dict[str, pd.DataFrame]:
+    resolved = acwr_dict or {}
+    if resolved:
+        return {normalize_athlete_name(name): df for name, df in resolved.items()}
+    built_acwr, _ = build_load_models(rpe_df)
+    return built_acwr
+
+
+def _build_weekly_load_summary(
+    rpe_df: pd.DataFrame | None,
+    acwr_dict: dict[str, pd.DataFrame] | None = None,
+) -> pd.DataFrame:
+    if rpe_df is None or rpe_df.empty:
+        return _empty_weekly_frame(WEEKLY_LOAD_COLUMNS)
+    if not {"Athlete", "Date", "sRPE"}.issubset(rpe_df.columns):
+        return _empty_weekly_frame(WEEKLY_LOAD_COLUMNS)
+
+    acwr_models = _resolve_acwr_models(rpe_df, acwr_dict=acwr_dict)
+    if not acwr_models:
+        return _empty_weekly_frame(WEEKLY_LOAD_COLUMNS)
+
+    rows: list[pd.DataFrame] = []
+    for athlete, acwr_df in acwr_models.items():
+        if acwr_df is None or acwr_df.empty or not {"Date", "sRPE_diario", "ACWR_EWMA"}.issubset(acwr_df.columns):
+            continue
+
+        athlete_df = acwr_df.copy()
+        athlete_df["Date"] = pd.to_datetime(athlete_df["Date"], errors="coerce").dt.normalize()
+        athlete_df["sRPE_diario"] = pd.to_numeric(athlete_df["sRPE_diario"], errors="coerce").fillna(0.0)
+        athlete_df["ACWR_EWMA"] = pd.to_numeric(athlete_df["ACWR_EWMA"], errors="coerce")
+        athlete_df = athlete_df.dropna(subset=["Date"])
+        if athlete_df.empty:
+            continue
+
+        athlete_df["week_start"] = _week_start(athlete_df["Date"])
+        weekly = (
+            athlete_df.groupby("week_start", as_index=False)
+            .agg(
+                weekly_sRPE=("sRPE_diario", "sum"),
+                sessions_count=("sRPE_diario", lambda s: int(pd.Series(s).gt(0).sum())),
+                sRPE_mean_session=(
+                    "sRPE_diario",
+                    lambda s: float(pd.Series(s)[pd.Series(s).gt(0)].mean())
+                    if pd.Series(s).gt(0).any()
+                    else np.nan,
+                ),
+                _mean_daily=("sRPE_diario", "mean"),
+                _sd_daily=("sRPE_diario", lambda s: float(pd.Series(s).std(ddof=0))),
+            )
+        )
+        last_acwr = (
+            athlete_df.sort_values("Date")
+            .groupby("week_start", as_index=False)
+            .tail(1)[["week_start", "ACWR_EWMA"]]
+            .rename(columns={"ACWR_EWMA": "ACWR_EWMA_last"})
+        )
+        weekly = weekly.merge(last_acwr, on="week_start", how="left")
+        weekly["monotony"] = np.where(
+            weekly["_sd_daily"].fillna(0).le(0),
+            1.0,
+            weekly["_mean_daily"] / weekly["_sd_daily"],
+        )
+        weekly["strain"] = weekly["weekly_sRPE"] * weekly["monotony"]
+        weekly["Athlete"] = athlete
+        weekly = weekly[~((weekly["weekly_sRPE"] <= 0) & (weekly["sessions_count"] <= 0))]
+        rows.append(weekly[WEEKLY_LOAD_COLUMNS])
+
+    if not rows:
+        return _empty_weekly_frame(WEEKLY_LOAD_COLUMNS)
+
+    result = pd.concat(rows, ignore_index=True)
+    return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+
+def _build_weekly_wellness_summary(
+    wellness_df: pd.DataFrame | None,
+    weekly_load: pd.DataFrame,
+) -> pd.DataFrame:
+    if wellness_df is None or wellness_df.empty:
+        return _empty_weekly_frame(WEEKLY_WELLNESS_COLUMNS)
+    if not {"Athlete", "Date"}.issubset(wellness_df.columns):
+        return _empty_weekly_frame(WEEKLY_WELLNESS_COLUMNS)
+
+    source = wellness_df.copy()
+    source["Athlete"] = source["Athlete"].map(normalize_athlete_name)
+    source["Date"] = pd.to_datetime(source["Date"], errors="coerce").dt.normalize()
+    for column in ["Sueno_hs", "Estres", "Dolor", "Wellness_Score"]:
+        if column in source.columns:
+            source[column] = pd.to_numeric(source[column], errors="coerce")
+        else:
+            source[column] = pd.Series(index=source.index, dtype="float64")
+    source = source.dropna(subset=["Athlete", "Date"])
+    if source.empty:
+        return _empty_weekly_frame(WEEKLY_WELLNESS_COLUMNS)
+
+    source["week_start"] = _week_start(source["Date"])
+    weekly = (
+        source.groupby(["Athlete", "week_start"], as_index=False)
+        .agg(
+            Sueno_mean=("Sueno_hs", "mean"),
+            Estres_mean=("Estres", "mean"),
+            Dolor_mean=("Dolor", "mean"),
+            Wellness_mean=("Wellness_Score", "mean"),
+            wellness_days=("Wellness_Score", lambda s: int(pd.Series(s).notna().sum())),
+        )
+    )
+
+    sessions = weekly_load[["Athlete", "week_start", "sessions_count"]] if not weekly_load.empty else _empty_weekly_frame(
+        ["Athlete", "week_start", "sessions_count"]
+    )
+    weekly = weekly.merge(sessions, on=["Athlete", "week_start"], how="left")
+    weekly["wellness_compliance"] = np.where(
+        weekly["sessions_count"].fillna(0).gt(0),
+        weekly["wellness_days"] / weekly["sessions_count"],
+        np.nan,
+    )
+    return weekly[WEEKLY_WELLNESS_COLUMNS].sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+
+def _build_weekly_external_summary(raw_df: pd.DataFrame | None) -> pd.DataFrame:
+    prepared = prepare_raw_workouts_df(raw_df)
+    if prepared is None or prepared.empty:
+        return _empty_weekly_frame(WEEKLY_EXTERNAL_COLUMNS)
+
+    athlete_col = "Athlete" if "Athlete" in prepared.columns else None
+    date_col = "Assigned Date" if "Assigned Date" in prepared.columns else "Date" if "Date" in prepared.columns else None
+    if athlete_col is None or date_col is None:
+        return _empty_weekly_frame(WEEKLY_EXTERNAL_COLUMNS)
+
+    source = prepared.copy()
+    source["Athlete"] = source[athlete_col].map(normalize_athlete_name)
+    source[date_col] = pd.to_datetime(source[date_col], errors="coerce").dt.normalize()
+    source = source.dropna(subset=["Athlete", date_col])
+    if source.empty:
+        return _empty_weekly_frame(WEEKLY_EXTERNAL_COLUMNS)
+
+    source = source[
+        ~source.get("is_invalid", pd.Series(False, index=source.index)).fillna(False)
+        & ~source.get("is_untagged", pd.Series(False, index=source.index)).fillna(False)
+    ].copy()
+    if source.empty:
+        return _empty_weekly_frame(WEEKLY_EXTERNAL_COLUMNS)
+
+    source["week_start"] = _week_start(source[date_col])
+    base = source[["Athlete", "week_start"]].drop_duplicates().reset_index(drop=True)
+
+    metric_map = {
+        "strength_kg": ("strength_loaded", "Volume_Load_kg"),
+        "plyo_contacts": ("plyo_jump", "Contacts"),
+        "landing_contacts": ("landing_mechanics", "Contacts"),
+        "iso_exposures": ("iso", "Exposures"),
+        "core_exposures": ("core_stability", "Exposures"),
+        "mobility_exposures": ("mobility_prehab", "Exposures"),
+        "olympic_exposures": ("olympic_derivatives", "Exposures"),
+        "sprint_exposures": ("sprint_cod", "Exposures"),
+        "sprint_distance_m": ("sprint_cod", "Distance_m"),
+    }
+
+    result = base.copy()
+    for output_col, (category, value_col) in metric_map.items():
+        if value_col not in source.columns:
+            result[output_col] = 0.0
+            continue
+        grouped = (
+            source[source["stimulus_category"].eq(category)]
+            .groupby(["Athlete", "week_start"], as_index=False)[value_col]
+            .sum(min_count=1)
+            .rename(columns={value_col: output_col})
+        )
+        result = result.merge(grouped, on=["Athlete", "week_start"], how="left")
+        result[output_col] = pd.to_numeric(result[output_col], errors="coerce").fillna(0.0)
+
+    return result[WEEKLY_EXTERNAL_COLUMNS].sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+
+def _build_weekly_team_summary(
+    weekly_load: pd.DataFrame,
+    weekly_wellness: pd.DataFrame,
+) -> pd.DataFrame:
+    if weekly_load.empty and weekly_wellness.empty:
+        return _empty_weekly_frame(WEEKLY_TEAM_COLUMNS)
+
+    load_team = _empty_weekly_frame(
+        [
+            "week_start",
+            "team_sRPE_mean",
+            "team_sRPE_sum",
+            "athletes_active",
+            "team_monotony_mean",
+            "team_strain_mean",
+        ]
+    )
+    if not weekly_load.empty:
+        load_team = (
+            weekly_load.groupby("week_start", as_index=False)
+            .agg(
+                team_sRPE_mean=("weekly_sRPE", "mean"),
+                team_sRPE_sum=("weekly_sRPE", "sum"),
+                athletes_active=("sessions_count", lambda s: int(pd.Series(s).gt(0).sum())),
+                team_monotony_mean=("monotony", "mean"),
+                team_strain_mean=("strain", "mean"),
+            )
+        )
+
+    wellness_team = _empty_weekly_frame(["week_start", "team_wellness_mean", "completion_mean"])
+    if not weekly_wellness.empty:
+        wellness_team = (
+            weekly_wellness.groupby("week_start", as_index=False)
+            .agg(
+                team_wellness_mean=("Wellness_mean", "mean"),
+                completion_mean=("wellness_compliance", "mean"),
+            )
+        )
+
+    result = load_team.merge(wellness_team, on="week_start", how="outer")
+    for column in WEEKLY_TEAM_COLUMNS:
+        if column not in result.columns:
+            result[column] = np.nan
+    result["athletes_active"] = pd.to_numeric(result["athletes_active"], errors="coerce").fillna(0).astype(int)
+    return result[WEEKLY_TEAM_COLUMNS].sort_values("week_start").reset_index(drop=True)
+
+
+def build_weekly_summaries(
+    rpe_df: pd.DataFrame | None,
+    wellness_df: pd.DataFrame | None,
+    raw_df: pd.DataFrame | None,
+    *,
+    acwr_dict: dict[str, pd.DataFrame] | None = None,
+) -> dict[str, pd.DataFrame]:
+    weekly_load = _build_weekly_load_summary(rpe_df, acwr_dict=acwr_dict)
+    weekly_wellness = _build_weekly_wellness_summary(wellness_df, weekly_load)
+    weekly_external = _build_weekly_external_summary(raw_df)
+    weekly_team = _build_weekly_team_summary(weekly_load, weekly_wellness)
+    return {
+        "weekly_load": weekly_load,
+        "weekly_wellness": weekly_wellness,
+        "weekly_external": weekly_external,
+        "weekly_team": weekly_team,
+    }
 
 
 def build_dataset_summaries(

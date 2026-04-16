@@ -389,6 +389,289 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> g
     return fig
 
 
+def chart_weekly_load(weekly_load_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:
+    colors, layout, _, grid_soft, legend = _theme_parts(theme)
+    required_cols = {"week_start", "weekly_sRPE", "monotony"}
+    athlete_df = weekly_load_df.copy() if weekly_load_df is not None else pd.DataFrame()
+    if athlete_df.empty or not required_cols.issubset(athlete_df.columns):
+        fig = go.Figure()
+        fig.update_layout(
+            **layout,
+            height=360,
+            title=dict(text=f"<b>Carga interna semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+            annotations=[
+                dict(
+                    text="No hay datos semanales para este atleta.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
+    athlete_df = athlete_df.sort_values("week_start")
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=athlete_df["week_start"],
+            y=athlete_df["weekly_sRPE"],
+            name="sRPE semanal",
+            marker_color=colors["steel"],
+            hovertemplate="%{x|Sem %d/%m}<br>sRPE semanal: %{y:.0f} UA<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=athlete_df["week_start"],
+            y=athlete_df["monotony"],
+            name="Monotonia",
+            mode="lines+markers",
+            line=dict(color=colors["yellow"], width=2.5),
+            marker=dict(size=7),
+            yaxis="y2",
+            hovertemplate="%{x|Sem %d/%m}<br>Monotonia: %{y:.2f}<extra></extra>",
+        )
+    )
+    fig.add_hline(
+        y=theme["monotony_high"],
+        line_dash="dash",
+        line_color=colors["yellow"],
+        annotation_text="Foster 2.0",
+        annotation_font_color=colors["yellow"],
+    )
+    fig.update_layout(
+        **layout,
+        height=380,
+        title=dict(text=f"<b>Carga interna semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="Semana", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="sRPE semanal", gridcolor=grid_soft, zeroline=False),
+        yaxis2=dict(
+            title="Monotonia",
+            overlaying="y",
+            side="right",
+            showgrid=False,
+            color=colors["muted"],
+        ),
+        legend=legend,
+    )
+    return fig
+
+
+def chart_weekly_strain(weekly_load_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:
+    colors, layout, _, grid_soft, _ = _theme_parts(theme)
+    required_cols = {"week_start", "strain"}
+    athlete_df = weekly_load_df.copy() if weekly_load_df is not None else pd.DataFrame()
+    if athlete_df.empty or not required_cols.issubset(athlete_df.columns):
+        fig = go.Figure()
+        fig.update_layout(
+            **layout,
+            height=320,
+            title=dict(text=f"<b>Strain semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+            annotations=[
+                dict(
+                    text="No hay strain semanal disponible.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
+    athlete_df = athlete_df.sort_values("week_start")
+    strain_colors = [
+        colors["green"] if value < 2000 else colors["yellow"] if value <= 5000 else colors["red"]
+        for value in athlete_df["strain"].fillna(0)
+    ]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=athlete_df["week_start"],
+            y=athlete_df["strain"],
+            marker_color=strain_colors,
+            name="Strain",
+            hovertemplate="%{x|Sem %d/%m}<br>Strain: %{y:.0f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        **layout,
+        height=320,
+        title=dict(text=f"<b>Strain semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="Semana", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="Strain", gridcolor=grid_soft, zeroline=False),
+        showlegend=False,
+    )
+    return fig
+
+
+def chart_weekly_wellness(weekly_wellness_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:
+    colors, layout, _, grid_soft, legend = _theme_parts(theme)
+    required_cols = {"week_start", "Sueno_mean", "Estres_mean", "Dolor_mean"}
+    athlete_df = weekly_wellness_df.copy() if weekly_wellness_df is not None else pd.DataFrame()
+    if athlete_df.empty or not required_cols.issubset(athlete_df.columns):
+        fig = go.Figure()
+        fig.update_layout(
+            **layout,
+            height=340,
+            title=dict(text=f"<b>Wellness semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+            annotations=[
+                dict(
+                    text="Sin datos de wellness.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
+    athlete_df = athlete_df.sort_values("week_start")
+    fig = go.Figure()
+    for column, label, color in [
+        ("Sueno_mean", "Sueno medio", colors["blue"]),
+        ("Estres_mean", "Estres medio", colors["yellow"]),
+        ("Dolor_mean", "Dolor medio", colors["red"]),
+    ]:
+        fig.add_trace(
+            go.Scatter(
+                x=athlete_df["week_start"],
+                y=athlete_df[column],
+                name=label,
+                mode="lines+markers",
+                line=dict(color=color, width=2.5),
+                marker=dict(size=7),
+                hovertemplate=f"%{{x|Sem %d/%m}}<br>{label}: %{{y:.2f}}<extra></extra>",
+            )
+        )
+    fig.update_layout(
+        **layout,
+        height=340,
+        title=dict(text=f"<b>Wellness semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="Semana", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="Promedio semanal", gridcolor=grid_soft, zeroline=False),
+        legend=legend,
+    )
+    return fig
+
+
+def chart_weekly_external(weekly_external_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:
+    colors, layout, _, grid_soft, legend = _theme_parts(theme)
+    athlete_df = weekly_external_df.copy() if weekly_external_df is not None else pd.DataFrame()
+    required_cols = {"week_start"}
+    if athlete_df.empty or not required_cols.issubset(athlete_df.columns):
+        fig = go.Figure()
+        fig.update_layout(
+            **layout,
+            height=360,
+            title=dict(text=f"<b>Carga externa semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+            annotations=[
+                dict(
+                    text="No hay datos de carga externa semanal.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
+    athlete_df = athlete_df.sort_values("week_start")
+    category_config = [
+        ("strength_kg", "Strength kg", colors["navy"]),
+        ("plyo_contacts", "Plyo contacts", colors["steel"]),
+        ("landing_contacts", "Landing contacts", colors["orange"]),
+        ("iso_exposures", "Iso exposures", colors["green"]),
+        ("core_exposures", "Core exposures", colors["yellow"]),
+        ("mobility_exposures", "Mobility exposures", colors["gray"]),
+        ("olympic_exposures", "Olympic exposures", colors["blue"]),
+        ("sprint_exposures", "Sprint exposures", colors["red"]),
+    ]
+
+    active_config = [
+        (column, label, color)
+        for column, label, color in category_config
+        if column in athlete_df.columns and athlete_df[column].fillna(0).gt(0).any()
+    ]
+    if not active_config and not (
+        "sprint_distance_m" in athlete_df.columns and athlete_df["sprint_distance_m"].fillna(0).gt(0).any()
+    ):
+        fig = go.Figure()
+        fig.update_layout(
+            **layout,
+            height=360,
+            title=dict(text=f"<b>Carga externa semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+            annotations=[
+                dict(
+                    text="No hay categorias externas con datos para mostrar.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
+    fig = go.Figure()
+    for column, label, color in active_config:
+        fig.add_trace(
+            go.Bar(
+                x=athlete_df["week_start"],
+                y=athlete_df[column],
+                name=label,
+                marker_color=color,
+                hovertemplate=f"%{{x|Sem %d/%m}}<br>{label}: %{{y:.1f}}<extra></extra>",
+            )
+        )
+
+    if "sprint_distance_m" in athlete_df.columns and athlete_df["sprint_distance_m"].fillna(0).gt(0).any():
+        fig.add_trace(
+            go.Scatter(
+                x=athlete_df["week_start"],
+                y=athlete_df["sprint_distance_m"],
+                name="Sprint distance (m)",
+                mode="lines+markers",
+                line=dict(color=colors["muted"], width=2.5, dash="dash"),
+                marker=dict(size=7),
+                yaxis="y2",
+                hovertemplate="%{x|Sem %d/%m}<br>Distance: %{y:.1f} m<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        **layout,
+        barmode="stack",
+        height=380,
+        title=dict(text=f"<b>Carga externa semanal - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="Semana", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="Unidades operativas", gridcolor=grid_soft, zeroline=False),
+        yaxis2=dict(
+            title="Distancia sprint (m)",
+            overlaying="y",
+            side="right",
+            showgrid=False,
+            color=colors["muted"],
+        ),
+        legend=legend,
+    )
+    return fig
+
+
 def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, legend = _theme_parts(theme)
     data = maxes_df[maxes_df["Exercise Name"] == exercise].sort_values("Added Date")

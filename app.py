@@ -35,6 +35,10 @@ from charts.load_charts import (
     chart_completion as shared_chart_completion,
     chart_maxes_trend as shared_chart_maxes_trend,
     chart_monotony_strain as shared_chart_monotony_strain,
+    chart_weekly_external as shared_chart_weekly_external,
+    chart_weekly_load as shared_chart_weekly_load,
+    chart_weekly_strain as shared_chart_weekly_strain,
+    chart_weekly_wellness as shared_chart_weekly_wellness,
     chart_volume_by_tag as shared_chart_volume_by_tag,
     chart_wellness as shared_chart_wellness,
 )
@@ -42,6 +46,7 @@ from local_store import (
     DATASET_SPECS,
     RECENT_WEEKS,
     build_load_models,
+    build_weekly_summaries,
     build_dataset_summaries,
     collect_athlete_names,
     find_athlete_name_conflicts,
@@ -3188,6 +3193,10 @@ export_excel = shared_export_excel
 chart_acwr = _bind_chart(shared_chart_acwr)
 chart_monotony_strain = _bind_chart(shared_chart_monotony_strain)
 chart_wellness = _bind_chart(shared_chart_wellness)
+chart_weekly_load = _bind_chart(shared_chart_weekly_load)
+chart_weekly_strain = _bind_chart(shared_chart_weekly_strain)
+chart_weekly_wellness = _bind_chart(shared_chart_weekly_wellness)
+chart_weekly_external = _bind_chart(shared_chart_weekly_external)
 chart_volume_by_tag = _bind_chart(shared_chart_volume_by_tag)
 chart_maxes_trend = _bind_chart(shared_chart_maxes_trend)
 chart_radar = _bind_chart(shared_chart_radar)
@@ -3231,6 +3240,8 @@ def init_state():
         st.session_state.upload_feedback = []
     if "questionnaire_upload_source" not in st.session_state:
         st.session_state.questionnaire_upload_source = None
+    if "weekly_summaries" not in st.session_state:
+        st.session_state.weekly_summaries = {}
 
 
 init_state()
@@ -3439,6 +3450,12 @@ def rebuild_load_state():
     acwr_dict, mono_dict = build_load_models(st.session_state.rpe_df)
     st.session_state.acwr_dict = acwr_dict or None
     st.session_state.mono_dict = mono_dict or None
+    st.session_state.weekly_summaries = build_weekly_summaries(
+        st.session_state.rpe_df,
+        st.session_state.wellness_df,
+        st.session_state.raw_df,
+        acwr_dict=acwr_dict or {},
+    )
 
 
 def hydrate_local_store(force: bool = True):
@@ -4395,8 +4412,21 @@ with tab_load:
             if "Athlete" in rdf.columns else
             ["Sin atleta"]
         ) or ["Sin atleta"]
+        if not st.session_state.weekly_summaries:
+            st.session_state.weekly_summaries = build_weekly_summaries(
+                rdf,
+                wdf,
+                raw_df_state,
+                acwr_dict=st.session_state.acwr_dict or {},
+            )
+        weekly_summaries = st.session_state.weekly_summaries or {}
+        weekly_load = weekly_summaries.get("weekly_load", pd.DataFrame())
+        weekly_wellness = weekly_summaries.get("weekly_wellness", pd.DataFrame())
+        weekly_external = weekly_summaries.get("weekly_external", pd.DataFrame())
+        weekly_team = weekly_summaries.get("weekly_team", pd.DataFrame())
 
         with st.expander("Opciones de visualizacion", expanded=True):
+            vista = st.radio("Vista", ["Diaria", "Semanal"], horizontal=True, key="load_view_mode")
             athlete_sel = st.selectbox("Seleccionar atleta", athletes_load, key="sel_load")
 
         sub_rpe = rdf[rdf["Athlete"] == athlete_sel]
@@ -4405,8 +4435,108 @@ with tab_load:
         if mono_df is None:
             mono_df = pd.DataFrame(columns=["Semana", "Monotonia", "Strain", "Alerta"])
         acwr_label = "ACWR EWMA"
+        weekly_load_athlete = (
+            weekly_load[weekly_load["Athlete"] == athlete_sel].copy()
+            if not weekly_load.empty and "Athlete" in weekly_load.columns
+            else pd.DataFrame()
+        )
+        weekly_wellness_athlete = (
+            weekly_wellness[weekly_wellness["Athlete"] == athlete_sel].copy()
+            if not weekly_wellness.empty and "Athlete" in weekly_wellness.columns
+            else pd.DataFrame()
+        )
+        weekly_external_athlete = (
+            weekly_external[weekly_external["Athlete"] == athlete_sel].copy()
+            if not weekly_external.empty and "Athlete" in weekly_external.columns
+            else pd.DataFrame()
+        )
 
-        if acwr_df is None:
+        if vista == "Semanal":
+            if weekly_load_athlete.empty:
+                st.warning("Sin resumen semanal disponible para este atleta.")
+            else:
+                render_subsection_header(
+                    "Carga interna semanal",
+                    "srpe semanal con monotonia del microciclo",
+                    kicker="Semanal",
+                )
+                st.plotly_chart(
+                    chart_weekly_load(weekly_load_athlete, athlete_sel),
+                    use_container_width=False,
+                    key="weekly_load_main",
+                )
+
+                c_weekly_strain, c_weekly_well = st.columns(2)
+                with c_weekly_strain:
+                    render_subsection_header(
+                        "Strain semanal",
+                        "tension acumulada del microciclo",
+                        kicker="Semanal",
+                    )
+                    st.plotly_chart(
+                        chart_weekly_strain(weekly_load_athlete, athlete_sel),
+                        use_container_width=False,
+                        key="weekly_strain_main",
+                    )
+                with c_weekly_well:
+                    render_subsection_header(
+                        "Wellness semanal",
+                        "promedios semanales de sueno, estres y dolor",
+                        kicker="Semanal",
+                    )
+                    st.plotly_chart(
+                        chart_weekly_wellness(weekly_wellness_athlete, athlete_sel),
+                        use_container_width=False,
+                        key="weekly_wellness_main",
+                    )
+
+                has_weekly_external = (
+                    not weekly_external_athlete.empty
+                    and len(weekly_external_athlete.columns) > 2
+                    and weekly_external_athlete.drop(columns=["Athlete", "week_start"], errors="ignore").fillna(0).to_numpy().sum() > 0
+                )
+                if has_weekly_external:
+                    render_subsection_header(
+                        "Carga externa semanal",
+                        "agregado semanal por categoria operativa",
+                        kicker="Semanal",
+                    )
+                    st.plotly_chart(
+                        chart_weekly_external(weekly_external_athlete, athlete_sel),
+                        use_container_width=False,
+                        key="weekly_external_main",
+                    )
+
+                render_subsection_header(
+                    "Resumen semanal del equipo",
+                    "lectura grupal de carga y wellness por semana",
+                    kicker="Equipo",
+                )
+                if weekly_team.empty:
+                    st.caption("Todavia no hay resumen semanal del equipo para mostrar.")
+                else:
+                    team_display = weekly_team.copy().sort_values("week_start", ascending=False)
+                    if "week_start" in team_display.columns:
+                        team_display["Semana"] = pd.to_datetime(team_display["week_start"], errors="coerce").dt.strftime("%d/%m/%Y")
+                    rename_map = {
+                        "athletes_active": "Atletas activos",
+                        "team_sRPE_mean": "sRPE promedio",
+                        "team_monotony_mean": "Monotonia promedio",
+                        "team_strain_mean": "Strain promedio",
+                        "team_wellness_mean": "Wellness promedio",
+                    }
+                    display_cols = [
+                        "Semana",
+                        "Atletas activos",
+                        "sRPE promedio",
+                        "Monotonia promedio",
+                        "Strain promedio",
+                        "Wellness promedio",
+                    ]
+                    team_display = team_display.rename(columns=rename_map)
+                    available_cols = [column for column in display_cols if column in team_display.columns]
+                    st.dataframe(team_display[available_cols], use_container_width=True, hide_index=True)
+        elif acwr_df is None:
             st.warning("Sin datos de ACWR para este atleta.")
         else:
             # ── KPIs ──

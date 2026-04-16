@@ -985,7 +985,7 @@ def classify_exercise(tag: str, exercise_name: str) -> str:
 
 
 def _resolve_stimulus_metadata(tag, exercise_name) -> tuple[str, str, bool, bool]:
-    cleaned_tag = str(tag or "").strip()
+    cleaned_tag = "" if pd.isna(tag) else str(tag).strip()
     category = classify_exercise(cleaned_tag, exercise_name)
     is_invalid = category == "invalid"
     is_untagged = category == "untagged"
