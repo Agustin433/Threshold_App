@@ -4308,10 +4308,675 @@ with st.sidebar:
 # MAIN — Tabs
 # ════════════════════════════════════════════════════════════════════
 
+def render_decision_panel():
+    zone_palette = {
+        "Baja carga": ("rgba(74,159,212,0.14)", "#2D6D96"),
+        "Optima": ("rgba(79,201,126,0.16)", "#2F6C47"),
+        "Precaucion": ("rgba(232,200,74,0.18)", "#7A6213"),
+        "Alto riesgo": ("rgba(217,79,79,0.16)", "#8A2F2F"),
+        "Sin datos": ("rgba(112,140,159,0.12)", "#41515E"),
+    }
+    status_palette = {
+        "Regular": ("rgba(79,201,126,0.16)", "#2F6C47"),
+        "Bajo": ("rgba(232,200,74,0.18)", "#7A6213"),
+        "Sin registro": ("rgba(217,79,79,0.16)", "#8A2F2F"),
+        "Urgente": ("rgba(217,79,79,0.16)", "#8A2F2F"),
+        "Pendiente": ("rgba(232,200,74,0.18)", "#7A6213"),
+        "Al dia": ("rgba(79,201,126,0.16)", "#2F6C47"),
+    }
+    zone_order = {
+        "Alto riesgo": 3,
+        "Precaucion": 2,
+        "Optima": 1,
+        "Baja carga": 0,
+        "Sin datos": -1,
+    }
+    external_labels = {
+        "strength_kg": "Strength kg",
+        "plyo_contacts": "Plyo contacts",
+        "sprint_exposures": "Sprint exposures",
+        "iso_exposures": "ISO exposures",
+        "core_exposures": "Core exposures",
+        "olympic_exposures": "Olympic exposures",
+    }
+
+    def _normalize_weekly_frame(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty or "week_start" not in df.columns:
+            return pd.DataFrame() if df is None else df
+        result = df.copy()
+        result["week_start"] = pd.to_datetime(result["week_start"], errors="coerce").dt.normalize()
+        return result.dropna(subset=["week_start"])
+
+    def _week_slice(df: pd.DataFrame, week_start: pd.Timestamp | None) -> pd.DataFrame:
+        if week_start is None or df is None or df.empty or "week_start" not in df.columns:
+            return pd.DataFrame(columns=df.columns if df is not None else [])
+        result = _normalize_weekly_frame(df)
+        return result[result["week_start"] == pd.Timestamp(week_start).normalize()].copy()
+
+    def _zone_from_acwr(value: object) -> str:
+        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        if pd.isna(numeric):
+            return "Sin datos"
+        if numeric < 0.8:
+            return "Baja carga"
+        if numeric <= 1.3:
+            return "Optima"
+        if numeric <= 1.5:
+            return "Precaucion"
+        return "Alto riesgo"
+
+    def _zone_color(label: str) -> str:
+        return {
+            "Baja carga": "#4A9FD4",
+            "Optima": "#4FC97E",
+            "Precaucion": "#E8C84A",
+            "Alto riesgo": "#D94F4F",
+            "Sin datos": "#708C9F",
+        }.get(label, "#708C9F")
+
+    def _style_palette(series: pd.Series, palette: dict[str, tuple[str, str]]) -> list[str]:
+        styles: list[str] = []
+        for value in series:
+            bg, fg = palette.get(str(value), ("transparent", "inherit"))
+            styles.append(f"background-color: {bg}; color: {fg}; font-weight: 700;")
+        return styles
+
+    def _style_signed(series: pd.Series) -> list[str]:
+        styles: list[str] = []
+        for value in series:
+            text = str(value).strip()
+            if text.startswith("+") or text == "↑":
+                styles.append("color:#2F6C47; font-weight:700;")
+            elif text.startswith("-") or text == "↓":
+                styles.append("color:#8A2F2F; font-weight:700;")
+            else:
+                styles.append("color:#41515E; font-weight:700;")
+        return styles
+
+    def _format_week_range(week_start: pd.Timestamp) -> str:
+        week_end = pd.Timestamp(week_start) + pd.Timedelta(days=6)
+        return f"{week_start:%d/%m/%Y} - {week_end:%d/%m/%Y}"
+
+    def _render_bucket(title: str, rows: list[dict[str, object]], accent: str) -> None:
+        st.markdown(f"**{title}**")
+        if not rows:
+            st.caption("Sin atletas en esta categoria para la semana seleccionada.")
+            return
+
+        accent_palette = {
+            "red": ("rgba(217,79,79,0.10)", "#8A2F2F"),
+            "yellow": ("rgba(232,200,74,0.12)", "#7A6213"),
+            "green": ("rgba(79,201,126,0.12)", "#2F6C47"),
+        }
+        bg, border = accent_palette.get(accent, ("rgba(112,140,159,0.10)", "#41515E"))
+        for row in rows:
+            details_html = "".join(
+                f'<div style="font-size:0.88rem;color:#221F20;margin:0.12rem 0;">{html.escape(str(detail))}</div>'
+                for detail in row.get("details", [])
+            )
+            stale_html = (
+                '<div style="font-size:0.78rem;color:#5A5E63;margin-top:0.35rem;">'
+                "Evaluacion desactualizada (&gt; 30 dias).</div>"
+                if row.get("stale")
+                else ""
+            )
+            st.markdown(
+                (
+                    f'<div style="background:{bg};border:1px solid {border};border-radius:14px;'
+                    'padding:0.8rem 0.9rem;margin:0 0 0.7rem 0;">'
+                    f'<div style="font-weight:700;color:#221F20;">{html.escape(str(row.get("title", "")))}</div>'
+                    f"{details_html}{stale_html}</div>"
+                ),
+                unsafe_allow_html=True,
+            )
+
+    render_module_header(
+        "Panel de Decision",
+        "lectura grupal semanal para decisiones de carga, desarrollo y seguimiento",
+        kicker="Modulo",
+    )
+
+    if not st.session_state.weekly_summaries:
+        st.session_state.weekly_summaries = build_weekly_summaries(
+            st.session_state.rpe_df,
+            st.session_state.wellness_df,
+            st.session_state.raw_df,
+            acwr_dict=st.session_state.acwr_dict or {},
+        )
+
+    weekly_summaries = st.session_state.weekly_summaries or {}
+    weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
+    weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
+    weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))
+    weekly_team = _normalize_weekly_frame(weekly_summaries.get("weekly_team", pd.DataFrame()))
+    jump_df = st.session_state.jump_df
+    raw_df_state = st.session_state.raw_df
+    prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if raw_df_state is not None else pd.DataFrame()
+
+    week_candidates: list[pd.Timestamp] = []
+    for frame in [weekly_load, weekly_wellness, weekly_external, weekly_team]:
+        if frame is not None and not frame.empty and "week_start" in frame.columns:
+            week_candidates.extend(pd.to_datetime(frame["week_start"], errors="coerce").dropna().dt.normalize().tolist())
+    week_options = sorted(set(week_candidates), reverse=True)
+
+    selected_week = None
+    if week_options:
+        selected_week = st.selectbox(
+            "Semana",
+            week_options,
+            index=0,
+            format_func=lambda value: _format_week_range(pd.Timestamp(value)),
+            key="decision_week",
+        )
+    else:
+        st.info("No hay resumenes semanales disponibles todavia.")
+
+    selected_week = pd.Timestamp(selected_week).normalize() if selected_week is not None else None
+    previous_week = selected_week - pd.Timedelta(days=7) if selected_week is not None else None
+    reference_date = selected_week + pd.Timedelta(days=6) if selected_week is not None else pd.Timestamp.today().normalize()
+
+    current_load = _week_slice(weekly_load, selected_week)
+    previous_load = _week_slice(weekly_load, previous_week)
+    current_wellness = _week_slice(weekly_wellness, selected_week)
+    current_external = _week_slice(weekly_external, selected_week)
+
+    render_subsection_header("Riesgo de carga", "quien esta en zona de riesgo esta semana", kicker="Bloque 1")
+    if current_load.empty:
+        st.caption("Sin datos de sRPE para la semana seleccionada.")
+    else:
+        risk_df = current_load.merge(
+            previous_load[["Athlete", "weekly_sRPE"]].rename(columns={"weekly_sRPE": "weekly_sRPE_prev"}),
+            on="Athlete",
+            how="left",
+        )
+        risk_df["Zona"] = risk_df["ACWR_EWMA_last"].apply(_zone_from_acwr)
+        risk_df["delta_sRPE"] = risk_df["weekly_sRPE"] - risk_df["weekly_sRPE_prev"].fillna(0)
+        risk_df["delta_sRPE_text"] = risk_df["delta_sRPE"].map(lambda value: f"{value:+.0f}")
+        risk_df["zone_rank"] = risk_df["Zona"].map(zone_order).fillna(-1)
+        risk_df = risk_df.sort_values(["zone_rank", "ACWR_EWMA_last", "strain"], ascending=[False, False, False])
+        risk_display = pd.DataFrame(
+            {
+                "Atleta": risk_df["Athlete"],
+                "sRPE semana": risk_df["weekly_sRPE"].round(0).astype(int),
+                "ACWR EWMA": risk_df["ACWR_EWMA_last"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
+                "Monotonia": risk_df["monotony"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
+                "Strain": risk_df["strain"].map(lambda value: f"{value:.0f}" if pd.notna(value) else "-"),
+                "Zona": risk_df["Zona"],
+                "Delta sRPE": risk_df["delta_sRPE_text"],
+            }
+        )
+        risk_styler = (
+            risk_display.style
+            .apply(lambda series: _style_palette(series, zone_palette), subset=["Zona"])
+            .apply(_style_signed, subset=["Delta sRPE"])
+        )
+        st.dataframe(risk_styler, use_container_width=True, hide_index=True)
+
+    render_subsection_header("Variacion semanal", "como vienen vs semana anterior", kicker="Bloque 2")
+    if current_load.empty:
+        st.caption("Sin datos de sRPE para comparar contra la semana anterior.")
+    else:
+        variation_df = current_load.merge(
+            previous_load[["Athlete", "weekly_sRPE"]].rename(columns={"weekly_sRPE": "weekly_sRPE_prev"}),
+            on="Athlete",
+            how="left",
+        )
+        variation_df["weekly_sRPE_prev"] = variation_df["weekly_sRPE_prev"].fillna(0)
+        variation_df["delta_sRPE"] = variation_df["weekly_sRPE"] - variation_df["weekly_sRPE_prev"]
+        variation_df["Zona"] = variation_df["ACWR_EWMA_last"].apply(_zone_from_acwr)
+        variation_df = variation_df.sort_values("delta_sRPE", ascending=False)
+        fig_variation = go.Figure()
+        fig_variation.add_trace(
+            go.Bar(
+                y=variation_df["Athlete"],
+                x=variation_df["weekly_sRPE_prev"],
+                orientation="h",
+                name="Semana anterior",
+                marker_color="rgba(112,140,159,0.40)",
+            )
+        )
+        fig_variation.add_trace(
+            go.Bar(
+                y=variation_df["Athlete"],
+                x=variation_df["weekly_sRPE"],
+                orientation="h",
+                name="Semana actual",
+                marker_color=[_zone_color(zone) for zone in variation_df["Zona"]],
+            )
+        )
+        fig_variation.update_layout(
+            barmode="group",
+            height=max(320, 38 * len(variation_df)),
+            margin=dict(l=24, r=24, t=32, b=24),
+            xaxis_title="sRPE semanal",
+            yaxis_title="Atleta",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        )
+        st.plotly_chart(fig_variation, use_container_width=True, key="decision_variation")
+
+        risk_count = int(variation_df["Zona"].isin(["Precaucion", "Alto riesgo"]).sum())
+        avg_current = float(variation_df["weekly_sRPE"].mean()) if not variation_df.empty else 0.0
+        avg_delta = float(variation_df["delta_sRPE"].mean()) if not variation_df.empty else 0.0
+        c_var_1, c_var_2, c_var_3 = st.columns(3)
+        c_var_1.metric("Promedio sRPE equipo", f"{avg_current:.0f}")
+        c_var_2.metric("Delta promedio vs semana anterior", f"{avg_delta:+.0f}")
+        c_var_3.metric("Atletas en zona de riesgo", f"{risk_count}")
+
+    render_subsection_header("Perfiles de desarrollo", "quien necesita que tipo de trabajo", kicker="Bloque 3")
+    if jump_df is None or jump_df.empty:
+        st.caption("Sin evaluaciones cargadas.")
+    else:
+        source_jump = jump_df.copy()
+        source_jump["Date"] = pd.to_datetime(source_jump["Date"], errors="coerce").dt.normalize()
+        source_jump = source_jump.dropna(subset=["Athlete", "Date"]).sort_values(["Athlete", "Date"])
+        base_rows: list[dict[str, object]] = []
+        power_rows: list[dict[str, object]] = []
+        complete_rows: list[dict[str, object]] = []
+
+        for athlete in sorted(source_jump["Athlete"].dropna().unique()):
+            athlete_hist = source_jump[
+                (source_jump["Athlete"] == athlete)
+                & (source_jump["Date"] <= reference_date)
+            ].sort_values("Date")
+            if athlete_hist.empty:
+                continue
+            last_row = athlete_hist.iloc[-1]
+            last_date = pd.Timestamp(last_row["Date"]).normalize()
+            days_since = int((reference_date - last_date).days)
+            stale = days_since > 30
+            eur_value = pd.to_numeric(pd.Series([last_row.get("EUR")]), errors="coerce").iloc[0]
+            imtp_relpf = pd.to_numeric(pd.Series([last_row.get("IMTP_relPF")]), errors="coerce").iloc[0]
+            imtp_relpf_z = pd.to_numeric(pd.Series([last_row.get("IMTP_relPF_Z")]), errors="coerce").iloc[0]
+            sj_z = pd.to_numeric(pd.Series([last_row.get("SJ_Z")]), errors="coerce").iloc[0]
+            dj_rsi_z = pd.to_numeric(pd.Series([last_row.get("DJ_RSI_Z")]), errors="coerce").iloc[0]
+            delta_df = compute_swc_delta(athlete_hist, last_date)
+            signals = delta_df["Signal"].tolist() if not delta_df.empty and "Signal" in delta_df.columns else []
+            has_drop = any(signal == "caida relevante" for signal in signals)
+            signal_summary = (
+                "Caida relevante"
+                if has_drop
+                else "Mejora relevante"
+                if any(signal == "mejora relevante" for signal in signals)
+                else "Sin cambio relevante"
+                if any(signal == "sin cambio relevante" for signal in signals)
+                else "Sin dato anterior"
+            )
+            nm_profile = str(last_row.get("NM_Profile", "Sin datos"))
+            card_base = {"title": athlete, "stale": stale}
+            if (
+                nm_profile == "Base de Fuerza"
+                or (pd.notna(eur_value) and eur_value < 1.0)
+                or (pd.notna(imtp_relpf_z) and imtp_relpf_z < -0.5)
+            ):
+                base_rows.append(
+                    card_base | {
+                        "details": [
+                            f"EUR: {eur_value:.3f}" if pd.notna(eur_value) else "EUR: -",
+                            f"IMTP relPF: {imtp_relpf:.2f} N/kg" if pd.notna(imtp_relpf) else "IMTP relPF: -",
+                            f"Dias desde ultima evaluacion: {days_since}",
+                        ]
+                    }
+                )
+            elif (
+                nm_profile == "Mixto"
+                and pd.notna(sj_z)
+                and -0.5 <= sj_z <= 0.5
+                and pd.notna(dj_rsi_z)
+                and dj_rsi_z < 0
+            ):
+                sj_value = pd.to_numeric(pd.Series([last_row.get("SJ_cm")]), errors="coerce").iloc[0]
+                dj_value = pd.to_numeric(pd.Series([last_row.get("DJ_RSI")]), errors="coerce").iloc[0]
+                power_rows.append(
+                    card_base | {
+                        "details": [
+                            f"SJ: {sj_value:.1f} cm" if pd.notna(sj_value) else "SJ: -",
+                            f"DJ RSI: {dj_value:.2f} m/s" if pd.notna(dj_value) else "DJ RSI: -",
+                            f"Perfil NM: {nm_profile}",
+                        ]
+                    }
+                )
+            elif nm_profile == "Reactivo" and pd.notna(eur_value) and eur_value >= 1.10 and not has_drop:
+                complete_rows.append(
+                    card_base | {
+                        "details": [
+                            f"EUR: {eur_value:.3f}",
+                            f"Ultima senal SWC: {signal_summary}",
+                        ]
+                    }
+                )
+            else:
+                fallback_card = card_base | {
+                    "details": [
+                        f"Perfil NM: {nm_profile}",
+                        f"EUR: {eur_value:.3f}" if pd.notna(eur_value) else "EUR: -",
+                        f"Ultima senal SWC: {signal_summary}",
+                    ]
+                }
+                if nm_profile == "Base de Fuerza":
+                    base_rows.append(fallback_card)
+                elif nm_profile == "Mixto":
+                    power_rows.append(fallback_card)
+                elif nm_profile == "Reactivo":
+                    complete_rows.append(fallback_card)
+
+        col_dev_1, col_dev_2, col_dev_3 = st.columns(3)
+        with col_dev_1:
+            _render_bucket("Necesitan trabajo de fuerza base", base_rows, "red")
+        with col_dev_2:
+            _render_bucket("Necesitan desarrollo de potencia", power_rows, "yellow")
+        with col_dev_3:
+            _render_bucket("Perfil completo / mantencion", complete_rows, "green")
+
+    render_subsection_header("Distribucion de volumen", "quien tiene exceso o deficit por patron", kicker="Bloque 4")
+    if current_external.empty:
+        st.caption("Sin datos de carga externa para la semana seleccionada.")
+    else:
+        category_columns = [column for column in external_labels if column in current_external.columns]
+        heatmap_rows: list[dict[str, object]] = []
+        z_rows: list[dict[str, object]] = []
+        for athlete in sorted(current_external["Athlete"].dropna().unique()):
+            athlete_hist = weekly_external[weekly_external["Athlete"] == athlete].sort_values("week_start")
+            athlete_current = current_external[current_external["Athlete"] == athlete].iloc[-1]
+            display_row = {"Atleta": athlete}
+            z_row = {"Atleta": athlete}
+            for column in category_columns:
+                value = pd.to_numeric(pd.Series([athlete_current.get(column)]), errors="coerce").iloc[0]
+                history_values = pd.to_numeric(athlete_hist[column], errors="coerce").dropna()
+                if len(history_values) >= 3 and float(history_values.std(ddof=0)) > 0:
+                    z_value = float((value - float(history_values.mean())) / float(history_values.std(ddof=0)))
+                    display_row[external_labels[column]] = f"{z_value:+.1f} z"
+                    z_row[external_labels[column]] = z_value
+                else:
+                    display_row[external_labels[column]] = (
+                        f"{value:.0f} (sin z-score)" if pd.notna(value) else "- (sin z-score)"
+                    )
+                    z_row[external_labels[column]] = np.nan
+            heatmap_rows.append(display_row)
+            z_rows.append(z_row)
+
+        heatmap_df = pd.DataFrame(heatmap_rows)
+        zscore_df = pd.DataFrame(z_rows)
+        style_frame = pd.DataFrame("", index=heatmap_df.index, columns=heatmap_df.columns)
+        for idx in heatmap_df.index:
+            for label in [external_labels[column] for column in category_columns]:
+                z_value = pd.to_numeric(pd.Series([zscore_df.loc[idx, label]]), errors="coerce").iloc[0]
+                if pd.isna(z_value):
+                    style_frame.loc[idx, label] = "background-color: rgba(112,140,159,0.10); color:#41515E;"
+                elif z_value > 1.0:
+                    style_frame.loc[idx, label] = "background-color: rgba(79,201,126,0.26); color:#1D4F33; font-weight:700;"
+                elif z_value >= 0:
+                    style_frame.loc[idx, label] = "background-color: rgba(79,201,126,0.14); color:#2F6C47; font-weight:700;"
+                elif z_value >= -1.0:
+                    style_frame.loc[idx, label] = "background-color: rgba(232,200,74,0.18); color:#7A6213; font-weight:700;"
+                else:
+                    style_frame.loc[idx, label] = "background-color: rgba(217,79,79,0.18); color:#8A2F2F; font-weight:700;"
+        heatmap_styler = heatmap_df.style.apply(lambda _frame: style_frame, axis=None)
+        st.dataframe(heatmap_styler, use_container_width=True, hide_index=True)
+
+        for column in category_columns:
+            above_count = 0
+            below_count = 0
+            for athlete in sorted(current_external["Athlete"].dropna().unique()):
+                athlete_hist = weekly_external[weekly_external["Athlete"] == athlete].sort_values("week_start")
+                history_values = pd.to_numeric(athlete_hist[column], errors="coerce").dropna()
+                current_value = pd.to_numeric(
+                    pd.Series([current_external[current_external["Athlete"] == athlete].iloc[-1].get(column)]),
+                    errors="coerce",
+                ).iloc[0]
+                if len(history_values) < 3 or pd.isna(current_value):
+                    continue
+                history_mean = float(history_values.mean())
+                if current_value > history_mean:
+                    above_count += 1
+                elif current_value < history_mean:
+                    below_count += 1
+            st.caption(
+                f"{external_labels[column]}: {above_count} atleta(s) por encima de su media historica y {below_count} por debajo."
+            )
+
+    render_subsection_header("Asistencia", "quien falto vs semana anterior", kicker="Bloque 5")
+    if current_load.empty:
+        st.caption("Sin datos de sesiones para la semana seleccionada.")
+    else:
+        attendance_df = current_load.merge(
+            previous_load[["Athlete", "sessions_count"]].rename(columns={"sessions_count": "sessions_prev"}),
+            on="Athlete",
+            how="left",
+        )
+        attendance_df["sessions_prev"] = attendance_df["sessions_prev"].fillna(0).astype(int)
+        attendance_df["delta_sessions"] = attendance_df["sessions_count"].astype(int) - attendance_df["sessions_prev"].astype(int)
+        attendance_df["Estado"] = np.select(
+            [
+                attendance_df["sessions_count"] >= attendance_df["sessions_prev"],
+                (attendance_df["sessions_count"] < attendance_df["sessions_prev"]) & (attendance_df["sessions_count"] > 0),
+                attendance_df["sessions_count"] == 0,
+            ],
+            ["Regular", "Bajo", "Sin registro"],
+            default="Regular",
+        )
+        attendance_df = attendance_df.sort_values(["delta_sessions", "sessions_count"], ascending=[True, True])
+        attendance_display = pd.DataFrame(
+            {
+                "Atleta": attendance_df["Athlete"],
+                "Sesiones semana actual": attendance_df["sessions_count"].astype(int),
+                "Sesiones semana anterior": attendance_df["sessions_prev"].astype(int),
+                "Delta sesiones": attendance_df["delta_sessions"].map(lambda value: f"{int(value):+d}"),
+                "Estado": attendance_df["Estado"],
+            }
+        )
+        attendance_styler = (
+            attendance_display.style
+            .apply(lambda series: _style_palette(series, status_palette), subset=["Estado"])
+            .apply(_style_signed, subset=["Delta sesiones"])
+        )
+        st.dataframe(attendance_styler, use_container_width=True, hide_index=True)
+
+    render_subsection_header("Wellness + carga", "quien llega mal esta semana", kicker="Bloque 6")
+    if current_load.empty or current_wellness.empty:
+        st.caption("Sin datos suficientes de wellness y carga para la semana seleccionada.")
+    else:
+        scatter_df = current_load.merge(
+            current_wellness[["Athlete", "Wellness_mean", "wellness_compliance"]],
+            on="Athlete",
+            how="inner",
+        )
+        if scatter_df.empty:
+            st.caption("Sin coincidencias entre wellness y carga en la semana seleccionada.")
+        else:
+            scatter_df["Zona"] = scatter_df["ACWR_EWMA_last"].apply(_zone_from_acwr)
+            x_median = float(scatter_df["weekly_sRPE"].median())
+            y_median = float(scatter_df["Wellness_mean"].median())
+            fig_scatter = go.Figure()
+            fig_scatter.add_trace(
+                go.Scatter(
+                    x=scatter_df["weekly_sRPE"],
+                    y=scatter_df["Wellness_mean"],
+                    mode="markers+text",
+                    text=scatter_df["Athlete"],
+                    textposition="top center",
+                    marker=dict(
+                        size=scatter_df["sessions_count"].fillna(0).astype(float) * 6 + 10,
+                        color=[_zone_color(zone) for zone in scatter_df["Zona"]],
+                        line=dict(color="rgba(34,31,32,0.28)", width=1),
+                    ),
+                    hovertemplate=(
+                        "<b>%{text}</b><br>"
+                        "sRPE semana: %{x:.0f}<br>"
+                        "Wellness medio: %{y:.2f}<br>"
+                        "<extra></extra>"
+                    ),
+                )
+            )
+            fig_scatter.add_vline(x=x_median, line_dash="dash", line_color="rgba(112,140,159,0.55)")
+            fig_scatter.add_hline(y=y_median, line_dash="dash", line_color="rgba(112,140,159,0.55)")
+            x_min = float(scatter_df["weekly_sRPE"].min())
+            x_max = float(scatter_df["weekly_sRPE"].max())
+            y_min = float(scatter_df["Wellness_mean"].min())
+            y_max = float(scatter_df["Wellness_mean"].max())
+            fig_scatter.add_annotation(x=x_max, y=y_min, text="Zona de alerta", showarrow=False, font=dict(color="#8A2F2F"))
+            fig_scatter.add_annotation(x=x_max, y=y_max, text="Carga tolerada", showarrow=False, font=dict(color="#2F6C47"))
+            fig_scatter.add_annotation(x=x_min, y=y_min, text="Recuperacion", showarrow=False, font=dict(color="#7A6213"))
+            fig_scatter.add_annotation(x=x_min, y=y_max, text="Fresco", showarrow=False, font=dict(color="#2D6D96"))
+            fig_scatter.update_layout(
+                height=460,
+                margin=dict(l=24, r=24, t=32, b=24),
+                xaxis_title="sRPE semanal",
+                yaxis_title="Wellness medio",
+            )
+            st.plotly_chart(fig_scatter, use_container_width=True, key="decision_wellness_scatter")
+
+            ratio_df = scatter_df.copy()
+            ratio_df["wellness_load_ratio"] = np.where(
+                ratio_df["weekly_sRPE"].fillna(0).gt(0),
+                ratio_df["Wellness_mean"] / ratio_df["weekly_sRPE"],
+                np.nan,
+            )
+            ratio_df = ratio_df.sort_values("wellness_load_ratio", ascending=True).head(3)
+            ratio_display = pd.DataFrame(
+                {
+                    "Atleta": ratio_df["Athlete"],
+                    "sRPE semana": ratio_df["weekly_sRPE"].round(0).astype(int),
+                    "Wellness medio": ratio_df["Wellness_mean"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
+                    "Ratio wellness/carga": ratio_df["wellness_load_ratio"].map(lambda value: f"{value:.4f}" if pd.notna(value) else "-"),
+                }
+            )
+            st.dataframe(ratio_display, use_container_width=True, hide_index=True)
+
+    render_subsection_header("Ranking de aplicacion", "quien es el mas aplicado", kicker="Bloque 7")
+    if current_load.empty:
+        st.caption("Sin datos semanales suficientes para calcular el ranking.")
+    else:
+        raw_completion = pd.DataFrame(columns=["Athlete", "completion_pct"])
+        if prepared_raw_df is not None and not prepared_raw_df.empty:
+            prepared_week = prepared_raw_df.copy()
+            date_col = "Assigned Date" if "Assigned Date" in prepared_week.columns else "Date" if "Date" in prepared_week.columns else None
+            if date_col is not None:
+                prepared_week[date_col] = pd.to_datetime(prepared_week[date_col], errors="coerce").dt.normalize()
+                week_end = reference_date
+                if selected_week is not None:
+                    prepared_week = prepared_week[prepared_week[date_col].between(selected_week, week_end)]
+                if not prepared_week.empty and "Athlete" in prepared_week.columns:
+                    prepared_week = prepared_week.assign(
+                        _result_numeric=pd.to_numeric(prepared_week.get("Result"), errors="coerce")
+                    )
+                    raw_completion = (
+                        prepared_week.groupby("Athlete", as_index=False)
+                        .agg(
+                            total_rows=("Athlete", "size"),
+                            completed_rows=("_result_numeric", lambda s: int(pd.Series(s).gt(0).sum())),
+                        )
+                    )
+                    raw_completion["completion_pct"] = np.where(
+                        raw_completion["total_rows"].gt(0),
+                        raw_completion["completed_rows"] / raw_completion["total_rows"],
+                        np.nan,
+                    )
+
+        ranking_df = current_load[["Athlete", "sessions_count", "weekly_sRPE"]].copy()
+        ranking_df = ranking_df.merge(
+            previous_load[["Athlete", "weekly_sRPE"]].rename(columns={"weekly_sRPE": "weekly_sRPE_prev"}),
+            on="Athlete",
+            how="left",
+        )
+        ranking_df = ranking_df.merge(
+            current_wellness[["Athlete", "wellness_compliance"]],
+            on="Athlete",
+            how="left",
+        )
+        ranking_df = ranking_df.merge(
+            raw_completion[["Athlete", "completion_pct"]] if not raw_completion.empty else pd.DataFrame(columns=["Athlete", "completion_pct"]),
+            on="Athlete",
+            how="left",
+        )
+        max_sessions = max(int(ranking_df["sessions_count"].max()) if not ranking_df.empty else 0, 1)
+        ranking_df["wellness_compliance"] = ranking_df["wellness_compliance"].clip(lower=0, upper=1).fillna(0)
+        ranking_df["completion_pct"] = ranking_df["completion_pct"].clip(lower=0, upper=1).fillna(0)
+        ranking_df["delta_pct"] = np.where(
+            ranking_df["weekly_sRPE_prev"].fillna(0).gt(0),
+            ((ranking_df["weekly_sRPE"] - ranking_df["weekly_sRPE_prev"]) / ranking_df["weekly_sRPE_prev"]) * 100,
+            np.where(ranking_df["weekly_sRPE"].fillna(0).gt(0), 100.0, 0.0),
+        )
+        ranking_df["Score"] = (
+            (ranking_df["sessions_count"] / max_sessions) * 30
+            + ranking_df["wellness_compliance"] * 30
+            + ranking_df["completion_pct"] * 20
+            + np.where(ranking_df["delta_pct"] >= -20, 20.0, 0.0)
+        ).round(1)
+        ranking_df["Tendencia carga"] = np.select(
+            [ranking_df["delta_pct"] > 10, ranking_df["delta_pct"] < -10],
+            ["↑", "↓"],
+            default="→",
+        )
+        ranking_df = ranking_df.sort_values(["Score", "sessions_count"], ascending=[False, False]).reset_index(drop=True)
+        ranking_display = pd.DataFrame(
+            {
+                "Posicion": ranking_df.index + 1,
+                "Atleta": ranking_df["Athlete"],
+                "Score": ranking_df["Score"].map(lambda value: f"{value:.1f}"),
+                "Sessions": ranking_df["sessions_count"].astype(int),
+                "Wellness %": ranking_df["wellness_compliance"].map(lambda value: f"{value * 100:.0f}%"),
+                "Completion %": ranking_df["completion_pct"].map(lambda value: f"{value * 100:.0f}%"),
+                "Tendencia carga": ranking_df["Tendencia carga"],
+            }
+        )
+        ranking_styler = ranking_display.style.apply(_style_signed, subset=["Tendencia carga"])
+        st.dataframe(ranking_styler, use_container_width=True, hide_index=True)
+
+    render_subsection_header("Evaluaciones pendientes", "quien lleva mas de 30 dias sin test", kicker="Bloque 8")
+    athletes_registry = known_athlete_names()
+    if jump_df is None or jump_df.empty:
+        st.caption("Sin evaluaciones cargadas.")
+    else:
+        source_jump = jump_df.copy()
+        source_jump["Date"] = pd.to_datetime(source_jump["Date"], errors="coerce").dt.normalize()
+        pending_rows: list[dict[str, object]] = []
+        for athlete in athletes_registry:
+            athlete_hist = source_jump[
+                (source_jump["Athlete"] == athlete)
+                & (source_jump["Date"] <= reference_date)
+            ].sort_values("Date")
+            if athlete_hist.empty:
+                pending_rows.append(
+                    {
+                        "Atleta": athlete,
+                        "Ultima evaluacion": "Sin registro",
+                        "Dias sin test": "Sin registro",
+                        "Ultimo NM_Profile": "-",
+                        "Prioridad": "Urgente",
+                        "_sort": 9999,
+                    }
+                )
+                continue
+            last_row = athlete_hist.iloc[-1]
+            last_date = pd.Timestamp(last_row["Date"]).normalize()
+            days_without = int((reference_date - last_date).days)
+            if days_without > 60:
+                priority = "Urgente"
+            elif days_without >= 30:
+                priority = "Pendiente"
+            else:
+                priority = "Al dia"
+            pending_rows.append(
+                {
+                    "Atleta": athlete,
+                    "Ultima evaluacion": f"{last_date:%d/%m/%Y}",
+                    "Dias sin test": days_without,
+                    "Ultimo NM_Profile": str(last_row.get("NM_Profile", "-")),
+                    "Prioridad": priority,
+                    "_sort": days_without,
+                }
+            )
+        pending_df = pd.DataFrame(pending_rows).sort_values("_sort", ascending=False)
+        pending_display = pending_df[["Atleta", "Ultima evaluacion", "Dias sin test", "Ultimo NM_Profile", "Prioridad"]]
+        pending_styler = pending_display.style.apply(lambda series: _style_palette(series, status_palette), subset=["Prioridad"])
+        st.dataframe(pending_styler, use_container_width=True, hide_index=True)
+
+
 render_brand_cover()
 
-tab_overview, tab_load, tab_eval, tab_profile, tab_team, tab_report = st.tabs([
+tab_overview, tab_decision, tab_load, tab_eval, tab_profile, tab_team, tab_report = st.tabs([
     "Overview",
+    "Panel de Decision",
     "Load Monitoring",
     "Evaluaciones",
     "Perfil Atleta",
@@ -4423,6 +5088,9 @@ with tab_overview:
 # ─────────────────────────────────────────────────────────────────────
 # TAB: LOAD MONITORING
 # ─────────────────────────────────────────────────────────────────────
+with tab_decision:
+    render_decision_panel()
+
 with tab_load:
     render_module_header("Monitoreo de Carga", "srpe · acwr · strain · monotonia", kicker="Modulo")
 
