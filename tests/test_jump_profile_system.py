@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from charts.dashboard_charts import chart_radar
+from charts.dashboard_charts import chart_jump_metric_trend, chart_radar, find_latest_valid_radar_row
 from modules.jump_analysis import (
     _prepare_jump_df,
     build_jump_delta_display_table,
@@ -239,6 +239,67 @@ class JumpProfileSystemTest(unittest.TestCase):
             axis_order,
             ["SJ", "CMJ", "DJ height", "DJ RSI", "TC inv", "IMTP relPF"],
         )
+
+    def test_metric_trend_chart_uses_chronological_eval_dates(self):
+        jump_df = _temporal_jump_df()
+
+        eur_figure = chart_jump_metric_trend(jump_df, "Atleta Delta", "EUR", theme=_chart_theme())
+        dj_rsi_figure = chart_jump_metric_trend(jump_df, "Atleta Delta", "DJ_RSI", theme=_chart_theme())
+
+        eur_dates = pd.to_datetime(list(eur_figure.data[0].x)).strftime("%Y-%m-%d").tolist()
+        dj_rsi_dates = pd.to_datetime(list(dj_rsi_figure.data[0].x)).strftime("%Y-%m-%d").tolist()
+
+        self.assertEqual(eur_figure.data[0].name, "EUR (ratio)")
+        self.assertEqual(dj_rsi_figure.data[0].name, "DJ RSI")
+        self.assertEqual(eur_dates, ["2026-04-01", "2026-04-08", "2026-04-15", "2026-04-22"])
+        self.assertEqual(dj_rsi_dates, ["2026-04-01", "2026-04-08", "2026-04-15", "2026-04-22"])
+
+    def test_radar_uses_latest_valid_row_when_last_calendar_row_has_no_renderable_axes(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Perfil",
+                        "Date": "2026-04-01",
+                        "CMJ_cm": 36,
+                        "SJ_cm": 31,
+                        "DJ_cm": 27,
+                        "DJ_tc_ms": 210,
+                        "IMTP_N": 3000,
+                        "BW_kg": 78,
+                    },
+                    {
+                        "Athlete": "Atleta Perfil",
+                        "Date": "2026-04-10",
+                        "BW_kg": 79,
+                    },
+                ]
+            )
+        )
+
+        latest_valid = find_latest_valid_radar_row(jump_df[jump_df["Athlete"] == "Atleta Perfil"])
+
+        self.assertIsNotNone(latest_valid)
+        self.assertEqual(pd.Timestamp(latest_valid["Date"]).strftime("%Y-%m-%d"), "2026-04-01")
+
+    def test_radar_filters_missing_axes_and_still_renders_partial_profile(self):
+        partial_row = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Parcial",
+                        "Date": "2026-04-10",
+                        "CMJ_cm": 35.0,
+                        "SJ_cm": 34.0,
+                    }
+                ]
+            )
+        ).iloc[0]
+
+        figure = chart_radar(partial_row, "Atleta Parcial", None, theme=_chart_theme())
+
+        self.assertTrue(len(figure.data) >= 2)
+        self.assertEqual(list(figure.data[-1].theta), ["CMJ", "CMJ"])
 
     def test_dsi_requires_propulsive_force_without_peak_force_fallback(self):
         jump_df = _prepare_jump_df(

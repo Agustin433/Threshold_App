@@ -8,6 +8,31 @@ import plotly.graph_objects as go
 from modules.jump_analysis import _prepare_jump_df, _available_radar_axes, choose_secondary_quadrant_x_spec
 
 
+JUMP_HISTORY_METRIC_CONFIG: dict[str, dict[str, object]] = {
+    "EUR": {
+        "label": "EUR (ratio)",
+        "title": "Tendencia EUR",
+        "yaxis": "ratio",
+        "digits": 3,
+        "color": "yellow",
+    },
+    "DJ_RSI": {
+        "label": "DJ RSI",
+        "title": "Tendencia DJ RSI",
+        "yaxis": "m/s",
+        "digits": 3,
+        "color": "blue",
+    },
+    "DJ_cm": {
+        "label": "DJ",
+        "title": "Tendencia DJ",
+        "yaxis": "cm",
+        "digits": 1,
+        "color": "orange",
+    },
+}
+
+
 def _theme_parts(theme: dict) -> tuple[dict, dict, str, str, str, dict]:
     colors = theme["colors"]
     layout = theme["layout"]
@@ -33,27 +58,68 @@ def _prepare_row(row: pd.Series) -> pd.Series:
     return prepared.iloc[0]
 
 
+def _numeric_value(value: object) -> float | None:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
+
+def _resolve_radar_axes(row: pd.Series) -> tuple[pd.Series, list[tuple[str, str, str, str]], list[float], list[str]]:
+    prepared_row = _prepare_row(row)
+    axes, notes = _available_radar_axes(prepared_row)
+
+    valid_axes: list[tuple[str, str, str, str]] = []
+    values: list[float] = []
+    for axis in axes:
+        value = _numeric_value(prepared_row.get(axis[3]))
+        if value is None:
+            continue
+        valid_axes.append(axis)
+        values.append(value)
+
+    return prepared_row, valid_axes, values, notes
+
+
+def find_latest_valid_radar_row(jump_df: pd.DataFrame) -> pd.Series | None:
+    data = _prepare_frame(jump_df)
+    if data.empty:
+        return None
+
+    if "Date" in data.columns:
+        data = data.sort_values("Date", ascending=False)
+
+    for _, row in data.iterrows():
+        _, valid_axes, _, _ = _resolve_radar_axes(row)
+        if valid_axes:
+            return row
+
+    return None
+
+
 def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, *, theme: dict) -> go.Figure:
     colors, layout, grid, _, reference_line, legend = _theme_parts(theme)
-    row = _prepare_row(df_row)
-    axes, notes = _available_radar_axes(row)
+    row, axes, values, notes = _resolve_radar_axes(df_row)
     categories = [axis[0] for axis in axes]
     z_keys = [axis[3] for axis in axes]
-    values = [float(row.get(key, 0) or 0) for key in z_keys]
 
     if not categories:
         return go.Figure()
 
     categories_closed = categories + [categories[0]]
     values_closed = values + [values[0]]
+    polygon_fill = "toself" if len(categories) >= 3 else "none"
+    trace_mode = "lines+markers" if len(categories) < 3 else "lines"
 
     fig = go.Figure()
     fig.add_trace(
         go.Scatterpolar(
             r=[1.0] * len(categories_closed),
             theta=categories_closed,
+            mode=trace_mode,
             fill="none",
             line=dict(color=reference_line, dash="dot", width=1),
+            marker=dict(size=5, color=reference_line),
             name="z = 1",
             hoverinfo="skip",
         )
@@ -66,9 +132,11 @@ def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, 
             go.Scatterpolar(
                 r=team_closed,
                 theta=categories_closed,
-                fill="toself",
+                mode=trace_mode,
+                fill=polygon_fill,
                 fillcolor="rgba(112,140,159,0.10)",
                 line=dict(color=colors["gray"], width=1.5, dash="dash"),
+                marker=dict(size=5, color=colors["gray"]),
                 name="Media equipo",
                 hoverinfo="skip",
             )
@@ -78,9 +146,11 @@ def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, 
         go.Scatterpolar(
             r=values_closed,
             theta=categories_closed,
-            fill="toself",
+            mode=trace_mode,
+            fill=polygon_fill,
             fillcolor="rgba(13,60,94,0.16)",
             line=dict(color=colors["steel"], width=2.5),
+            marker=dict(size=7, color=colors["steel"]),
             name=athlete,
             hovertemplate="<b>%{theta}</b><br>Z: %{r:.2f}<extra></extra>",
         )
@@ -307,5 +377,63 @@ def chart_cmj_trend(jump_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.F
         title=dict(text=f"<b>Tendencia CMJ - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
         xaxis=dict(title="Fecha", gridcolor=grid_soft, zeroline=False),
         yaxis=dict(title="cm", gridcolor=grid_soft, zeroline=False),
+    )
+    return fig
+
+
+def chart_jump_metric_trend(
+    jump_df: pd.DataFrame,
+    athlete: str,
+    metric_key: str,
+    *,
+    theme: dict,
+) -> go.Figure:
+    colors, layout, _, grid_soft, _, _ = _theme_parts(theme)
+    config = JUMP_HISTORY_METRIC_CONFIG.get(metric_key)
+    if config is None:
+        return go.Figure()
+
+    data = _prepare_frame(jump_df)
+    required_cols = {"Athlete", "Date", metric_key}
+    if data.empty or not required_cols.issubset(data.columns):
+        return go.Figure()
+
+    data = data[data["Athlete"] == athlete][["Date", metric_key]].copy()
+    data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+    data[metric_key] = pd.to_numeric(data[metric_key], errors="coerce")
+    data = data.dropna(subset=["Date", metric_key]).sort_values("Date")
+    if data.empty:
+        return go.Figure()
+
+    digits = int(config["digits"])
+    unit = str(config["yaxis"])
+    value_suffix = f" {unit}" if unit else ""
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=data["Date"],
+            y=data[metric_key],
+            mode="lines+markers",
+            line=dict(color=colors[str(config["color"])], width=2.5),
+            marker=dict(
+                size=8,
+                color=colors[str(config["color"])],
+                line=dict(color=colors["card"], width=1),
+            ),
+            hovertemplate=(
+                "%{x|%d/%m/%Y}<br>"
+                f"{config['label']}: %{{y:.{digits}f}}{value_suffix}"
+                "<extra></extra>"
+            ),
+            name=str(config["label"]),
+        )
+    )
+    fig.update_layout(
+        **layout,
+        height=320,
+        title=dict(text=f"<b>{config['title']} - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="Fecha", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title=unit, gridcolor=grid_soft, zeroline=False),
     )
     return fig

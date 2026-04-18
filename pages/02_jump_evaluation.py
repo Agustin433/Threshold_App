@@ -7,7 +7,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-from charts.dashboard_charts import chart_cmj_trend, chart_radar
+from charts.dashboard_charts import chart_cmj_trend, chart_jump_metric_trend, chart_radar, find_latest_valid_radar_row
 from modules.jump_analysis import (
     build_jump_delta_display_table,
     build_jump_feedback_lines,
@@ -18,6 +18,16 @@ from modules.jump_analysis import (
 )
 from modules.page_state import ensure_page_state
 from modules.page_visuals import build_page_theme
+
+
+SELECTED_METRIC_CONFIG = [
+    ("CMJ", "CMJ_cm", "cm", ".1f"),
+    ("SJ", "SJ_cm", "cm", ".1f"),
+    ("DJ", "DJ_cm", "cm", ".1f"),
+    ("DJ RSI", "DJ_RSI", "m/s", ".2f"),
+    ("IMTP relPF", "IMTP_relPF", "N/kg", ".2f"),
+    ("EUR (ratio)", "EUR", "", ".3f"),
+]
 
 
 def _render_flag_chips(flags: list[dict[str, str]]) -> None:
@@ -88,6 +98,34 @@ def _render_temporal_delta_table(delta_df: pd.DataFrame) -> None:
     st.dataframe(styler, use_container_width=True, hide_index=True)
 
 
+def _format_eval_date(value: object) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    return parsed.strftime("%d/%m/%Y") if pd.notna(parsed) else "Sin fecha"
+
+
+def _render_history_chart(
+    athlete_hist: pd.DataFrame,
+    athlete: str,
+    label: str,
+    metric_key: str,
+    *,
+    theme: dict,
+) -> None:
+    valid_points = 0
+    if metric_key in athlete_hist.columns:
+        valid_points = int(pd.to_numeric(athlete_hist[metric_key], errors="coerce").notna().sum())
+
+    if valid_points < 2:
+        st.info(f"No hay suficientes puntos de {label} para mostrar tendencia.")
+        return
+
+    if metric_key == "CMJ_cm":
+        figure = chart_cmj_trend(athlete_hist, athlete, theme=theme)
+    else:
+        figure = chart_jump_metric_trend(athlete_hist, athlete, metric_key, theme=theme)
+    st.plotly_chart(figure, use_container_width=True)
+
+
 ensure_page_state(load_models=False)
 
 st.header("Evaluacion de Saltos")
@@ -116,20 +154,18 @@ else:
 
     selected_rows = athlete_hist[athlete_hist["Date"] == pd.Timestamp(selected_date)].sort_values("Date")
     selected_row = selected_rows.iloc[-1] if not selected_rows.empty else athlete_hist.iloc[-1]
+    latest_row = athlete_hist.iloc[-1]
+    latest_profile_row = find_latest_valid_radar_row(athlete_hist)
+    latest_date_text = _format_eval_date(latest_row.get("Date"))
+    latest_profile_date_text = _format_eval_date(latest_profile_row.get("Date")) if latest_profile_row is not None else "Sin fecha"
     delta_df = compute_swc_delta(athlete_hist, selected_date)
     temporal_lines = build_jump_temporal_context(delta_df)
-    feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
+    selected_feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
 
+    st.markdown("### Evaluacion seleccionada")
+    st.caption(f"Fecha elegida para el detalle puntual: {_format_eval_date(selected_date)}")
     metrics = st.columns(6)
-    metric_config = [
-        ("CMJ", "CMJ_cm", "cm", ".1f"),
-        ("SJ", "SJ_cm", "cm", ".1f"),
-        ("DJ", "DJ_cm", "cm", ".1f"),
-        ("DJ RSI", "DJ_RSI", "m/s", ".2f"),
-        ("IMTP relPF", "IMTP_relPF", "N/kg", ".2f"),
-        ("EUR (ratio)", "EUR", "", ".3f"),
-    ]
-    for column, (label, key, unit, fmt) in zip(metrics, metric_config):
+    for column, (label, key, unit, fmt) in zip(metrics, SELECTED_METRIC_CONFIG):
         value = selected_row.get(key)
         suffix = f" {unit}".rstrip()
         column.metric(label, f"{value:{fmt}}{suffix}" if pd.notna(value) else "-")
@@ -144,19 +180,7 @@ else:
             "Primera evaluacion registrada para este atleta. El threshold individual tipo Hopkins estara disponible a partir de la tercera medicion valida por variable."
         )
     _render_flag_chips(build_jump_flag_rows(selected_row))
-    _render_feedback(feedback_lines)
-
-    chart_left, chart_right = st.columns([1.05, 0.95])
-    with chart_left:
-        st.plotly_chart(chart_radar(selected_row, athlete, None, theme=theme), use_container_width=True)
-    with chart_right:
-        metric_table = build_jump_metric_table(selected_row)
-        st.markdown("### Lectura por variable")
-        st.dataframe(metric_table, use_container_width=True, hide_index=True)
-        if "CMJ_cm" in athlete_hist.columns and athlete_hist["CMJ_cm"].notna().sum() >= 2:
-            st.plotly_chart(chart_cmj_trend(jdf, athlete, theme=theme), use_container_width=True)
-        else:
-            st.info("No hay suficientes puntos de CMJ para mostrar tendencia.")
+    _render_feedback(selected_feedback_lines)
 
     st.markdown("### Detalle de la evaluacion seleccionada")
     detail_cols = [column for column in selected_rows.columns if not column.endswith("_reps")]
@@ -165,6 +189,47 @@ else:
         use_container_width=True,
         hide_index=True,
     )
+
+    st.markdown("### Perfilado actual")
+    if latest_profile_row is None:
+        st.info(
+            "No hay una evaluacion valida para el radar de este atleta. "
+            "Hace falta al menos una metrica con z-score utilizable para perfilado."
+        )
+    else:
+        if latest_profile_date_text != latest_date_text:
+            st.caption(
+                "La ultima fecha del atleta no tiene ejes suficientes para el radar. "
+                f"Se usa la ultima evaluacion valida para perfilado: {latest_profile_date_text}."
+            )
+        else:
+            st.caption(
+                "Este bloque siempre usa la ultima evaluacion valida del atleta, "
+                f"independientemente de la fecha seleccionada: {latest_profile_date_text}."
+            )
+        chart_left, chart_right = st.columns([1.05, 0.95])
+        with chart_left:
+            st.plotly_chart(chart_radar(latest_profile_row, athlete, None, theme=theme), use_container_width=True)
+        with chart_right:
+            metric_table = build_jump_metric_table(latest_profile_row)
+            st.markdown("### Lectura por variable actual")
+            st.dataframe(metric_table, use_container_width=True, hide_index=True)
+        _render_flag_chips(build_jump_flag_rows(latest_profile_row))
+        _render_feedback(build_jump_feedback_lines(latest_profile_row))
+
+    st.markdown("### Historial temporal")
+    st.caption("Estos graficos usan siempre la fecha de evaluacion como eje temporal y no dependen de la fecha seleccionada.")
+    history_top_left, history_top_right = st.columns(2)
+    with history_top_left:
+        _render_history_chart(athlete_hist, athlete, "CMJ", "CMJ_cm", theme=theme)
+    with history_top_right:
+        _render_history_chart(athlete_hist, athlete, "EUR (ratio)", "EUR", theme=theme)
+
+    history_bottom_left, history_bottom_right = st.columns(2)
+    with history_bottom_left:
+        _render_history_chart(athlete_hist, athlete, "DJ RSI", "DJ_RSI", theme=theme)
+    with history_bottom_right:
+        _render_history_chart(athlete_hist, athlete, "DJ", "DJ_cm", theme=theme)
 
     with st.expander("Historial completo del atleta", expanded=False):
         history_cols = [column for column in athlete_hist.columns if not column.endswith("_reps")]
