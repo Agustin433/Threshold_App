@@ -4,10 +4,41 @@ import pandas as pd
 import streamlit as st
 
 from charts.load_charts import chart_acwr, chart_monotony_strain, chart_volume_by_tag, chart_wellness
-from modules.data_loader import prepare_raw_workouts_df, summarize_raw_workouts_quality
-from modules.page_state import ensure_page_state
+from modules.data_loader import prepare_raw_workouts_df
+from modules.data_quality import compute_data_quality_report
+from modules.page_state import collect_state_athletes, ensure_page_state
 from modules.page_visuals import build_page_theme, render_insight_block
 from modules.report_generator import generate_module_insights
+
+
+def _render_quality_block(
+    dataset_summary: pd.DataFrame,
+    raw_category_breakdown: pd.DataFrame,
+    raw_classification_summary: dict[str, float],
+    athlete_summary: pd.DataFrame,
+    alerts: list[str],
+) -> None:
+    with st.expander("📋 Calidad de datos", expanded=False):
+        st.markdown("**Bloque A - Cobertura por dataset**")
+        st.dataframe(dataset_summary, use_container_width=True, hide_index=True)
+        if not raw_category_breakdown.empty:
+            classified_pct = raw_classification_summary.get("classified_pct", 0.0)
+            untagged_pct = raw_classification_summary.get("untagged_pct", 0.0)
+            st.caption(f"Raw workouts: {classified_pct:.1f}% clasificado · {untagged_pct:.1f}% untagged")
+            st.dataframe(raw_category_breakdown, use_container_width=True, hide_index=True)
+
+        st.markdown("**Bloque B - Cobertura por atleta**")
+        if athlete_summary.empty:
+            st.caption("Sin datos de RPE o Wellness para calcular cobertura por atleta.")
+        else:
+            st.dataframe(athlete_summary, use_container_width=True, hide_index=True)
+
+        st.markdown("**Bloque C - Alertas de calidad**")
+        if alerts:
+            for alert in alerts:
+                st.warning(alert)
+        else:
+            st.success("✅ Sin alertas de calidad activas.")
 
 
 ensure_page_state(load_models=True)
@@ -22,6 +53,22 @@ wdf = st.session_state.wellness_df
 raw_df = st.session_state.raw_df
 acwr_dict = st.session_state.acwr_dict or {}
 mono_dict = st.session_state.mono_dict or {}
+prepared_raw_df = prepare_raw_workouts_df(raw_df) if raw_df is not None else None
+quality_report = compute_data_quality_report(
+    rdf,
+    wdf,
+    st.session_state.completion_df,
+    prepared_raw_df,
+    st.session_state.maxes_df,
+    st.session_state.jump_df,
+    collect_state_athletes(dataset_keys=["rpe_df", "wellness_df", "completion_df", "raw_df", "maxes_df", "jump_df"]),
+    window_days=42,
+)
+dataset_summary = quality_report["dataset_summary"]
+raw_category_breakdown = quality_report.get("raw_category_breakdown", pd.DataFrame())
+raw_classification_summary = quality_report.get("raw_classification_summary", {})
+athlete_summary = quality_report["athlete_summary"]
+alerts = quality_report["alerts"]
 
 if rdf is None or not acwr_dict:
     st.info("Todavia no hay datos de carga procesados. Carga RPE + Tiempo desde la pantalla principal y luego volve a esta pagina.")
@@ -80,17 +127,10 @@ else:
             st.dataframe(athlete_wdf.sort_values("Date", ascending=False), use_container_width=True, hide_index=True)
 
     if raw_df is not None:
-        prepared_raw_df = prepare_raw_workouts_df(raw_df)
         athlete_col = "Athlete" if "Athlete" in prepared_raw_df.columns else "Name" if "Name" in prepared_raw_df.columns else None
         if athlete_col and athlete in prepared_raw_df[athlete_col].astype(str).values:
             st.markdown("### Carga externa por tipo de estimulo")
             st.plotly_chart(chart_volume_by_tag(prepared_raw_df, athlete, theme=theme), use_container_width=True)
-            with st.expander("Calidad de datos - Raw", expanded=False):
-                raw_quality = summarize_raw_workouts_quality(prepared_raw_df)
-                if raw_quality.empty:
-                    st.caption("Sin observaciones de calidad para el raw visible.")
-                else:
-                    st.dataframe(raw_quality, use_container_width=True, hide_index=True)
 
     with st.expander("Sesiones recientes", expanded=False):
         display_cols = [col for col in ["Date", "RPE", "Duration_min", "sRPE"] if col in sub_rpe.columns]
@@ -99,3 +139,11 @@ else:
             use_container_width=True,
             hide_index=True,
         )
+
+_render_quality_block(
+    dataset_summary,
+    raw_category_breakdown,
+    raw_classification_summary,
+    athlete_summary,
+    alerts,
+)

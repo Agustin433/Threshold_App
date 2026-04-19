@@ -213,6 +213,56 @@ class DataQualityReportTest(unittest.TestCase):
 
         self.assertTrue(any("RPE + Tiempo - hueco de 10 dias" in alert for alert in report["alerts"]))
 
+    def test_athlete_summary_keeps_rows_when_wellness_is_missing(self):
+        report = compute_data_quality_report(
+            rpe_df=pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-10", "sRPE": 320},
+                    {"Athlete": "Bruno Rey", "Date": "2026-04-09", "sRPE": 280},
+                ]
+            ),
+            wellness_df=None,
+            completion_df=None,
+            raw_df=None,
+            maxes_df=None,
+            jump_df=None,
+            athletes_list=["Ana Lopez", "Bruno Rey"],
+            window_days=10,
+            reference_date="2026-04-12",
+        )
+
+        athlete_summary = report["athlete_summary"].set_index("Atleta")
+        self.assertFalse(athlete_summary.empty)
+        self.assertEqual(int(athlete_summary.loc["Ana Lopez", "Dias con Wellness"]), 0)
+        self.assertEqual(float(athlete_summary.loc["Ana Lopez", "% cobertura Wellness"]), 0.0)
+        self.assertEqual(athlete_summary.loc["Ana Lopez", "Ultimo Wellness"], "-")
+        self.assertEqual(athlete_summary.loc["Ana Lopez", "Semaforo"], "🔴 Rojo")
+
+    def test_athlete_summary_keeps_rows_when_rpe_is_missing(self):
+        report = compute_data_quality_report(
+            rpe_df=None,
+            wellness_df=pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-10", "Wellness_Score": 18},
+                    {"Athlete": "Bruno Rey", "Date": "2026-04-09", "Wellness_Score": 15},
+                ]
+            ),
+            completion_df=None,
+            raw_df=None,
+            maxes_df=None,
+            jump_df=None,
+            athletes_list=["Ana Lopez", "Bruno Rey"],
+            window_days=10,
+            reference_date="2026-04-12",
+        )
+
+        athlete_summary = report["athlete_summary"].set_index("Atleta")
+        self.assertFalse(athlete_summary.empty)
+        self.assertEqual(int(athlete_summary.loc["Ana Lopez", "Dias con sRPE"]), 0)
+        self.assertEqual(float(athlete_summary.loc["Ana Lopez", "% cobertura sRPE"]), 0.0)
+        self.assertEqual(athlete_summary.loc["Ana Lopez", "Ultimo sRPE"], "-")
+        self.assertEqual(athlete_summary.loc["Ana Lopez", "Semaforo"], "🔴 Rojo")
+
 
 if __name__ == "__main__":
     unittest.main()

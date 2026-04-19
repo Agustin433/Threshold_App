@@ -15,6 +15,7 @@ DATASET_CONFIG = (
     ("maxes_df", "Maxes", ("Added Date", "Date")),
     ("jump_df", "Evaluaciones", ("Date",)),
 )
+# `rep_load_df` queda fuera del alcance oficial de P2 hasta cerrar P8.
 
 
 def _reference_timestamp(reference_date=None) -> pd.Timestamp:
@@ -57,6 +58,24 @@ def _window_bounds(reference_date=None, window_days: int = 42) -> tuple[pd.Times
     reference_ts = _reference_timestamp(reference_date)
     window_start = reference_ts - pd.Timedelta(days=max(window_days - 1, 0))
     return window_start, reference_ts
+
+
+def _resolved_athletes_list(
+    athletes_list: list[str] | None,
+    dataset_frames: dict[str, pd.DataFrame | None],
+) -> list[str]:
+    athletes = {
+        str(athlete).strip()
+        for athlete in (athletes_list or [])
+        if str(athlete).strip()
+    }
+    if athletes:
+        return sorted(athletes)
+
+    derived: set[str] = set()
+    for df in dataset_frames.values():
+        derived.update(_athlete_series(df).dropna().astype(str).str.strip().tolist())
+    return sorted(athlete for athlete in derived if athlete)
 
 
 def _max_gap_between_dates(dates: pd.Series) -> int:
@@ -255,53 +274,61 @@ def _build_athlete_summary(
         "Ultimo Wellness",
         "Semaforo",
     ]
-    if rpe_df is None or rpe_df.empty or wellness_df is None or wellness_df.empty:
+    has_rpe_source = rpe_df is not None and not rpe_df.empty
+    has_wellness_source = wellness_df is not None and not wellness_df.empty
+    if not has_rpe_source and not has_wellness_source:
         return pd.DataFrame(columns=columns)
 
     athletes = [athlete for athlete in (athletes_list or []) if athlete]
     if not athletes:
         return pd.DataFrame(columns=columns)
 
-    rpe_dates = _coerce_dates(rpe_df, ("Date",))
-    rpe_mask = rpe_dates.notna() & (rpe_dates >= window_start) & (rpe_dates <= reference_ts)
-    rpe_window = rpe_df.loc[rpe_mask].copy()
-    rpe_window_dates = rpe_dates.loc[rpe_mask]
-    rpe_window["_quality_date"] = rpe_window_dates.values
-    if "sRPE" in rpe_window.columns:
-        rpe_window["sRPE"] = pd.to_numeric(rpe_window["sRPE"], errors="coerce")
+    rpe_window = pd.DataFrame(columns=["_athlete", "_quality_date", "sRPE"])
+    rpe_full = pd.DataFrame(columns=["_athlete", "_quality_date", "sRPE"])
+    if has_rpe_source:
+        rpe_dates = _coerce_dates(rpe_df, ("Date",))
+        rpe_mask = rpe_dates.notna() & (rpe_dates >= window_start) & (rpe_dates <= reference_ts)
+        rpe_window = rpe_df.loc[rpe_mask].copy()
+        rpe_window["_quality_date"] = rpe_dates.loc[rpe_mask].values
+        rpe_window["_athlete"] = _athlete_series(rpe_window).values
+        if "sRPE" in rpe_window.columns:
+            rpe_window["sRPE"] = pd.to_numeric(rpe_window["sRPE"], errors="coerce")
+            rpe_window = rpe_window[rpe_window["sRPE"] > 0]
 
-    wellness_dates = _coerce_dates(wellness_df, ("Date",))
-    wellness_mask = wellness_dates.notna() & (wellness_dates >= window_start) & (wellness_dates <= reference_ts)
-    wellness_window = wellness_df.loc[wellness_mask].copy()
-    wellness_window["_quality_date"] = wellness_dates.loc[wellness_mask].values
+        rpe_full = rpe_df.copy()
+        rpe_full["_quality_date"] = _coerce_dates(rpe_df, ("Date",)).values
+        rpe_full["_athlete"] = _athlete_series(rpe_full).values
+        if "sRPE" in rpe_full.columns:
+            rpe_full["sRPE"] = pd.to_numeric(rpe_full["sRPE"], errors="coerce")
+            rpe_full = rpe_full[rpe_full["sRPE"] > 0]
 
-    rpe_full = rpe_df.copy()
-    rpe_full["_quality_date"] = _coerce_dates(rpe_df, ("Date",)).values
-    if "sRPE" in rpe_full.columns:
-        rpe_full["sRPE"] = pd.to_numeric(rpe_full["sRPE"], errors="coerce")
-    wellness_full = wellness_df.copy()
-    wellness_full["_quality_date"] = _coerce_dates(wellness_df, ("Date",)).values
+    wellness_window = pd.DataFrame(columns=["_athlete", "_quality_date"])
+    wellness_full = pd.DataFrame(columns=["_athlete", "_quality_date"])
+    if has_wellness_source:
+        wellness_dates = _coerce_dates(wellness_df, ("Date",))
+        wellness_mask = wellness_dates.notna() & (wellness_dates >= window_start) & (wellness_dates <= reference_ts)
+        wellness_window = wellness_df.loc[wellness_mask].copy()
+        wellness_window["_quality_date"] = wellness_dates.loc[wellness_mask].values
+        wellness_window["_athlete"] = _athlete_series(wellness_window).values
+
+        wellness_full = wellness_df.copy()
+        wellness_full["_quality_date"] = _coerce_dates(wellness_df, ("Date",)).values
+        wellness_full["_athlete"] = _athlete_series(wellness_full).values
 
     rows: list[dict[str, object]] = []
     for athlete in sorted(set(athletes)):
-        athlete_rpe = rpe_window[rpe_window.get("Athlete", pd.Series(index=rpe_window.index, dtype=object)) == athlete]
-        if "sRPE" in athlete_rpe.columns:
-            athlete_rpe = athlete_rpe[athlete_rpe["sRPE"] > 0]
-        athlete_wellness = wellness_window[
-            wellness_window.get("Athlete", pd.Series(index=wellness_window.index, dtype=object)) == athlete
-        ]
+        athlete_rpe = rpe_window[rpe_window["_athlete"] == athlete] if not rpe_window.empty else rpe_window
+        athlete_wellness = wellness_window[wellness_window["_athlete"] == athlete] if not wellness_window.empty else wellness_window
 
         srpe_days = int(athlete_rpe["_quality_date"].dropna().nunique())
         wellness_days = int(athlete_wellness["_quality_date"].dropna().nunique())
         srpe_pct = round((srpe_days / window_days) * 100, 1) if window_days > 0 else 0.0
         wellness_pct = round((wellness_days / srpe_days) * 100, 1) if srpe_days > 0 else 0.0
 
-        athlete_rpe_full = rpe_full[rpe_full.get("Athlete", pd.Series(index=rpe_full.index, dtype=object)) == athlete]
-        if "sRPE" in athlete_rpe_full.columns:
-            athlete_rpe_full = athlete_rpe_full[athlete_rpe_full["sRPE"] > 0]
-        athlete_wellness_full = wellness_full[
-            wellness_full.get("Athlete", pd.Series(index=wellness_full.index, dtype=object)) == athlete
-        ]
+        athlete_rpe_full = rpe_full[rpe_full["_athlete"] == athlete] if not rpe_full.empty else rpe_full
+        athlete_wellness_full = (
+            wellness_full[wellness_full["_athlete"] == athlete] if not wellness_full.empty else wellness_full
+        )
 
         if srpe_pct >= 80 and wellness_pct >= 70:
             traffic_light = "🟢 Verde"
@@ -432,6 +459,7 @@ def compute_data_quality_report(
         "maxes_df": maxes_df,
         "jump_df": jump_df,
     }
+    resolved_athletes = _resolved_athletes_list(athletes_list, dataset_frames)
 
     dataset_summary = _build_dataset_summary(dataset_frames, window_start, reference_ts)
     raw_category_breakdown, raw_classification_summary = _build_raw_category_breakdown(
@@ -442,12 +470,12 @@ def compute_data_quality_report(
     athlete_summary = _build_athlete_summary(
         rpe_df,
         wellness_df,
-        athletes_list,
+        resolved_athletes,
         window_start,
         reference_ts,
         window_days,
     )
-    alerts = _build_alerts(dataset_summary, athlete_summary, dataset_frames, athletes_list, window_start, reference_ts)
+    alerts = _build_alerts(dataset_summary, athlete_summary, dataset_frames, resolved_athletes, window_start, reference_ts)
 
     return {
         "dataset_summary": dataset_summary,
