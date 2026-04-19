@@ -8,16 +8,17 @@ import pandas as pd
 import streamlit as st
 
 from charts.dashboard_charts import (
+    chart_composite_profile_radar,
     chart_quadrant_cmj_imtp,
     chart_quadrant_dri_sj,
     chart_quadrant_exploratory,
-    chart_radar,
 )
 from charts.load_charts import chart_maxes_trend
 from modules.jump_analysis import (
+    build_composite_profile_metric_table,
+    build_composite_profile_snapshot,
     build_jump_feedback_lines,
     build_jump_flag_rows,
-    build_jump_metric_table,
 )
 from modules.page_state import collect_state_athletes, ensure_page_state
 from modules.page_visuals import build_page_theme
@@ -85,6 +86,12 @@ if not athletes:
     st.info("Todavia no hay datos de atletas cargados.")
 else:
     athlete = st.selectbox("Atleta", athletes)
+    athlete_hist = (
+        jdf[jdf["Athlete"] == athlete].sort_values("Date")
+        if jdf is not None and "Athlete" in jdf.columns and athlete in jdf["Athlete"].values
+        else pd.DataFrame()
+    )
+    current_profile_row, current_profile_sources = build_composite_profile_snapshot(athlete_hist)
     executive_df = build_executive_summary_df(dict(st.session_state), athlete)
 
     if not executive_df.empty:
@@ -99,25 +106,60 @@ else:
     if wdf is not None and athlete in wdf["Athlete"].values:
         w_last = wdf[wdf["Athlete"] == athlete].sort_values("Date").tail(3)
         metrics[1].metric("Wellness 3 dias", f"{w_last['Wellness_Score'].mean():.1f}" if not w_last.empty else "-")
-    if jdf is not None and athlete in jdf["Athlete"].values:
-        j_last = jdf[jdf["Athlete"] == athlete].sort_values("Date").tail(1)
-        metrics[2].metric("Ultimo CMJ", f"{j_last['CMJ_cm'].iloc[-1]:.1f} cm" if "CMJ_cm" in j_last.columns and not j_last.empty else "-")
-        metrics[3].metric("Perfil NM", j_last["NM_Profile"].iloc[-1] if "NM_Profile" in j_last.columns and not j_last.empty else "-")
+    if not athlete_hist.empty:
+        j_last = athlete_hist.tail(1)
+        metrics[2].metric(
+            "CMJ perfil actual",
+            f"{current_profile_row['CMJ_cm']:.1f} cm"
+            if current_profile_row is not None and pd.notna(current_profile_row.get("CMJ_cm"))
+            else f"{j_last['CMJ_cm'].iloc[-1]:.1f} cm"
+            if "CMJ_cm" in j_last.columns and not j_last.empty and pd.notna(j_last["CMJ_cm"].iloc[-1])
+            else "-",
+        )
+        metrics[3].metric(
+            "Perfil NM actual",
+            current_profile_row["NM_Profile"]
+            if current_profile_row is not None and pd.notna(current_profile_row.get("NM_Profile"))
+            else j_last["NM_Profile"].iloc[-1]
+            if "NM_Profile" in j_last.columns and not j_last.empty
+            else "-",
+        )
 
-    if jdf is not None and athlete in jdf["Athlete"].values:
+    if not athlete_hist.empty:
         latest_team = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
-        latest_row = jdf[jdf["Athlete"] == athlete].sort_values("Date").iloc[-1]
 
-        st.markdown("### Perfil neuromuscular")
-        _render_flag_chips(build_jump_flag_rows(latest_row))
-        _render_feedback(build_jump_feedback_lines(latest_row))
+        st.markdown("### Perfil actual compuesto")
+        if current_profile_row is None:
+            st.info(
+                "No hay metricas suficientes para construir el perfil actual compuesto de este atleta."
+            )
+        else:
+            st.caption(
+                "Este bloque no depende de una unica evaluacion por fecha. "
+                "Usa el ultimo dato valido disponible por variable para construir un perfil compuesto."
+            )
+            _render_flag_chips(build_jump_flag_rows(current_profile_row))
+            _render_feedback(build_jump_feedback_lines(current_profile_row))
 
-        radar_col, table_col = st.columns([1.1, 0.9])
-        with radar_col:
-            st.plotly_chart(chart_radar(latest_row, athlete, None, theme=theme), use_container_width=True)
-        with table_col:
-            st.markdown("### Lectura por variable")
-            st.dataframe(build_jump_metric_table(latest_row), use_container_width=True, hide_index=True)
+            radar_col, table_col = st.columns([1.1, 0.9])
+            with radar_col:
+                st.plotly_chart(
+                    chart_composite_profile_radar(current_profile_row, athlete, theme=theme),
+                    use_container_width=True,
+                )
+            with table_col:
+                st.markdown("### Lectura por variable actual")
+                st.dataframe(
+                    build_composite_profile_metric_table(current_profile_row),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            with st.expander("Origen por variable", expanded=False):
+                st.dataframe(
+                    current_profile_sources,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         if len(latest_team) > 1:
             st.markdown("### Cuadrantes")
