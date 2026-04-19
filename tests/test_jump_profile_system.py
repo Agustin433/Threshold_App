@@ -4,9 +4,16 @@ import unittest
 
 import pandas as pd
 
-from charts.dashboard_charts import chart_jump_metric_trend, chart_radar, find_latest_valid_radar_row
+from charts.dashboard_charts import (
+    chart_composite_profile_radar,
+    chart_jump_metric_trend,
+    chart_radar,
+    find_latest_valid_radar_row,
+)
 from modules.jump_analysis import (
     _prepare_jump_df,
+    build_composite_profile_metric_table,
+    build_composite_profile_snapshot,
     build_jump_delta_display_table,
     build_jump_feedback_lines,
     build_jump_flag_rows,
@@ -152,6 +159,49 @@ def _temporal_jump_df() -> pd.DataFrame:
     )
 
 
+def _composite_profile_source_df() -> pd.DataFrame:
+    return _prepare_jump_df(
+        pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta Compuesto",
+                    "Date": "2026-04-01",
+                    "CMJ_cm": 34,
+                    "SJ_cm": 30,
+                    "DJ_cm": 26,
+                    "DJ_tc_ms": 220,
+                    "IMTP_N": 3000,
+                    "BW_kg": 80,
+                },
+                {
+                    "Athlete": "Atleta Compuesto",
+                    "Date": "2026-04-08",
+                    "CMJ_cm": 36,
+                    "SJ_cm": 31,
+                    "DJ_cm": 27,
+                    "DJ_tc_ms": 210,
+                    "BW_kg": 80,
+                },
+                {
+                    "Athlete": "Atleta Compuesto",
+                    "Date": "2026-04-15",
+                    "CMJ_cm": 35,
+                    "SJ_cm": 32,
+                    "BW_kg": 80,
+                },
+                {
+                    "Athlete": "Atleta Compuesto",
+                    "Date": "2026-04-22",
+                    "DJ_cm": 28,
+                    "DJ_tc_ms": 200,
+                    "IMTP_N": 3100,
+                    "BW_kg": 80,
+                },
+            ]
+        )
+    )
+
+
 class JumpProfileSystemTest(unittest.TestCase):
     def test_prepare_jump_df_computes_new_profile_metrics(self):
         jump_df = _sample_jump_df()
@@ -239,6 +289,98 @@ class JumpProfileSystemTest(unittest.TestCase):
             axis_order,
             ["SJ", "CMJ", "DJ height", "DJ RSI", "TC inv", "IMTP relPF"],
         )
+
+    def test_composite_profile_snapshot_uses_latest_valid_value_per_metric(self):
+        jump_df = _composite_profile_source_df()
+
+        composite_row, source_table = build_composite_profile_snapshot(jump_df)
+
+        self.assertIsNotNone(composite_row)
+        self.assertAlmostEqual(float(composite_row["SJ_cm"]), 32.0, places=3)
+        self.assertAlmostEqual(float(composite_row["CMJ_cm"]), 35.0, places=3)
+        self.assertAlmostEqual(float(composite_row["DJ_cm"]), 28.0, places=3)
+        self.assertAlmostEqual(float(composite_row["DRI"]), 1.4, places=3)
+        self.assertAlmostEqual(float(composite_row["DJ_tc_ms"]), 200.0, places=3)
+        self.assertAlmostEqual(float(composite_row["EUR"]), 1.094, places=3)
+        self.assertAlmostEqual(float(composite_row["IMTP_relPF"]), 38.75, places=3)
+
+        source_dates = dict(zip(source_table["Variable"], source_table["Fecha origen"]))
+        self.assertEqual(source_dates["SJ"], "15/04/2026")
+        self.assertEqual(source_dates["CMJ"], "15/04/2026")
+        self.assertEqual(source_dates["DJ"], "22/04/2026")
+        self.assertEqual(source_dates["DRI"], "22/04/2026")
+        self.assertEqual(source_dates["TC"], "22/04/2026")
+        self.assertEqual(source_dates["EUR"], "15/04/2026")
+        self.assertEqual(source_dates["IMTP"], "22/04/2026")
+
+    def test_composite_profile_chart_uses_requested_axis_order(self):
+        jump_df = _composite_profile_source_df()
+        composite_row, _ = build_composite_profile_snapshot(jump_df)
+
+        figure = chart_composite_profile_radar(composite_row, "Atleta Compuesto", theme=_chart_theme())
+        axis_order = list(figure.data[-1].theta)[:-1]
+
+        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
+
+        metric_table = build_composite_profile_metric_table(composite_row)
+        self.assertEqual(
+            metric_table["Variable"].tolist(),
+            ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"],
+        )
+        self.assertEqual(
+            metric_table.columns.tolist(),
+            ["Variable", "Valor", "Z-score", "Origen / referencia"],
+        )
+        self.assertEqual(
+            metric_table.loc[metric_table["Variable"] == "SJ", "Origen / referencia"].iloc[0],
+            "15/04/2026",
+        )
+
+    def test_composite_profile_chart_renders_without_imtp(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-01", "CMJ_cm": 34, "SJ_cm": 30, "DJ_cm": 26, "DJ_tc_ms": 220},
+                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-08", "CMJ_cm": 35, "SJ_cm": 31, "DJ_cm": 27, "DJ_tc_ms": 210},
+                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-15", "CMJ_cm": 36, "SJ_cm": 32, "DJ_cm": 28, "DJ_tc_ms": 205},
+                ]
+            )
+        )
+        composite_row, _ = build_composite_profile_snapshot(jump_df)
+
+        figure = chart_composite_profile_radar(composite_row, "Atleta Sin IMTP", theme=_chart_theme())
+        axis_order = list(figure.data[-1].theta)[:-1]
+        radial_values = list(figure.data[-1].r)[:-1]
+        radar_center = figure.layout.polar.radialaxis.range[0]
+
+        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
+        self.assertEqual(radial_values[-1], radar_center)
+
+    def test_composite_profile_chart_keeps_missing_internal_axis_fixed_at_center(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {"Athlete": "Atleta Parcial", "Date": "2026-04-01", "SJ_cm": 30, "DJ_cm": 24, "DJ_tc_ms": 220, "IMTP_N": 2800, "BW_kg": 78},
+                    {"Athlete": "Atleta Parcial", "Date": "2026-04-08", "SJ_cm": 31, "DJ_cm": 25, "DJ_tc_ms": 210, "IMTP_N": 2850, "BW_kg": 78},
+                    {"Athlete": "Atleta Parcial", "Date": "2026-04-15", "SJ_cm": 32, "DJ_cm": 26, "DJ_tc_ms": 205, "IMTP_N": 2900, "BW_kg": 78},
+                ]
+            )
+        )
+        composite_row, _ = build_composite_profile_snapshot(jump_df)
+
+        figure = chart_composite_profile_radar(composite_row, "Atleta Parcial", theme=_chart_theme())
+        axis_order = list(figure.data[-1].theta)[:-1]
+        radial_values = list(figure.data[-1].r)[:-1]
+        radar_center = figure.layout.polar.radialaxis.range[0]
+
+        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
+        self.assertEqual(radial_values[1], radar_center)
+
+        metric_table = build_composite_profile_metric_table(composite_row)
+        cmj_row = metric_table[metric_table["Variable"] == "CMJ"].iloc[0]
+        self.assertEqual(cmj_row["Valor"], "-")
+        self.assertEqual(cmj_row["Z-score"], "-")
+        self.assertEqual(cmj_row["Origen / referencia"], "-")
 
     def test_metric_trend_chart_uses_chronological_eval_dates(self):
         jump_df = _temporal_jump_df()

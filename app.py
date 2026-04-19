@@ -24,6 +24,7 @@ from io import BytesIO
 from pathlib import Path
 import warnings
 from charts.dashboard_charts import (
+    chart_composite_profile_radar as shared_chart_composite_profile_radar,
     chart_cmj_trend as shared_chart_cmj_trend,
     chart_jump_metric_trend as shared_chart_jump_metric_trend,
     chart_quadrant_cmj_imtp as shared_chart_quadrant_cmj_imtp,
@@ -82,6 +83,8 @@ from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import (
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
+    build_composite_profile_metric_table as shared_build_composite_profile_metric_table,
+    build_composite_profile_snapshot as shared_build_composite_profile_snapshot,
     build_jump_delta_display_table as shared_build_jump_delta_display_table,
     build_jump_feedback_lines as shared_build_jump_feedback_lines,
     build_jump_flag_rows as shared_build_jump_flag_rows,
@@ -3185,6 +3188,8 @@ calc_zscores = shared_calc_zscores
 calc_nm_profile = shared_calc_nm_profile
 _prepare_jump_df = shared_prepare_jump_df
 _records_to_jump_df = shared_records_to_jump_df
+build_composite_profile_metric_table = shared_build_composite_profile_metric_table
+build_composite_profile_snapshot = shared_build_composite_profile_snapshot
 build_jump_feedback_lines = shared_build_jump_feedback_lines
 build_jump_flag_rows = shared_build_jump_flag_rows
 build_jump_metric_table = shared_build_jump_metric_table
@@ -3194,6 +3199,7 @@ compute_swc_delta = shared_compute_swc_delta
 export_excel = shared_export_excel
 
 chart_acwr = _bind_chart(shared_chart_acwr)
+chart_composite_profile_radar = _bind_chart(shared_chart_composite_profile_radar)
 chart_monotony_strain = _bind_chart(shared_chart_monotony_strain)
 chart_wellness = _bind_chart(shared_chart_wellness)
 chart_weekly_load = _bind_chart(shared_chart_weekly_load)
@@ -3251,6 +3257,10 @@ def init_state():
         st.session_state.sidebar_upload_expanded = False
     if "eval_file_nonce" not in st.session_state:
         st.session_state.eval_file_nonce = 0
+    if "processed_file_hashes" not in st.session_state:
+        st.session_state.processed_file_hashes = set()
+    if "upload_file_hashes" not in st.session_state:
+        st.session_state.upload_file_hashes = {}
 
 
 init_state()
@@ -3361,7 +3371,67 @@ def _flush_notices() -> None:
     st.session_state.upload_feedback = []
 
 
-def _run_dataset_job(label: str, state_key: str, filename: str, loader) -> bool:
+def _uploaded_file_hash(uploaded_file) -> str | None:
+    if uploaded_file is None:
+        return None
+    if hasattr(uploaded_file, "getvalue"):
+        payload = uploaded_file.getvalue()
+    else:
+        current_pos = uploaded_file.tell() if hasattr(uploaded_file, "tell") else None
+        payload = uploaded_file.read()
+        if hasattr(uploaded_file, "seek"):
+            uploaded_file.seek(0 if current_pos is None else current_pos)
+    if not payload:
+        return None
+    return hashlib.md5(payload).hexdigest()
+
+
+def _sync_processed_upload_state(uploaded_files: dict[str, object]) -> None:
+    current_hashes = {
+        slot: file_hash
+        for slot, uploaded_file in uploaded_files.items()
+        if (file_hash := _uploaded_file_hash(uploaded_file))
+    }
+    previous_hashes = st.session_state.get("upload_file_hashes", {}) or {}
+    processed_hashes = set(st.session_state.get("processed_file_hashes", set()) or set())
+
+    for slot, old_hash in previous_hashes.items():
+        if current_hashes.get(slot) != old_hash:
+            processed_hashes.discard(old_hash)
+
+    st.session_state.processed_file_hashes = processed_hashes
+    st.session_state.upload_file_hashes = current_hashes
+
+
+def _processed_file_status(source_file) -> tuple[bool, str | None]:
+    file_hash = _uploaded_file_hash(source_file)
+    if not file_hash:
+        return False, None
+    processed_hashes = set(st.session_state.get("processed_file_hashes", set()) or set())
+    return file_hash in processed_hashes, file_hash
+
+
+def _mark_file_as_processed(file_hash: str | None) -> None:
+    if not file_hash:
+        return
+    processed_hashes = set(st.session_state.get("processed_file_hashes", set()) or set())
+    processed_hashes.add(file_hash)
+    st.session_state.processed_file_hashes = processed_hashes
+
+
+def _format_week_label(week_start: object, *, is_current_week: bool = False, today: pd.Timestamp | None = None) -> str:
+    week_start_ts = pd.Timestamp(week_start).normalize()
+    today_ts = pd.Timestamp.today().normalize() if today is None else pd.Timestamp(today).normalize()
+    if is_current_week:
+        return f"{week_start_ts:%d/%m} - {today_ts:%d/%m} (en curso)"
+    week_end_ts = week_start_ts + pd.Timedelta(days=6)
+    return f"{week_start_ts:%d/%m} - {week_end_ts:%d/%m}"
+
+
+def _run_dataset_job(label: str, state_key: str, filename: str, loader, source_file=None) -> bool:
+    should_skip, file_hash = _processed_file_status(source_file)
+    if should_skip:
+        return False
     try:
         df = loader()
         if df is None or df.empty:
@@ -3389,13 +3459,17 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader) -> bool:
             )
         else:
             _push_notice("success", f"{label} ({filename}) procesado correctamente.")
+        _mark_file_as_processed(file_hash)
         return True
     except Exception as exc:
         _push_notice("error", f"{label} ({filename}): {exc}")
         return False
 
 
-def _run_questionnaire_raw_job(filename: str, loader) -> bool:
+def _run_questionnaire_raw_job(filename: str, loader, source_file=None) -> bool:
+    should_skip, file_hash = _processed_file_status(source_file)
+    if should_skip:
+        return False
     try:
         rpe_df, wellness_df = loader()
         if rpe_df is None or rpe_df.empty:
@@ -3449,6 +3523,7 @@ def _run_questionnaire_raw_job(filename: str, loader) -> bool:
             f"{visible_suffix}{remote_suffix}",
         )
         st.session_state.questionnaire_upload_source = "raw_csv"
+        _mark_file_as_processed(file_hash)
         return True
     except Exception as exc:
         _push_notice("error", f"Questionnaire Raw CSV ({filename}): {exc}")
@@ -3561,7 +3636,10 @@ def _data_loaded():
 # SIDEBAR — Upload hub
 # ════════════════════════════════════════════════════════════════════
 
-def _run_dataset_job(label: str, state_key: str, filename: str, loader) -> bool:
+def _run_dataset_job(label: str, state_key: str, filename: str, loader, source_file=None) -> bool:
+    should_skip, file_hash = _processed_file_status(source_file)
+    if should_skip:
+        return False
     try:
         df = loader()
         if df is None or df.empty:
@@ -3593,6 +3671,7 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader) -> bool:
             )
         else:
             _push_notice("success", f"{label} ({filename}): {incoming_rows} fila(s) leidas.{remote_suffix}")
+        _mark_file_as_processed(file_hash)
         return True
     except Exception as exc:
         _push_notice("error", f"{label} ({filename}): {exc}")
@@ -3616,8 +3695,12 @@ def _upload_contract_rows() -> list[dict[str, str]]:
 
 def _pending_upload_rows(uploaded_files: dict[str, object]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    processed_hashes = set(st.session_state.get("processed_file_hashes", set()) or set())
     for key, uploaded_file in uploaded_files.items():
         if not uploaded_file:
+            continue
+        file_hash = _uploaded_file_hash(uploaded_file)
+        if file_hash and file_hash in processed_hashes:
             continue
         contract = UPLOAD_CONTRACTS[key]
         rows.append(
@@ -3848,6 +3931,17 @@ with st.sidebar:
                                   type=list(UPLOAD_CONTRACTS["raw_workouts"]["extensions"]), key="u_raw")
         f_maxes = st.file_uploader("Raw Data Report – Maxes (.csv)",
                                     type=list(UPLOAD_CONTRACTS["maxes"]["extensions"]), key="u_maxes")
+        _sync_processed_upload_state(
+            {
+                "questionnaire_raw": f_questionnaire_raw,
+                "rpe": f_rpe,
+                "wellness": f_wellness,
+                "completion": f_completion,
+                "rep_load": f_rep_load,
+                "raw_workouts": f_raw,
+                "maxes": f_maxes,
+            }
+        )
         pending_dataset_rows = _pending_upload_rows(
             {
                 "questionnaire_raw": f_questionnaire_raw,
@@ -4115,6 +4209,7 @@ with st.sidebar:
                         processed_any = _run_questionnaire_raw_job(
                             getattr(f_questionnaire_raw, "name", "questionnaire_raw.csv"),
                             lambda: parse_questionnaire_raw_csv(f_questionnaire_raw),
+                            source_file=f_questionnaire_raw,
                         ) or processed_any
                     else:
                         _push_notice(
@@ -4132,6 +4227,7 @@ with st.sidebar:
                                 mode="rpe",
                                 filename=getattr(f_rpe, "name", None),
                             ),
+                            source_file=f_rpe,
                         )
                         if rpe_processed:
                             st.session_state.questionnaire_upload_source = "xlsx"
@@ -4147,6 +4243,7 @@ with st.sidebar:
                                 mode="wellness",
                                 filename=getattr(f_wellness, "name", None),
                             ),
+                            source_file=f_wellness,
                         )
                         if wellness_processed:
                             st.session_state.questionnaire_upload_source = "xlsx"
@@ -4157,6 +4254,7 @@ with st.sidebar:
                         "completion_df",
                         getattr(f_completion, "name", "completion.csv"),
                         lambda: parse_completion_report(f_completion),
+                        source_file=f_completion,
                     ) or processed_any
                 if f_rep_load:
                     processed_any = _run_dataset_job(
@@ -4164,6 +4262,7 @@ with st.sidebar:
                         "rep_load_df",
                         getattr(f_rep_load, "name", "rep_load.csv"),
                         lambda: parse_rep_load_report(f_rep_load),
+                        source_file=f_rep_load,
                     ) or processed_any
                 if f_raw:
                     processed_any = _run_dataset_job(
@@ -4171,6 +4270,7 @@ with st.sidebar:
                         "raw_df",
                         getattr(f_raw, "name", "raw_workouts.csv"),
                         lambda: parse_raw_workouts(f_raw),
+                        source_file=f_raw,
                     ) or processed_any
                 if f_maxes:
                     processed_any = _run_dataset_job(
@@ -4178,6 +4278,7 @@ with st.sidebar:
                         "maxes_df",
                         getattr(f_maxes, "name", "maxes.csv"),
                         lambda: parse_maxes_health(f_maxes),
+                        source_file=f_maxes,
                     ) or processed_any
 
                 # Procesar evaluaciones de plataforma de fuerza
@@ -4351,7 +4452,9 @@ def render_decision_panel():
         if week_start is None or df is None or df.empty or "week_start" not in df.columns:
             return pd.DataFrame(columns=df.columns if df is not None else [])
         result = _normalize_weekly_frame(df)
-        return result[result["week_start"] == pd.Timestamp(week_start).normalize()].copy()
+        target = pd.Timestamp(week_start).normalize()
+        mask = pd.to_datetime(result["week_start"], errors="coerce").dt.normalize() == target
+        return result.loc[mask].copy()
 
     def _zone_from_acwr(value: object) -> str:
         numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
@@ -4436,13 +4539,12 @@ def render_decision_panel():
         kicker="Modulo",
     )
 
-    if not st.session_state.weekly_summaries:
-        st.session_state.weekly_summaries = build_weekly_summaries(
-            st.session_state.rpe_df,
-            st.session_state.wellness_df,
-            st.session_state.raw_df,
-            acwr_dict=st.session_state.acwr_dict or {},
-        )
+    st.session_state.weekly_summaries = build_weekly_summaries(
+        st.session_state.get("rpe_df"),
+        st.session_state.get("wellness_df"),
+        st.session_state.get("raw_df"),
+        acwr_dict=st.session_state.get("acwr_dict"),
+    )
 
     weekly_summaries = st.session_state.weekly_summaries or {}
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
@@ -4454,9 +4556,31 @@ def render_decision_panel():
     prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if raw_df_state is not None else pd.DataFrame()
 
     week_candidates: list[pd.Timestamp] = []
+    week_label_flags: dict[pd.Timestamp, bool] = {}
     for frame in [weekly_load, weekly_wellness, weekly_external, weekly_team]:
         if frame is not None and not frame.empty and "week_start" in frame.columns:
-            week_candidates.extend(pd.to_datetime(frame["week_start"], errors="coerce").dropna().dt.normalize().tolist())
+            normalized_weeks = pd.to_datetime(frame["week_start"], errors="coerce").dropna().dt.normalize()
+            week_candidates.extend(normalized_weeks.tolist())
+            if "is_current_week" in frame.columns:
+                normalized_frame = frame.copy()
+                normalized_frame["week_start"] = pd.to_datetime(
+                    normalized_frame["week_start"],
+                    errors="coerce",
+                ).dt.normalize()
+                current_weeks = normalized_frame.loc[
+                    normalized_frame["is_current_week"].fillna(False),
+                    "week_start",
+                ].dropna()
+                for week_value in current_weeks:
+                    week_label_flags[pd.Timestamp(week_value).normalize()] = True
+    if weekly_load is not None and not weekly_load.empty and "week_start" in weekly_load.columns and "is_current_week" in weekly_load.columns:
+        current_weeks = pd.to_datetime(
+            weekly_load.loc[weekly_load["is_current_week"].fillna(False), "week_start"],
+            errors="coerce",
+        ).dropna().dt.normalize()
+        week_candidates.extend(current_weeks.tolist())
+        for week_value in current_weeks:
+            week_label_flags[pd.Timestamp(week_value).normalize()] = True
     week_options = sorted(set(week_candidates), reverse=True)
 
     selected_week = None
@@ -4465,7 +4589,10 @@ def render_decision_panel():
             "Semana",
             week_options,
             index=0,
-            format_func=lambda value: _format_week_range(pd.Timestamp(value)),
+            format_func=lambda value: _format_week_label(
+                pd.Timestamp(value),
+                is_current_week=week_label_flags.get(pd.Timestamp(value).normalize(), False),
+            ),
             key="decision_week",
         )
     else:
@@ -4473,7 +4600,16 @@ def render_decision_panel():
 
     selected_week = pd.Timestamp(selected_week).normalize() if selected_week is not None else None
     previous_week = selected_week - pd.Timedelta(days=7) if selected_week is not None else None
-    reference_date = selected_week + pd.Timedelta(days=6) if selected_week is not None else pd.Timestamp.today().normalize()
+    selected_week_is_current = (
+        selected_week is not None and week_label_flags.get(pd.Timestamp(selected_week).normalize(), False)
+    )
+    reference_date = (
+        pd.Timestamp.today().normalize()
+        if selected_week_is_current
+        else selected_week + pd.Timedelta(days=6)
+        if selected_week is not None
+        else pd.Timestamp.today().normalize()
+    )
 
     current_load = _week_slice(weekly_load, selected_week)
     previous_load = _week_slice(weekly_load, previous_week)
@@ -5166,6 +5302,18 @@ with tab_load:
             if weekly_load_athlete.empty:
                 st.warning("Sin resumen semanal disponible para este atleta.")
             else:
+                current_week_rows = weekly_load_athlete.loc[
+                    weekly_load_athlete.get("is_current_week", False).fillna(False)
+                ] if "is_current_week" in weekly_load_athlete.columns else pd.DataFrame()
+                if not current_week_rows.empty:
+                    current_week_start = pd.to_datetime(
+                        current_week_rows["week_start"],
+                        errors="coerce",
+                    ).dropna().max()
+                    if pd.notna(current_week_start):
+                        st.caption(
+                            f"Incluye {_format_week_label(current_week_start, is_current_week=True)}."
+                        )
                 render_subsection_header(
                     "Carga interna semanal",
                     "srpe semanal con monotonia del microciclo",
@@ -5204,7 +5352,10 @@ with tab_load:
                 has_weekly_external = (
                     not weekly_external_athlete.empty
                     and len(weekly_external_athlete.columns) > 2
-                    and weekly_external_athlete.drop(columns=["Athlete", "week_start"], errors="ignore").fillna(0).to_numpy().sum() > 0
+                    and weekly_external_athlete.drop(
+                        columns=["Athlete", "week_start", "is_current_week"],
+                        errors="ignore",
+                    ).fillna(0).to_numpy().sum() > 0
                 )
                 if has_weekly_external:
                     render_subsection_header(
@@ -5228,7 +5379,13 @@ with tab_load:
                 else:
                     team_display = weekly_team.copy().sort_values("week_start", ascending=False)
                     if "week_start" in team_display.columns:
-                        team_display["Semana"] = pd.to_datetime(team_display["week_start"], errors="coerce").dt.strftime("%d/%m/%Y")
+                        team_display["Semana"] = team_display.apply(
+                            lambda row: _format_week_label(
+                                row["week_start"],
+                                is_current_week=bool(row.get("is_current_week", False)),
+                            ),
+                            axis=1,
+                        )
                     rename_map = {
                         "athletes_active": "Atletas activos",
                         "team_sRPE_mean": "sRPE promedio",
@@ -5403,27 +5560,53 @@ with tab_eval:
             with col_sel:
                 athlete_sel = st.selectbox("Seleccionar atleta", athletes_eval, key="ev_jugador")
             hist_j = jdf[jdf["Athlete"] == athlete_sel].sort_values("Date")
-            date_options = hist_j["Date"].dropna().drop_duplicates().sort_values(ascending=False).tolist()
+            date_options = hist_j["Date"].dropna().drop_duplicates().sort_values(ascending=False).tolist() if not hist_j.empty else []
             with col_fecha:
-                selected_date = st.selectbox(
+                if not date_options:
+                    st.caption("Sin historial para este atleta")
+                    selected_date = None
+                else:
+                    selected_date = st.selectbox(
                     "Evaluación",
                     date_options,
                     format_func=lambda x: pd.Timestamp(x).strftime("%d/%m/%Y"),
                     key="ev_fecha",
                 )
 
-        sel_ts = pd.Timestamp(selected_date).normalize()
-        selected_rows = hist_j[hist_j["Date"] == sel_ts].sort_values("Date")
-        selected_row = selected_rows.iloc[-1] if not selected_rows.empty else hist_j.iloc[-1]
-        latest_row = hist_j.iloc[-1]
-        latest_profile_row = find_latest_valid_radar_row(hist_j)
-        latest_ts = pd.to_datetime(latest_row.get("Date"), errors="coerce")
-        latest_date_text = latest_ts.strftime("%d/%m/%Y") if not pd.isna(latest_ts) else "Sin fecha"
-        latest_profile_ts = pd.to_datetime(latest_profile_row.get("Date"), errors="coerce") if latest_profile_row is not None else pd.NaT
-        latest_profile_date_text = latest_profile_ts.strftime("%d/%m/%Y") if not pd.isna(latest_profile_ts) else "Sin fecha"
-        delta_df = compute_swc_delta(hist_j, selected_date)
-        temporal_lines = build_jump_temporal_context(delta_df)
-        selected_feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
+        if hist_j.empty or selected_date is None:
+            st.info("Sin historial para este atleta")
+            sel_ts = pd.NaT
+            selected_rows = hist_j.iloc[0:0]
+            selected_row = pd.Series(dtype="object")
+            latest_row = pd.Series(dtype="object")
+            latest_profile_row = None
+            latest_ts = pd.NaT
+            latest_date_text = "Sin fecha"
+            latest_profile_ts = pd.NaT
+            latest_profile_date_text = "Sin fecha"
+            delta_df = pd.DataFrame()
+            temporal_lines = []
+            selected_flag_rows = []
+            selected_feedback_lines = []
+            current_profile_row = None
+            current_profile_sources = pd.DataFrame(columns=["Variable", "Fecha origen"])
+            current_profile_flag_rows = []
+            current_profile_feedback_lines = []
+        else:
+            sel_ts = pd.Timestamp(selected_date).normalize()
+            selected_rows = hist_j[hist_j["Date"] == sel_ts].sort_values("Date")
+            selected_row = selected_rows.iloc[-1] if not selected_rows.empty else hist_j.iloc[-1]
+            latest_row = hist_j.iloc[-1]
+            latest_ts = pd.to_datetime(latest_row.get("Date"), errors="coerce")
+            latest_date_text = latest_ts.strftime("%d/%m/%Y") if not pd.isna(latest_ts) else "Sin fecha"
+            delta_df = compute_swc_delta(hist_j, selected_date)
+            temporal_lines = build_jump_temporal_context(delta_df)
+            selected_flag_rows = build_jump_flag_rows(selected_row)
+            selected_feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
+            current_profile_row, current_profile_sources = build_composite_profile_snapshot(hist_j)
+            current_profile_flag_rows = build_jump_flag_rows(current_profile_row) if current_profile_row is not None else []
+            current_profile_feedback_lines = build_jump_feedback_lines(current_profile_row) if current_profile_row is not None else []
+        selected_date_text = sel_ts.strftime("%d/%m/%Y") if not pd.isna(sel_ts) else "Sin fecha"
         st.markdown("---")
         render_subsection_header(
             "Evaluacion seleccionada",
@@ -5431,7 +5614,7 @@ with tab_eval:
             kicker="Detalle",
         )
         st.caption(
-            f"Fecha elegida para la lectura puntual: {sel_ts.strftime('%d/%m/%Y')}."
+            f"Fecha elegida para la lectura puntual: {selected_date_text}."
         )
         metric_cols = st.columns(6)
         metric_config = [
@@ -5464,7 +5647,7 @@ with tab_eval:
                 "Primera evaluacion registrada para este atleta. El threshold individual tipo Hopkins estara disponible a partir de la tercera medicion valida por variable."
             )
 
-        render_jump_flag_chips(build_jump_flag_rows(selected_row))
+        render_jump_flag_chips(selected_flag_rows)
         render_jump_feedback(selected_feedback_lines, kicker="Lectura de la fecha seleccionada")
 
         render_subsection_header(
@@ -5482,43 +5665,42 @@ with tab_eval:
 
         st.markdown("---")
         render_subsection_header(
-            "Perfilado actual",
-            "siempre usa la ultima evaluacion valida del atleta",
+            "Perfil actual compuesto",
+            "ultimo dato valido por variable, aunque provenga de fechas distintas",
             kicker="Actual",
         )
-        if latest_profile_row is None:
+        if current_profile_row is None:
             _alert(
-                "No hay una evaluacion valida para el radar de este atleta. "
-                "Hace falta al menos una metrica con z-score utilizable para perfilado.",
+                "No hay metricas suficientes para construir el perfil actual compuesto del atleta.",
                 "b",
             )
         else:
-            if latest_profile_date_text != latest_date_text:
-                st.caption(
-                    "La ultima fecha del atleta no tiene ejes suficientes para el radar. "
-                    f"Se usa la ultima evaluacion valida para perfilado: {latest_profile_date_text}."
-                )
-            else:
-                st.caption(
-                    "Este bloque no depende de la fecha seleccionada. "
-                    f"Ultima evaluacion valida: {latest_profile_date_text}."
-                )
+            st.caption(
+                "Este bloque no depende de la fecha seleccionada. "
+                "Usa el ultimo dato valido disponible por variable para construir un perfil compuesto."
+            )
             c_eval_1, c_eval_2 = st.columns([1.05, 0.95])
             with c_eval_1:
                 st.plotly_chart(
-                    chart_radar(latest_profile_row, athlete_sel, None),
+                    chart_composite_profile_radar(current_profile_row, athlete_sel),
                     use_container_width=False,
                     key="ev_radar_individual",
                 )
             with c_eval_2:
-                render_subsection_header("Lectura por variable actual", "z-score y semaforo de la ultima evaluacion valida", kicker="Lectura")
+                render_subsection_header("Lectura por variable actual", "perfil compuesto con orden fijo por variable", kicker="Lectura")
                 st.dataframe(
-                    build_jump_metric_table(latest_profile_row),
+                    build_composite_profile_metric_table(current_profile_row),
                     use_container_width=False,
                     hide_index=True,
                 )
-            render_jump_flag_chips(build_jump_flag_rows(latest_profile_row))
-            render_jump_feedback(build_jump_feedback_lines(latest_profile_row), kicker="Lectura de perfil actual")
+            with st.expander("Origen por variable", expanded=False):
+                st.dataframe(
+                    current_profile_sources,
+                    use_container_width=False,
+                    hide_index=True,
+                )
+            render_jump_flag_chips(current_profile_flag_rows)
+            render_jump_feedback(current_profile_feedback_lines, kicker="Lectura de perfil actual compuesto")
 
         st.markdown("---")
         render_subsection_header(

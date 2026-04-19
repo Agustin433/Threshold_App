@@ -130,6 +130,7 @@ class WeeklySummariesTest(unittest.TestCase):
             wellness_df,
             raw_df,
             acwr_dict=acwr_dict,
+            today=pd.Timestamp("2026-04-18"),
         )
 
         weekly_load = summaries["weekly_load"]
@@ -152,6 +153,7 @@ class WeeklySummariesTest(unittest.TestCase):
             .iloc[-1]["ACWR_EWMA"]
         )
         self.assertEqual(load_row["Athlete"], "Juan Perez")
+        self.assertFalse(bool(load_row["is_current_week"]))
         self.assertEqual(load_row["sessions_count"], 2)
         self.assertAlmostEqual(float(load_row["weekly_sRPE"]), 700.0, places=3)
         self.assertAlmostEqual(float(load_row["sRPE_mean_session"]), 350.0, places=3)
@@ -175,6 +177,16 @@ class WeeklySummariesTest(unittest.TestCase):
         self.assertAlmostEqual(float(team_row["team_sRPE_sum"]), 700.0, places=3)
         self.assertAlmostEqual(float(team_row["team_wellness_mean"]), 11.5, places=3)
 
+        current_week = pd.Timestamp("2026-04-13")
+        current_load_row = weekly_load.loc[weekly_load["week_start"] == current_week].iloc[0]
+        current_wellness_row = weekly_wellness.loc[weekly_wellness["week_start"] == current_week].iloc[0]
+        current_external_row = weekly_external.loc[weekly_external["week_start"] == current_week].iloc[0]
+        current_team_row = weekly_team.loc[weekly_team["week_start"] == current_week].iloc[0]
+        self.assertTrue(bool(current_load_row["is_current_week"]))
+        self.assertTrue(bool(current_wellness_row["is_current_week"]))
+        self.assertTrue(bool(current_external_row["is_current_week"]))
+        self.assertTrue(bool(current_team_row["is_current_week"]))
+
     def test_build_weekly_summaries_returns_stable_empty_frames(self):
         summaries = local_store.build_weekly_summaries(None, None, None)
 
@@ -189,6 +201,7 @@ class WeeklySummariesTest(unittest.TestCase):
                 {
                     "Athlete": "Juan Perez",
                     "week_start": pd.Timestamp("2026-04-06"),
+                    "is_current_week": False,
                     "weekly_sRPE": 700,
                     "sessions_count": 2,
                     "sRPE_mean_session": 350,
@@ -203,6 +216,7 @@ class WeeklySummariesTest(unittest.TestCase):
                 {
                     "Athlete": "Juan Perez",
                     "week_start": pd.Timestamp("2026-04-06"),
+                    "is_current_week": False,
                     "Sueno_mean": 7.5,
                     "Estres_mean": 2.5,
                     "Dolor_mean": 1.5,
@@ -217,6 +231,7 @@ class WeeklySummariesTest(unittest.TestCase):
                 {
                     "Athlete": "Juan Perez",
                     "week_start": pd.Timestamp("2026-04-06"),
+                    "is_current_week": False,
                     "strength_kg": 400,
                     "plyo_contacts": 20,
                     "landing_contacts": 0,

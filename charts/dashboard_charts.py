@@ -5,7 +5,12 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-from modules.jump_analysis import _prepare_jump_df, _available_radar_axes, choose_secondary_quadrant_x_spec
+from modules.jump_analysis import (
+    COMPOSITE_PROFILE_METRICS,
+    _prepare_jump_df,
+    _available_radar_axes,
+    choose_secondary_quadrant_x_spec,
+)
 
 
 JUMP_HISTORY_METRIC_CONFIG: dict[str, dict[str, object]] = {
@@ -173,6 +178,100 @@ def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, 
         ),
         legend=legend,
         title=dict(text=f"<b>Radar Neuromuscular - {athlete}{title_suffix}</b>", font=dict(color=colors["navy"], size=13), x=0.5),
+        height=480,
+    )
+    return fig
+
+
+def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme: dict) -> go.Figure:
+    colors, layout, grid, _, reference_line, legend = _theme_parts(theme)
+    row = profile_row if isinstance(profile_row, pd.Series) else pd.Series(profile_row)
+    radar_min = -2.5
+    radar_max = 2.5
+    missing_point_r = radar_min
+
+    categories: list[str] = []
+    values: list[float] = []
+    customdata: list[list[object]] = []
+    available_metric_count = 0
+    for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
+        raw_value = _numeric_value(row.get(value_col))
+        z_value = _numeric_value(row.get(z_col))
+        if raw_value is not None:
+            available_metric_count += 1
+        categories.append(label)
+        values.append(z_value if z_value is not None else missing_point_r)
+        formatted_raw = "-" if raw_value is None else f"{raw_value:.{digits}f}"
+        formatted_value = formatted_raw if raw_value is None or unit in {"", "ratio"} else f"{formatted_raw} {unit}"
+        formatted_z = "-" if z_value is None else f"{z_value:.2f}"
+        source_date = row.get(f"{value_col}__source_date", "-") or "-"
+        customdata.append([formatted_value, formatted_z, source_date])
+
+    fig = go.Figure()
+    if available_metric_count < 2:
+        fig.update_layout(
+            **layout,
+            height=480,
+            title=dict(text=f"<b>Perfil actual compuesto - {athlete}</b>", font=dict(color=colors["navy"], size=13), x=0.5),
+            annotations=[
+                dict(
+                    text="Sin metricas suficientes con z-score valido para construir un perfil util.",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=colors["muted"], size=13),
+                )
+            ],
+        )
+        return fig
+
+    categories_closed = categories + [categories[0]]
+    values_closed = values + [values[0]]
+    customdata_closed = customdata + [customdata[0]]
+
+    fig.add_trace(
+        go.Scatterpolar(
+            r=[1.0] * len(categories_closed),
+            theta=categories_closed,
+            mode="lines",
+            fill="none",
+            line=dict(color=reference_line, dash="dot", width=1),
+            name="z = 1",
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatterpolar(
+            r=values_closed,
+            theta=categories_closed,
+            mode="lines+markers",
+            fill="toself",
+            fillcolor="rgba(13,60,94,0.16)",
+            line=dict(color=colors["steel"], width=2.5),
+            marker=dict(size=7, color=colors["steel"]),
+            customdata=customdata_closed,
+            name=athlete,
+            hovertemplate="<b>%{theta}</b><br>Valor: %{customdata[0]}<br>Z-score: %{customdata[1]}<br>Origen: %{customdata[2]}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        **layout,
+        polar=dict(
+            radialaxis=dict(
+                range=[radar_min, radar_max],
+                tickvals=[-2, -1, 0, 1, 2],
+                ticktext=["-2", "-1", "0", "+1", "+2"],
+                gridcolor=grid,
+                linecolor=reference_line,
+                tickfont=dict(size=8, color=colors["gray"]),
+            ),
+            angularaxis=dict(tickfont=dict(size=10, color=colors["white"]), gridcolor=grid),
+            bgcolor=colors["card"],
+        ),
+        legend=legend,
+        title=dict(text=f"<b>Perfil actual compuesto - {athlete}</b>", font=dict(color=colors["navy"], size=13), x=0.5),
         height=480,
     )
     return fig

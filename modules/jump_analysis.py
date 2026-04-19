@@ -185,6 +185,32 @@ RADAR_NO_DJ_AXES = (
     ("mRSI", "mRSI", "m/s", "mRSI_Z"),
 )
 
+COMPOSITE_PROFILE_METRICS = (
+    ("SJ", "SJ_cm", "cm", "SJ_Z", 1),
+    ("CMJ", "CMJ_cm", "cm", "CMJ_Z", 1),
+    ("DJ", "DJ_cm", "cm", "DJ_height_Z", 1),
+    ("DRI", "DRI", "m/s", "DRI_Z", 3),
+    ("TC", "DJ_tc_ms", "ms", "TC_inv_Z", 0),
+    ("EUR", "EUR", "ratio", "EUR_Z", 3),
+    ("IMTP", "IMTP_relPF", "N/kg", "IMTP_relPF_Z", 2),
+)
+
+COMPOSITE_PROFILE_SUPPORT_FIELDS = (
+    "DJ_RSI",
+    "DJ_RSI_Z",
+    "TC_inv_Z",
+    "DSI",
+    "mRSI",
+    "TTT_s",
+    "TTT_ms",
+    "Jump_Momentum",
+    "Jump_Momentum_Z",
+    "CMJ_rel_impulse",
+    "CMJ_rel_impulse_Z",
+    "IMTP_N",
+    "BW_kg",
+)
+
 
 def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame.columns:
@@ -821,6 +847,112 @@ def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
         )
 
     return pd.DataFrame(rows, columns=["Variable", "Actual", "Anterior", "Delta abs", "Delta %", "Threshold", "Senal"])
+
+
+def _format_profile_source_date(value: object) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    return parsed.strftime("%d/%m/%Y") if pd.notna(parsed) else "-"
+
+
+def _format_composite_metric_value(value: object, unit: str, digits: int) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return "-"
+    formatted = f"{float(numeric):.{digits}f}"
+    return formatted if unit in {"", "ratio"} else f"{formatted} {unit}"
+
+
+def _latest_valid_numeric_row(df: pd.DataFrame, column: str) -> pd.Series | None:
+    if column not in df.columns:
+        return None
+    values = pd.to_numeric(df[column], errors="coerce")
+    valid = df.loc[values.notna()].copy()
+    if valid.empty:
+        return None
+    if "Date" in valid.columns:
+        valid["Date"] = pd.to_datetime(valid["Date"], errors="coerce")
+        valid = valid.sort_values("Date", ascending=False)
+    return valid.iloc[0]
+
+
+def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series | None, pd.DataFrame]:
+    data = _prepare_jump_df(jump_df)
+    if data.empty:
+        return None, pd.DataFrame(columns=["Variable", "Fecha origen"])
+
+    if "Date" in data.columns:
+        data = data.sort_values("Date", ascending=False)
+
+    athlete_name = None
+    if "Athlete" in data.columns:
+        athlete_candidates = data["Athlete"].dropna()
+        athlete_name = athlete_candidates.iloc[0] if not athlete_candidates.empty else None
+
+    snapshot: dict[str, object] = {
+        "Athlete": athlete_name,
+        "Profile_Composed": True,
+    }
+    source_rows: list[dict[str, object]] = []
+
+    for label, value_col, _, z_col, _ in COMPOSITE_PROFILE_METRICS:
+        source_row = _latest_valid_numeric_row(data, value_col)
+        if source_row is None:
+            snapshot[f"{value_col}__source_date"] = "-"
+            source_rows.append({"Variable": label, "Fecha origen": "-"})
+            continue
+
+        source_date = _format_profile_source_date(source_row.get("Date"))
+        snapshot[value_col] = source_row.get(value_col)
+        snapshot[z_col] = source_row.get(z_col)
+        snapshot[f"{value_col}__source_date"] = source_date
+        if value_col == "DRI":
+            snapshot["DJ_RSI"] = source_row.get("DJ_RSI", source_row.get("DRI"))
+            snapshot["DJ_RSI_Z"] = source_row.get("DJ_RSI_Z", source_row.get("DRI_Z"))
+        if value_col == "DJ_tc_ms":
+            snapshot["TC_inv_Z"] = source_row.get("TC_inv_Z")
+        if value_col == "IMTP_relPF":
+            snapshot["IMTP_Z"] = source_row.get("IMTP_Z", source_row.get("IMTP_relPF_Z"))
+            snapshot["IMTP_N"] = source_row.get("IMTP_N")
+
+        source_rows.append(
+            {
+                "Variable": label,
+                "Fecha origen": source_date,
+            }
+        )
+
+    for field in COMPOSITE_PROFILE_SUPPORT_FIELDS:
+        if field in snapshot:
+            continue
+        source_row = _latest_valid_numeric_row(data, field)
+        if source_row is not None:
+            snapshot[field] = source_row.get(field)
+
+    snapshot_df = pd.DataFrame([snapshot])
+    if "EUR" in snapshot_df.columns:
+        snapshot_df = calc_nm_profile(snapshot_df)
+    snapshot_row = snapshot_df.iloc[0]
+    return snapshot_row, pd.DataFrame(source_rows, columns=["Variable", "Fecha origen"])
+
+
+def build_composite_profile_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row)
+    rows: list[dict[str, object]] = []
+
+    for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
+        value = pd.to_numeric(pd.Series([row_series.get(value_col)]), errors="coerce").iloc[0]
+        z_value = pd.to_numeric(pd.Series([row_series.get(z_col)]), errors="coerce").iloc[0]
+        rounded_value = round(float(value), digits) if pd.notna(value) else None
+        rows.append(
+            {
+                "Variable": label,
+                "Valor": _format_composite_metric_value(rounded_value, unit, digits),
+                "Z-score": round(float(z_value), 2) if pd.notna(z_value) else "-",
+                "Origen / referencia": row_series.get(f"{value_col}__source_date", "-") or "-",
+            }
+        )
+
+    return pd.DataFrame(rows, columns=["Variable", "Valor", "Z-score", "Origen / referencia"])
 
 
 def build_jump_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:

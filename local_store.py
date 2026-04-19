@@ -99,6 +99,7 @@ ACWR_ZONES = (
 WEEKLY_LOAD_COLUMNS = [
     "Athlete",
     "week_start",
+    "is_current_week",
     "weekly_sRPE",
     "sessions_count",
     "sRPE_mean_session",
@@ -109,6 +110,7 @@ WEEKLY_LOAD_COLUMNS = [
 WEEKLY_WELLNESS_COLUMNS = [
     "Athlete",
     "week_start",
+    "is_current_week",
     "Sueno_mean",
     "Estres_mean",
     "Dolor_mean",
@@ -119,6 +121,7 @@ WEEKLY_WELLNESS_COLUMNS = [
 WEEKLY_EXTERNAL_COLUMNS = [
     "Athlete",
     "week_start",
+    "is_current_week",
     "strength_kg",
     "plyo_contacts",
     "landing_contacts",
@@ -131,6 +134,7 @@ WEEKLY_EXTERNAL_COLUMNS = [
 ]
 WEEKLY_TEAM_COLUMNS = [
     "week_start",
+    "is_current_week",
     "team_sRPE_mean",
     "team_sRPE_sum",
     "athletes_active",
@@ -464,6 +468,56 @@ def _week_start(series: pd.Series) -> pd.Series:
     return dates - pd.to_timedelta(dates.dt.weekday, unit="D")
 
 
+def _resolve_today(today: pd.Timestamp | str | None = None) -> pd.Timestamp:
+    if today is None:
+        return pd.Timestamp.today().normalize()
+    return pd.Timestamp(today).normalize()
+
+
+def _current_week_start(today: pd.Timestamp | str | None = None) -> pd.Timestamp:
+    today_ts = _resolve_today(today)
+    return today_ts - pd.Timedelta(days=int(today_ts.weekday()))
+
+
+def _mark_current_week(df: pd.DataFrame, columns: list[str], *, today: pd.Timestamp | str | None = None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return _empty_weekly_frame(columns)
+
+    result = df.copy()
+    current_week = _current_week_start(today)
+    if "week_start" in result.columns:
+        result["week_start"] = pd.to_datetime(result["week_start"], errors="coerce").dt.normalize()
+        result["is_current_week"] = result["week_start"].eq(current_week)
+    else:
+        result["is_current_week"] = False
+
+    for column in columns:
+        if column not in result.columns:
+            result[column] = np.nan
+
+    return result[columns]
+
+
+def _append_missing_week_rows(base_df: pd.DataFrame, extra_df: pd.DataFrame, *, key_cols: list[str]) -> pd.DataFrame:
+    if extra_df is None or extra_df.empty:
+        return base_df
+    if base_df is None or base_df.empty:
+        return extra_df.reset_index(drop=True)
+
+    existing_keys = {
+        tuple(base_df.loc[idx, col] for col in key_cols)
+        for idx in base_df.index
+    }
+    extra_rows = [
+        idx
+        for idx in extra_df.index
+        if tuple(extra_df.loc[idx, col] for col in key_cols) not in existing_keys
+    ]
+    if not extra_rows:
+        return base_df.reset_index(drop=True)
+    return pd.concat([base_df, extra_df.loc[extra_rows]], ignore_index=True, sort=False).reset_index(drop=True)
+
+
 def _resolve_acwr_models(
     rpe_df: pd.DataFrame | None,
     acwr_dict: dict[str, pd.DataFrame] | None = None,
@@ -531,6 +585,7 @@ def _build_weekly_load_summary(
         )
         weekly["strain"] = weekly["weekly_sRPE"] * weekly["monotony"]
         weekly["Athlete"] = athlete
+        weekly["is_current_week"] = False
         weekly = weekly[~((weekly["weekly_sRPE"] <= 0) & (weekly["sessions_count"] <= 0))]
         rows.append(weekly[WEEKLY_LOAD_COLUMNS])
 
@@ -538,7 +593,8 @@ def _build_weekly_load_summary(
         return _empty_weekly_frame(WEEKLY_LOAD_COLUMNS)
 
     result = pd.concat(rows, ignore_index=True)
-    return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+    result["is_current_week"] = False
+    return result[WEEKLY_LOAD_COLUMNS].sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
 
 def _build_weekly_wellness_summary(
@@ -583,6 +639,7 @@ def _build_weekly_wellness_summary(
         weekly["wellness_days"] / weekly["sessions_count"],
         np.nan,
     )
+    weekly["is_current_week"] = False
     return weekly[WEEKLY_WELLNESS_COLUMNS].sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
 
@@ -639,6 +696,7 @@ def _build_weekly_external_summary(raw_df: pd.DataFrame | None) -> pd.DataFrame:
         result = result.merge(grouped, on=["Athlete", "week_start"], how="left")
         result[output_col] = pd.to_numeric(result[output_col], errors="coerce").fillna(0.0)
 
+    result["is_current_week"] = False
     return result[WEEKLY_EXTERNAL_COLUMNS].sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
 
@@ -686,7 +744,201 @@ def _build_weekly_team_summary(
         if column not in result.columns:
             result[column] = np.nan
     result["athletes_active"] = pd.to_numeric(result["athletes_active"], errors="coerce").fillna(0).astype(int)
+    result["is_current_week"] = False
     return result[WEEKLY_TEAM_COLUMNS].sort_values("week_start").reset_index(drop=True)
+
+
+def _ensure_current_week_load(
+    weekly_load: pd.DataFrame,
+    rpe_df: pd.DataFrame | None,
+    *,
+    acwr_dict: dict[str, pd.DataFrame] | None = None,
+    today: pd.Timestamp | str | None = None,
+) -> pd.DataFrame:
+    if rpe_df is None or rpe_df.empty:
+        return _mark_current_week(weekly_load, WEEKLY_LOAD_COLUMNS, today=today)
+
+    today_ts = _resolve_today(today)
+    current_week = _current_week_start(today_ts)
+    result = _mark_current_week(weekly_load, WEEKLY_LOAD_COLUMNS, today=today_ts)
+    if not result.empty and result["week_start"].eq(current_week).any():
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+    source = rpe_df.copy()
+    if not {"Athlete", "Date", "sRPE"}.issubset(source.columns):
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+    source["Athlete"] = source["Athlete"].map(normalize_athlete_name)
+    source["Date"] = pd.to_datetime(source["Date"], errors="coerce").dt.normalize()
+    source["sRPE"] = pd.to_numeric(source["sRPE"], errors="coerce")
+    source = source.dropna(subset=["Athlete", "Date", "sRPE"])
+    source = source[source["Date"].between(current_week, today_ts)]
+    if source.empty:
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+    current_daily = (
+        source.groupby(["Athlete", "Date"], as_index=False)["sRPE"]
+        .sum()
+        .rename(columns={"sRPE": "sRPE_diario"})
+    )
+    current_rows = (
+        current_daily.groupby("Athlete", as_index=False)
+        .agg(
+            weekly_sRPE=("sRPE_diario", "sum"),
+            sessions_count=("sRPE_diario", lambda s: int(pd.Series(s).gt(0).sum())),
+            sRPE_mean_session=(
+                "sRPE_diario",
+                lambda s: float(pd.Series(s)[pd.Series(s).gt(0)].mean()) if pd.Series(s).gt(0).any() else np.nan,
+            ),
+            _mean_daily=("sRPE_diario", "mean"),
+            _sd_daily=("sRPE_diario", lambda s: float(pd.Series(s).std(ddof=0))),
+        )
+    )
+    current_rows["week_start"] = current_week
+    acwr_models = _resolve_acwr_models(rpe_df, acwr_dict=acwr_dict)
+    acwr_last_rows: list[dict[str, object]] = []
+    for athlete, athlete_df in acwr_models.items():
+        if athlete_df is None or athlete_df.empty or not {"Date", "ACWR_EWMA"}.issubset(athlete_df.columns):
+            continue
+        scoped = athlete_df.copy()
+        scoped["Date"] = pd.to_datetime(scoped["Date"], errors="coerce").dt.normalize()
+        scoped = scoped[scoped["Date"].between(current_week, today_ts)].sort_values("Date")
+        if scoped.empty:
+            continue
+        acwr_last_rows.append(
+            {
+                "Athlete": athlete,
+                "week_start": current_week,
+                "ACWR_EWMA_last": pd.to_numeric(scoped.iloc[-1].get("ACWR_EWMA"), errors="coerce"),
+            }
+        )
+    current_rows = current_rows.merge(pd.DataFrame(acwr_last_rows), on=["Athlete", "week_start"], how="left")
+    current_rows["monotony"] = np.where(
+        current_rows["_sd_daily"].fillna(0).le(0),
+        1.0,
+        current_rows["_mean_daily"] / current_rows["_sd_daily"],
+    )
+    current_rows["strain"] = current_rows["weekly_sRPE"] * current_rows["monotony"]
+    current_rows["is_current_week"] = True
+    current_rows = current_rows[WEEKLY_LOAD_COLUMNS]
+    result = _append_missing_week_rows(result, current_rows, key_cols=["Athlete", "week_start"])
+    return _mark_current_week(result, WEEKLY_LOAD_COLUMNS, today=today_ts).sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+
+def _ensure_current_week_wellness(
+    weekly_wellness: pd.DataFrame,
+    wellness_df: pd.DataFrame | None,
+    weekly_load: pd.DataFrame,
+    *,
+    today: pd.Timestamp | str | None = None,
+) -> pd.DataFrame:
+    if wellness_df is None or wellness_df.empty:
+        return _mark_current_week(weekly_wellness, WEEKLY_WELLNESS_COLUMNS, today=today)
+
+    today_ts = _resolve_today(today)
+    current_week = _current_week_start(today_ts)
+    result = _mark_current_week(weekly_wellness, WEEKLY_WELLNESS_COLUMNS, today=today_ts)
+    if not result.empty and result["week_start"].eq(current_week).any():
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+    source = wellness_df.copy()
+    if not {"Athlete", "Date"}.issubset(source.columns):
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+    source["Athlete"] = source["Athlete"].map(normalize_athlete_name)
+    source["Date"] = pd.to_datetime(source["Date"], errors="coerce").dt.normalize()
+    for column in ["Sueno_hs", "Estres", "Dolor", "Wellness_Score"]:
+        if column in source.columns:
+            source[column] = pd.to_numeric(source[column], errors="coerce")
+        else:
+            source[column] = pd.Series(index=source.index, dtype="float64")
+    source = source.dropna(subset=["Athlete", "Date"])
+    source = source[source["Date"].between(current_week, today_ts)]
+    if source.empty:
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+    current_rows = (
+        source.groupby("Athlete", as_index=False)
+        .agg(
+            Sueno_mean=("Sueno_hs", "mean"),
+            Estres_mean=("Estres", "mean"),
+            Dolor_mean=("Dolor", "mean"),
+            Wellness_mean=("Wellness_Score", "mean"),
+            wellness_days=("Wellness_Score", lambda s: int(pd.Series(s).notna().sum())),
+        )
+    )
+    current_rows["week_start"] = current_week
+    current_rows = current_rows.merge(
+        weekly_load.loc[weekly_load["week_start"] == current_week, ["Athlete", "week_start", "sessions_count"]],
+        on=["Athlete", "week_start"],
+        how="left",
+    )
+    current_rows["wellness_compliance"] = np.where(
+        current_rows["sessions_count"].fillna(0).gt(0),
+        current_rows["wellness_days"] / current_rows["sessions_count"],
+        np.nan,
+    )
+    current_rows["is_current_week"] = True
+    current_rows = current_rows[WEEKLY_WELLNESS_COLUMNS]
+    result = _append_missing_week_rows(result, current_rows, key_cols=["Athlete", "week_start"])
+    return _mark_current_week(result, WEEKLY_WELLNESS_COLUMNS, today=today_ts).sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+
+def _ensure_current_week_external(
+    weekly_external: pd.DataFrame,
+    raw_df: pd.DataFrame | None,
+    *,
+    today: pd.Timestamp | str | None = None,
+) -> pd.DataFrame:
+    if raw_df is None or raw_df.empty:
+        return _mark_current_week(weekly_external, WEEKLY_EXTERNAL_COLUMNS, today=today)
+
+    today_ts = _resolve_today(today)
+    current_week = _current_week_start(today_ts)
+    result = _mark_current_week(weekly_external, WEEKLY_EXTERNAL_COLUMNS, today=today_ts)
+    if not result.empty and result["week_start"].eq(current_week).any():
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+    date_col = "Assigned Date" if "Assigned Date" in raw_df.columns else "Date" if "Date" in raw_df.columns else None
+    if date_col is None:
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+    current_source = raw_df.copy()
+    current_source[date_col] = pd.to_datetime(current_source[date_col], errors="coerce").dt.normalize()
+    current_source = current_source[current_source[date_col].between(current_week, today_ts)]
+    if current_source.empty:
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+    current_rows = _build_weekly_external_summary(current_source)
+    if current_rows.empty:
+        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+    current_rows["is_current_week"] = True
+    result = _append_missing_week_rows(result, current_rows[WEEKLY_EXTERNAL_COLUMNS], key_cols=["Athlete", "week_start"])
+    return _mark_current_week(result, WEEKLY_EXTERNAL_COLUMNS, today=today_ts).sort_values(["Athlete", "week_start"]).reset_index(drop=True)
+
+
+def _ensure_current_week_team(
+    weekly_team: pd.DataFrame,
+    weekly_load: pd.DataFrame,
+    weekly_wellness: pd.DataFrame,
+    *,
+    today: pd.Timestamp | str | None = None,
+) -> pd.DataFrame:
+    today_ts = _resolve_today(today)
+    current_week = _current_week_start(today_ts)
+    result = _mark_current_week(weekly_team, WEEKLY_TEAM_COLUMNS, today=today_ts)
+    if not result.empty and result["week_start"].eq(current_week).any():
+        return result.sort_values("week_start").reset_index(drop=True)
+
+    current_load = weekly_load[weekly_load["week_start"] == current_week] if not weekly_load.empty else _empty_weekly_frame(WEEKLY_LOAD_COLUMNS)
+    current_wellness = weekly_wellness[weekly_wellness["week_start"] == current_week] if not weekly_wellness.empty else _empty_weekly_frame(WEEKLY_WELLNESS_COLUMNS)
+    if current_load.empty and current_wellness.empty:
+        return result.sort_values("week_start").reset_index(drop=True)
+
+    current_rows = _build_weekly_team_summary(current_load, current_wellness)
+    if current_rows.empty:
+        return result.sort_values("week_start").reset_index(drop=True)
+    current_rows["is_current_week"] = True
+    result = _append_missing_week_rows(result, current_rows[WEEKLY_TEAM_COLUMNS], key_cols=["week_start"])
+    return _mark_current_week(result, WEEKLY_TEAM_COLUMNS, today=today_ts).sort_values("week_start").reset_index(drop=True)
 
 
 def build_weekly_summaries(
@@ -695,11 +947,16 @@ def build_weekly_summaries(
     raw_df: pd.DataFrame | None,
     *,
     acwr_dict: dict[str, pd.DataFrame] | None = None,
+    today: pd.Timestamp | str | None = None,
 ) -> dict[str, pd.DataFrame]:
     weekly_load = _build_weekly_load_summary(rpe_df, acwr_dict=acwr_dict)
+    weekly_load = _ensure_current_week_load(weekly_load, rpe_df, acwr_dict=acwr_dict, today=today)
     weekly_wellness = _build_weekly_wellness_summary(wellness_df, weekly_load)
+    weekly_wellness = _ensure_current_week_wellness(weekly_wellness, wellness_df, weekly_load, today=today)
     weekly_external = _build_weekly_external_summary(raw_df)
+    weekly_external = _ensure_current_week_external(weekly_external, raw_df, today=today)
     weekly_team = _build_weekly_team_summary(weekly_load, weekly_wellness)
+    weekly_team = _ensure_current_week_team(weekly_team, weekly_load, weekly_wellness, today=today)
     return {
         "weekly_load": weekly_load,
         "weekly_wellness": weekly_wellness,

@@ -7,12 +7,13 @@ import html
 import pandas as pd
 import streamlit as st
 
-from charts.dashboard_charts import chart_cmj_trend, chart_jump_metric_trend, chart_radar, find_latest_valid_radar_row
+from charts.dashboard_charts import chart_cmj_trend, chart_composite_profile_radar, chart_jump_metric_trend
 from modules.jump_analysis import (
+    build_composite_profile_metric_table,
+    build_composite_profile_snapshot,
     build_jump_delta_display_table,
     build_jump_feedback_lines,
     build_jump_flag_rows,
-    build_jump_metric_table,
     build_jump_temporal_context,
     compute_swc_delta,
 )
@@ -154,10 +155,7 @@ else:
 
     selected_rows = athlete_hist[athlete_hist["Date"] == pd.Timestamp(selected_date)].sort_values("Date")
     selected_row = selected_rows.iloc[-1] if not selected_rows.empty else athlete_hist.iloc[-1]
-    latest_row = athlete_hist.iloc[-1]
-    latest_profile_row = find_latest_valid_radar_row(athlete_hist)
-    latest_date_text = _format_eval_date(latest_row.get("Date"))
-    latest_profile_date_text = _format_eval_date(latest_profile_row.get("Date")) if latest_profile_row is not None else "Sin fecha"
+    current_profile_row, current_profile_sources = build_composite_profile_snapshot(athlete_hist)
     delta_df = compute_swc_delta(athlete_hist, selected_date)
     temporal_lines = build_jump_temporal_context(delta_df)
     selected_feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
@@ -190,32 +188,27 @@ else:
         hide_index=True,
     )
 
-    st.markdown("### Perfilado actual")
-    if latest_profile_row is None:
+    st.markdown("### Perfil actual compuesto")
+    if current_profile_row is None:
         st.info(
-            "No hay una evaluacion valida para el radar de este atleta. "
-            "Hace falta al menos una metrica con z-score utilizable para perfilado."
+            "No hay metricas suficientes para construir el perfil actual compuesto de este atleta."
         )
     else:
-        if latest_profile_date_text != latest_date_text:
-            st.caption(
-                "La ultima fecha del atleta no tiene ejes suficientes para el radar. "
-                f"Se usa la ultima evaluacion valida para perfilado: {latest_profile_date_text}."
-            )
-        else:
-            st.caption(
-                "Este bloque siempre usa la ultima evaluacion valida del atleta, "
-                f"independientemente de la fecha seleccionada: {latest_profile_date_text}."
-            )
+        st.caption(
+            "Este bloque no depende de la fecha seleccionada. "
+            "Usa el ultimo dato valido disponible por variable para construir un perfil compuesto."
+        )
         chart_left, chart_right = st.columns([1.05, 0.95])
         with chart_left:
-            st.plotly_chart(chart_radar(latest_profile_row, athlete, None, theme=theme), use_container_width=True)
+            st.plotly_chart(chart_composite_profile_radar(current_profile_row, athlete, theme=theme), use_container_width=True)
         with chart_right:
-            metric_table = build_jump_metric_table(latest_profile_row)
+            metric_table = build_composite_profile_metric_table(current_profile_row)
             st.markdown("### Lectura por variable actual")
             st.dataframe(metric_table, use_container_width=True, hide_index=True)
-        _render_flag_chips(build_jump_flag_rows(latest_profile_row))
-        _render_feedback(build_jump_feedback_lines(latest_profile_row))
+        with st.expander("Origen por variable", expanded=False):
+            st.dataframe(current_profile_sources, use_container_width=True, hide_index=True)
+        _render_flag_chips(build_jump_flag_rows(current_profile_row))
+        _render_feedback(build_jump_feedback_lines(current_profile_row))
 
     st.markdown("### Historial temporal")
     st.caption("Estos graficos usan siempre la fecha de evaluacion como eje temporal y no dependen de la fecha seleccionada.")
