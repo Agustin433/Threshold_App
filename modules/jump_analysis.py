@@ -127,6 +127,16 @@ TEMPORAL_SIGNAL_BADGES = {
     "sin dato anterior": "— sin dato anterior",
 }
 
+BASELINE_MIN_VALID = 3
+BASELINE_METHOD = "Promedio primeras 3 mediciones validas"
+BASELINE_SIGNAL_BADGES = {
+    "mejora vs baseline": "+ mejora vs baseline",
+    "caida vs baseline": "- caida vs baseline",
+    "sin cambio vs baseline": "~ sin cambio vs baseline",
+    "baseline insuficiente": "baseline insuficiente",
+    "sin dato actual": "sin dato actual",
+}
+
 SEMAPHORE_LABELS = (
     (1.0, "Verde"),
     (0.0, "Amarillo"),
@@ -847,6 +857,160 @@ def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
         )
 
     return pd.DataFrame(rows, columns=["Variable", "Actual", "Anterior", "Delta abs", "Delta %", "Threshold", "Senal"])
+
+
+def compute_baseline_delta(
+    athlete_df: pd.DataFrame,
+    current_date,
+    variables: list[str] | None = None,
+) -> pd.DataFrame:
+    columns = [
+        "Variable",
+        "Label",
+        "Valor_actual",
+        "Baseline_value",
+        "Fecha_actual",
+        "Baseline_start_date",
+        "Baseline_end_date",
+        "Delta_abs",
+        "Delta_pct",
+        "Baseline_method",
+        "N_valid",
+        "Signal",
+        "Higher_is_better",
+    ]
+    if athlete_df is None or athlete_df.empty or "Date" not in athlete_df.columns:
+        return pd.DataFrame(columns=columns)
+
+    working_df = athlete_df.copy()
+    working_df["Date"] = pd.to_datetime(working_df["Date"], errors="coerce").dt.normalize()
+    current_ts = pd.Timestamp(current_date).normalize()
+    working_df = working_df[working_df["Date"].notna() & (working_df["Date"] <= current_ts)].sort_values("Date")
+    if working_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    current_rows = working_df[working_df["Date"] == current_ts].sort_values("Date")
+    current_row = current_rows.iloc[-1] if not current_rows.empty else working_df.iloc[-1]
+    current_row_date = pd.Timestamp(current_row["Date"]).normalize()
+    selected_variables = _default_temporal_variables(working_df, variables=variables)
+
+    rows: list[dict[str, object]] = []
+    for variable in selected_variables:
+        if variable not in VARIABLE_META or variable not in working_df.columns:
+            continue
+
+        meta = VARIABLE_META[variable]
+        series = pd.to_numeric(working_df[variable], errors="coerce")
+        valid_rows = working_df.loc[series.notna(), ["Date"]].copy()
+        valid_rows[variable] = series.loc[series.notna()].values
+        valid_rows = valid_rows[valid_rows["Date"] <= current_row_date].sort_values("Date")
+        if valid_rows.empty:
+            continue
+
+        current_value = pd.to_numeric(pd.Series([current_row.get(variable)]), errors="coerce").iloc[0]
+        n_valid = int(len(valid_rows))
+        baseline_value = np.nan
+        baseline_start_date = pd.NaT
+        baseline_end_date = pd.NaT
+        delta_abs = np.nan
+        delta_pct = np.nan
+        baseline_method = pd.NA
+        signal = "baseline insuficiente"
+
+        if n_valid >= BASELINE_MIN_VALID:
+            baseline_rows = valid_rows.head(BASELINE_MIN_VALID)
+            baseline_value = pd.to_numeric(baseline_rows[variable], errors="coerce").mean()
+            baseline_start_date = baseline_rows["Date"].iloc[0]
+            baseline_end_date = baseline_rows["Date"].iloc[-1]
+            baseline_method = BASELINE_METHOD
+            if pd.notna(current_value) and pd.notna(baseline_value):
+                delta_abs = float(current_value) - float(baseline_value)
+                if float(baseline_value) > 0:
+                    delta_pct = (delta_abs / float(baseline_value)) * 100
+
+                if bool(meta["higher_is_better"]):
+                    if delta_abs > 0:
+                        signal = "mejora vs baseline"
+                    elif delta_abs < 0:
+                        signal = "caida vs baseline"
+                    else:
+                        signal = "sin cambio vs baseline"
+                else:
+                    if delta_abs < 0:
+                        signal = "mejora vs baseline"
+                    elif delta_abs > 0:
+                        signal = "caida vs baseline"
+                    else:
+                        signal = "sin cambio vs baseline"
+            else:
+                signal = "sin dato actual"
+
+        rows.append(
+            {
+                "Variable": variable,
+                "Label": str(meta["label"]),
+                "Valor_actual": float(current_value) if pd.notna(current_value) else np.nan,
+                "Baseline_value": float(baseline_value) if pd.notna(baseline_value) else np.nan,
+                "Fecha_actual": current_row_date,
+                "Baseline_start_date": pd.Timestamp(baseline_start_date).normalize() if pd.notna(baseline_start_date) else pd.NaT,
+                "Baseline_end_date": pd.Timestamp(baseline_end_date).normalize() if pd.notna(baseline_end_date) else pd.NaT,
+                "Delta_abs": float(delta_abs) if pd.notna(delta_abs) else np.nan,
+                "Delta_pct": float(delta_pct) if pd.notna(delta_pct) else np.nan,
+                "Baseline_method": baseline_method,
+                "N_valid": n_valid,
+                "Signal": signal,
+                "Higher_is_better": bool(meta["higher_is_better"]),
+            }
+        )
+
+    return pd.DataFrame(rows, columns=columns)
+
+
+def build_jump_baseline_display_table(baseline_df: pd.DataFrame) -> pd.DataFrame:
+    if baseline_df is None or baseline_df.empty:
+        return pd.DataFrame(columns=["Variable", "Actual", "Baseline", "Delta abs", "Delta %", "Metodo", "Senal"])
+
+    rows: list[dict[str, object]] = []
+    for _, row in baseline_df.iterrows():
+        meta = VARIABLE_META.get(str(row["Variable"]), {})
+        formatter = meta.get("fmt", "{:.2f}")
+
+        def _fmt_value(value) -> str:
+            if value is None or pd.isna(value):
+                return "-"
+            return str(formatter).format(float(value))
+
+        delta_pct = row.get("Delta_pct")
+        delta_pct_text = f"{float(delta_pct):+.1f}%" if pd.notna(delta_pct) else "-"
+        delta_abs = row.get("Delta_abs")
+        delta_abs_text = "-"
+        if pd.notna(delta_abs):
+            delta_abs_text = f"{float(delta_abs):+.{3 if row['Variable'] == 'EUR' else 2}f}".rstrip("0").rstrip(".")
+
+        baseline_method = row.get("Baseline_method")
+        if pd.notna(baseline_method):
+            start_date = pd.to_datetime(row.get("Baseline_start_date"), errors="coerce")
+            end_date = pd.to_datetime(row.get("Baseline_end_date"), errors="coerce")
+            date_range = ""
+            if pd.notna(start_date) and pd.notna(end_date):
+                date_range = f" ({start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')})"
+            method_text = f"Primeras 3{date_range}"
+        else:
+            method_text = f"Baseline insuficiente (N={int(row.get('N_valid', 0))}/{BASELINE_MIN_VALID})"
+
+        rows.append(
+            {
+                "Variable": row["Label"],
+                "Actual": _fmt_value(row.get("Valor_actual")),
+                "Baseline": _fmt_value(row.get("Baseline_value")),
+                "Delta abs": delta_abs_text,
+                "Delta %": delta_pct_text,
+                "Metodo": method_text,
+                "Senal": BASELINE_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-"))),
+            }
+        )
+
+    return pd.DataFrame(rows, columns=["Variable", "Actual", "Baseline", "Delta abs", "Delta %", "Metodo", "Senal"])
 
 
 def _format_profile_source_date(value: object) -> str:

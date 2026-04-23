@@ -85,6 +85,7 @@ from modules.jump_analysis import (
     _records_to_jump_df as shared_records_to_jump_df,
     build_composite_profile_metric_table as shared_build_composite_profile_metric_table,
     build_composite_profile_snapshot as shared_build_composite_profile_snapshot,
+    build_jump_baseline_display_table as shared_build_jump_baseline_display_table,
     build_jump_delta_display_table as shared_build_jump_delta_display_table,
     build_jump_feedback_lines as shared_build_jump_feedback_lines,
     build_jump_flag_rows as shared_build_jump_flag_rows,
@@ -94,6 +95,7 @@ from modules.jump_analysis import (
     calc_eur as shared_calc_eur,
     calc_nm_profile as shared_calc_nm_profile,
     calc_zscores as shared_calc_zscores,
+    compute_baseline_delta as shared_compute_baseline_delta,
     compute_swc_delta as shared_compute_swc_delta,
 )
 from modules.remote_store import (
@@ -3131,6 +3133,32 @@ def render_jump_temporal_delta_table(delta_df: pd.DataFrame):
     st.dataframe(styler, use_container_width=False, hide_index=True)
 
 
+def render_jump_baseline_delta_table(baseline_df: pd.DataFrame):
+    display_df = build_jump_baseline_display_table(baseline_df)
+    if display_df.empty:
+        st.caption("No hay variables comparables para baseline.")
+        return
+
+    signal_palette = {
+        "mejora vs baseline": ("rgba(111,143,120,0.16)", "#446555"),
+        "caida vs baseline": ("rgba(181,107,115,0.18)", "#7B3D45"),
+        "sin cambio vs baseline": ("rgba(112,140,159,0.16)", "#41515E"),
+        "baseline insuficiente": ("rgba(196,164,100,0.12)", "#6D5D3C"),
+        "sin dato actual": ("rgba(112,140,159,0.12)", "#41515E"),
+    }
+    signal_values = baseline_df["Signal"].reset_index(drop=True)
+
+    def _style_signal(column: pd.Series) -> list[str]:
+        styles: list[str] = []
+        for idx, _ in enumerate(column):
+            bg, fg = signal_palette.get(signal_values.iloc[idx], ("rgba(112,140,159,0.16)", "#41515E"))
+            styles.append(f"background-color: {bg}; color: {fg}; font-weight: 700;")
+        return styles
+
+    styler = display_df.style.apply(_style_signal, subset=["Senal"])
+    st.dataframe(styler, use_container_width=False, hide_index=True)
+
+
 def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
     if val is None or ref is None:
         return
@@ -3193,8 +3221,10 @@ build_composite_profile_snapshot = shared_build_composite_profile_snapshot
 build_jump_feedback_lines = shared_build_jump_feedback_lines
 build_jump_flag_rows = shared_build_jump_flag_rows
 build_jump_metric_table = shared_build_jump_metric_table
+build_jump_baseline_display_table = shared_build_jump_baseline_display_table
 build_jump_delta_display_table = shared_build_jump_delta_display_table
 build_jump_temporal_context = shared_build_jump_temporal_context
+compute_baseline_delta = shared_compute_baseline_delta
 compute_swc_delta = shared_compute_swc_delta
 export_excel = shared_export_excel
 
@@ -5585,6 +5615,7 @@ with tab_eval:
             latest_profile_ts = pd.NaT
             latest_profile_date_text = "Sin fecha"
             delta_df = pd.DataFrame()
+            baseline_df = pd.DataFrame()
             temporal_lines = []
             selected_flag_rows = []
             selected_feedback_lines = []
@@ -5600,6 +5631,7 @@ with tab_eval:
             latest_ts = pd.to_datetime(latest_row.get("Date"), errors="coerce")
             latest_date_text = latest_ts.strftime("%d/%m/%Y") if not pd.isna(latest_ts) else "Sin fecha"
             delta_df = compute_swc_delta(hist_j, selected_date)
+            baseline_df = compute_baseline_delta(hist_j, selected_date)
             temporal_lines = build_jump_temporal_context(delta_df)
             selected_flag_rows = build_jump_flag_rows(selected_row)
             selected_feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
@@ -5645,6 +5677,17 @@ with tab_eval:
         if not delta_df.empty and delta_df["Signal"].eq("sin dato anterior").all():
             st.caption(
                 "Primera evaluacion registrada para este atleta. El threshold individual tipo Hopkins estara disponible a partir de la tercera medicion valida por variable."
+            )
+
+        render_subsection_header(
+            "Cambio vs baseline",
+            "baseline fijo por variable: promedio de las primeras 3 mediciones validas",
+            kicker="Baseline",
+        )
+        render_jump_baseline_delta_table(baseline_df)
+        if not baseline_df.empty and baseline_df["Signal"].eq("baseline insuficiente").all():
+            st.caption(
+                "Baseline insuficiente: se necesitan al menos 3 mediciones validas por variable para establecer la referencia inicial."
             )
 
         render_jump_flag_chips(selected_flag_rows)

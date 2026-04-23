@@ -12,6 +12,8 @@ import pandas as pd
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from modules.jump_analysis import compute_baseline_delta
+
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 BRAND_ASSET_DIR = APP_ROOT / "assets" / "brand"
@@ -149,17 +151,28 @@ def _latest_jump_row(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.
 
 
 def _cmj_delta_vs_baseline(state: dict[str, pd.DataFrame | None], athlete: str) -> float | None:
+    # Product v1 baseline: fixed per variable as the mean of the first
+    # three valid measurements. Function name/column stay for report
+    # compatibility, but the old full-history CMJ mean is deprecated.
     jdf = state.get("jump_df")
     if jdf is None or jdf.empty or "Athlete" not in jdf.columns or "CMJ_cm" not in jdf.columns:
         return None
     athlete_df = jdf[jdf["Athlete"] == athlete].sort_values("Date")
-    if athlete_df.empty or athlete_df["CMJ_cm"].dropna().empty:
+    if athlete_df.empty or "Date" not in athlete_df.columns:
         return None
-    latest = athlete_df["CMJ_cm"].dropna().iloc[-1]
-    baseline = athlete_df["CMJ_cm"].dropna().mean()
-    if baseline == 0:
+    latest_date = pd.to_datetime(athlete_df["Date"], errors="coerce").dropna()
+    if latest_date.empty:
         return None
-    return round(((latest - baseline) / baseline) * 100, 1)
+    baseline_df = compute_baseline_delta(athlete_df, latest_date.max(), variables=["CMJ_cm"])
+    if baseline_df.empty:
+        return None
+    cmj_row = baseline_df.iloc[0]
+    if cmj_row.get("Signal") in {"baseline insuficiente", "sin dato actual"}:
+        return None
+    delta_pct = pd.to_numeric(pd.Series([cmj_row.get("Delta_pct")]), errors="coerce").iloc[0]
+    if pd.isna(delta_pct):
+        return None
+    return round(float(delta_pct), 1)
 
 
 def _team_completion_mean(state: dict[str, pd.DataFrame | None]) -> float | None:
@@ -964,9 +977,9 @@ def _strengths_from_row(row: pd.Series, *, audience: str) -> list[str]:
     profile = _ascii_text(row.get("Perfil NM")).strip()
     if cmj_delta is not None and cmj_delta >= 0:
         strengths.append(
-            "Tu salto vertical se sostiene o mejora respecto a la base reciente."
+            "Tu salto vertical se sostiene o mejora respecto al baseline inicial."
             if audience != "profe" else
-            "El CMJ se sostiene o mejora respecto a la línea base reciente."
+            "El CMJ se sostiene o mejora respecto al baseline inicial."
         )
     if acwr is not None and 0.8 <= acwr <= 1.3:
         strengths.append(
@@ -1003,9 +1016,9 @@ def _gaps_from_row(row: pd.Series, *, audience: str) -> list[str]:
 
     if cmj_delta is not None and cmj_delta <= -5:
         gaps.append(
-            "Tu salto vertical cayó frente a tu base reciente; conviene recuperar calidad."
+            "Tu salto vertical cayo frente a tu baseline inicial; conviene recuperar calidad."
             if audience != "profe" else
-            "El CMJ cae respecto a la base; conviene revisar fatiga reciente y exposición."
+            "El CMJ cae respecto al baseline inicial; conviene revisar fatiga reciente y exposicion."
         )
     if acwr is not None and acwr > 1.5:
         gaps.append(
@@ -1581,9 +1594,9 @@ def generate_module_insights(
         eval_focus: list[str] = []
         if cmj_delta is not None:
             if cmj_delta <= -5:
-                eval_focus.append("El CMJ cae respecto a la base; conviene mirar fatiga y exposición reciente.")
+                eval_focus.append("El CMJ cae respecto al baseline inicial; conviene mirar fatiga y exposicion reciente.")
             elif cmj_delta >= 5:
-                eval_focus.append("La salida vertical está por encima de la base reciente.")
+                eval_focus.append("La salida vertical esta por encima del baseline inicial.")
             else:
                 eval_focus.append("La evaluación se mantiene cerca de la línea base del atleta.")
         if _has_text(row.get("Perfil NM")):
@@ -1812,7 +1825,7 @@ def _audience_metric_rows(
         if load_available and _has_text(focus_row.get("Zona")):
             rows.append(("Cómo venís hoy", _display_zone(focus_row.get("Zona"))))
         if eval_available and _coerce_float(focus_row.get("CMJ vs BL %")) is not None:
-            rows.append(("Cambio desde tu base", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%")))
+            rows.append(("Cambio vs baseline inicial", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%")))
         elif not eval_available:
             rows.append(("Chequeo físico", "Todavía no contamos con una medición física comparable."))
         if eval_available and _coerce_float(focus_row.get("CMJ cm")) is not None:
@@ -1842,7 +1855,7 @@ def _audience_metric_rows(
             if _coerce_float(focus_eur) is not None:
                 rows.append((EUR_RATIO_LABEL, _display_metric(focus_eur, digits=2)))
             if _coerce_float(focus_row.get("CMJ vs BL %")) is not None:
-                rows.append(("Cambio vs base", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%")))
+                rows.append(("Cambio vs baseline inicial", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%")))
         else:
             rows.append(("Evaluación reciente", "Sin evaluación física reciente"))
 
@@ -1952,7 +1965,7 @@ def _audience_blocks(
                 ""
             )
             progress_summary = (
-                f"Tomamos como referencia tu línea base reciente. Hoy el cambio visible es {_display_metric(row.get('CMJ vs BL %'), digits=1, suffix='%')}{zone_text}."
+                f"Tomamos como referencia tu baseline inicial. Hoy el cambio visible es {_display_metric(row.get('CMJ vs BL %'), digits=1, suffix='%')}{zone_text}."
                 if _coerce_float(row.get("CMJ vs BL %")) is not None else
                 "Ya contamos con una evaluación reciente para ubicar mejor tu punto actual y seguir el proceso con más claridad."
             )
@@ -2011,7 +2024,7 @@ def _audience_blocks(
             [
                 f"ACWR EWMA actual: {_display_metric(row.get('ACWR EWMA'), digits=2)} en zona {_display_zone(row.get('Zona'))}." if load_available and _coerce_float(row.get("ACWR EWMA")) is not None else None,
                 f"Wellness reciente: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
-                f"Cambio frente a la base reciente: {_display_metric(row.get('CMJ vs BL %'), digits=1, suffix='%')}." if _coerce_float(row.get("CMJ vs BL %")) is not None else None,
+                f"Cambio frente al baseline inicial: {_display_metric(row.get('CMJ vs BL %'), digits=1, suffix='%')}." if _coerce_float(row.get("CMJ vs BL %")) is not None else None,
             ]
         ) or strengths[:2]
         first_block = {

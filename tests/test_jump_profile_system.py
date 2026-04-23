@@ -14,11 +14,13 @@ from modules.jump_analysis import (
     _prepare_jump_df,
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
+    build_jump_baseline_display_table,
     build_jump_delta_display_table,
     build_jump_feedback_lines,
     build_jump_flag_rows,
     build_jump_metric_table,
     build_jump_temporal_context,
+    compute_baseline_delta,
     compute_swc_delta,
 )
 
@@ -553,6 +555,48 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertTrue(any("caida relevante en" in line and "DJ TC" in line for line in temporal_lines))
         self.assertIn("↑ mejora relevante", display_df["Senal"].tolist())
         self.assertIn("↓ caida relevante", display_df["Senal"].tolist())
+
+    def test_compute_baseline_delta_requires_three_valid_measurements(self):
+        jump_df = _temporal_jump_df()
+
+        second_baseline = compute_baseline_delta(jump_df, "2026-04-08")
+        cmj_second = second_baseline[second_baseline["Variable"] == "CMJ_cm"].iloc[0]
+
+        self.assertEqual(cmj_second["Signal"], "baseline insuficiente")
+        self.assertEqual(int(cmj_second["N_valid"]), 2)
+        self.assertTrue(pd.isna(cmj_second["Baseline_value"]))
+
+    def test_compute_baseline_delta_uses_first_three_values_per_variable(self):
+        jump_df = _temporal_jump_df()
+
+        fourth_baseline = compute_baseline_delta(jump_df, "2026-04-22")
+        cmj_fourth = fourth_baseline[fourth_baseline["Variable"] == "CMJ_cm"].iloc[0]
+
+        self.assertAlmostEqual(float(cmj_fourth["Baseline_value"]), 31.0, places=2)
+        self.assertAlmostEqual(float(cmj_fourth["Delta_abs"]), 3.0, places=2)
+        self.assertAlmostEqual(float(cmj_fourth["Delta_pct"]), 9.68, places=2)
+        self.assertEqual(cmj_fourth["Baseline_method"], "Promedio primeras 3 mediciones validas")
+        self.assertEqual(cmj_fourth["Signal"], "mejora vs baseline")
+
+    def test_compute_baseline_delta_inverts_signal_for_lower_is_better_variables(self):
+        jump_df = _temporal_jump_df()
+
+        fourth_baseline = compute_baseline_delta(jump_df, "2026-04-22")
+        dj_tc_baseline = fourth_baseline[fourth_baseline["Variable"] == "DJ_tc_ms"].iloc[0]
+
+        self.assertFalse(bool(dj_tc_baseline["Higher_is_better"]))
+        self.assertAlmostEqual(float(dj_tc_baseline["Baseline_value"]), (220 + 210 + 205) / 3, places=2)
+        self.assertGreater(float(dj_tc_baseline["Delta_abs"]), 0)
+        self.assertEqual(dj_tc_baseline["Signal"], "caida vs baseline")
+
+    def test_baseline_display_table_reports_insufficient_baseline(self):
+        jump_df = _temporal_jump_df()
+
+        second_baseline = compute_baseline_delta(jump_df, "2026-04-08")
+        display_df = build_jump_baseline_display_table(second_baseline)
+
+        self.assertIn("baseline insuficiente", display_df["Senal"].tolist())
+        self.assertTrue(any("N=2/3" in str(value) for value in display_df["Metodo"].tolist()))
 
 
 if __name__ == "__main__":

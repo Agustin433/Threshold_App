@@ -11,10 +11,12 @@ from charts.dashboard_charts import chart_cmj_trend, chart_composite_profile_rad
 from modules.jump_analysis import (
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
+    build_jump_baseline_display_table,
     build_jump_delta_display_table,
     build_jump_feedback_lines,
     build_jump_flag_rows,
     build_jump_temporal_context,
+    compute_baseline_delta,
     compute_swc_delta,
 )
 from modules.page_state import ensure_page_state
@@ -99,6 +101,32 @@ def _render_temporal_delta_table(delta_df: pd.DataFrame) -> None:
     st.dataframe(styler, use_container_width=True, hide_index=True)
 
 
+def _render_baseline_delta_table(baseline_df: pd.DataFrame) -> None:
+    display_df = build_jump_baseline_display_table(baseline_df)
+    if display_df.empty:
+        st.caption("No hay variables comparables para baseline.")
+        return
+
+    signal_palette = {
+        "mejora vs baseline": ("rgba(111,143,120,0.16)", "#446555"),
+        "caida vs baseline": ("rgba(181,107,115,0.18)", "#7B3D45"),
+        "sin cambio vs baseline": ("rgba(112,140,159,0.16)", "#41515E"),
+        "baseline insuficiente": ("rgba(196,164,100,0.12)", "#6D5D3C"),
+        "sin dato actual": ("rgba(112,140,159,0.12)", "#41515E"),
+    }
+    signal_values = baseline_df["Signal"].reset_index(drop=True)
+
+    def _style_signal(column: pd.Series) -> list[str]:
+        styles: list[str] = []
+        for idx, _ in enumerate(column):
+            bg, fg = signal_palette.get(signal_values.iloc[idx], ("rgba(112,140,159,0.16)", "#41515E"))
+            styles.append(f"background-color: {bg}; color: {fg}; font-weight: 700;")
+        return styles
+
+    styler = display_df.style.apply(_style_signal, subset=["Senal"])
+    st.dataframe(styler, use_container_width=True, hide_index=True)
+
+
 def _format_eval_date(value: object) -> str:
     parsed = pd.to_datetime(value, errors="coerce")
     return parsed.strftime("%d/%m/%Y") if pd.notna(parsed) else "Sin fecha"
@@ -157,6 +185,7 @@ else:
     selected_row = selected_rows.iloc[-1] if not selected_rows.empty else athlete_hist.iloc[-1]
     current_profile_row, current_profile_sources = build_composite_profile_snapshot(athlete_hist)
     delta_df = compute_swc_delta(athlete_hist, selected_date)
+    baseline_df = compute_baseline_delta(athlete_hist, selected_date)
     temporal_lines = build_jump_temporal_context(delta_df)
     selected_feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
 
@@ -176,6 +205,13 @@ else:
     if not delta_df.empty and delta_df["Signal"].eq("sin dato anterior").all():
         st.caption(
             "Primera evaluacion registrada para este atleta. El threshold individual tipo Hopkins estara disponible a partir de la tercera medicion valida por variable."
+        )
+    st.markdown("### Cambio vs baseline")
+    st.caption("Baseline fijo por variable: promedio de las primeras 3 mediciones validas.")
+    _render_baseline_delta_table(baseline_df)
+    if not baseline_df.empty and baseline_df["Signal"].eq("baseline insuficiente").all():
+        st.caption(
+            "Baseline insuficiente: se necesitan al menos 3 mediciones validas por variable para establecer la referencia inicial."
         )
     _render_flag_chips(build_jump_flag_rows(selected_row))
     _render_feedback(selected_feedback_lines)
