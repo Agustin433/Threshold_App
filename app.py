@@ -3377,6 +3377,101 @@ def _completion_view_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") ->
     )
 
 
+def _overview_loaded(df: pd.DataFrame | None) -> bool:
+    return df is not None and not df.empty
+
+
+def _overview_weekly_frame(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or df.empty or "week_start" not in df.columns:
+        return pd.DataFrame()
+    result = df.copy()
+    result["week_start"] = pd.to_datetime(result["week_start"], errors="coerce").dt.normalize()
+    return result.dropna(subset=["week_start"])
+
+
+def _overview_current_week_slice(df: pd.DataFrame | None, today: pd.Timestamp | None = None) -> pd.DataFrame:
+    result = _overview_weekly_frame(df)
+    if result.empty:
+        return result
+    current_mask = result["is_current_week"].eq(True) if "is_current_week" in result.columns else pd.Series(False, index=result.index)
+    if current_mask.any():
+        return result.loc[current_mask].copy()
+    today_ts = pd.Timestamp.today().normalize() if today is None else pd.Timestamp(today).normalize()
+    current_week = today_ts - pd.Timedelta(days=int(today_ts.weekday()))
+    return result.loc[result["week_start"].eq(current_week)].copy()
+
+
+def _overview_number(value: object, digits: int = 0, suffix: str = "") -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return "Sin dato"
+    if digits <= 0:
+        return f"{numeric:,.0f}{suffix}"
+    return f"{numeric:,.{digits}f}{suffix}"
+
+
+def _overview_completion_snapshot(comp_df: pd.DataFrame | None, today: pd.Timestamp | None = None) -> dict[str, object]:
+    completion_view = _completion_view_df(comp_df, "Todos")
+    if completion_view.empty:
+        return {
+            "value": "Sin dato",
+            "detail": "Cargar Completion Report para adherencia oficial.",
+            "tone": "neutral",
+            "numeric": None,
+        }
+
+    today_ts = pd.Timestamp.today().normalize() if today is None else pd.Timestamp(today).normalize()
+    current_week = today_ts - pd.Timedelta(days=int(today_ts.weekday()))
+    current = completion_view[
+        (completion_view["Date"].dt.normalize() >= current_week)
+        & (completion_view["Date"].dt.normalize() <= today_ts)
+    ].copy()
+    period_label = "Semana actual"
+
+    if current.empty:
+        latest_date = completion_view["Date"].max().normalize()
+        current = completion_view[completion_view["Date"].dt.normalize().eq(latest_date)].copy()
+        period_label = f"Ultimo registro {latest_date:%d/%m}"
+
+    completion_mean = float(current["Pct"].mean())
+    tone = "success" if completion_mean >= 90 else "warning" if completion_mean >= 70 else "danger"
+    return {
+        "value": f"{completion_mean:.0f}%",
+        "detail": f"{period_label} · {len(current)} dia(s) con dato.",
+        "tone": tone,
+        "numeric": completion_mean,
+    }
+
+
+def render_overview_card(title: str, value: str, detail: str, tone: str = "neutral") -> None:
+    palette = {
+        "success": C["green"],
+        "warning": C["yellow"],
+        "danger": C["red"],
+        "info": C["blue"],
+        "neutral": C["navy"],
+    }
+    accent = palette.get(tone, C["navy"])
+    st.markdown(
+        f"""
+<div style="
+  background:{C["card"]};
+  border:1px solid {C["border"]};
+  border-top:3px solid {accent};
+  border-radius:8px;
+  padding:0.95rem 1rem;
+  min-height:126px;
+  margin-bottom:0.85rem;
+">
+  <div style="font-family:'Barlow Condensed',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:{C["muted"]};margin-bottom:0.42rem;">{html.escape(title)}</div>
+  <div style="font-family:'DM Mono',monospace;font-size:1.55rem;line-height:1.08;color:{C["white"]};margin-bottom:0.48rem;">{html.escape(str(value))}</div>
+  <div style="font-size:0.86rem;line-height:1.45;color:{C["gray"]};">{html.escape(detail)}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def _push_notice(kind: str, message: str) -> None:
     st.session_state.upload_feedback.append({"kind": kind, "message": message})
 
@@ -5154,101 +5249,179 @@ tab_overview, tab_decision, tab_load, tab_eval, tab_profile, tab_team, tab_repor
 # TAB: OVERVIEW
 # ─────────────────────────────────────────────────────────────────────
 with tab_overview:
-    render_module_header("Estado General", "resumen ejecutivo de carga, cumplimiento y evaluaciones", kicker="Resumen")
+    render_module_header(
+        "Overview Ejecutivo",
+        "landing ejecutiva para readiness, señales semanales y proximo tab",
+        kicker="Triage",
+    )
 
-    rdf  = st.session_state.rpe_df
-    wdf  = st.session_state.wellness_df
+    rdf = st.session_state.rpe_df
+    wdf = st.session_state.wellness_df
     maxes_df = st.session_state.maxes_df
-    jdf  = st.session_state.jump_df
-    cdf  = st.session_state.completion_df
+    jdf = st.session_state.jump_df
+    cdf = st.session_state.completion_df
     rldf = st.session_state.rep_load_df
+    raw_df_state = st.session_state.raw_df
+    state_snapshot = _current_state_snapshot()
 
-    render_subsection_header("Estado de fuentes", "disponibilidad de datasets para construir el reporte", kicker="Datos")
+    prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if _overview_loaded(raw_df_state) else None
+    quality_report = compute_data_quality_report(
+        rdf,
+        wdf,
+        cdf,
+        prepared_raw_df,
+        maxes_df,
+        jdf,
+        known_athlete_names(),
+        window_days=42,
+    )
+    quality_alerts = quality_report.get("alerts", [])
+
+    if not st.session_state.weekly_summaries:
+        st.session_state.weekly_summaries = build_weekly_summaries(
+            rdf,
+            wdf,
+            raw_df_state,
+            acwr_dict=st.session_state.get("acwr_dict") or {},
+        )
+    weekly_summaries = st.session_state.weekly_summaries or {}
+    weekly_load_current = _overview_current_week_slice(weekly_summaries.get("weekly_load"))
+    weekly_wellness_current = _overview_current_week_slice(weekly_summaries.get("weekly_wellness"))
+    weekly_team_current = _overview_current_week_slice(weekly_summaries.get("weekly_team"))
+    current_team = weekly_team_current.tail(1).iloc[0] if not weekly_team_current.empty else pd.Series(dtype=object)
+
     status_items = [
-        ("RPE/sRPE",      rdf  is not None),
-        ("Wellness",      wdf  is not None),
-        ("Completion",    cdf  is not None),
-        ("Rep/Load",      rldf is not None),
-        ("Raw Workouts",  st.session_state.raw_df is not None),
-        ("Maxes",         st.session_state.maxes_df is not None),
-        ("Saltos/Eval",   jdf  is not None),
+        ("RPE/sRPE", _overview_loaded(rdf)),
+        ("Wellness", _overview_loaded(wdf)),
+        ("Completion", _overview_loaded(cdf)),
+        ("Rep/Load", _overview_loaded(rldf)),
+        ("Raw Workouts", _overview_loaded(raw_df_state)),
+        ("Maxes", _overview_loaded(maxes_df)),
+        ("Saltos/Eval", _overview_loaded(jdf)),
     ]
+    loaded_sources = sum(1 for _, ok in status_items if ok)
+    missing_sources = [label for label, ok in status_items if not ok]
+
+    render_subsection_header("Readiness de fuentes", "estado rapido para saber si el sistema esta listo", kicker="Datos")
     render_status_badges(status_items)
     dataset_rows = _active_dataset_rows()
     if dataset_rows:
         st.dataframe(
             pd.DataFrame(dataset_rows)[["Dataset", "Registros", "Atletas", "Ultima fecha", "Ventana activa"]],
-            use_container_width=False,
+            use_container_width=True,
             hide_index=True,
         )
 
-    st.markdown("---")
+    completion_signal = _overview_completion_snapshot(cdf)
+    readiness_tone = "success" if loaded_sources >= 5 and not quality_alerts else "warning" if loaded_sources >= 3 else "danger"
+    readiness_detail = (
+        "Fuentes principales disponibles para triage."
+        if not missing_sources else
+        f"Faltan: {', '.join(missing_sources[:3])}{'...' if len(missing_sources) > 3 else ''}."
+    )
+    quality_tone = "success" if loaded_sources and not quality_alerts else "warning" if len(quality_alerts) <= 2 else "danger"
+    quality_detail = (
+        "Sin alertas activas en la ventana operativa."
+        if not quality_alerts else
+        f"Revisar {len(quality_alerts)} alerta(s) en Calidad de datos."
+    )
 
-    if rdf is not None and st.session_state.acwr_dict:
-        render_subsection_header("Resumen rapido", "ultima sesion disponible por atleta", kicker="Carga")
-        rows_ov = []
-        for ath, adf in st.session_state.acwr_dict.items():
-            last = adf[adf["sRPE_diario"] > 0].tail(1)
-            if last.empty:
-                continue
-            mono_src = (st.session_state.mono_dict or {}).get(ath)
-            mono = mono_src.tail(1) if mono_src is not None else pd.DataFrame()
-            rows_ov.append({
-                "Atleta": ath,
-                "Última sesión sRPE": f"{last['sRPE_diario'].values[0]:.0f} UA",
-                "ACWR EWMA": f"{last['ACWR_EWMA'].values[0]:.2f}",
-                "Zona": last["Zona"].values[0],
-                "Monotonía": f"{mono['Monotonia'].values[0]:.2f}" if not mono.empty else "—",
-                "Strain": f"{mono['Strain'].values[0]:.0f}" if not mono.empty else "—",
-            })
-        if rows_ov:
-            df_ov = pd.DataFrame(rows_ov)
-            st.dataframe(df_ov, use_container_width=False, hide_index=True)
+    acwr_values = pd.to_numeric(
+        weekly_load_current.get("ACWR_EWMA_last", pd.Series(index=weekly_load_current.index)),
+        errors="coerce",
+    )
+    monotony_values = pd.to_numeric(
+        weekly_load_current.get("monotony", pd.Series(index=weekly_load_current.index)),
+        errors="coerce",
+    )
+    load_risk_count = int((acwr_values.gt(1.3) | monotony_values.gt(MONOTONY_HIGH)).fillna(False).sum())
+    active_athletes = _overview_number(current_team.get("athletes_active"))
+    weekly_srpe = _overview_number(current_team.get("team_sRPE_sum"), suffix=" UA")
+    load_tone = "danger" if load_risk_count else "success" if weekly_srpe != "Sin dato" else "neutral"
+    load_detail = (
+        f"Semana actual · {active_athletes} atleta(s) activos · {load_risk_count} en precaucion/riesgo."
+        if weekly_srpe != "Sin dato" else
+        "Cargar RPE/sRPE para lectura semanal de carga."
+    )
 
-    overview_note = generate_module_insights(dict(st.session_state), "Todos").get("overview")
+    wellness_value = _overview_number(current_team.get("team_wellness_mean"), digits=1)
+    wellness_days = 0
+    if not weekly_wellness_current.empty and "wellness_days" in weekly_wellness_current.columns:
+        wellness_days = int(pd.to_numeric(weekly_wellness_current["wellness_days"], errors="coerce").fillna(0).sum())
+    wellness_numeric = pd.to_numeric(pd.Series([current_team.get("team_wellness_mean")]), errors="coerce").iloc[0]
+    wellness_tone = "success" if pd.notna(wellness_numeric) and wellness_numeric >= 15 else "warning" if pd.notna(wellness_numeric) else "neutral"
+    wellness_detail = (
+        f"Semana actual · {wellness_days} registro(s) de wellness."
+        if wellness_value != "Sin dato" else
+        "Cargar Wellness para lectura de recuperacion."
+    )
+
+    eval_value = "Sin dato"
+    eval_detail = "Cargar evaluaciones para perfil neuromuscular."
+    eval_tone = "neutral"
+    if _overview_loaded(jdf) and "Date" in jdf.columns:
+        eval_dates = pd.to_datetime(jdf["Date"], errors="coerce").dropna()
+        if not eval_dates.empty:
+            latest_eval = eval_dates.max().normalize()
+            days_since_eval = int((pd.Timestamp.today().normalize() - latest_eval).days)
+            eval_athletes = int(jdf["Athlete"].dropna().nunique()) if "Athlete" in jdf.columns else 0
+            eval_value = f"{latest_eval:%d/%m}"
+            eval_detail = f"Ultima toma · {eval_athletes} atleta(s) · hace {days_since_eval} dia(s)."
+            eval_tone = "success" if days_since_eval <= 30 else "warning" if days_since_eval <= 60 else "danger"
+
+    render_subsection_header("Señales ejecutivas", "4-6 indicadores para decidir que mirar ahora", kicker="Ahora")
+    executive_cards = [
+        ("Fuentes listas", f"{loaded_sources}/{len(status_items)}", readiness_detail, readiness_tone),
+        ("Calidad de datos", f"{len(quality_alerts)} alerta(s)", quality_detail, quality_tone),
+        ("Carga semanal", weekly_srpe, load_detail, load_tone),
+        ("Adherencia", str(completion_signal["value"]), str(completion_signal["detail"]), str(completion_signal["tone"])),
+        ("Wellness", wellness_value, wellness_detail, wellness_tone),
+        ("Evaluaciones", eval_value, eval_detail, eval_tone),
+    ]
+    for chunk in (executive_cards[:3], executive_cards[3:]):
+        cols = st.columns(len(chunk))
+        for col, (title, value, detail, tone) in zip(cols, chunk):
+            with col:
+                render_overview_card(title, value, detail, tone)
+
+    attention_items: list[str] = []
+    if quality_alerts:
+        attention_items.append("Calidad de datos: revisar alertas antes de interpretar o exportar.")
+    if load_risk_count:
+        attention_items.append(f"Carga: {load_risk_count} atleta(s) aparecen en precaucion/riesgo esta semana.")
+    completion_numeric = completion_signal.get("numeric")
+    if completion_numeric is not None and float(completion_numeric) < 90:
+        attention_items.append("Adherencia: completion por debajo del objetivo ejecutivo de 90%.")
+    if eval_tone in {"warning", "danger"}:
+        attention_items.append("Evaluaciones: actualizar tomas si el perfil fisico va a orientar decisiones.")
+    if not attention_items:
+        attention_items.append("Sin bloqueos ejecutivos claros; profundizar segun la decision del dia.")
+
+    overview_note = generate_module_insights(state_snapshot, "Todos").get("overview")
     if overview_note:
+        summary = (
+            f"{overview_note['summary']} "
+            f"Estado actual: {loaded_sources}/{len(status_items)} fuentes activas, "
+            f"{len(quality_alerts)} alerta(s) de calidad y adherencia {completion_signal['value']}."
+        )
         render_report_note(
-            overview_note["title"],
-            overview_note["summary"],
-            overview_note.get("focuses"),
-            kicker="Lectura breve",
+            "Lectura integrada",
+            summary,
+            attention_items[:4],
+            kicker="Resumen breve",
         )
 
-    if cdf is not None:
-        render_subsection_header("Adherencia y volumen", "completion rate y exposicion total acumulada", kicker="Resumen")
-        c1, c2 = st.columns(2)
-        with c1:
-            completion_sel_overview = "Todos"
-            if _completion_has_athlete_column(cdf):
-                completion_sel_overview = st.selectbox(
-                    "Atleta",
-                    _completion_options(cdf),
-                    key="completion_sel_overview",
-                )
-            else:
-                st.caption("El Completion Report actual no trae columna de atleta. Se muestra la vista global.")
-
-            cdf_view = _completion_view_df(cdf, completion_sel_overview)
-            if not cdf_view.empty:
-                avg_comp = cdf_view["Pct"].mean()
-                target_label = "equipo" if completion_sel_overview == "Todos" else completion_sel_overview
-                _alert(
-                    f"Completion rate promedio ({target_label}): **{avg_comp:.0f}%**",
-                    "g" if avg_comp >= 90 else "y",
-                )
-                st.plotly_chart(
-                    chart_completion(cdf_view, athlete_label=completion_sel_overview),
-                    use_container_width=False,
-                    key="completion_overview",
-                )
-            else:
-                _alert("No hay datos de completion para la seleccion actual.", "b")
-        with c2:
-            if rldf is not None:
-                total_load = rldf["Load_kg"].sum()
-                avg_reps   = rldf["Reps_Completed"].mean()
-                st.metric("Tonelaje total", f"{total_load:,.0f} kg")
-                st.metric("Reps/sesión promedio", f"{avg_reps:.0f}")
+    render_subsection_header("Adonde ir despues", "derivacion clara para profundizar sin duplicar tabs", kicker="Siguiente")
+    route_cards = [
+        ("Panel de Decision", "Priorizar decisiones de la semana con carga, wellness y evaluaciones cruzadas."),
+        ("Load Monitoring", "Profundizar ACWR, strain, monotonia y carga externa semanal."),
+        ("Calidad de datos", "Abrir Load Monitoring > Calidad de datos para auditar fuentes, huecos y alertas."),
+        ("Evaluaciones", "Revisar perfiles, baseline, SWC y ultimas tomas fisicas."),
+    ]
+    route_cols = st.columns(4)
+    for col, (target, detail) in zip(route_cols, route_cards):
+        with col:
+            render_overview_card("Ir a", target, detail, "info")
 
 
 # ─────────────────────────────────────────────────────────────────────
