@@ -10,6 +10,7 @@ from modules.jump_analysis import (
     _prepare_jump_df,
     _available_radar_axes,
     choose_secondary_quadrant_x_spec,
+    compute_baseline_delta,
 )
 
 
@@ -440,7 +441,15 @@ def chart_cmj_trend(jump_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.F
     if data.empty:
         return go.Figure()
 
-    baseline = data["CMJ_cm"].mean()
+    baseline = pd.to_numeric(data["CMJ_cm"], errors="coerce").mean()
+    current_dates = pd.to_datetime(data["Date"], errors="coerce").dropna()
+    if not current_dates.empty:
+        baseline_df = compute_baseline_delta(data, current_dates.max(), variables=["CMJ_cm"])
+        if not baseline_df.empty:
+            baseline_row = baseline_df.iloc[0]
+            baseline_value = pd.to_numeric(pd.Series([baseline_row.get("Baseline_value")]), errors="coerce").iloc[0]
+            if pd.notna(baseline_value):
+                baseline = float(baseline_value)
     fig = go.Figure()
     fig.add_hrect(
         y0=baseline * 0.95,

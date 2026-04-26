@@ -12,6 +12,8 @@ import pandas as pd
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from local_store import build_weekly_summaries
+from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import compute_baseline_delta
 
 
@@ -101,6 +103,31 @@ def collect_report_athletes(state: dict[str, pd.DataFrame | None]) -> list[str]:
     return sorted(athletes)
 
 
+def report_requires_individual(audience: str | None) -> bool:
+    return normalize_report_audience(audience) in {"atleta", "cliente"}
+
+
+def resolve_report_scope(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str = "Todos",
+    report_audience: str = "profe",
+) -> str | None:
+    audience = normalize_report_audience(report_audience)
+    athletes = collect_report_athletes(state)
+    clean_athlete = str(report_athlete or "Todos").strip() or "Todos"
+
+    if report_requires_individual(audience):
+        if not athletes:
+            return None
+        if clean_athlete == "Todos":
+            return athletes[0]
+        return clean_athlete
+
+    if clean_athlete == "Todos":
+        return "Todos"
+    return clean_athlete
+
+
 def _selected_athletes(state: dict[str, pd.DataFrame | None], report_athlete: str) -> list[str]:
     athletes = collect_report_athletes(state)
     if report_athlete != "Todos":
@@ -176,10 +203,7 @@ def _cmj_delta_vs_baseline(state: dict[str, pd.DataFrame | None], athlete: str) 
 
 
 def _team_completion_mean(state: dict[str, pd.DataFrame | None]) -> float | None:
-    cdf = state.get("completion_df")
-    if cdf is None or cdf.empty or "Pct" not in cdf.columns:
-        return None
-    return round(float(cdf["Pct"].mean()), 1)
+    return _completion_snapshot(state, "Todos").get("numeric")
 
 
 def _athlete_completion_mean(state: dict[str, pd.DataFrame | None], athlete: str) -> float | None:
@@ -188,9 +212,9 @@ def _athlete_completion_mean(state: dict[str, pd.DataFrame | None], athlete: str
         return None
     if "Athlete" in cdf.columns:
         athlete_df = cdf[cdf["Athlete"] == athlete]
-        if not athlete_df.empty:
-            return round(float(athlete_df["Pct"].mean()), 1)
-    return _team_completion_mean(state)
+        if athlete_df.empty:
+            return None
+    return _completion_snapshot(state, athlete).get("numeric")
 
 
 def _completion_plot_df(state: dict[str, pd.DataFrame | None], athlete: str = "Todos") -> pd.DataFrame:
@@ -206,9 +230,9 @@ def _completion_plot_df(state: dict[str, pd.DataFrame | None], athlete: str = "T
         return pd.DataFrame(columns=["Date", "Pct"])
 
     if athlete != "Todos" and "Athlete" in result.columns:
-        athlete_df = result[result["Athlete"].astype(str).str.strip() == athlete]
-        if not athlete_df.empty:
-            result = athlete_df
+        result = result[result["Athlete"].astype(str).str.strip() == athlete]
+        if result.empty:
+            return pd.DataFrame(columns=["Date", "Pct"])
 
     return (
         result.groupby("Date", as_index=False)["Pct"]
@@ -216,6 +240,148 @@ def _completion_plot_df(state: dict[str, pd.DataFrame | None], athlete: str = "T
         .sort_values("Date")
         .reset_index(drop=True)
     )
+
+
+def _report_weekly_summaries(state: dict[str, pd.DataFrame | None]) -> dict[str, pd.DataFrame]:
+    cached = state.get("weekly_summaries")
+    if isinstance(cached, dict) and {"weekly_load", "weekly_wellness", "weekly_external", "weekly_team"}.issubset(cached.keys()):
+        return cached
+    return build_weekly_summaries(
+        state.get("rpe_df"),
+        state.get("wellness_df"),
+        state.get("raw_df"),
+        acwr_dict=state.get("acwr_dict"),
+    )
+
+
+def _report_quality_report(state: dict[str, pd.DataFrame | None]) -> dict[str, object]:
+    athletes = collect_report_athletes(state)
+    return compute_data_quality_report(
+        state.get("rpe_df"),
+        state.get("wellness_df"),
+        state.get("completion_df"),
+        state.get("raw_df"),
+        state.get("maxes_df"),
+        state.get("jump_df"),
+        athletes,
+    )
+
+
+def _normalize_weekly_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return pd.DataFrame()
+    result = frame.copy()
+    if "week_start" in result.columns:
+        result["week_start"] = pd.to_datetime(result["week_start"], errors="coerce")
+    if "is_current_week" in result.columns:
+        result["is_current_week"] = result["is_current_week"].fillna(False).astype(bool)
+    return result
+
+
+def _current_week_slice(frame: pd.DataFrame | None, athlete: str = "Todos") -> pd.DataFrame:
+    result = _normalize_weekly_frame(frame)
+    if result.empty:
+        return result
+    if athlete != "Todos" and "Athlete" in result.columns:
+        result = result[result["Athlete"].astype(str).str.strip() == athlete]
+        if result.empty:
+            return result
+    if "is_current_week" in result.columns:
+        current = result[result["is_current_week"].fillna(False)]
+        if not current.empty:
+            return current.copy()
+    if "week_start" in result.columns and result["week_start"].notna().any():
+        latest_week = result["week_start"].dropna().max()
+        return result[result["week_start"] == latest_week].copy()
+    return result.tail(1).copy()
+
+
+def _completion_snapshot(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str = "Todos",
+    *,
+    today: pd.Timestamp | None = None,
+) -> dict[str, object]:
+    cdf = state.get("completion_df")
+    if cdf is None or cdf.empty or not {"Date", "Pct"}.issubset(cdf.columns):
+        return {"value": "Sin dato", "detail": "Sin completion cargado.", "numeric": None, "period_label": "Sin dato"}
+
+    result = cdf.copy()
+    result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
+    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
+    result = result.dropna(subset=["Date", "Pct"])
+    if athlete != "Todos" and "Athlete" in result.columns:
+        result = result[result["Athlete"].astype(str).str.strip() == athlete]
+    if result.empty:
+        detail = "Sin completion para el atleta seleccionado." if athlete != "Todos" else "Sin completion visible."
+        return {"value": "Sin dato", "detail": detail, "numeric": None, "period_label": "Sin dato"}
+
+    today_ts = (pd.Timestamp(today) if today is not None else pd.Timestamp(datetime.now())).normalize()
+    current_week = today_ts - pd.Timedelta(days=today_ts.weekday())
+    current = result[
+        (result["Date"].dt.normalize() >= current_week)
+        & (result["Date"].dt.normalize() <= today_ts)
+    ].copy()
+    period_label = "Semana actual"
+    if current.empty:
+        latest_date = result["Date"].max().normalize()
+        current = result[result["Date"].dt.normalize().eq(latest_date)].copy()
+        period_label = f"Ultima fecha util ({latest_date:%d/%m})"
+
+    completion_mean = round(float(current["Pct"].mean()), 1)
+    return {
+        "value": f"{completion_mean:.1f}%",
+        "detail": period_label,
+        "numeric": completion_mean,
+        "period_label": period_label,
+    }
+
+
+def _readiness_payload(quality_report: dict[str, object]) -> dict[str, object]:
+    dataset_summary = quality_report.get("dataset_summary", pd.DataFrame())
+    alerts = quality_report.get("alerts", [])
+    if dataset_summary is None or dataset_summary.empty:
+        return {
+            "label": "Limitado",
+            "detail": "Sin fuentes validas para evaluar readiness.",
+            "loaded_count": 0,
+            "partial_count": 0,
+            "total_count": 0,
+            "alerts_count": len(alerts),
+        }
+
+    statuses = dataset_summary["Estado"].fillna("").astype(str).str.lower()
+    loaded_count = int(statuses.str.contains("cargado").sum())
+    partial_count = int(statuses.str.contains("parcial").sum())
+    total_count = int(len(dataset_summary))
+    alerts_count = int(len(alerts))
+
+    if loaded_count >= 4 and alerts_count <= 1 and partial_count <= 1:
+        label = "Listo"
+    elif loaded_count >= 2:
+        label = "Parcial"
+    else:
+        label = "Limitado"
+
+    detail = f"{loaded_count}/{total_count} fuentes listas · {partial_count} parciales · {alerts_count} alerta(s)."
+    return {
+        "label": label,
+        "detail": detail,
+        "loaded_count": loaded_count,
+        "partial_count": partial_count,
+        "total_count": total_count,
+        "alerts_count": alerts_count,
+    }
+
+
+def _quality_athlete_row(quality_report: dict[str, object], athlete: str) -> pd.Series | None:
+    athlete_summary = quality_report.get("athlete_summary", pd.DataFrame())
+    if athlete_summary is None or athlete_summary.empty or "Atleta" not in athlete_summary.columns:
+        return None
+    subset = athlete_summary[athlete_summary["Atleta"].astype(str).str.strip() == athlete]
+    if subset.empty:
+        return None
+    return subset.iloc[0]
 
 
 def _cmj_series(state: dict[str, pd.DataFrame | None], athlete: str) -> list[tuple[str, float]]:
@@ -419,9 +585,18 @@ def _technical_planning_focuses(row: pd.Series, completion_value: float | None) 
 def build_executive_summary_df(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
+    report_audience: str | None = None,
 ) -> pd.DataFrame:
+    effective_athlete = (
+        resolve_report_scope(state, report_athlete, report_audience)
+        if report_audience is not None else
+        report_athlete
+    )
+    if effective_athlete is None:
+        return pd.DataFrame()
+
     rows: list[dict[str, object]] = []
-    athletes = _selected_athletes(state, report_athlete)
+    athletes = _selected_athletes(state, effective_athlete)
 
     for athlete in athletes:
         load_row = _latest_acwr_row(state, athlete)
@@ -472,6 +647,172 @@ def build_executive_summary_df(
     return summary_df
 
 
+def _quality_detail_text(athlete_quality: pd.Series | None) -> str | None:
+    if athlete_quality is None:
+        return None
+    srpe_cov = _coerce_float(athlete_quality.get("% cobertura sRPE"))
+    wellness_cov = _coerce_float(athlete_quality.get("% cobertura Wellness"))
+    parts = _compact_lines(
+        [
+            f"sRPE {_display_metric(srpe_cov, digits=0, suffix='%')}" if srpe_cov is not None else None,
+            f"Wellness {_display_metric(wellness_cov, digits=0, suffix='%')}" if wellness_cov is not None else None,
+        ]
+    )
+    return " | ".join(parts) if parts else None
+
+
+def _latest_eval_summary(summary_df: pd.DataFrame) -> tuple[str, str]:
+    if summary_df.empty or "Fecha evaluación" not in summary_df.columns:
+        return "Pendiente", "Sin evaluación útil dentro de la ventana visible."
+
+    eval_rows = summary_df[summary_df["Fecha evaluación"].apply(_has_text)].copy()
+    if eval_rows.empty:
+        return "Pendiente", "Sin evaluación útil dentro de la ventana visible."
+
+    eval_rows["_eval_date"] = pd.to_datetime(eval_rows["Fecha evaluación"], format="%d/%m/%Y", errors="coerce")
+    eval_rows = eval_rows.dropna(subset=["_eval_date"])
+    if eval_rows.empty:
+        return "Pendiente", "Sin evaluación útil dentro de la ventana visible."
+
+    latest_eval = eval_rows["_eval_date"].max()
+    profiles = eval_rows["Perfil NM"].fillna("-").astype(str)
+    profile_counts = profiles[profiles.apply(_has_text)].value_counts()
+    profile_text = ", ".join(f"{name}: {count}" for name, count in profile_counts.head(2).items())
+    detail_parts = [
+        f"{len(eval_rows)} atleta(s) con evaluación visible" if "Atleta" in eval_rows.columns else None,
+        profile_text if profile_text else None,
+    ]
+    return latest_eval.strftime("%d/%m/%Y"), " | ".join(part for part in detail_parts if part)
+
+
+def build_report_executive_sheet(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str = "Todos",
+    report_audience: str = "profe",
+) -> pd.DataFrame:
+    audience = normalize_report_audience(report_audience)
+    effective_athlete = resolve_report_scope(state, report_athlete, audience)
+    if effective_athlete is None:
+        return pd.DataFrame()
+
+    summary_df = build_executive_summary_df(state, effective_athlete, audience)
+    quality_report = _report_quality_report(state)
+    readiness = _readiness_payload(quality_report)
+    alerts = quality_report.get("alerts", [])
+    weekly_summaries = _report_weekly_summaries(state)
+    completion_snapshot = _completion_snapshot(state, effective_athlete)
+
+    rows: list[dict[str, object]] = []
+
+    def add_row(block: str, indicator: str, value: object, detail: str) -> None:
+        rows.append(
+            {
+                "Bloque": block,
+                "Indicador": indicator,
+                "Valor": value,
+                "Detalle": detail,
+            }
+        )
+
+    scope_label = effective_athlete if effective_athlete != "Todos" else "Equipo"
+    add_row(
+        "Alcance",
+        "Reporte",
+        scope_label,
+        f"{report_audience_label(audience)} {'individual' if effective_athlete != 'Todos' else 'equipo'}".strip(),
+    )
+    add_row("Readiness", "Estado del sistema", readiness["label"], readiness["detail"])
+
+    if effective_athlete == "Todos":
+        current_team = _current_week_slice(weekly_summaries.get("weekly_team"))
+        current_load = _current_week_slice(weekly_summaries.get("weekly_load"))
+        team_row = current_team.tail(1).iloc[0] if not current_team.empty else pd.Series(dtype=object)
+        risk_count = 0
+        if not current_load.empty and "ACWR_EWMA_last" in current_load.columns:
+            risk_series = pd.to_numeric(current_load["ACWR_EWMA_last"], errors="coerce")
+            risk_count = int(risk_series.gt(1.3).sum())
+
+        week_label = "Semana actual"
+        athletes_active = _display_metric(team_row.get("athletes_active"), digits=0)
+        load_value = _display_metric(team_row.get("team_sRPE_sum"), digits=0)
+        load_detail = " | ".join(
+            part for part in [
+                f"{athletes_active} atleta(s) activos" if athletes_active != "Sin dato" else None,
+                f"Monotonía media {_display_metric(team_row.get('team_monotony_mean'), digits=2)}" if _coerce_float(team_row.get("team_monotony_mean")) is not None else None,
+                f"{risk_count} en precaución/riesgo" if risk_count > 0 else None,
+            ]
+            if part
+        ) or "Sin lectura semanal consolidada."
+        add_row("Semana actual", "Carga del equipo", load_value, f"{week_label} | {load_detail}")
+
+        wellness_value = _display_metric(team_row.get("team_wellness_mean"), digits=1)
+        strain_detail = _compact_lines(
+            [
+                completion_snapshot["detail"] if completion_snapshot["numeric"] is not None else None,
+                f"Strain medio {_display_metric(team_row.get('team_strain_mean'), digits=0)}" if _coerce_float(team_row.get("team_strain_mean")) is not None else None,
+            ]
+        )
+        add_row("Semana actual", "Wellness promedio", wellness_value, " | ".join(strain_detail) or "Sin wellness consolidado.")
+
+        add_row("Adherencia", "Completion equipo", completion_snapshot["value"], completion_snapshot["detail"])
+        eval_value, eval_detail = _latest_eval_summary(summary_df)
+        add_row("Evaluación útil", "Última evaluación visible", eval_value, eval_detail)
+    else:
+        current_load = _current_week_slice(weekly_summaries.get("weekly_load"), effective_athlete)
+        current_wellness = _current_week_slice(weekly_summaries.get("weekly_wellness"), effective_athlete)
+        load_row = current_load.tail(1).iloc[0] if not current_load.empty else pd.Series(dtype=object)
+        wellness_row = current_wellness.tail(1).iloc[0] if not current_wellness.empty else pd.Series(dtype=object)
+        athlete_quality = _quality_athlete_row(quality_report, effective_athlete)
+        quality_detail = _quality_detail_text(athlete_quality)
+        if athlete_quality is not None:
+            add_row(
+                "Readiness",
+                "Cobertura del atleta",
+                athlete_quality.get("Semaforo", "Sin dato"),
+                quality_detail or "Sin cobertura reciente para resumir.",
+            )
+
+        weekly_value = _display_metric(load_row.get("weekly_sRPE"), digits=0)
+        weekly_detail = " | ".join(
+            part for part in [
+                f"{_display_metric(load_row.get('sessions_count'), digits=0)} sesión(es)" if _coerce_float(load_row.get("sessions_count")) is not None else None,
+                f"ACWR EWMA {_display_metric(load_row.get('ACWR_EWMA_last'), digits=2)}" if _coerce_float(load_row.get("ACWR_EWMA_last")) is not None else None,
+                f"Monotonía {_display_metric(load_row.get('monotony'), digits=2)}" if _coerce_float(load_row.get("monotony")) is not None else None,
+            ]
+            if part
+        ) or "Sin carga semanal útil para el atleta."
+        add_row("Semana actual", "Carga semanal", weekly_value, f"Semana actual | {weekly_detail}")
+
+        wellness_value = _display_metric(wellness_row.get("Wellness_mean"), digits=1)
+        wellness_detail = " | ".join(
+            part for part in [
+                f"{_display_metric(wellness_row.get('wellness_days'), digits=0)} registro(s)" if _coerce_float(wellness_row.get("wellness_days")) is not None else None,
+                f"Cumplimiento {_display_metric(_coerce_float(wellness_row.get('wellness_compliance')) * 100, digits=0, suffix='%')}" if _coerce_float(wellness_row.get("wellness_compliance")) is not None else None,
+            ]
+            if part
+        ) or "Sin wellness útil para la semana actual."
+        add_row("Semana actual", "Wellness promedio", wellness_value, wellness_detail)
+
+        add_row("Adherencia", "Completion", completion_snapshot["value"], completion_snapshot["detail"])
+
+        focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
+        eval_value = focus_row.get("Fecha evaluación", "Pendiente")
+        eval_detail = " | ".join(
+            part for part in [
+                f"CMJ {_display_metric(focus_row.get('CMJ cm'), digits=1, suffix=' cm')}" if _coerce_float(focus_row.get("CMJ cm")) is not None else None,
+                f"CMJ vs BL {_display_metric(focus_row.get('CMJ vs BL %'), digits=1, suffix='%')}" if _coerce_float(focus_row.get("CMJ vs BL %")) is not None else None,
+                f"Perfil {_profile_text(focus_row)}" if _has_text(focus_row.get("Perfil NM")) else None,
+            ]
+            if part
+        ) or "Sin evaluación útil dentro de la ventana visible."
+        add_row("Evaluación útil", "Último test", eval_value, eval_detail)
+
+    top_alert = _ascii_text(alerts[0]) if alerts else "Sin alertas activas en la ventana visible."
+    add_row("Calidad", "Alertas activas", str(len(alerts)), top_alert)
+
+    return pd.DataFrame(rows, columns=["Bloque", "Indicador", "Valor", "Detalle"])
+
+
 def build_interpretation_sheet(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
@@ -495,6 +836,8 @@ def _build_report_metadata_df(
     report_athlete: str,
     report_audience: str,
     included_sections: list[str],
+    *,
+    include_technical_annex: bool = False,
 ) -> pd.DataFrame:
     active_datasets = [
         DATASET_LABELS.get(key, key)
@@ -507,6 +850,7 @@ def _build_report_metadata_df(
             {"Campo": "Reporte", "Valor": "Threshold S&C - Reporte de rendimiento"},
             {"Campo": "Alcance", "Valor": report_athlete},
             {"Campo": "Destinatario", "Valor": report_audience_label(report_audience)},
+            {"Campo": "Modo exportacion", "Valor": "Curado + anexo tecnico" if include_technical_annex else "Curado"},
             {"Campo": "Generado", "Valor": datetime.now().strftime("%d/%m/%Y %H:%M")},
             {"Campo": "Ventana operativa", "Valor": "Últimas 6 semanas visibles"},
             {"Campo": "Atletas visibles", "Valor": len(visible_athletes)},
@@ -521,6 +865,7 @@ def build_report_sheets(
     report_athlete: str = "Todos",
     report_audience: str = "profe",
     *,
+    include_technical_annex: bool = False,
     include_acwr: bool = True,
     include_mono: bool = True,
     include_wellness: bool = True,
@@ -529,93 +874,110 @@ def build_report_sheets(
     include_volume: bool = True,
     include_completion: bool = True,
 ) -> dict[str, pd.DataFrame]:
+    audience = normalize_report_audience(report_audience)
+    effective_athlete = resolve_report_scope(state, report_athlete, audience)
+    if effective_athlete is None:
+        return {}
+
+    include_technical_annex = bool(include_technical_annex and audience == "profe")
     sheets: dict[str, pd.DataFrame] = {}
     included_sections: list[str] = []
 
-    executive_df = build_executive_summary_df(state, report_athlete)
+    executive_df = build_report_executive_sheet(state, effective_athlete, audience)
     if not executive_df.empty:
         sheets["Resumen_Ejecutivo"] = executive_df
         included_sections.append("Resumen ejecutivo")
 
-    interpretation_df = build_interpretation_sheet(state, report_athlete, report_audience)
+    interpretation_df = build_interpretation_sheet(state, effective_athlete, audience)
     if not interpretation_df.empty:
         sheets["Interpretacion"] = interpretation_df
         included_sections.append("Interpretacion")
 
-    acwr_dict = state.get("acwr_dict") or {}
-    mono_dict = state.get("mono_dict") or {}
-
-    if include_acwr and acwr_dict:
-        acwr_rows = []
-        for athlete, athlete_df in acwr_dict.items():
-            if report_athlete != "Todos" and athlete != report_athlete:
-                continue
-            tmp = athlete_df.copy()
-            tmp["Athlete"] = athlete
-            acwr_rows.append(tmp)
-        if acwr_rows:
-            sheets["ACWR_sRPE"] = pd.concat(acwr_rows, ignore_index=True).round(2)
-            included_sections.append("ACWR EWMA + sRPE")
-
-    if include_mono and mono_dict:
-        mono_rows = []
-        for athlete, athlete_df in mono_dict.items():
-            if report_athlete != "Todos" and athlete != report_athlete:
-                continue
-            tmp = athlete_df.copy()
-            tmp["Athlete"] = athlete
-            mono_rows.append(tmp)
-        if mono_rows:
-            sheets["Monotonia_Strain"] = pd.concat(mono_rows, ignore_index=True).round(2)
-            included_sections.append("Monotonia + Strain")
-
-    if include_wellness and state.get("wellness_df") is not None:
-        df = state["wellness_df"]
-        if report_athlete != "Todos" and "Athlete" in df.columns:
-            df = df[df["Athlete"] == report_athlete]
-        sheets["Wellness"] = df.round(2)
-        if not df.empty:
-            included_sections.append("Wellness")
-
-    if include_jumps and state.get("jump_df") is not None:
-        df = state["jump_df"]
-        if report_athlete != "Todos" and "Athlete" in df.columns:
-            df = df[df["Athlete"] == report_athlete]
-        sheets["Evaluaciones_Saltos"] = df.round(2)
-        if not df.empty:
-            included_sections.append("Evaluaciones")
-
-    if include_maxes and state.get("maxes_df") is not None:
-        df = state["maxes_df"]
-        if report_athlete != "Todos" and "Athlete" in df.columns:
-            df = df[df["Athlete"] == report_athlete]
-        sheets["Maximos_Ejercicios"] = df
-        if not df.empty:
-            included_sections.append("Maximos")
-
-    if include_volume and state.get("rep_load_df") is not None:
-        df = state["rep_load_df"]
-        if report_athlete != "Todos" and "Athlete" in df.columns:
-            df = df[df["Athlete"] == report_athlete]
-        sheets["Volumen_Sesion"] = df
-        if not df.empty:
-            included_sections.append("Volumen")
-
-    if include_completion and state.get("completion_df") is not None:
-        df = state["completion_df"]
-        if report_athlete != "Todos" and "Athlete" in df.columns:
-            filtered_df = df[df["Athlete"] == report_athlete]
-            if not filtered_df.empty:
-                df = filtered_df
-        summary_df = _build_completion_summary_sheet(df, report_athlete)
+    if state.get("completion_df") is not None:
+        completion_df = state["completion_df"]
+        if effective_athlete != "Todos" and "Athlete" in completion_df.columns:
+            completion_df = completion_df[completion_df["Athlete"].astype(str).str.strip() == effective_athlete]
+        summary_df = _build_completion_summary_sheet(completion_df, effective_athlete)
         if not summary_df.empty:
             sheets["Completion_Resumen"] = summary_df
-        sheets["Completion_Rate"] = df
-        if not df.empty:
-            included_sections.append("Completion")
+            included_sections.append("Completion resumen")
+
+    if include_technical_annex:
+        acwr_dict = state.get("acwr_dict") or {}
+        mono_dict = state.get("mono_dict") or {}
+
+        if include_acwr and acwr_dict:
+            acwr_rows = []
+            for athlete, athlete_df in acwr_dict.items():
+                if effective_athlete != "Todos" and athlete != effective_athlete:
+                    continue
+                tmp = athlete_df.copy()
+                tmp["Athlete"] = athlete
+                acwr_rows.append(tmp)
+            if acwr_rows:
+                sheets["ACWR_sRPE"] = pd.concat(acwr_rows, ignore_index=True).round(2)
+                included_sections.append("ACWR EWMA + sRPE")
+
+        if include_mono and mono_dict:
+            mono_rows = []
+            for athlete, athlete_df in mono_dict.items():
+                if effective_athlete != "Todos" and athlete != effective_athlete:
+                    continue
+                tmp = athlete_df.copy()
+                tmp["Athlete"] = athlete
+                mono_rows.append(tmp)
+            if mono_rows:
+                sheets["Monotonia_Strain"] = pd.concat(mono_rows, ignore_index=True).round(2)
+                included_sections.append("Monotonia + Strain")
+
+        if include_wellness and state.get("wellness_df") is not None:
+            df = state["wellness_df"]
+            if effective_athlete != "Todos" and "Athlete" in df.columns:
+                df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
+            sheets["Wellness"] = df.round(2)
+            if not df.empty:
+                included_sections.append("Wellness")
+
+        if include_jumps and state.get("jump_df") is not None:
+            df = state["jump_df"]
+            if effective_athlete != "Todos" and "Athlete" in df.columns:
+                df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
+            sheets["Evaluaciones_Saltos"] = df.round(2)
+            if not df.empty:
+                included_sections.append("Evaluaciones")
+
+        if include_maxes and state.get("maxes_df") is not None:
+            df = state["maxes_df"]
+            if effective_athlete != "Todos" and "Athlete" in df.columns:
+                df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
+            sheets["Maximos_Ejercicios"] = df
+            if not df.empty:
+                included_sections.append("Maximos")
+
+        if include_volume and state.get("rep_load_df") is not None:
+            df = state["rep_load_df"]
+            if effective_athlete != "Todos" and "Athlete" in df.columns:
+                df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
+            sheets["Volumen_Sesion"] = df
+            if not df.empty:
+                included_sections.append("Volumen")
+
+        if include_completion and state.get("completion_df") is not None:
+            df = state["completion_df"]
+            if effective_athlete != "Todos" and "Athlete" in df.columns:
+                df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
+            if not df.empty:
+                sheets["Completion_Rate"] = df
+                included_sections.append("Completion detalle")
 
     if sheets:
-        sheets["Reporte_Meta"] = _build_report_metadata_df(state, report_athlete, report_audience, included_sections)
+        sheets["Reporte_Meta"] = _build_report_metadata_df(
+            state,
+            effective_athlete,
+            audience,
+            included_sections,
+            include_technical_annex=include_technical_annex,
+        )
 
     return {name: df for name, df in sheets.items() if df is not None and not df.empty}
 
@@ -1543,30 +1905,74 @@ def generate_module_insights(
     report_audience: str = "profe",
 ) -> dict[str, dict[str, object]]:
     audience = normalize_report_audience(report_audience)
-    summary_df = build_executive_summary_df(state, report_athlete)
-    athletes = _selected_athletes(state, report_athlete)
+    effective_athlete = resolve_report_scope(state, report_athlete, audience)
+    if effective_athlete is None:
+        return {
+            "overview": {
+                "title": "Lectura general",
+                "summary": "Todavía no hay atletas válidos para preparar un reporte individual.",
+                "focuses": ["Cargar datos y seleccionar un atleta antes de exportar."],
+            }
+        }
+
+    summary_df = build_executive_summary_df(state, effective_athlete, audience)
+    athletes = _selected_athletes(state, effective_athlete)
     active_datasets = [
         key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
         if state.get(key) is not None and not state.get(key).empty
     ]
+    quality_report = _report_quality_report(state)
+    readiness = _readiness_payload(quality_report)
+    alerts = quality_report.get("alerts", [])
+    weekly_summaries = _report_weekly_summaries(state)
+    current_team = _current_week_slice(weekly_summaries.get("weekly_team"))
+    current_load = _current_week_slice(weekly_summaries.get("weekly_load"), effective_athlete)
+    current_team_row = current_team.tail(1).iloc[0] if not current_team.empty else pd.Series(dtype=object)
+    current_load_row = current_load.tail(1).iloc[0] if not current_load.empty else pd.Series(dtype=object)
+    completion_snapshot = _completion_snapshot(state, effective_athlete)
+
+    if effective_athlete == "Todos":
+        overview_summary = (
+            f"Readiness {readiness['label'].lower()}: {readiness['detail']} "
+            f"Semana actual con {_display_metric(current_team_row.get('athletes_active'), digits=0)} atleta(s) activos."
+            if active_datasets else
+            "Todavía no hay información suficiente para construir una lectura ejecutiva."
+        )
+        overview_focuses = [
+            "Priorizar la semana actual, adherencia y readiness antes de compartir el reporte.",
+            alerts[0] if alerts else "La base actual ya permite una lectura integrada de carga, bienestar y rendimiento.",
+        ]
+    else:
+        athlete_quality = _quality_athlete_row(quality_report, effective_athlete)
+        quality_text = _quality_detail_text(athlete_quality)
+        weekly_parts = _compact_lines(
+            [
+                f"sRPE semanal {_display_metric(current_load_row.get('weekly_sRPE'), digits=0)}" if _coerce_float(current_load_row.get("weekly_sRPE")) is not None else None,
+                f"ACWR EWMA {_display_metric(current_load_row.get('ACWR_EWMA_last'), digits=2)}" if _coerce_float(current_load_row.get("ACWR_EWMA_last")) is not None else None,
+                completion_snapshot["value"] if completion_snapshot["numeric"] is not None else None,
+            ]
+        )
+        overview_summary = (
+            f"Readiness {readiness['label'].lower()} para {effective_athlete}. "
+            f"{' | '.join(weekly_parts)}."
+            if active_datasets else
+            f"Todavía no hay información suficiente para construir una lectura ejecutiva de {effective_athlete}."
+        )
+        overview_focuses = [
+            quality_text or "Cuidar continuidad de carga, adherencia y evaluaciones dentro de la misma ventana operativa.",
+            alerts[0] if alerts else "El reporte prioriza semana actual, última evaluación útil y readiness del atleta.",
+        ]
 
     insights: dict[str, dict[str, object]] = {
         "overview": {
             "title": "Lectura general",
-            "summary": (
-                f"{_count_phrase(len(active_datasets), 'fuente activa', 'fuentes activas')} y {_count_phrase(len(athletes), 'atleta visible', 'atletas visibles')} dentro de la ventana operativa actual."
-                if active_datasets else
-                "Todavía no hay información suficiente para construir una lectura ejecutiva."
-            ),
-            "focuses": [
-                "Sostener la continuidad de carga, evaluaciones y seguimiento dentro de la misma ventana operativa.",
-                "Priorizar las fuentes faltantes antes de compartir un reporte externo." if len(active_datasets) < 4 else "La base actual ya permite una lectura integrada de carga, bienestar y rendimiento.",
-            ],
+            "summary": overview_summary,
+            "focuses": overview_focuses,
         }
     }
 
     individual_eval_available = False
-    if report_athlete != "Todos" and not summary_df.empty:
+    if effective_athlete != "Todos" and not summary_df.empty:
         row = summary_df.iloc[0]
         eval_available = _row_has_eval_data(row)
         load_available = _row_has_load_data(row)
@@ -1632,13 +2038,13 @@ def generate_module_insights(
         }
 
         if eval_available and (load_available or wellness_available):
-            profile_summary = f"El perfil integrado de {report_athlete} combina carga reciente, percepción de recuperación y última evaluación."
+            profile_summary = f"El perfil integrado de {effective_athlete} combina carga reciente, percepción de recuperación y última evaluación."
         elif eval_available:
-            profile_summary = f"La lectura actual de {report_athlete} se apoya principalmente en la última evaluación disponible."
+            profile_summary = f"La lectura actual de {effective_athlete} se apoya principalmente en la última evaluación disponible."
         elif load_available or wellness_available:
-            profile_summary = f"La lectura actual de {report_athlete} se apoya en carga y bienestar recientes, a la espera de una nueva evaluación."
+            profile_summary = f"La lectura actual de {effective_athlete} se apoya en carga y bienestar recientes, a la espera de una nueva evaluación."
         else:
-            profile_summary = f"Todavía no hay información suficiente para construir un perfil integrado de {report_athlete}."
+            profile_summary = f"Todavía no hay información suficiente para construir un perfil integrado de {effective_athlete}."
 
         insights["profile"] = {
             "title": "Foco del atleta",
@@ -1677,12 +2083,12 @@ def generate_module_insights(
         }
 
     completion_mean = _team_completion_mean(state)
-    individual_completion = _focus_completion_value(state, report_athlete) if report_athlete != "Todos" else None
+    individual_completion = _focus_completion_value(state, effective_athlete) if effective_athlete != "Todos" else None
     insights["team"] = {
-        "title": "Adherencia del plan" if report_athlete != "Todos" else "Adherencia del equipo",
+        "title": "Adherencia del plan" if effective_athlete != "Todos" else "Adherencia del equipo",
         "summary": (
             f"Adherencia individual reciente: {individual_completion:.1f}%."
-            if report_athlete != "Todos" and individual_completion is not None else
+            if effective_athlete != "Todos" and individual_completion is not None else
             (
                 f"Adherencia promedio del equipo: {completion_mean:.1f}%."
                 if completion_mean is not None else
@@ -1692,28 +2098,29 @@ def generate_module_insights(
         "focuses": [
             (
                 "Si la adherencia baja, revisar barreras de cumplimiento, disponibilidad y organización semanal."
-                if report_athlete != "Todos" else
+                if effective_athlete != "Todos" else
                 "Si la adherencia baja, revisar progresiones, disponibilidad y fricción operativa."
             ),
             (
                 "Cruzar adherencia con carga y bienestar para entender si el plan realmente se está sosteniendo."
-                if report_athlete != "Todos" else
+                if effective_athlete != "Todos" else
                 "Alinear carga y adherencia para entender si el volumen planificado realmente se ejecuta."
             ),
         ],
     }
 
     if audience == "profe":
-        report_summary = f"Versión técnica pensada para seguimiento detallado y toma de decisiones sobre {report_athlete}."
+        target = effective_athlete if effective_athlete != "Todos" else "el equipo"
+        report_summary = f"Versión técnica curada para {target}, priorizando semana actual, última evaluación útil, adherencia y readiness."
         report_focuses = [
-            "Verificar fuentes faltantes antes de exportar para terceros.",
-            "Usar el resumen ejecutivo como portada operativa para cuerpo técnico y clientes.",
+            "El corazón del reporte resume semana actual, evaluación útil, adherencia y calidad del dato.",
+            "El anexo técnico queda opt-in para no convertir el export en un dump de tablas.",
         ]
     elif audience == "atleta":
         report_summary = (
-            f"Versión orientada al atleta, con foco en evaluaciones, perfil actual y próximos pasos de trabajo para {report_athlete}."
+            f"Versión individual orientada al atleta, con foco en semana actual, evaluación útil y próximos pasos de trabajo para {effective_athlete}."
             if individual_eval_available else
-            f"Versión orientada al atleta, centrada en estado actual, seguimiento y próximos pasos de trabajo para {report_athlete}."
+            f"Versión individual orientada al atleta, centrada en estado actual, adherencia y próximos pasos de trabajo para {effective_athlete}."
         )
         report_focuses = [
             "Destacar fortalezas, oportunidades y foco inmediato en lenguaje cuasi técnico.",
@@ -1721,9 +2128,9 @@ def generate_module_insights(
         ]
     else:
         report_summary = (
-            f"Versión amigable para cliente, enfocada en explicar punto de partida, estado actual y próximos pasos de {report_athlete}."
+            f"Versión individual amigable para cliente, enfocada en explicar semana actual, estado actual y próximos pasos de {effective_athlete}."
             if individual_eval_available else
-            f"Versión amigable para cliente, enfocada en explicar el seguimiento actual y los próximos pasos de {report_athlete}."
+            f"Versión individual amigable para cliente, enfocada en explicar seguimiento actual y próximos pasos de {effective_athlete}."
         )
         report_focuses = [
             "Simplificar el lenguaje y evitar tecnicismos innecesarios.",
@@ -1777,7 +2184,7 @@ def _audience_dashboard_cards(
         if eval_available and _coerce_float(focus_row.get("CMJ cm")) is not None:
             cards.append(("Salto vertical", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm"), "#0D3C5E"))
         if eval_available and _coerce_float(focus_row.get("CMJ vs BL %")) is not None:
-            cards.append(("Cambio reciente", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%"), "#134263"))
+            cards.append(("Cambio vs baseline", _display_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%"), "#134263"))
         elif not eval_available:
             cards.append(("Evaluación física", "Pendiente", "#708C9F"))
 
@@ -2202,11 +2609,14 @@ def collect_report_plotly_figures(
         return []
 
     audience = normalize_report_audience(report_audience)
+    effective_athlete = resolve_report_scope(state, report_athlete, audience)
+    if effective_athlete is None:
+        return []
     theme = _build_report_chart_theme()
     figures: list[dict[str, object]] = []
     jdf = state.get("jump_df")
 
-    if report_athlete == "Todos":
+    if effective_athlete == "Todos":
         completion_plot_df = _completion_plot_df(state, "Todos")
         if not completion_plot_df.empty:
             figures.append(
@@ -2244,56 +2654,56 @@ def collect_report_plotly_figures(
             preferred = {"completion_team", "quadrant_cmj_imtp", "quadrant_dri_sj"}
         return [item for item in figures if item["slug"] in preferred][:2]
 
-    if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and report_athlete in jdf["Athlete"].values:
-        athlete_jdf = jdf[jdf["Athlete"] == report_athlete].sort_values("Date")
+    if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and effective_athlete in jdf["Athlete"].values:
+        athlete_jdf = jdf[jdf["Athlete"] == effective_athlete].sort_values("Date")
         latest_row = athlete_jdf.iloc[-1]
         if audience in {"atleta", "profe"}:
             figures.append(
                 {
                     "slug": "radar_perfil",
                     "title": "Perfil neuromuscular",
-                    "figure": chart_radar(latest_row, report_athlete, _team_mean_for_radar(jdf), theme=theme),
+                    "figure": chart_radar(latest_row, effective_athlete, _team_mean_for_radar(jdf), theme=theme),
                 }
             )
-        if len(_cmj_series(state, report_athlete)) >= 2:
+        if len(_cmj_series(state, effective_athlete)) >= 2:
             figures.append(
                 {
                     "slug": "cmj_trend",
                     "title": "Tendencia de CMJ",
-                    "figure": chart_cmj_trend(jdf, report_athlete, theme=theme),
+                    "figure": chart_cmj_trend(jdf, effective_athlete, theme=theme),
                 }
             )
 
     acwr_dict = state.get("acwr_dict") or {}
-    acwr_df = acwr_dict.get(report_athlete)
-    if acwr_df is not None and not acwr_df.empty and len(_acwr_series(state, report_athlete)) >= 2:
+    acwr_df = acwr_dict.get(effective_athlete)
+    if acwr_df is not None and not acwr_df.empty and len(_acwr_series(state, effective_athlete)) >= 2:
         figures.append(
             {
                 "slug": "acwr",
                 "title": "Carga reciente",
-                "figure": chart_acwr(acwr_df, report_athlete, theme=theme),
+                "figure": chart_acwr(acwr_df, effective_athlete, theme=theme),
                 }
             )
 
     wdf = state.get("wellness_df")
     if wdf is not None and not wdf.empty and "Athlete" in wdf.columns:
-        athlete_wdf = wdf[wdf["Athlete"] == report_athlete].sort_values("Date")
-        if not athlete_wdf.empty and len(_wellness_series(state, report_athlete)) >= 2:
+        athlete_wdf = wdf[wdf["Athlete"] == effective_athlete].sort_values("Date")
+        if not athlete_wdf.empty and len(_wellness_series(state, effective_athlete)) >= 2:
             figures.append(
                 {
                     "slug": "wellness",
                     "title": "Bienestar reciente",
-                    "figure": chart_wellness(athlete_wdf, report_athlete, theme=theme),
+                    "figure": chart_wellness(athlete_wdf, effective_athlete, theme=theme),
                 }
             )
 
-    completion_plot_df = _completion_plot_df(state, report_athlete)
+    completion_plot_df = _completion_plot_df(state, effective_athlete)
     if not completion_plot_df.empty and len(completion_plot_df) >= 2:
         figures.append(
             {
                 "slug": "completion",
                 "title": "Adherencia reciente",
-                "figure": chart_completion(completion_plot_df, theme=theme, athlete_label=report_athlete),
+                "figure": chart_completion(completion_plot_df, theme=theme, athlete_label=effective_athlete),
             }
         )
 
@@ -2380,10 +2790,13 @@ def _generate_visual_report_pdf_reportlab(
         return None
 
     audience = normalize_report_audience(report_audience)
-    summary_df = build_executive_summary_df(state, report_athlete)
-    insights = generate_module_insights(state, report_athlete, audience)
-    blocks = _audience_blocks(state, report_athlete, summary_df, insights, audience)
-    charts = collect_report_plotly_figures(state, report_athlete, audience)
+    effective_athlete = resolve_report_scope(state, report_athlete, audience)
+    if effective_athlete is None:
+        return None
+    summary_df = build_executive_summary_df(state, effective_athlete, audience)
+    insights = generate_module_insights(state, effective_athlete, audience)
+    blocks = _audience_blocks(state, effective_athlete, summary_df, insights, audience)
+    charts = collect_report_plotly_figures(state, effective_athlete, audience)
 
     palette = {
         "bg": colors.HexColor("#F4F6F8"),
@@ -2523,20 +2936,25 @@ def _generate_visual_report_pdf_reportlab(
         return table
 
     def _summary_meta_table() -> Table:
-        datasets_count = len(
-            [
-                key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
-                if state.get(key) is not None and not state.get(key).empty
-            ]
-        )
-        athletes_count = len(summary_df)
-        completion_value = _focus_completion_value(state, report_athlete)
+        readiness = _readiness_payload(_report_quality_report(state))
+        weekly_summaries = _report_weekly_summaries(state)
+        current_team = _current_week_slice(weekly_summaries.get("weekly_team"))
+        current_load = _current_week_slice(weekly_summaries.get("weekly_load"), effective_athlete)
+        completion_value = _focus_completion_value(state, effective_athlete)
         completion_text = _display_metric(completion_value, digits=1, suffix="%") if completion_value is not None else "Sin dato"
-        adherence_label = "Adherencia del atleta" if report_athlete != "Todos" else "Adherencia promedio"
+        adherence_label = "Adherencia del atleta" if effective_athlete != "Todos" else "Adherencia promedio"
+        if effective_athlete == "Todos":
+            current_row = current_team.tail(1).iloc[0] if not current_team.empty else pd.Series(dtype=object)
+            athletes_active = _coerce_float(current_row.get("athletes_active"))
+            week_value = f"{int(athletes_active)} activos" if athletes_active is not None else "Sin dato"
+        else:
+            current_row = current_load.tail(1).iloc[0] if not current_load.empty else pd.Series(dtype=object)
+            sessions_count = _coerce_float(current_row.get("sessions_count"))
+            week_value = f"{int(sessions_count)} sesiones" if sessions_count is not None else "Sin dato"
         data = [
             [
-                _p(f"{'Atleta visible' if athletes_count == 1 else 'Atletas visibles'}\n{athletes_count}", "ReportMuted"),
-                _p(f"{'Fuente activa' if datasets_count == 1 else 'Fuentes activas'}\n{datasets_count}", "ReportMuted"),
+                _p(f"Semana actual\n{week_value}", "ReportMuted"),
+                _p(f"Readiness\n{readiness['label']}", "ReportMuted"),
                 _p(f"{adherence_label}\n{completion_text}", "ReportMuted"),
             ]
         ]
@@ -2677,7 +3095,7 @@ def _generate_visual_report_pdf_reportlab(
         "profe": "Reporte técnico para profesional",
         "cliente": "Reporte de progreso",
     }[audience]
-    target_name = report_athlete if report_athlete != "Todos" else "Resumen general"
+    target_name = effective_athlete if effective_athlete != "Todos" else "Resumen general"
     story.extend(
         [
             _p(subtitle, "ReportMuted"),
@@ -2719,15 +3137,15 @@ def _generate_visual_report_pdf_reportlab(
                     }[audience],
                     "ReportMuted",
                 ),
-                _metric_cards_table(_audience_dashboard_cards(state, focus_row, report_athlete, audience)),
+                _metric_cards_table(_audience_dashboard_cards(state, focus_row, effective_athlete, audience)),
                 Spacer(1, 5 * mm),
                 _summary_meta_table(),
                 Spacer(1, 5 * mm),
             ]
         )
 
-        if report_athlete != "Todos":
-            story.extend(_metric_table(_audience_metric_rows(state, focus_row, report_athlete, audience), title="Indicadores principales"))
+        if effective_athlete != "Todos":
+            story.extend(_metric_table(_audience_metric_rows(state, focus_row, effective_athlete, audience), title="Indicadores principales"))
         else:
             snapshot = _snapshot_table()
             if snapshot is not None:
@@ -2835,25 +3253,28 @@ def generate_visual_report_pdf(
     report_audience: str = "profe",
 ) -> bytes | None:
     audience = normalize_report_audience(report_audience)
-    premium_pdf = _generate_visual_report_pdf_reportlab(state, report_athlete, audience)
+    effective_athlete = resolve_report_scope(state, report_athlete, audience)
+    if effective_athlete is None:
+        return None
+    premium_pdf = _generate_visual_report_pdf_reportlab(state, effective_athlete, audience)
     if premium_pdf:
         return premium_pdf
 
-    summary_df = build_executive_summary_df(state, report_athlete)
-    insights = generate_module_insights(state, report_athlete, audience)
+    summary_df = build_executive_summary_df(state, effective_athlete, audience)
+    insights = generate_module_insights(state, effective_athlete, audience)
 
-    page_contents = [_build_cover_page(report_athlete, summary_df, insights, audience)]
-    dashboard_page = _build_dashboard_page(state, report_athlete, summary_df, audience)
+    page_contents = [_build_cover_page(effective_athlete, summary_df, insights, audience)]
+    dashboard_page = _build_dashboard_page(state, effective_athlete, summary_df, audience)
     if dashboard_page:
         page_contents.append(dashboard_page)
-    if audience == "profe" or report_athlete == "Todos":
+    if audience == "profe" or effective_athlete == "Todos":
         page_contents.extend(_build_snapshot_pages(summary_df))
     else:
-        metric_page = _build_metric_profile_page(state, report_athlete, summary_df, audience)
+        metric_page = _build_metric_profile_page(state, effective_athlete, summary_df, audience)
         if metric_page:
             page_contents.append(metric_page)
-    trend_page = _build_trend_page(state, report_athlete, audience)
+    trend_page = _build_trend_page(state, effective_athlete, audience)
     if trend_page:
         page_contents.append(trend_page)
-    page_contents.extend(_build_insight_pages(state, report_athlete, summary_df, insights, audience))
+    page_contents.extend(_build_insight_pages(state, effective_athlete, summary_df, insights, audience))
     return _build_pdf_document(page_contents)

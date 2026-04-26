@@ -7,13 +7,56 @@ from unittest.mock import patch
 import pandas as pd
 from openpyxl import load_workbook
 
+from charts.dashboard_charts import chart_cmj_trend
 from modules.report_generator import (
     build_executive_summary_df,
+    build_report_executive_sheet,
     build_report_sheets,
     collect_report_athletes,
     export_excel,
     export_plotly_figure_png,
+    report_requires_individual,
+    resolve_report_scope,
 )
+
+
+def _chart_theme() -> dict:
+    colors = {
+        "navy": "#0D3C5E",
+        "steel": "#708C9F",
+        "blue": "#4A9FD4",
+        "green": "#6F8F78",
+        "yellow": "#C4A464",
+        "orange": "#C88759",
+        "red": "#B56B73",
+        "muted": "#5E6A74",
+        "bg": "#F5F4F0",
+        "card": "#FEFEFE",
+        "white": "#221F20",
+        "gray": "#4B5560",
+        "border": "#D8DEE4",
+    }
+    return {
+        "colors": colors,
+        "layout": dict(
+            template="plotly_white",
+            paper_bgcolor=colors["bg"],
+            plot_bgcolor=colors["card"],
+            font=dict(family="Barlow, sans-serif", color=colors["white"], size=11),
+            margin=dict(l=44, r=32, t=68, b=48),
+        ),
+        "grid": "rgba(34, 31, 32, 0.08)",
+        "grid_soft": "rgba(34, 31, 32, 0.05)",
+        "reference_line": "rgba(34, 31, 32, 0.18)",
+        "legend": dict(
+            orientation="h",
+            y=-0.18,
+            bgcolor="rgba(254, 254, 254, 0.92)",
+            bordercolor=colors["border"],
+            borderwidth=1,
+            font=dict(size=9, color=colors["gray"]),
+        ),
+    }
 
 
 class Phase1ReportingTest(unittest.TestCase):
@@ -81,6 +124,7 @@ class Phase1ReportingTest(unittest.TestCase):
         sheets = build_report_sheets(
             state,
             report_athlete="Todos",
+            include_technical_annex=False,
             include_acwr=False,
             include_mono=False,
             include_wellness=False,
@@ -91,21 +135,36 @@ class Phase1ReportingTest(unittest.TestCase):
         )
 
         self.assertIn("Completion_Resumen", sheets)
-        self.assertIn("Completion_Rate", sheets)
+        self.assertNotIn("Completion_Rate", sheets)
         self.assertIn("Reporte_Meta", sheets)
 
         workbook = load_workbook(BytesIO(export_excel(sheets)))
         sheetnames = workbook.sheetnames
 
-        for sheet_name in ["01_Resumen", "02_Interpretacion", "03_Completion_Resumen", "10_Completion_Detalle", "99_Meta"]:
+        for sheet_name in ["01_Resumen", "02_Interpretacion", "03_Completion_Resumen", "99_Meta"]:
             self.assertIn(sheet_name, sheetnames)
 
-        ordered_indexes = [sheetnames.index(name) for name in ["01_Resumen", "02_Interpretacion", "03_Completion_Resumen", "10_Completion_Detalle", "99_Meta"]]
+        ordered_indexes = [sheetnames.index(name) for name in ["01_Resumen", "02_Interpretacion", "03_Completion_Resumen", "99_Meta"]]
         self.assertEqual(ordered_indexes, sorted(ordered_indexes))
 
         summary_sheet = workbook["03_Completion_Resumen"]
         self.assertEqual(summary_sheet["A2"].value, "Equipo")
         self.assertEqual(summary_sheet["C2"].number_format, '0.0"%"')
+
+        annex_sheets = build_report_sheets(
+            state,
+            report_athlete="Todos",
+            report_audience="profe",
+            include_technical_annex=True,
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=False,
+            include_maxes=False,
+            include_volume=False,
+            include_completion=True,
+        )
+        self.assertIn("Completion_Rate", annex_sheets)
 
     def test_jump_reports_label_eur_as_ratio(self):
         jump_df = pd.DataFrame(
@@ -142,6 +201,8 @@ class Phase1ReportingTest(unittest.TestCase):
         sheets = build_report_sheets(
             state,
             report_athlete="Ana Lopez",
+            report_audience="profe",
+            include_technical_annex=True,
             include_acwr=False,
             include_mono=False,
             include_wellness=False,
@@ -158,6 +219,175 @@ class Phase1ReportingTest(unittest.TestCase):
         self.assertNotIn("EUR", headers)
         eur_column = headers.index("EUR (ratio)") + 1
         self.assertEqual(eval_sheet.cell(row=2, column=eur_column).value, 1.17)
+
+    def test_individual_audiences_require_single_athlete_scope(self):
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-02", "Pct": 90},
+                    {"Athlete": "Bruno Rey", "Date": "2026-04-02", "Pct": 75},
+                ]
+            ),
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": None,
+        }
+
+        self.assertTrue(report_requires_individual("atleta"))
+        self.assertTrue(report_requires_individual("cliente"))
+        self.assertFalse(report_requires_individual("profe"))
+        self.assertEqual(resolve_report_scope(state, "Todos", "atleta"), "Ana Lopez")
+        self.assertEqual(resolve_report_scope(state, "Todos", "cliente"), "Ana Lopez")
+        self.assertEqual(resolve_report_scope(state, "Todos", "profe"), "Todos")
+
+    def test_completion_individual_report_does_not_fall_back_to_team_scope(self):
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": pd.DataFrame(
+                [
+                    {"Athlete": "Bruno Rey", "Date": "2026-04-02", "Assigned": 10, "Completed": 8, "Pct": 80},
+                    {"Athlete": "Bruno Rey", "Date": "2026-04-03", "Assigned": 8, "Completed": 8, "Pct": 100},
+                ]
+            ),
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": None,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Ana Lopez",
+            report_audience="atleta",
+            include_technical_annex=True,
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=False,
+            include_maxes=False,
+            include_volume=False,
+            include_completion=True,
+        )
+
+        self.assertNotIn("Completion_Resumen", sheets)
+        self.assertNotIn("Completion_Rate", sheets)
+        self.assertIn("Resumen_Ejecutivo", sheets)
+        self.assertEqual(sheets["Resumen_Ejecutivo"].loc[0, "Valor"], "Ana Lopez")
+
+    def test_curated_executive_sheet_prioritizes_week_adherence_quality_and_eval(self):
+        state = {
+            "rpe_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-21", "sRPE": 320},
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-23", "sRPE": 360},
+                ]
+            ),
+            "wellness_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-22", "Wellness_Score": 16},
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-24", "Wellness_Score": 17},
+                ]
+            ),
+            "completion_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-22", "Assigned": 10, "Completed": 9, "Pct": 90},
+                ]
+            ),
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "CMJ_cm": 30, "EUR": 1.10, "DRI": 1.2, "IMTP_N": 1800, "NM_Profile": "Reactivo"},
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-08", "CMJ_cm": 31, "EUR": 1.12, "DRI": 1.3, "IMTP_N": 1810, "NM_Profile": "Reactivo"},
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-15", "CMJ_cm": 32, "EUR": 1.15, "DRI": 1.4, "IMTP_N": 1820, "NM_Profile": "Reactivo"},
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-24", "CMJ_cm": 34, "EUR": 1.17, "DRI": 1.5, "IMTP_N": 1830, "NM_Profile": "Reactivo"},
+                ]
+            ),
+            "acwr_dict": {
+                "Ana Lopez": pd.DataFrame(
+                    [
+                        {"Date": "2026-04-21", "sRPE_diario": 320, "ACWR_EWMA": 1.05, "Zona": "Optimo"},
+                        {"Date": "2026-04-23", "sRPE_diario": 360, "ACWR_EWMA": 1.12, "Zona": "Optimo"},
+                    ]
+                )
+            },
+            "mono_dict": {
+                "Ana Lopez": pd.DataFrame(
+                    [
+                        {"Semana": "2026-04-21", "Carga_Semanal": 680, "Monotonia": 1.8, "Strain": 1224},
+                    ]
+                )
+            },
+        }
+
+        executive_sheet = build_report_executive_sheet(state, "Ana Lopez", "atleta")
+        indicators = executive_sheet["Indicador"].tolist()
+        self.assertIn("Estado del sistema", indicators)
+        self.assertIn("Carga semanal", indicators)
+        self.assertIn("Completion", indicators)
+        self.assertIn("Último test", indicators)
+
+    def test_cmj_trend_uses_fixed_baseline_from_first_three_valid_values(self):
+        jump_df = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Date": "2026-04-01", "CMJ_cm": 30},
+                {"Athlete": "Ana Lopez", "Date": "2026-04-08", "CMJ_cm": 32},
+                {"Athlete": "Ana Lopez", "Date": "2026-04-15", "CMJ_cm": 34},
+                {"Athlete": "Ana Lopez", "Date": "2026-04-24", "CMJ_cm": 40},
+            ]
+        )
+
+        figure = chart_cmj_trend(jump_df, "Ana Lopez", theme=_chart_theme())
+        annotations = [annotation.text for annotation in figure.layout.annotations]
+        self.assertIn("BL 32.0 cm", annotations)
+
+    def test_partial_quality_still_allows_curated_export(self):
+        state = {
+            "rpe_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-24", "sRPE": 320},
+                ]
+            ),
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": None,
+            "acwr_dict": {
+                "Ana Lopez": pd.DataFrame(
+                    [
+                        {"Date": "2026-04-24", "sRPE_diario": 320, "ACWR_EWMA": 1.05, "Zona": "Optimo"},
+                    ]
+                )
+            },
+            "mono_dict": {},
+        }
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Ana Lopez",
+            report_audience="atleta",
+            include_technical_annex=False,
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=False,
+            include_maxes=False,
+            include_volume=False,
+            include_completion=False,
+        )
+
+        self.assertIn("Resumen_Ejecutivo", sheets)
+        self.assertIn("Interpretacion", sheets)
+        self.assertIn("Reporte_Meta", sheets)
 
 
 if __name__ == "__main__":

@@ -117,12 +117,15 @@ from modules.report_generator import (
     REPORT_SHEET_ORDER,
     REPORT_SHEET_EXPORT_NAMES,
     build_executive_summary_df,
+    build_report_executive_sheet,
     build_report_sheets,
     collect_report_athletes,
     export_excel as shared_export_excel,
     generate_module_insights,
     generate_visual_report_pdf,
     normalize_report_audience,
+    report_requires_individual,
+    resolve_report_scope,
 )
 try:
     from PIL import Image
@@ -6231,17 +6234,9 @@ with tab_team:
 with tab_report:
     render_module_header("Reporte", "exportar datos para compartir con el cuerpo tecnico", kicker="Modulo")
 
+    report_state = dict(st.session_state)
+    athletes_r = collect_report_athletes(report_state)
     col_r1, col_r2 = st.columns(2)
-
-    with col_r1:
-        render_subsection_header("Contenido del reporte", "seleccion de bloques para exportacion", kicker="Exportacion")
-        include_acwr     = st.checkbox("ACWR EWMA + sRPE diario", value=True)
-        include_mono     = st.checkbox("Monotonia + strain semanal", value=True)
-        include_wellness = st.checkbox("Wellness historico", value=True)
-        include_jumps    = st.checkbox("Evaluaciones de saltos (EUR ratio, DRI, Z-scores)", value=True)
-        include_maxes    = st.checkbox("Progresion de maximos", value=True)
-        include_volume   = st.checkbox("Volumen por sesion (Rep/Load)", value=True)
-        include_completion = st.checkbox("Completion rate", value=True)
 
     with col_r2:
         render_subsection_header("Opciones", "alcance del archivo a exportar", kicker="Filtro")
@@ -6253,23 +6248,64 @@ with tab_report:
             key="sel_report_audience",
         )
         report_audience = normalize_report_audience(REPORT_AUDIENCE_OPTIONS[audience_choice])
-        athletes_r = collect_report_athletes(dict(st.session_state))
-        if athletes_r:
+        scope_options = athletes_r if report_requires_individual(report_audience) else ["Todos"] + athletes_r
+        if scope_options:
+            current_scope = st.session_state.get("sel_report_ath")
+            default_scope = current_scope if current_scope in scope_options else scope_options[0]
             report_athlete = st.selectbox(
-                "Filtrar por atleta (opcional)",
-                ["Todos"] + athletes_r, key="sel_report_ath")
+                "Atleta del reporte" if report_requires_individual(report_audience) else "Filtrar por atleta (opcional)",
+                scope_options,
+                index=scope_options.index(default_scope),
+                key="sel_report_ath",
+            )
+        elif report_requires_individual(report_audience):
+            st.warning("No hay atletas disponibles para esta audiencia individual.")
+        else:
+            st.caption("Sin atletas detectados en las fuentes cargadas.")
+        if report_requires_individual(report_audience):
+            st.caption("Atleta y Cliente siempre exportan una version individual.")
+
+    with col_r1:
+        render_subsection_header("Contenido del reporte", "corazon curado + anexo tecnico opt-in", kicker="Exportacion")
+        st.caption("El resumen ejecutivo se arma automaticamente segun audiencia, semana actual, ultima evaluacion util, adherencia y readiness.")
+        include_technical_annex = st.checkbox(
+            "Agregar anexo tecnico al Excel",
+            value=False,
+            disabled=report_audience != "profe",
+        )
+        if report_audience != "profe":
+            st.caption("Para atleta y cliente se exporta solo el corazon curado del reporte.")
+
+        if include_technical_annex:
+            st.caption("Selecciona que bloques tecnicos queres sumar al Excel.")
+            include_acwr = st.checkbox("ACWR EWMA + sRPE diario", value=True)
+            include_mono = st.checkbox("Monotonia + strain semanal", value=True)
+            include_wellness = st.checkbox("Wellness historico", value=True)
+            include_jumps = st.checkbox("Evaluaciones de saltos (EUR ratio, DRI, Z-scores)", value=True)
+            include_maxes = st.checkbox("Progresion de maximos", value=True)
+            include_volume = st.checkbox("Volumen por sesion (Rep/Load)", value=True)
+            include_completion = st.checkbox("Completion rate detallado", value=True)
+        else:
+            include_acwr = False
+            include_mono = False
+            include_wellness = False
+            include_jumps = False
+            include_maxes = False
+            include_volume = False
+            include_completion = False
 
     st.markdown("---")
 
-    report_state = dict(st.session_state)
-    executive_df = build_executive_summary_df(report_state, report_athlete)
+    effective_report_athlete = resolve_report_scope(report_state, report_athlete, report_audience)
+    executive_df = build_report_executive_sheet(report_state, report_athlete, report_audience)
     report_insights = generate_module_insights(report_state, report_athlete, report_audience)
     report_note = report_insights.get("report")
     profile_note = report_insights.get("profile")
-    if report_audience in {"atleta", "cliente"} and report_athlete == "Todos":
-        st.info("Para un PDF de atleta o cliente conviene elegir un atleta puntual para personalizar mejor el contenido.")
+    can_prepare_reports = effective_report_athlete is not None
+    if not can_prepare_reports:
+        st.warning("No hay un atleta valido para preparar este reporte individual.")
 
-    render_subsection_header("Vista previa exportable", "bloques listos para excel y salida visual", kicker="Preview")
+    render_subsection_header("Vista previa exportable", "corazon ejecutivo listo para excel y salida visual", kicker="Preview")
     if not executive_df.empty:
         st.dataframe(executive_df, use_container_width=False, hide_index=True)
 
@@ -6293,11 +6329,12 @@ with tab_report:
 
     st.markdown("---")
 
-    if st.button("Preparar exportables"):
+    if st.button("Preparar exportables", disabled=not can_prepare_reports):
         sheets = build_report_sheets(
             report_state,
-            report_athlete,
+            effective_report_athlete or report_athlete,
             report_audience=report_audience,
+            include_technical_annex=include_technical_annex,
             include_acwr=include_acwr,
             include_mono=include_mono,
             include_wellness=include_wellness,
@@ -6312,8 +6349,10 @@ with tab_report:
         else:
             ordered_sheet_names = [name for name in REPORT_SHEET_ORDER if name in sheets]
             ordered_sheet_names.extend(name for name in sheets if name not in ordered_sheet_names)
+            curated_sheets = {"Resumen_Ejecutivo", "Interpretacion", "Completion_Resumen", "Reporte_Meta"}
             export_rows = [
                 {
+                    "Tipo": "Corazon curado" if sheet_name in curated_sheets else "Anexo tecnico",
                     "Seccion": sheet_name.replace("_", " "),
                     "Hoja Excel": REPORT_SHEET_EXPORT_NAMES.get(sheet_name, sheet_name),
                     "Filas": len(sheets[sheet_name]),
@@ -6323,8 +6362,12 @@ with tab_report:
             st.caption("Paquete exportable listo para descargar")
             st.dataframe(pd.DataFrame(export_rows), use_container_width=False, hide_index=True)
             excel_bytes = export_excel(sheets)
-            pdf_bytes = generate_visual_report_pdf(report_state, report_athlete, report_audience)
-            ath_label = report_athlete.replace(" ", "_") if report_athlete != "Todos" else "Equipo"
+            pdf_bytes = generate_visual_report_pdf(report_state, effective_report_athlete or report_athlete, report_audience)
+            ath_label = (
+                effective_report_athlete.replace(" ", "_")
+                if effective_report_athlete and effective_report_athlete != "Todos" else
+                "Equipo"
+            )
             audience_label = audience_choice.replace(" ", "_")
             dl_1, dl_2 = st.columns(2)
             with dl_1:
@@ -6344,17 +6387,26 @@ with tab_report:
             _alert(f"Reporte generado con {len(sheets)} hojas y un PDF para {audience_choice}.", "g")
 
     # ── Qué falta para el reporte completo ──
+    report_quality = compute_data_quality_report(
+        report_state.get("rpe_df"),
+        report_state.get("wellness_df"),
+        report_state.get("completion_df"),
+        report_state.get("raw_df"),
+        report_state.get("maxes_df"),
+        report_state.get("jump_df"),
+        athletes_r,
+    )
+
     st.markdown("---")
-    render_subsection_header("Checklist de datos para reporte completo", "estado de las fuentes necesarias para una exportacion integral", kicker="Checklist")
-    checklist = [
-        ("RPE + Tiempo (sRPE, ACWR EWMA)", st.session_state.rpe_df is not None),
-        ("Wellness 3 preguntas", st.session_state.wellness_df is not None),
-        ("Completion rate", st.session_state.completion_df is not None),
-        ("Rep/Load (volumen)", st.session_state.rep_load_df is not None),
-        ("Raw workouts (por ejercicio/tag)", st.session_state.raw_df is not None),
-        ("Máximos ejercicios", st.session_state.maxes_df is not None),
-        ("Evaluaciones saltos (CMJ/SJ/DJ/IMTP)", st.session_state.jump_df is not None),
-    ]
-    for label, ok in checklist:
-        state = "Activo" if ok else "Faltante"
-        st.markdown(f"**{label}:** {state}")
+    render_subsection_header("Readiness para exportacion", "calidad del dato y contexto del paquete curado", kicker="Checklist")
+    dataset_summary = report_quality.get("dataset_summary", pd.DataFrame())
+    if dataset_summary is not None and not dataset_summary.empty:
+        display_cols = [col for col in ["Dataset", "Estado", "Fecha mas nueva", "Dias con dato", "Huecos (dias)"] if col in dataset_summary.columns]
+        st.dataframe(dataset_summary[display_cols], use_container_width=False, hide_index=True)
+
+    quality_alerts = report_quality.get("alerts", [])
+    if quality_alerts:
+        for alert in quality_alerts[:4]:
+            st.markdown(f"- {alert}")
+    else:
+        st.caption("Sin alertas activas de calidad en la ventana visible.")
