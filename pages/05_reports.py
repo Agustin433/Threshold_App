@@ -86,7 +86,7 @@ if st.button("Generar reporte Excel", disabled=effective_report_athlete is None)
     else:
         ordered_sheet_names = [name for name in REPORT_SHEET_ORDER if name in sheets]
         ordered_sheet_names.extend(name for name in sheets if name not in ordered_sheet_names)
-        curated_sheets = {"Resumen_Ejecutivo", "Interpretacion", "Completion_Resumen", "Reporte_Meta"}
+        curated_sheets = {"Resumen_Ejecutivo", "Interpretacion", "Contexto_Operativo", "Completion_Resumen", "Reporte_Meta"}
         sheet_rows = [
             {
                 "Tipo": "Corazon curado" if sheet_name in curated_sheets else "Anexo tecnico",

@@ -15,6 +15,7 @@ from openpyxl.utils import get_column_letter
 from local_store import build_weekly_summaries
 from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import compute_baseline_delta
+from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +24,7 @@ BRAND_ASSET_DIR = APP_ROOT / "assets" / "brand"
 REPORT_SHEET_ORDER = [
     "Resumen_Ejecutivo",
     "Interpretacion",
+    "Contexto_Operativo",
     "Completion_Resumen",
     "ACWR_sRPE",
     "Monotonia_Strain",
@@ -31,12 +33,14 @@ REPORT_SHEET_ORDER = [
     "Maximos_Ejercicios",
     "Volumen_Sesion",
     "Completion_Rate",
+    "Session_Notes",
     "Reporte_Meta",
 ]
 
 REPORT_SHEET_EXPORT_NAMES = {
     "Resumen_Ejecutivo": "01_Resumen",
     "Interpretacion": "02_Interpretacion",
+    "Contexto_Operativo": "03_Contexto_Operativo",
     "Completion_Resumen": "03_Completion_Resumen",
     "ACWR_sRPE": "04_Carga_ACWR",
     "Monotonia_Strain": "05_Carga_Monotonia",
@@ -45,6 +49,7 @@ REPORT_SHEET_EXPORT_NAMES = {
     "Maximos_Ejercicios": "08_Maximos",
     "Volumen_Sesion": "09_Volumen",
     "Completion_Rate": "10_Completion_Detalle",
+    "Session_Notes": "11_Session_Notes",
     "Reporte_Meta": "99_Meta",
 }
 
@@ -54,6 +59,7 @@ DATASET_LABELS = {
     "completion_df": "Completion",
     "rep_load_df": "Rep/Load",
     "raw_df": "Raw Workouts",
+    "session_notes_df": "Opt-outs / Notes",
     "maxes_df": "Maxes",
     "jump_df": "Evaluaciones",
 }
@@ -95,7 +101,7 @@ def _summary_eur_value(row: pd.Series | None) -> object:
 
 def collect_report_athletes(state: dict[str, pd.DataFrame | None]) -> list[str]:
     athletes: set[str] = set()
-    for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]:
+    for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]:
         frame = state.get(key)
         if frame is None or frame.empty or "Athlete" not in frame.columns:
             continue
@@ -208,7 +214,7 @@ def _team_completion_mean(state: dict[str, pd.DataFrame | None]) -> float | None
 
 def _athlete_completion_mean(state: dict[str, pd.DataFrame | None], athlete: str) -> float | None:
     cdf = state.get("completion_df")
-    if cdf is None or cdf.empty or "Pct" not in cdf.columns:
+    if cdf is None or cdf.empty:
         return None
     if "Athlete" in cdf.columns:
         athlete_df = cdf[cdf["Athlete"] == athlete]
@@ -219,13 +225,12 @@ def _athlete_completion_mean(state: dict[str, pd.DataFrame | None], athlete: str
 
 def _completion_plot_df(state: dict[str, pd.DataFrame | None], athlete: str = "Todos") -> pd.DataFrame:
     cdf = state.get("completion_df")
-    if cdf is None or cdf.empty or not {"Date", "Pct"}.issubset(cdf.columns):
+    if cdf is None or cdf.empty or "Date" not in cdf.columns:
         return pd.DataFrame(columns=["Date", "Pct"])
 
     result = cdf.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
-    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
-    result = result.dropna(subset=["Date", "Pct"])
+    result = result.dropna(subset=["Date"])
     if result.empty:
         return pd.DataFrame(columns=["Date", "Pct"])
 
@@ -234,12 +239,10 @@ def _completion_plot_df(state: dict[str, pd.DataFrame | None], athlete: str = "T
         if result.empty:
             return pd.DataFrame(columns=["Date", "Pct"])
 
-    return (
-        result.groupby("Date", as_index=False)["Pct"]
-        .mean()
-        .sort_values("Date")
-        .reset_index(drop=True)
-    )
+    grouped = summarize_completion_by_group(result, "Date", value_column="Pct")
+    if grouped.empty:
+        return pd.DataFrame(columns=["Date", "Pct"])
+    return grouped[["Date", "Pct"]].sort_values("Date").reset_index(drop=True)
 
 
 def _report_weekly_summaries(state: dict[str, pd.DataFrame | None]) -> dict[str, pd.DataFrame]:
@@ -303,13 +306,12 @@ def _completion_snapshot(
     today: pd.Timestamp | None = None,
 ) -> dict[str, object]:
     cdf = state.get("completion_df")
-    if cdf is None or cdf.empty or not {"Date", "Pct"}.issubset(cdf.columns):
+    if cdf is None or cdf.empty or "Date" not in cdf.columns:
         return {"value": "Sin dato", "detail": "Sin completion cargado.", "numeric": None, "period_label": "Sin dato"}
 
     result = cdf.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
-    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
-    result = result.dropna(subset=["Date", "Pct"])
+    result = result.dropna(subset=["Date"])
     if athlete != "Todos" and "Athlete" in result.columns:
         result = result[result["Athlete"].astype(str).str.strip() == athlete]
     if result.empty:
@@ -328,7 +330,10 @@ def _completion_snapshot(
         current = result[result["Date"].dt.normalize().eq(latest_date)].copy()
         period_label = f"Ultima fecha util ({latest_date:%d/%m})"
 
-    completion_mean = round(float(current["Pct"].mean()), 1)
+    completion_result = calculate_completion_rate(current)
+    if completion_result.value is None:
+        return {"value": "Sin dato", "detail": period_label, "numeric": None, "period_label": period_label}
+    completion_mean = round(float(completion_result.value), 1)
     return {
         "value": f"{completion_mean:.1f}%",
         "detail": period_label,
@@ -685,6 +690,134 @@ def _latest_eval_summary(summary_df: pd.DataFrame) -> tuple[str, str]:
     return latest_eval.strftime("%d/%m/%Y"), " | ".join(part for part in detail_parts if part)
 
 
+def _session_notes_source(state: dict[str, pd.DataFrame | None]) -> pd.DataFrame:
+    df = state.get("session_notes_df")
+    if df is None or df.empty or "Date" not in df.columns or "Athlete" not in df.columns:
+        return pd.DataFrame()
+
+    result = df.copy()
+    result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
+    if "Date_Assigned" in result.columns:
+        result["Date_Assigned"] = pd.to_datetime(result["Date_Assigned"], errors="coerce").dt.normalize()
+    result["Athlete"] = result["Athlete"].astype(str).str.strip().str.title()
+    return result.dropna(subset=["Date", "Athlete"])
+
+
+def _session_notes_for_scope(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str,
+    *,
+    days: int | None = 42,
+    max_rows: int | None = 6,
+) -> pd.DataFrame:
+    df = _session_notes_source(state)
+    if df.empty:
+        return df
+
+    if report_athlete != "Todos":
+        target = str(report_athlete).strip().casefold()
+        df = df[df["Athlete"].astype(str).str.strip().str.casefold() == target]
+        if df.empty:
+            return df
+
+    if days is not None and "Date" in df.columns:
+        reference_date = pd.to_datetime(df["Date"], errors="coerce").max()
+        if pd.notna(reference_date):
+            window_start = pd.Timestamp(reference_date).normalize() - pd.Timedelta(days=max(days - 1, 0))
+            df = df[df["Date"] >= window_start]
+
+    sort_cols = [column for column in ["Date", "Athlete", "Source_Page"] if column in df.columns]
+    ascending = [False, True, True][: len(sort_cols)]
+    if sort_cols:
+        df = df.sort_values(sort_cols, ascending=ascending, na_position="last")
+    if max_rows is not None:
+        df = df.head(max_rows)
+    return df.reset_index(drop=True)
+
+
+def _note_text(value: object, fallback: str = "-") -> str:
+    if value is None or pd.isna(value):
+        return fallback
+    text = str(value).strip()
+    return text if text else fallback
+
+
+def _note_date_text(value: object) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    return parsed.strftime("%d/%m/%Y") if pd.notna(parsed) else "-"
+
+
+def _session_note_summary(notes_df: pd.DataFrame) -> str:
+    if notes_df.empty:
+        return "Sin incidencias operativas recientes cargadas."
+    categories = notes_df.get("Reason_Category", pd.Series(dtype=object)).dropna().astype(str)
+    category_text = ", ".join(f"{name}: {count}" for name, count in categories.value_counts().head(2).items())
+    latest = notes_df.iloc[0]
+    latest_text = _compact_lines(
+        [
+            _note_text(latest.get("Opt_Out_Type")) if _has_text(latest.get("Opt_Out_Type")) else None,
+            _note_text(latest.get("Assigned_Exercise")) if _has_text(latest.get("Assigned_Exercise")) else None,
+        ]
+    )
+    return " | ".join(
+        part for part in [
+            f"{len(notes_df)} incidencia(s) recientes",
+            category_text or None,
+            f"Ultima: {', '.join(latest_text)}" if latest_text else None,
+        ]
+        if part
+    )
+
+
+def build_operational_context_sheet(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str = "Todos",
+    *,
+    max_rows: int = 6,
+) -> pd.DataFrame:
+    notes_df = _session_notes_for_scope(state, report_athlete, days=42, max_rows=max_rows)
+    if notes_df.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, object]] = []
+    for _, note in notes_df.iterrows():
+        rows.append(
+            {
+                "Fecha": _note_date_text(note.get("Date")),
+                "Atleta": _note_text(note.get("Athlete")),
+                "Ejercicio asignado": _note_text(note.get("Assigned_Exercise")),
+                "Tipo": _note_text(note.get("Opt_Out_Type")),
+                "Categoria": _note_text(note.get("Reason_Category")),
+                "Reemplazo": _note_text(note.get("Replacement_Exercise")),
+                "Explicacion": _note_text(note.get("Explanation_Text")),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _build_session_notes_annex_sheet(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str = "Todos",
+) -> pd.DataFrame:
+    notes_df = _session_notes_for_scope(state, report_athlete, days=None, max_rows=None)
+    if notes_df.empty:
+        return pd.DataFrame()
+    ordered_columns = [
+        "Date",
+        "Athlete",
+        "Date_Assigned",
+        "Assigned_Exercise",
+        "Opt_Out_Type",
+        "Reason_Category",
+        "Replacement_Exercise",
+        "Explanation_Text",
+        "Source",
+        "Source_Page",
+        "Raw_Text",
+    ]
+    return _preferred_columns(notes_df, ordered_columns)
+
+
 def build_report_executive_sheet(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
@@ -807,6 +940,15 @@ def build_report_executive_sheet(
         ) or "Sin evaluación útil dentro de la ventana visible."
         add_row("Evaluación útil", "Último test", eval_value, eval_detail)
 
+    operational_notes = _session_notes_for_scope(state, effective_athlete, days=42, max_rows=3)
+    if not operational_notes.empty:
+        add_row(
+            "Contexto operativo",
+            "Opt-outs / notes recientes",
+            str(len(operational_notes)),
+            _session_note_summary(operational_notes),
+        )
+
     top_alert = _ascii_text(alerts[0]) if alerts else "Sin alertas activas en la ventana visible."
     add_row("Calidad", "Alertas activas", str(len(alerts)), top_alert)
 
@@ -841,7 +983,7 @@ def _build_report_metadata_df(
 ) -> pd.DataFrame:
     active_datasets = [
         DATASET_LABELS.get(key, key)
-        for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
+        for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
         if state.get(key) is not None and not state.get(key).empty
     ]
     visible_athletes = collect_report_athletes(state)
@@ -892,6 +1034,11 @@ def build_report_sheets(
     if not interpretation_df.empty:
         sheets["Interpretacion"] = interpretation_df
         included_sections.append("Interpretacion")
+
+    operational_context_df = build_operational_context_sheet(state, effective_athlete, max_rows=6)
+    if not operational_context_df.empty:
+        sheets["Contexto_Operativo"] = operational_context_df
+        included_sections.append("Contexto operativo")
 
     if state.get("completion_df") is not None:
         completion_df = state["completion_df"]
@@ -970,6 +1117,11 @@ def build_report_sheets(
                 sheets["Completion_Rate"] = df
                 included_sections.append("Completion detalle")
 
+        session_notes_annex_df = _build_session_notes_annex_sheet(state, effective_athlete)
+        if not session_notes_annex_df.empty:
+            sheets["Session_Notes"] = session_notes_annex_df
+            included_sections.append("Opt-outs / Notes detalle")
+
     if sheets:
         sheets["Reporte_Meta"] = _build_report_metadata_df(
             state,
@@ -1014,26 +1166,22 @@ def _sort_export_frame(df: pd.DataFrame, sort_columns: list[str], ascending: lis
 
 
 def _build_completion_summary_sheet(df: pd.DataFrame | None, report_athlete: str) -> pd.DataFrame:
-    if df is None or df.empty or not {"Date", "Pct"}.issubset(df.columns):
+    if df is None or df.empty or "Date" not in df.columns:
         return pd.DataFrame()
 
     result = df.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
-    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
-    result = result.dropna(subset=["Date", "Pct"])
+    result = result.dropna(subset=["Date"])
     if result.empty:
         return pd.DataFrame()
 
     scope_label = report_athlete if report_athlete != "Todos" else "Equipo"
-    grouped = (
-        result.groupby("Date", as_index=False)
-        .agg(
-            Pct_Promedio=("Pct", "mean"),
-            Sesiones=("Pct", "size"),
-        )
-        .sort_values("Date", ascending=False)
-        .reset_index(drop=True)
-    )
+    grouped = summarize_completion_by_group(result, "Date", value_column="Pct_Promedio")
+    if grouped.empty:
+        return pd.DataFrame()
+    session_counts = result.groupby("Date").size().reset_index(name="Sesiones")
+    grouped = grouped.merge(session_counts, on="Date", how="left")
+    grouped = grouped.sort_values("Date", ascending=False).reset_index(drop=True)
     grouped.insert(0, "Alcance", scope_label)
     if "Athlete" in result.columns:
         athlete_counts = (
@@ -1057,7 +1205,7 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
     if sheet_name == "Monotonia_Strain":
         result = _preferred_columns(
             result,
-            ["Athlete", "Semana", "Carga_Semanal", "Monotonia", "Strain"],
+            ["Athlete", "Semana", "Carga_Semanal", "Monotonia", "Monotony_Status", "Monotony_Warning", "Strain"],
         )
         return _sort_export_frame(result, ["Athlete", "Semana"], [True, False])
     if sheet_name == "Wellness":
@@ -1918,7 +2066,7 @@ def generate_module_insights(
     summary_df = build_executive_summary_df(state, effective_athlete, audience)
     athletes = _selected_athletes(state, effective_athlete)
     active_datasets = [
-        key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
+        key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
         if state.get(key) is not None and not state.get(key).empty
     ]
     quality_report = _report_quality_report(state)
@@ -1970,6 +2118,25 @@ def generate_module_insights(
             "focuses": overview_focuses,
         }
     }
+
+    operational_notes = _session_notes_for_scope(state, effective_athlete, days=42, max_rows=4)
+    if not operational_notes.empty:
+        focus_lines = []
+        for _, note in operational_notes.head(3).iterrows():
+            detail = _compact_lines(
+                [
+                    _note_text(note.get("Assigned_Exercise")) if _has_text(note.get("Assigned_Exercise")) else None,
+                    _note_text(note.get("Opt_Out_Type")) if _has_text(note.get("Opt_Out_Type")) else None,
+                    _note_text(note.get("Explanation_Text")) if _has_text(note.get("Explanation_Text")) else None,
+                ]
+            )
+            label = _note_text(note.get("Athlete")) if effective_athlete == "Todos" else _note_date_text(note.get("Date"))
+            focus_lines.append(f"{label}: {' | '.join(detail)}" if detail else f"{label}: revisar nota operativa.")
+        insights["operational_context"] = {
+            "title": "Contexto operativo",
+            "summary": _session_note_summary(operational_notes),
+            "focuses": focus_lines,
+        }
 
     individual_eval_available = False
     if effective_athlete != "Todos" and not summary_df.empty:
@@ -2306,7 +2473,7 @@ def _audience_blocks(
     audience: str,
 ) -> list[dict[str, object]]:
     if report_athlete == "Todos" or summary_df.empty:
-        ordered_keys = ["overview", "load", "evaluations", "profile", "team", "report"]
+        ordered_keys = ["overview", "load", "operational_context", "evaluations", "profile", "team", "report"]
         return [insights[key] for key in ordered_keys if insights.get(key)]
 
     row = summary_df.iloc[0]
@@ -2325,7 +2492,7 @@ def _audience_blocks(
             ]
         )
         planning_focuses = _technical_planning_focuses(row, completion_value)
-        return [
+        blocks = [
             {
                 "title": "Carga actual",
                 "summary": insights.get("load", {}).get("summary", "Sin lectura de carga disponible."),
@@ -2352,6 +2519,10 @@ def _audience_blocks(
                 "focuses": insights.get("team", {}).get("focuses", []),
             },
         ]
+        operational = insights.get("operational_context")
+        if operational:
+            blocks.insert(2, operational)
+        return blocks
 
     strengths = _strengths_from_row(row, audience=audience)
     gaps = _gaps_from_row(row, audience=audience)
@@ -2388,7 +2559,7 @@ def _audience_blocks(
             ]
         ) or ["Seguimos construyendo información útil para entender mejor tu evolución."]
 
-        return [
+        blocks = [
             {
                 "title": "Tu progreso hasta hoy",
                 "summary": progress_summary,
@@ -2415,6 +2586,10 @@ def _audience_blocks(
                 "focuses": next_steps,
             },
         ]
+        operational = insights.get("operational_context")
+        if operational:
+            blocks.insert(-1, operational)
+        return blocks
 
     if eval_available:
         profile_summary = " | ".join(
@@ -2454,7 +2629,7 @@ def _audience_blocks(
 
     objective_focuses = _objective_focuses_from_row(row, audience="atleta")
 
-    return [
+    blocks = [
         first_block,
         {
             "title": "Fortalezas actuales",
@@ -2477,6 +2652,10 @@ def _audience_blocks(
             "focuses": next_steps,
         },
     ]
+    operational = insights.get("operational_context")
+    if operational:
+        blocks.insert(-1, operational)
+    return blocks
 
 
 def _build_trend_page(

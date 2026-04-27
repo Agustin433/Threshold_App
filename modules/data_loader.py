@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import html
 import os
 from io import BytesIO
@@ -9,12 +10,35 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 
 import pandas as pd
 
 _DATE_RE = re.compile(
     r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}$"
 )
+_SESSION_NOTE_LABELS = {
+    "athlete": "Athlete",
+    "date recorded": "Date",
+    "assigned exercise": "Assigned_Exercise",
+    "date assigned": "Date_Assigned",
+    "opt-out type": "Opt_Out_Type",
+    "opt out type": "Opt_Out_Type",
+    "explanation": "Explanation_Text",
+}
+SESSION_NOTE_COLUMNS = [
+    "Date",
+    "Athlete",
+    "Date_Assigned",
+    "Assigned_Exercise",
+    "Opt_Out_Type",
+    "Reason_Category",
+    "Replacement_Exercise",
+    "Explanation_Text",
+    "Source",
+    "Source_Page",
+    "Raw_Text",
+]
 
 TAG_CATEGORY_MAP = {
     "Dominante de Cadera": "strength_loaded",
@@ -316,6 +340,12 @@ UPLOAD_CONTRACTS: dict[str, dict[str, object]] = {
         "expected_format": "TeamBuildr Raw Data Report - Workouts (.csv)",
         "examples": ("raw_workouts.csv",),
     },
+    "session_notes": {
+        "label": "Opt-outs / Session Notes",
+        "extensions": ("pdf",),
+        "expected_format": "TeamBuildr Opt-Outs / Session Notes PDF (.pdf)",
+        "examples": ("opt_outs.pdf", "session_notes.pdf"),
+    },
     "maxes": {
         "label": "Raw Data Report - Maxes",
         "extensions": ("csv",),
@@ -550,6 +580,317 @@ def _read_binary_content(file_or_buffer) -> bytes:
     if raw_bytes is None:
         raise ValueError("El archivo de cuestionarios raw esta vacio.")
     return raw_bytes
+
+
+def _clean_pdf_text(value: object) -> str:
+    text = "" if value is None else str(value)
+    text = text.replace("\u00a0", " ").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
+
+
+def _decode_pdf_literal(raw: bytes) -> str:
+    payload = raw[1:-1]
+    text = payload.decode("latin-1", errors="ignore")
+    text = (
+        text.replace(r"\(", "(")
+        .replace(r"\)", ")")
+        .replace(r"\\", "\\")
+        .replace(r"\n", "\n")
+        .replace(r"\r", "\n")
+        .replace(r"\t", "\t")
+    )
+    return text
+
+
+def _extract_text_from_pdf_stream(stream_bytes: bytes) -> str:
+    parts: list[str] = []
+    for match in re.finditer(rb"\((?:\\.|[^\\)])*\)", stream_bytes, flags=re.S):
+        text = _decode_pdf_literal(match.group(0))
+        if text.strip():
+            parts.append(text.strip())
+    for match in re.finditer(rb"<([0-9A-Fa-f\s]{4,})>", stream_bytes):
+        hex_text = re.sub(rb"\s+", b"", match.group(1))
+        try:
+            decoded = bytes.fromhex(hex_text.decode("ascii")).decode("utf-16-be", errors="ignore")
+        except Exception:
+            continue
+        if decoded.strip():
+            parts.append(decoded.strip())
+    return "\n".join(parts)
+
+
+def _extract_pdf_text_pages_fallback(raw_bytes: bytes) -> list[tuple[int, str]]:
+    chunks: list[str] = []
+    for match in re.finditer(rb"stream\r?\n(.*?)\r?\n?endstream", raw_bytes, flags=re.S):
+        stream = match.group(1).strip(b"\r\n")
+        prefix = raw_bytes[max(0, match.start() - 300):match.start()]
+        if b"ASCII85Decode" in prefix:
+            try:
+                ascii_stream = stream.strip()
+                if ascii_stream.startswith(b"<~") and ascii_stream.endswith(b"~>"):
+                    stream = base64.a85decode(ascii_stream, adobe=True)
+                else:
+                    stream = base64.a85decode(ascii_stream.removesuffix(b"~>"))
+            except Exception:
+                pass
+        if b"FlateDecode" in prefix:
+            try:
+                stream = zlib.decompress(stream)
+            except Exception:
+                pass
+        text = _extract_text_from_pdf_stream(stream)
+        if text.strip():
+            chunks.append(text)
+    return [(1, "\n".join(chunks))] if chunks else []
+
+
+def _extract_pdf_text_pages(file_or_buffer) -> list[tuple[int, str]]:
+    raw_bytes = _read_binary_content(file_or_buffer)
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(raw_bytes))
+        pages = [
+            (idx, _clean_pdf_text(page.extract_text() or ""))
+            for idx, page in enumerate(reader.pages, start=1)
+        ]
+        if any(text for _, text in pages):
+            return pages
+    except Exception:
+        pass
+    return _extract_pdf_text_pages_fallback(raw_bytes)
+
+
+def _session_note_date(value: object) -> pd.Timestamp:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return pd.NaT
+    return pd.Timestamp(parsed).normalize()
+
+
+def _is_session_note_date(value: object) -> bool:
+    text = _clean_pdf_text(value)
+    if not text:
+        return False
+    if _DATE_RE.match(text):
+        return True
+    parsed = pd.to_datetime(text, errors="coerce")
+    return bool(pd.notna(parsed))
+
+
+def _normalize_session_note_label(value: object) -> str | None:
+    clean = _clean_pdf_text(value).strip(":").lower()
+    clean = clean.replace("opt out", "opt-out")
+    return _SESSION_NOTE_LABELS.get(clean)
+
+
+def classify_session_note_reason(opt_out_type: object = "", explanation: object = "") -> str:
+    text = f"{opt_out_type or ''} {explanation or ''}".lower()
+    if re.search(r"\b(pain|sore|injur|hurt|ache|dolor|molest|lesion)\b", text):
+        return "injury_or_pain"
+    if re.search(r"\b(equipment|equipamiento|rack|machine|barbell|dumbbell|kettlebell|band|no db|no equipment)\b", text):
+        return "lack_of_equipment"
+    if re.search(r"\b(load|weight|lighter|heavier|reps?|sets?|volume|intensity|reduced|modified load|carga)\b", text):
+        return "modified_load"
+    if re.search(r"\b(absent|absence|missed|skipped|not completed|did not complete|no exercises completed|ausente|falta)\b", text):
+        return "absence_or_not_completed"
+    if re.search(r"\b(instead|substitut|swap|swapped|replaced|changed|change|technical|tecnica|tecnico)\b", text):
+        return "technical_change"
+    return "other"
+
+
+def extract_replacement_exercise(explanation: object) -> object:
+    text = _clean_pdf_text(explanation)
+    if not text:
+        return pd.NA
+    patterns = [
+        r"(?:^|[.;]\s*)(?P<replacement>[A-Z][A-Za-z0-9 /+\-()]{2,80}?)\s+(?:was\s+)?completed instead\b",
+        r"\b(?:completed|did)\s+(?P<replacement>[A-Z][A-Za-z0-9 /+\-()]{2,80}?)\s+instead\b",
+        r"\b(?:substituted|replaced|swapped)\s+(?:with|to|for)\s+(?P<replacement>[^.;\n]{2,80})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        replacement = _clean_pdf_text(match.group("replacement")).strip(" .,-")
+        if replacement:
+            return replacement
+    return pd.NA
+
+
+def _session_note_row(raw_row: dict[str, object], *, source: str, source_page: int) -> dict[str, object] | None:
+    raw_text = _clean_pdf_text(raw_row.get("Raw_Text") or " | ".join(str(value) for value in raw_row.values() if value))
+    if not raw_text or "no exercises completed yet" in raw_text.lower():
+        return None
+
+    athlete = _clean_pdf_text(raw_row.get("Athlete"))
+    assigned_exercise = _clean_pdf_text(raw_row.get("Assigned_Exercise"))
+    opt_out_type = _clean_pdf_text(raw_row.get("Opt_Out_Type"))
+    explanation = _clean_pdf_text(raw_row.get("Explanation_Text"))
+    date_recorded = _session_note_date(raw_row.get("Date"))
+    date_assigned = _session_note_date(raw_row.get("Date_Assigned"))
+
+    if not athlete or pd.isna(date_recorded):
+        return None
+    if not any([assigned_exercise, opt_out_type, explanation]):
+        return None
+
+    return {
+        "Date": date_recorded,
+        "Athlete": athlete.title(),
+        "Date_Assigned": date_assigned,
+        "Assigned_Exercise": assigned_exercise or pd.NA,
+        "Opt_Out_Type": opt_out_type or pd.NA,
+        "Reason_Category": classify_session_note_reason(opt_out_type, explanation),
+        "Replacement_Exercise": extract_replacement_exercise(explanation),
+        "Explanation_Text": explanation or pd.NA,
+        "Source": source,
+        "Source_Page": int(source_page),
+        "Raw_Text": raw_text,
+    }
+
+
+def _parse_labeled_session_notes(lines: list[str], *, source: str, source_page: int) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    current: dict[str, object] = {}
+    current_field: str | None = None
+
+    def flush() -> None:
+        nonlocal current, current_field
+        row = _session_note_row(current, source=source, source_page=source_page)
+        if row is not None:
+            rows.append(row)
+        current = {}
+        current_field = None
+
+    label_pattern = re.compile(
+        r"^(Athlete|Date Recorded|Assigned Exercise|Date Assigned|Opt[- ]Out Type|Explanation)\s*:?\s*(.*)$",
+        flags=re.IGNORECASE,
+    )
+    for line in lines:
+        match = label_pattern.match(line)
+        if match:
+            field = _normalize_session_note_label(match.group(1))
+            if field == "Athlete" and current:
+                flush()
+            current_field = field
+            if field:
+                current[field] = _clean_pdf_text(match.group(2))
+            continue
+        if current_field and current:
+            previous = _clean_pdf_text(current.get(current_field))
+            current[current_field] = _clean_pdf_text(f"{previous} {line}")
+    if current:
+        flush()
+    return rows
+
+
+def _parse_table_session_notes(lines: list[str], *, source: str, source_page: int) -> list[dict[str, object]]:
+    skip_labels = {label.lower() for label in _SESSION_NOTE_LABELS}
+    usable = [
+        line for line in lines
+        if line.lower().strip(":") not in skip_labels
+        and not line.lower().startswith("page ")
+    ]
+    rows: list[dict[str, object]] = []
+    idx = 0
+    while idx < len(usable) - 2:
+        athlete = usable[idx]
+        if _is_session_note_date(athlete) or not _is_session_note_date(usable[idx + 1]):
+            idx += 1
+            continue
+
+        assigned_date_idx = None
+        for candidate_idx in range(idx + 2, min(idx + 8, len(usable))):
+            if _is_session_note_date(usable[candidate_idx]):
+                assigned_date_idx = candidate_idx
+                break
+        if assigned_date_idx is None or assigned_date_idx + 1 >= len(usable):
+            idx += 1
+            continue
+
+        next_idx = len(usable)
+        for candidate_idx in range(assigned_date_idx + 2, len(usable) - 1):
+            if not _is_session_note_date(usable[candidate_idx]) and _is_session_note_date(usable[candidate_idx + 1]):
+                next_idx = candidate_idx
+                break
+
+        raw_row = {
+            "Athlete": athlete,
+            "Date": usable[idx + 1],
+            "Assigned_Exercise": " ".join(usable[idx + 2:assigned_date_idx]),
+            "Date_Assigned": usable[assigned_date_idx],
+            "Opt_Out_Type": usable[assigned_date_idx + 1],
+            "Explanation_Text": " ".join(usable[assigned_date_idx + 2:next_idx]),
+            "Raw_Text": " | ".join(usable[idx:next_idx]),
+        }
+        row = _session_note_row(raw_row, source=source, source_page=source_page)
+        if row is not None:
+            rows.append(row)
+        idx = max(next_idx, idx + 1)
+    return rows
+
+
+def _normalize_session_notes_df(rows: list[dict[str, object]]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame(columns=SESSION_NOTE_COLUMNS)
+    df = pd.DataFrame(rows)
+    for column in SESSION_NOTE_COLUMNS:
+        if column not in df.columns:
+            df[column] = pd.NA
+    df = df[SESSION_NOTE_COLUMNS].copy()
+    for column in ["Date", "Date_Assigned"]:
+        df[column] = pd.to_datetime(df[column], errors="coerce").dt.normalize()
+    df = df.dropna(subset=["Date", "Athlete"])
+    text_cols = [
+        "Athlete",
+        "Assigned_Exercise",
+        "Opt_Out_Type",
+        "Reason_Category",
+        "Replacement_Exercise",
+        "Explanation_Text",
+        "Source",
+        "Raw_Text",
+    ]
+    for column in text_cols:
+        df[column] = df[column].map(lambda value: pd.NA if value is None or pd.isna(value) or not _clean_pdf_text(value) else _clean_pdf_text(value))
+    df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
+    df["Source_Page"] = pd.to_numeric(df["Source_Page"], errors="coerce").fillna(1).astype(int)
+    dedupe_cols = ["Athlete", "Date", "Date_Assigned", "Assigned_Exercise", "Opt_Out_Type", "Explanation_Text"]
+    existing = [column for column in dedupe_cols if column in df.columns]
+    if existing:
+        df = df.drop_duplicates(subset=existing, keep="last")
+    return df.sort_values(["Date", "Athlete"], ascending=[False, True]).reset_index(drop=True)
+
+
+def parse_session_notes_pdf(file) -> pd.DataFrame:
+    contract = UPLOAD_CONTRACTS["session_notes"]
+    _ensure_supported_extension(
+        file,
+        str(contract["label"]),
+        tuple(contract["extensions"]),
+    )
+    source = _resolve_filename(file) or "TeamBuildr session notes PDF"
+    pages = _extract_pdf_text_pages(file)
+    rows: list[dict[str, object]] = []
+    for page_number, text in pages:
+        lines = [
+            _clean_pdf_text(line)
+            for line in str(text or "").splitlines()
+            if _clean_pdf_text(line)
+        ]
+        if not lines:
+            continue
+        rows.extend(_parse_labeled_session_notes(lines, source=source, source_page=page_number))
+        rows.extend(_parse_table_session_notes(lines, source=source, source_page=page_number))
+    result = _normalize_session_notes_df(rows)
+    if result.empty:
+        raise ValueError(
+            "Opt-outs / Session Notes: no se detectaron filas reales de opt-out en el PDF. "
+            "Verifica que el reporte incluya registros y no solo bloques 'No Exercises Completed Yet'."
+        )
+    return result
 
 
 def _first_valid(series: pd.Series):

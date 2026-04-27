@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from charts.load_charts import chart_completion
+from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 from modules.page_state import ensure_page_state
 from modules.report_generator import collect_report_athletes
 
@@ -64,13 +65,12 @@ def _completion_options(comp_df: pd.DataFrame | None) -> list[str]:
 
 
 def _completion_view_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") -> pd.DataFrame:
-    if comp_df is None or comp_df.empty or not {"Date", "Pct"}.issubset(comp_df.columns):
+    if comp_df is None or comp_df.empty or "Date" not in comp_df.columns:
         return pd.DataFrame(columns=["Date", "Pct"])
 
     result = comp_df.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
-    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
-    result = result.dropna(subset=["Date", "Pct"])
+    result = result.dropna(subset=["Date"])
 
     if _completion_has_athlete_column(result) and athlete != "Todos":
         result["Athlete"] = result["Athlete"].astype(str).str.strip()
@@ -79,22 +79,21 @@ def _completion_view_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") ->
     if result.empty:
         return pd.DataFrame(columns=["Date", "Pct"])
 
-    return (
-        result.groupby("Date", as_index=False)["Pct"]
-        .mean()
-        .sort_values("Date")
-        .reset_index(drop=True)
-    )
+    grouped = summarize_completion_by_group(result, "Date", value_column="Pct")
+    if grouped.empty:
+        return pd.DataFrame(columns=["Date", "Pct"])
+    return grouped[["Date", "Pct"]].sort_values("Date").reset_index(drop=True)
 
 
 def _completion_detail_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") -> pd.DataFrame:
-    if comp_df is None or comp_df.empty or not {"Date", "Pct"}.issubset(comp_df.columns):
+    if comp_df is None or comp_df.empty or "Date" not in comp_df.columns:
         return pd.DataFrame()
 
     result = comp_df.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
-    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
-    result = result.dropna(subset=["Date", "Pct"])
+    if "Pct" in result.columns:
+        result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
+    result = result.dropna(subset=["Date"])
 
     if _completion_has_athlete_column(result) and athlete != "Todos":
         result["Athlete"] = result["Athlete"].astype(str).str.strip()
@@ -188,8 +187,12 @@ if completion_df is not None and not completion_df.empty:
     if completion_view.empty:
         st.info("No hay datos de completion para la selección actual.")
     else:
+        completion_rate = calculate_completion_rate(completion_detail)
+        if completion_rate.value is None:
+            completion_rate = calculate_completion_rate(completion_view)
+        completion_value = completion_rate.value if completion_rate.value is not None else 0.0
         metric_cols = st.columns(3)
-        metric_cols[0].metric("Completion promedio", f"{completion_view['Pct'].mean():.0f}%")
+        metric_cols[0].metric("Completion ponderado", f"{completion_value:.0f}%")
         metric_cols[1].metric("Sesiones visibles", len(completion_view))
         metric_cols[2].metric(
             "Ultima fecha",
@@ -202,16 +205,20 @@ if completion_df is not None and not completion_df.empty:
         )
 
         if completion_scope == "Todos" and _completion_has_athlete_column(completion_detail):
-            athlete_summary = (
-                completion_detail.groupby("Athlete", as_index=False)
-                .agg(
-                    Completion_Promedio=("Pct", "mean"),
-                    Sesiones=("Pct", "size"),
-                    Ultima_Fecha=("Date", "max"),
-                )
-                .sort_values(["Completion_Promedio", "Sesiones"], ascending=[False, False])
-                .reset_index(drop=True)
+            athlete_summary = summarize_completion_by_group(
+                completion_detail,
+                "Athlete",
+                value_column="Completion_Promedio",
             )
+            athlete_meta = (
+                completion_detail.groupby("Athlete", as_index=False)
+                .agg(Sesiones=("Date", "size"), Ultima_Fecha=("Date", "max"))
+            )
+            athlete_summary = athlete_summary.merge(athlete_meta, on="Athlete", how="left")
+            athlete_summary = athlete_summary.sort_values(
+                ["Completion_Promedio", "Sesiones"],
+                ascending=[False, False],
+            ).reset_index(drop=True)
             athlete_summary["Ultima_Fecha"] = athlete_summary["Ultima_Fecha"].dt.strftime("%d/%m/%Y")
             st.caption("Resumen por atleta")
             st.dataframe(athlete_summary, use_container_width=True, hide_index=True)

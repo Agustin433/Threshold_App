@@ -32,6 +32,8 @@ class OverviewRedesignStaticTest(unittest.TestCase):
 
         self.assertIn("_active_dataset_rows()", overview)
         self.assertIn("compute_data_quality_report(", overview)
+        self.assertIn("build_alert_feed(", overview)
+        self.assertIn("select_executive_alerts(", overview)
         self.assertIn("build_weekly_summaries(", overview)
         self.assertIn("_overview_completion_snapshot(cdf)", overview)
 

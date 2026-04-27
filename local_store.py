@@ -11,6 +11,7 @@ import pandas as pd
 from modules.data_loader import prepare_raw_workouts_df
 from modules.jump_analysis import _prepare_jump_df
 from modules.load_monitoring import calc_acwr, calc_monotony_strain
+from modules.metrics import calculate_monotony
 
 RECENT_WEEKS = 6
 RECENT_DAYS = RECENT_WEEKS * 7
@@ -65,6 +66,12 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
         "athlete_col": "Athlete",
         "dedupe_cols": ["Athlete", "Assigned Date", "Exercise Name", "Set Number"],
     },
+    "session_notes_df": {
+        "filename": "session_notes_history.csv",
+        "date_col": "Date",
+        "athlete_col": "Athlete",
+        "dedupe_cols": ["Athlete", "Date", "Date_Assigned", "Assigned_Exercise", "Opt_Out_Type", "Explanation_Text"],
+    },
     "maxes_df": {
         "filename": "maxes_history.csv",
         "date_col": "Added Date",
@@ -85,6 +92,7 @@ DATASET_LABELS: dict[str, str] = {
     "completion_df": "Completion",
     "rep_load_df": "Rep/Load",
     "raw_df": "Raw Workouts",
+    "session_notes_df": "Opt-outs / Notes",
     "maxes_df": "Maxes",
     "jump_df": "Evaluaciones",
 }
@@ -104,6 +112,8 @@ WEEKLY_LOAD_COLUMNS = [
     "sessions_count",
     "sRPE_mean_session",
     "monotony",
+    "monotony_status",
+    "monotony_warning",
     "strain",
     "ACWR_EWMA_last",
 ]
@@ -578,10 +588,21 @@ def _build_weekly_load_summary(
             .rename(columns={"ACWR_EWMA": "ACWR_EWMA_last"})
         )
         weekly = weekly.merge(last_acwr, on="week_start", how="left")
-        weekly["monotony"] = np.where(
-            weekly["_sd_daily"].fillna(0).le(0),
-            1.0,
-            weekly["_mean_daily"] / weekly["_sd_daily"],
+        monotony_rows = []
+        for week_start, load_series in athlete_df.groupby("week_start")["sRPE_diario"]:
+            monotony_result = calculate_monotony(load_series)
+            monotony_rows.append(
+                {
+                    "week_start": week_start,
+                    "monotony": monotony_result.value,
+                    "monotony_status": monotony_result.method,
+                    "monotony_warning": monotony_result.warning,
+                }
+            )
+        weekly = weekly.merge(
+            pd.DataFrame(monotony_rows),
+            on="week_start",
+            how="left",
         )
         weekly["strain"] = weekly["weekly_sRPE"] * weekly["monotony"]
         weekly["Athlete"] = athlete
@@ -812,10 +833,22 @@ def _ensure_current_week_load(
             }
         )
     current_rows = current_rows.merge(pd.DataFrame(acwr_last_rows), on=["Athlete", "week_start"], how="left")
-    current_rows["monotony"] = np.where(
-        current_rows["_sd_daily"].fillna(0).le(0),
-        1.0,
-        current_rows["_mean_daily"] / current_rows["_sd_daily"],
+    monotony_rows = []
+    for athlete, load_series in current_daily.groupby("Athlete")["sRPE_diario"]:
+        monotony_result = calculate_monotony(load_series)
+        monotony_rows.append(
+            {
+                "Athlete": athlete,
+                "week_start": current_week,
+                "monotony": monotony_result.value,
+                "monotony_status": monotony_result.method,
+                "monotony_warning": monotony_result.warning,
+            }
+        )
+    current_rows = current_rows.merge(
+        pd.DataFrame(monotony_rows),
+        on=["Athlete", "week_start"],
+        how="left",
     )
     current_rows["strain"] = current_rows["weekly_sRPE"] * current_rows["monotony"]
     current_rows["is_current_week"] = True

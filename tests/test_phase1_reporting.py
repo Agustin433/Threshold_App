@@ -150,6 +150,7 @@ class Phase1ReportingTest(unittest.TestCase):
         summary_sheet = workbook["03_Completion_Resumen"]
         self.assertEqual(summary_sheet["A2"].value, "Equipo")
         self.assertEqual(summary_sheet["C2"].number_format, '0.0"%"')
+        self.assertAlmostEqual(float(summary_sheet["C3"].value), (18 / 22) * 100, places=3)
 
         annex_sheets = build_report_sheets(
             state,

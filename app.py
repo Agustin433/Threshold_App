@@ -77,9 +77,15 @@ from modules.data_loader import (
     prepare_raw_workouts_df as shared_prepare_raw_workouts_df,
     parse_raw_workouts as shared_parse_raw_workouts,
     parse_rep_load_report as shared_parse_rep_load_report,
+    parse_session_notes_pdf as shared_parse_session_notes_pdf,
     parse_xlsx_questionnaire as shared_parse_xlsx_questionnaire,
 )
 from modules.data_quality import compute_data_quality_report
+from modules.alerts import (
+    build_alert_feed,
+    select_executive_alerts,
+)
+from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 from modules.jump_analysis import (
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
@@ -117,15 +123,12 @@ from modules.report_generator import (
     REPORT_SHEET_ORDER,
     REPORT_SHEET_EXPORT_NAMES,
     build_executive_summary_df,
-    build_report_executive_sheet,
     build_report_sheets,
     collect_report_athletes,
     export_excel as shared_export_excel,
     generate_module_insights,
     generate_visual_report_pdf,
     normalize_report_audience,
-    report_requires_individual,
-    resolve_report_scope,
 )
 try:
     from PIL import Image
@@ -1678,11 +1681,21 @@ def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
 
 def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     """Foster 2001: Monotonía y Strain semanal."""
-    weekly = srpe_daily.set_index("Date")["sRPE_diario"].resample("W").agg(
-        ["sum", "mean", "std"]).reset_index()
-    weekly.columns = ["Semana", "Carga_Total", "Media", "SD"]
-    weekly["SD"] = weekly["SD"].fillna(0.001)
-    weekly["Monotonia"] = weekly["Media"] / weekly["SD"]
+    daily = srpe_daily.copy()
+    daily["Date"] = pd.to_datetime(daily["Date"], errors="coerce")
+    daily["sRPE_diario"] = pd.to_numeric(daily["sRPE_diario"], errors="coerce")
+    daily = daily.dropna(subset=["Date", "sRPE_diario"])
+    if daily.empty:
+        return pd.DataFrame(columns=["Semana", "Carga_Total", "Media", "SD", "Monotonia", "Monotony_Status", "Monotony_Warning", "Strain", "Alerta"])
+
+    series = daily.set_index("Date")["sRPE_diario"]
+    weekly = series.resample("W").agg(["sum", "mean"]).reset_index()
+    weekly.columns = ["Semana", "Carga_Total", "Media"]
+    weekly["SD"] = series.resample("W").apply(lambda s: float(pd.Series(s).std(ddof=0)))
+    monotony_by_week = {week: calculate_monotony(group) for week, group in series.resample("W")}
+    weekly["Monotonia"] = weekly["Semana"].map(lambda week: monotony_by_week[week].value)
+    weekly["Monotony_Status"] = weekly["Semana"].map(lambda week: monotony_by_week[week].method)
+    weekly["Monotony_Warning"] = weekly["Semana"].map(lambda week: monotony_by_week[week].warning)
     weekly["Strain"] = weekly["Carga_Total"] * weekly["Monotonia"]
     weekly["Alerta"] = weekly["Monotonia"] > MONOTONY_HIGH
     return weekly
@@ -3016,6 +3029,50 @@ def render_quality_alert_chip(message: str, tone: str = "warning"):
     )
 
 
+def render_product_alert_feed(alerts: list[dict[str, object]], max_items: int | None = None, empty_text: str = "Sin alertas activas."):
+    displayed = list(alerts or [])
+    if max_items is not None:
+        displayed = displayed[:max_items]
+    if not displayed:
+        st.caption(empty_text)
+        return
+
+    palette = {
+        "danger": ("rgba(181,107,115,0.15)", "rgba(181,107,115,0.42)", "#7B3D45"),
+        "warning": ("rgba(196,164,100,0.16)", "rgba(196,164,100,0.42)", "#745820"),
+        "info": ("rgba(112,140,159,0.13)", "rgba(112,140,159,0.32)", "#315066"),
+    }
+    for alert in displayed:
+        severity = str(alert.get("severity", "info"))
+        bg, border, text_color = palette.get(severity, palette["info"])
+        category = str(alert.get("category", "alert")).replace("_", " ").title()
+        athlete = str(alert.get("athlete") or "Equipo")
+        priority = int(alert.get("priority", 0))
+        title = html.escape(str(alert.get("title", "")))
+        message = html.escape(str(alert.get("message", "")))
+        action = html.escape(str(alert.get("action", "")))
+        action_html = f'<div style="margin-top:0.35rem;color:{text_color};font-weight:650;">Accion: {action}</div>' if action else ""
+        st.markdown(
+            f"""
+<div style="
+  background:{bg};
+  border:1px solid {border};
+  border-radius:14px;
+  padding:0.8rem 0.95rem;
+  margin:0 0 0.55rem 0;
+">
+  <div style="font-size:0.68rem;letter-spacing:0.12em;text-transform:uppercase;color:{text_color};font-weight:750;">
+    {html.escape(category)} | {html.escape(severity.upper())} | Prioridad {priority} | {html.escape(athlete)}
+  </div>
+  <div style="font-size:0.98rem;font-weight:760;color:#221F20;margin-top:0.25rem;">{title}</div>
+  <div style="font-size:0.9rem;line-height:1.5;color:#3F3D40;margin-top:0.18rem;">{message}</div>
+  {action_html}
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
 def render_sidebar_status_panel(items: list[tuple[str, str, bool]]):
     rows = []
     for label, detail, ok in items:
@@ -3208,6 +3265,7 @@ parse_questionnaire_raw_csv = shared_parse_questionnaire_raw_csv
 parse_completion_report = shared_parse_completion_report
 parse_rep_load_report = shared_parse_rep_load_report
 parse_raw_workouts = shared_parse_raw_workouts
+parse_session_notes_pdf = shared_parse_session_notes_pdf
 prepare_raw_workouts_df = shared_prepare_raw_workouts_df
 parse_maxes_health = shared_parse_maxes_health
 parse_forceplate_file = shared_parse_forceplate_file
@@ -3258,7 +3316,7 @@ find_latest_valid_radar_row = shared_find_latest_valid_radar_row
 def init_state():
     # Valores por defecto None
     none_keys = ["rpe_df", "wellness_df", "completion_df", "rep_load_df",
-                 "raw_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict"]
+                 "raw_df", "session_notes_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict"]
     for k in none_keys:
         if k not in st.session_state:
             st.session_state[k] = None
@@ -3305,6 +3363,7 @@ def known_athlete_names() -> list[str]:
         st.session_state.wellness_df,
         st.session_state.rep_load_df,
         st.session_state.raw_df,
+        st.session_state.session_notes_df,
         st.session_state.maxes_df,
         st.session_state.jump_df,
     )
@@ -3318,6 +3377,7 @@ def _current_state_snapshot() -> dict[str, pd.DataFrame | None]:
         "completion_df": st.session_state.completion_df,
         "rep_load_df": st.session_state.rep_load_df,
         "raw_df": st.session_state.raw_df,
+        "session_notes_df": st.session_state.session_notes_df,
         "maxes_df": st.session_state.maxes_df,
         "jump_df": st.session_state.jump_df,
     }
@@ -3357,13 +3417,12 @@ def _completion_options(comp_df: pd.DataFrame | None) -> list[str]:
 
 
 def _completion_view_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") -> pd.DataFrame:
-    if comp_df is None or comp_df.empty or not {"Date", "Pct"}.issubset(comp_df.columns):
+    if comp_df is None or comp_df.empty or "Date" not in comp_df.columns:
         return pd.DataFrame(columns=["Date", "Pct"])
 
     result = comp_df.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
-    result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
-    result = result.dropna(subset=["Date", "Pct"])
+    result = result.dropna(subset=["Date"])
 
     if _completion_has_athlete_column(result) and athlete != "Todos":
         result["Athlete"] = result["Athlete"].astype(str).str.strip()
@@ -3372,12 +3431,10 @@ def _completion_view_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") ->
     if result.empty:
         return pd.DataFrame(columns=["Date", "Pct"])
 
-    return (
-        result.groupby("Date", as_index=False)["Pct"]
-        .mean()
-        .sort_values("Date")
-        .reset_index(drop=True)
-    )
+    grouped = summarize_completion_by_group(result, "Date", value_column="Pct")
+    if grouped.empty:
+        return pd.DataFrame(columns=["Date", "Pct"])
+    return grouped[["Date", "Pct"]].sort_values("Date").reset_index(drop=True)
 
 
 def _overview_loaded(df: pd.DataFrame | None) -> bool:
@@ -3414,8 +3471,18 @@ def _overview_number(value: object, digits: int = 0, suffix: str = "") -> str:
 
 
 def _overview_completion_snapshot(comp_df: pd.DataFrame | None, today: pd.Timestamp | None = None) -> dict[str, object]:
-    completion_view = _completion_view_df(comp_df, "Todos")
-    if completion_view.empty:
+    if comp_df is None or comp_df.empty or "Date" not in comp_df.columns:
+        return {
+            "value": "Sin dato",
+            "detail": "Cargar Completion Report para adherencia oficial.",
+            "tone": "neutral",
+            "numeric": None,
+        }
+
+    source = comp_df.copy()
+    source["Date"] = pd.to_datetime(source["Date"], errors="coerce")
+    source = source.dropna(subset=["Date"])
+    if source.empty:
         return {
             "value": "Sin dato",
             "detail": "Cargar Completion Report para adherencia oficial.",
@@ -3425,18 +3492,26 @@ def _overview_completion_snapshot(comp_df: pd.DataFrame | None, today: pd.Timest
 
     today_ts = pd.Timestamp.today().normalize() if today is None else pd.Timestamp(today).normalize()
     current_week = today_ts - pd.Timedelta(days=int(today_ts.weekday()))
-    current = completion_view[
-        (completion_view["Date"].dt.normalize() >= current_week)
-        & (completion_view["Date"].dt.normalize() <= today_ts)
+    current = source[
+        (source["Date"].dt.normalize() >= current_week)
+        & (source["Date"].dt.normalize() <= today_ts)
     ].copy()
     period_label = "Semana actual"
 
     if current.empty:
-        latest_date = completion_view["Date"].max().normalize()
-        current = completion_view[completion_view["Date"].dt.normalize().eq(latest_date)].copy()
+        latest_date = source["Date"].max().normalize()
+        current = source[source["Date"].dt.normalize().eq(latest_date)].copy()
         period_label = f"Ultimo registro {latest_date:%d/%m}"
 
-    completion_mean = float(current["Pct"].mean())
+    completion_result = calculate_completion_rate(current)
+    if completion_result.value is None:
+        return {
+            "value": "Sin dato",
+            "detail": period_label,
+            "tone": "neutral",
+            "numeric": None,
+        }
+    completion_mean = float(completion_result.value)
     tone = "success" if completion_mean >= 90 else "warning" if completion_mean >= 70 else "danger"
     return {
         "value": f"{completion_mean:.0f}%",
@@ -3807,7 +3882,7 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader, source_f
 
 
 def _upload_contract_rows() -> list[dict[str, str]]:
-    order = ["questionnaire_raw", "rpe", "wellness", "completion", "rep_load", "raw_workouts", "maxes", "forceplate"]
+    order = ["questionnaire_raw", "rpe", "wellness", "completion", "rep_load", "raw_workouts", "session_notes", "maxes", "forceplate"]
     rows: list[dict[str, str]] = []
     for key in order:
         contract = UPLOAD_CONTRACTS[key]
@@ -4057,6 +4132,8 @@ with st.sidebar:
                                        type=list(UPLOAD_CONTRACTS["rep_load"]["extensions"]), key="u_rl")
         f_raw = st.file_uploader("Raw Data Report – Workouts (.csv)",
                                   type=list(UPLOAD_CONTRACTS["raw_workouts"]["extensions"]), key="u_raw")
+        f_session_notes = st.file_uploader("Opt-outs / Session Notes PDF (.pdf)",
+                                            type=list(UPLOAD_CONTRACTS["session_notes"]["extensions"]), key="u_session_notes")
         f_maxes = st.file_uploader("Raw Data Report – Maxes (.csv)",
                                     type=list(UPLOAD_CONTRACTS["maxes"]["extensions"]), key="u_maxes")
         _sync_processed_upload_state(
@@ -4067,6 +4144,7 @@ with st.sidebar:
                 "completion": f_completion,
                 "rep_load": f_rep_load,
                 "raw_workouts": f_raw,
+                "session_notes": f_session_notes,
                 "maxes": f_maxes,
             }
         )
@@ -4078,6 +4156,7 @@ with st.sidebar:
                 "completion": f_completion,
                 "rep_load": f_rep_load,
                 "raw_workouts": f_raw,
+                "session_notes": f_session_notes,
                 "maxes": f_maxes,
             }
         )
@@ -4399,6 +4478,14 @@ with st.sidebar:
                         getattr(f_raw, "name", "raw_workouts.csv"),
                         lambda: parse_raw_workouts(f_raw),
                         source_file=f_raw,
+                    ) or processed_any
+                if f_session_notes:
+                    processed_any = _run_dataset_job(
+                        "Opt-outs / Session Notes",
+                        "session_notes_df",
+                        getattr(f_session_notes, "name", "session_notes.pdf"),
+                        lambda: parse_session_notes_pdf(f_session_notes),
+                        source_file=f_session_notes,
                     ) or processed_any
                 if f_maxes:
                     processed_any = _run_dataset_job(
@@ -5266,6 +5353,7 @@ with tab_overview:
     rldf = st.session_state.rep_load_df
     raw_df_state = st.session_state.raw_df
     state_snapshot = _current_state_snapshot()
+    overview_athletes = known_athlete_names()
 
     prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if _overview_loaded(raw_df_state) else None
     quality_report = compute_data_quality_report(
@@ -5275,10 +5363,9 @@ with tab_overview:
         prepared_raw_df,
         maxes_df,
         jdf,
-        known_athlete_names(),
+        overview_athletes,
         window_days=42,
     )
-    quality_alerts = quality_report.get("alerts", [])
 
     if not st.session_state.weekly_summaries:
         st.session_state.weekly_summaries = build_weekly_summaries(
@@ -5292,6 +5379,23 @@ with tab_overview:
     weekly_wellness_current = _overview_current_week_slice(weekly_summaries.get("weekly_wellness"))
     weekly_team_current = _overview_current_week_slice(weekly_summaries.get("weekly_team"))
     current_team = weekly_team_current.tail(1).iloc[0] if not weekly_team_current.empty else pd.Series(dtype=object)
+    overview_alert_feed = build_alert_feed(
+        quality_report=quality_report,
+        weekly_summaries=weekly_summaries,
+        completion_df=cdf,
+        jump_df=jdf,
+        athletes_list=overview_athletes,
+        reference_date=pd.Timestamp.today().normalize(),
+        scope="team",
+        surface="overview",
+    )
+    overview_executive_alerts = select_executive_alerts(overview_alert_feed, limit=5)
+    overview_data_quality_alerts = [
+        alert for alert in overview_alert_feed if alert.get("category") == "data_quality"
+    ]
+    overview_load_alerts = [
+        alert for alert in overview_alert_feed if alert.get("category") == "load_risk"
+    ]
 
     status_items = [
         ("RPE/sRPE", _overview_loaded(rdf)),
@@ -5316,28 +5420,20 @@ with tab_overview:
         )
 
     completion_signal = _overview_completion_snapshot(cdf)
-    readiness_tone = "success" if loaded_sources >= 5 and not quality_alerts else "warning" if loaded_sources >= 3 else "danger"
+    readiness_tone = "success" if loaded_sources >= 5 and not overview_data_quality_alerts else "warning" if loaded_sources >= 3 else "danger"
     readiness_detail = (
         "Fuentes principales disponibles para triage."
         if not missing_sources else
         f"Faltan: {', '.join(missing_sources[:3])}{'...' if len(missing_sources) > 3 else ''}."
     )
-    quality_tone = "success" if loaded_sources and not quality_alerts else "warning" if len(quality_alerts) <= 2 else "danger"
+    quality_tone = "success" if loaded_sources and not overview_data_quality_alerts else "warning" if len(overview_data_quality_alerts) <= 2 else "danger"
     quality_detail = (
         "Sin alertas activas en la ventana operativa."
-        if not quality_alerts else
-        f"Revisar {len(quality_alerts)} alerta(s) en Calidad de datos."
+        if not overview_data_quality_alerts else
+        f"Revisar {len(overview_data_quality_alerts)} alerta(s) en Calidad de datos."
     )
 
-    acwr_values = pd.to_numeric(
-        weekly_load_current.get("ACWR_EWMA_last", pd.Series(index=weekly_load_current.index)),
-        errors="coerce",
-    )
-    monotony_values = pd.to_numeric(
-        weekly_load_current.get("monotony", pd.Series(index=weekly_load_current.index)),
-        errors="coerce",
-    )
-    load_risk_count = int((acwr_values.gt(1.3) | monotony_values.gt(MONOTONY_HIGH)).fillna(False).sum())
+    load_risk_count = len(overview_load_alerts)
     active_athletes = _overview_number(current_team.get("athletes_active"))
     weekly_srpe = _overview_number(current_team.get("team_sRPE_sum"), suffix=" UA")
     load_tone = "danger" if load_risk_count else "success" if weekly_srpe != "Sin dato" else "neutral"
@@ -5375,7 +5471,7 @@ with tab_overview:
     render_subsection_header("Señales ejecutivas", "4-6 indicadores para decidir que mirar ahora", kicker="Ahora")
     executive_cards = [
         ("Fuentes listas", f"{loaded_sources}/{len(status_items)}", readiness_detail, readiness_tone),
-        ("Calidad de datos", f"{len(quality_alerts)} alerta(s)", quality_detail, quality_tone),
+        ("Calidad de datos", f"{len(overview_data_quality_alerts)} alerta(s)", quality_detail, quality_tone),
         ("Carga semanal", weekly_srpe, load_detail, load_tone),
         ("Adherencia", str(completion_signal["value"]), str(completion_signal["detail"]), str(completion_signal["tone"])),
         ("Wellness", wellness_value, wellness_detail, wellness_tone),
@@ -5387,16 +5483,17 @@ with tab_overview:
             with col:
                 render_overview_card(title, value, detail, tone)
 
-    attention_items: list[str] = []
-    if quality_alerts:
-        attention_items.append("Calidad de datos: revisar alertas antes de interpretar o exportar.")
-    if load_risk_count:
-        attention_items.append(f"Carga: {load_risk_count} atleta(s) aparecen en precaucion/riesgo esta semana.")
-    completion_numeric = completion_signal.get("numeric")
-    if completion_numeric is not None and float(completion_numeric) < 90:
-        attention_items.append("Adherencia: completion por debajo del objetivo ejecutivo de 90%.")
-    if eval_tone in {"warning", "danger"}:
-        attention_items.append("Evaluaciones: actualizar tomas si el perfil fisico va a orientar decisiones.")
+    render_subsection_header("Alertas priorizadas", "3-5 senales ejecutivas desde el motor P11", kicker="P11")
+    render_product_alert_feed(
+        overview_executive_alerts,
+        max_items=5,
+        empty_text="Sin alertas ejecutivas activas; profundizar segun la decision del dia.",
+    )
+
+    attention_items: list[str] = [
+        f"{alert.get('title')}: {alert.get('message')}"
+        for alert in overview_executive_alerts[:4]
+    ]
     if not attention_items:
         attention_items.append("Sin bloqueos ejecutivos claros; profundizar segun la decision del dia.")
 
@@ -5405,7 +5502,7 @@ with tab_overview:
         summary = (
             f"{overview_note['summary']} "
             f"Estado actual: {loaded_sources}/{len(status_items)} fuentes activas, "
-            f"{len(quality_alerts)} alerta(s) de calidad y adherencia {completion_signal['value']}."
+            f"{len(overview_alert_feed)} alerta(s) P11 y adherencia {completion_signal['value']}."
         )
         render_report_note(
             "Lectura integrada",
@@ -6234,9 +6331,17 @@ with tab_team:
 with tab_report:
     render_module_header("Reporte", "exportar datos para compartir con el cuerpo tecnico", kicker="Modulo")
 
-    report_state = dict(st.session_state)
-    athletes_r = collect_report_athletes(report_state)
     col_r1, col_r2 = st.columns(2)
+
+    with col_r1:
+        render_subsection_header("Contenido del reporte", "seleccion de bloques para exportacion", kicker="Exportacion")
+        include_acwr     = st.checkbox("ACWR EWMA + sRPE diario", value=True)
+        include_mono     = st.checkbox("Monotonia + strain semanal", value=True)
+        include_wellness = st.checkbox("Wellness historico", value=True)
+        include_jumps    = st.checkbox("Evaluaciones de saltos (EUR ratio, DRI, Z-scores)", value=True)
+        include_maxes    = st.checkbox("Progresion de maximos", value=True)
+        include_volume   = st.checkbox("Volumen por sesion (Rep/Load)", value=True)
+        include_completion = st.checkbox("Completion rate", value=True)
 
     with col_r2:
         render_subsection_header("Opciones", "alcance del archivo a exportar", kicker="Filtro")
@@ -6248,64 +6353,23 @@ with tab_report:
             key="sel_report_audience",
         )
         report_audience = normalize_report_audience(REPORT_AUDIENCE_OPTIONS[audience_choice])
-        scope_options = athletes_r if report_requires_individual(report_audience) else ["Todos"] + athletes_r
-        if scope_options:
-            current_scope = st.session_state.get("sel_report_ath")
-            default_scope = current_scope if current_scope in scope_options else scope_options[0]
+        athletes_r = collect_report_athletes(dict(st.session_state))
+        if athletes_r:
             report_athlete = st.selectbox(
-                "Atleta del reporte" if report_requires_individual(report_audience) else "Filtrar por atleta (opcional)",
-                scope_options,
-                index=scope_options.index(default_scope),
-                key="sel_report_ath",
-            )
-        elif report_requires_individual(report_audience):
-            st.warning("No hay atletas disponibles para esta audiencia individual.")
-        else:
-            st.caption("Sin atletas detectados en las fuentes cargadas.")
-        if report_requires_individual(report_audience):
-            st.caption("Atleta y Cliente siempre exportan una version individual.")
-
-    with col_r1:
-        render_subsection_header("Contenido del reporte", "corazon curado + anexo tecnico opt-in", kicker="Exportacion")
-        st.caption("El resumen ejecutivo se arma automaticamente segun audiencia, semana actual, ultima evaluacion util, adherencia y readiness.")
-        include_technical_annex = st.checkbox(
-            "Agregar anexo tecnico al Excel",
-            value=False,
-            disabled=report_audience != "profe",
-        )
-        if report_audience != "profe":
-            st.caption("Para atleta y cliente se exporta solo el corazon curado del reporte.")
-
-        if include_technical_annex:
-            st.caption("Selecciona que bloques tecnicos queres sumar al Excel.")
-            include_acwr = st.checkbox("ACWR EWMA + sRPE diario", value=True)
-            include_mono = st.checkbox("Monotonia + strain semanal", value=True)
-            include_wellness = st.checkbox("Wellness historico", value=True)
-            include_jumps = st.checkbox("Evaluaciones de saltos (EUR ratio, DRI, Z-scores)", value=True)
-            include_maxes = st.checkbox("Progresion de maximos", value=True)
-            include_volume = st.checkbox("Volumen por sesion (Rep/Load)", value=True)
-            include_completion = st.checkbox("Completion rate detallado", value=True)
-        else:
-            include_acwr = False
-            include_mono = False
-            include_wellness = False
-            include_jumps = False
-            include_maxes = False
-            include_volume = False
-            include_completion = False
+                "Filtrar por atleta (opcional)",
+                ["Todos"] + athletes_r, key="sel_report_ath")
 
     st.markdown("---")
 
-    effective_report_athlete = resolve_report_scope(report_state, report_athlete, report_audience)
-    executive_df = build_report_executive_sheet(report_state, report_athlete, report_audience)
+    report_state = dict(st.session_state)
+    executive_df = build_executive_summary_df(report_state, report_athlete)
     report_insights = generate_module_insights(report_state, report_athlete, report_audience)
     report_note = report_insights.get("report")
     profile_note = report_insights.get("profile")
-    can_prepare_reports = effective_report_athlete is not None
-    if not can_prepare_reports:
-        st.warning("No hay un atleta valido para preparar este reporte individual.")
+    if report_audience in {"atleta", "cliente"} and report_athlete == "Todos":
+        st.info("Para un PDF de atleta o cliente conviene elegir un atleta puntual para personalizar mejor el contenido.")
 
-    render_subsection_header("Vista previa exportable", "corazon ejecutivo listo para excel y salida visual", kicker="Preview")
+    render_subsection_header("Vista previa exportable", "bloques listos para excel y salida visual", kicker="Preview")
     if not executive_df.empty:
         st.dataframe(executive_df, use_container_width=False, hide_index=True)
 
@@ -6329,12 +6393,11 @@ with tab_report:
 
     st.markdown("---")
 
-    if st.button("Preparar exportables", disabled=not can_prepare_reports):
+    if st.button("Preparar exportables"):
         sheets = build_report_sheets(
             report_state,
-            effective_report_athlete or report_athlete,
+            report_athlete,
             report_audience=report_audience,
-            include_technical_annex=include_technical_annex,
             include_acwr=include_acwr,
             include_mono=include_mono,
             include_wellness=include_wellness,
@@ -6349,10 +6412,8 @@ with tab_report:
         else:
             ordered_sheet_names = [name for name in REPORT_SHEET_ORDER if name in sheets]
             ordered_sheet_names.extend(name for name in sheets if name not in ordered_sheet_names)
-            curated_sheets = {"Resumen_Ejecutivo", "Interpretacion", "Completion_Resumen", "Reporte_Meta"}
             export_rows = [
                 {
-                    "Tipo": "Corazon curado" if sheet_name in curated_sheets else "Anexo tecnico",
                     "Seccion": sheet_name.replace("_", " "),
                     "Hoja Excel": REPORT_SHEET_EXPORT_NAMES.get(sheet_name, sheet_name),
                     "Filas": len(sheets[sheet_name]),
@@ -6362,12 +6423,8 @@ with tab_report:
             st.caption("Paquete exportable listo para descargar")
             st.dataframe(pd.DataFrame(export_rows), use_container_width=False, hide_index=True)
             excel_bytes = export_excel(sheets)
-            pdf_bytes = generate_visual_report_pdf(report_state, effective_report_athlete or report_athlete, report_audience)
-            ath_label = (
-                effective_report_athlete.replace(" ", "_")
-                if effective_report_athlete and effective_report_athlete != "Todos" else
-                "Equipo"
-            )
+            pdf_bytes = generate_visual_report_pdf(report_state, report_athlete, report_audience)
+            ath_label = report_athlete.replace(" ", "_") if report_athlete != "Todos" else "Equipo"
             audience_label = audience_choice.replace(" ", "_")
             dl_1, dl_2 = st.columns(2)
             with dl_1:
@@ -6387,26 +6444,17 @@ with tab_report:
             _alert(f"Reporte generado con {len(sheets)} hojas y un PDF para {audience_choice}.", "g")
 
     # ── Qué falta para el reporte completo ──
-    report_quality = compute_data_quality_report(
-        report_state.get("rpe_df"),
-        report_state.get("wellness_df"),
-        report_state.get("completion_df"),
-        report_state.get("raw_df"),
-        report_state.get("maxes_df"),
-        report_state.get("jump_df"),
-        athletes_r,
-    )
-
     st.markdown("---")
-    render_subsection_header("Readiness para exportacion", "calidad del dato y contexto del paquete curado", kicker="Checklist")
-    dataset_summary = report_quality.get("dataset_summary", pd.DataFrame())
-    if dataset_summary is not None and not dataset_summary.empty:
-        display_cols = [col for col in ["Dataset", "Estado", "Fecha mas nueva", "Dias con dato", "Huecos (dias)"] if col in dataset_summary.columns]
-        st.dataframe(dataset_summary[display_cols], use_container_width=False, hide_index=True)
-
-    quality_alerts = report_quality.get("alerts", [])
-    if quality_alerts:
-        for alert in quality_alerts[:4]:
-            st.markdown(f"- {alert}")
-    else:
-        st.caption("Sin alertas activas de calidad en la ventana visible.")
+    render_subsection_header("Checklist de datos para reporte completo", "estado de las fuentes necesarias para una exportacion integral", kicker="Checklist")
+    checklist = [
+        ("RPE + Tiempo (sRPE, ACWR EWMA)", st.session_state.rpe_df is not None),
+        ("Wellness 3 preguntas", st.session_state.wellness_df is not None),
+        ("Completion rate", st.session_state.completion_df is not None),
+        ("Rep/Load (volumen)", st.session_state.rep_load_df is not None),
+        ("Raw workouts (por ejercicio/tag)", st.session_state.raw_df is not None),
+        ("Máximos ejercicios", st.session_state.maxes_df is not None),
+        ("Evaluaciones saltos (CMJ/SJ/DJ/IMTP)", st.session_state.jump_df is not None),
+    ]
+    for label, ok in checklist:
+        state = "Activo" if ok else "Faltante"
+        st.markdown(f"**{label}:** {state}")

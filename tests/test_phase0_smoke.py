@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import importlib
 import os
-import tempfile
+import shutil
 import unittest
+import uuid
 import zipfile
 from contextlib import contextmanager
 from io import BytesIO
@@ -137,15 +138,16 @@ def _chart_theme() -> dict:
 @contextmanager
 def isolated_store():
     original_store = os.environ.get("THRESHOLD_STORE_DIR")
+    tmp_root = Path(__file__).resolve().parents[1] / ".test_tmp" / f"phase0_{uuid.uuid4().hex}"
     try:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            store_dir = Path(tmp_dir) / "store"
-            os.environ["THRESHOLD_STORE_DIR"] = str(store_dir)
-            import local_store as local_store_module
+        tmp_root.mkdir(parents=True, exist_ok=True)
+        store_dir = tmp_root / "store"
+        os.environ["THRESHOLD_STORE_DIR"] = str(store_dir)
+        import local_store as local_store_module
 
-            local_store_module = importlib.reload(local_store_module)
-            local_store_module.LEGACY_STORE_DIR = Path(tmp_dir) / "legacy-default"
-            yield local_store_module, Path(tmp_dir)
+        local_store_module = importlib.reload(local_store_module)
+        local_store_module.LEGACY_STORE_DIR = tmp_root / "legacy-default"
+        yield local_store_module, tmp_root
     finally:
         if original_store is None:
             os.environ.pop("THRESHOLD_STORE_DIR", None)
@@ -154,6 +156,8 @@ def isolated_store():
         import local_store as local_store_module
 
         importlib.reload(local_store_module)
+        if tmp_root.exists():
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
 
 class Phase0SmokeTest(unittest.TestCase):
