@@ -54,6 +54,38 @@ def _chart_theme() -> dict:
 
 
 class WeeklySummariesTest(unittest.TestCase):
+    def test_current_week_monotony_uses_elapsed_calendar_days_without_artificial_strain(self):
+        rpe_df = pd.DataFrame(
+            [
+                {"Date": "2026-04-20", "Athlete": "Ana Gomez", "RPE": 6, "Duration_min": 50, "sRPE": 300},
+                {"Date": "2026-04-21", "Athlete": "Ana Gomez", "RPE": 6, "Duration_min": 50, "sRPE": 300},
+                {"Date": "2026-04-22", "Athlete": "Ana Gomez", "RPE": 6, "Duration_min": 50, "sRPE": 300},
+            ]
+        )
+
+        acwr_dict, _ = local_store.build_load_models(rpe_df)
+        summaries = local_store.build_weekly_summaries(
+            rpe_df,
+            None,
+            None,
+            acwr_dict=acwr_dict,
+            today=pd.Timestamp("2026-04-22"),
+        )
+
+        weekly_load = summaries["weekly_load"]
+        load_row = weekly_load.loc[
+            (weekly_load["Athlete"] == "Ana Gomez")
+            & (weekly_load["week_start"] == pd.Timestamp("2026-04-20"))
+        ].iloc[0]
+
+        self.assertTrue(bool(load_row["is_current_week"]))
+        self.assertEqual(int(load_row["sessions_count"]), 3)
+        self.assertAlmostEqual(float(load_row["weekly_sRPE"]), 900.0, places=3)
+        self.assertEqual(load_row["monotony_status"], "zero_variability")
+        self.assertEqual(load_row["monotony_warning"], "zero_variability")
+        self.assertTrue(pd.isna(load_row["monotony"]))
+        self.assertTrue(pd.isna(load_row["strain"]))
+
     def test_build_weekly_summaries_aggregates_internal_wellness_and_external_load(self):
         rpe_df = pd.DataFrame(
             [

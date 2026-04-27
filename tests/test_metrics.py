@@ -62,12 +62,12 @@ class MonotonyTests(unittest.TestCase):
         self.assertEqual(result.method, "standard")
         self.assertAlmostEqual(result.value, 200 / math.sqrt(20000 / 3), places=3)
 
-    def test_zero_variability_with_positive_load_is_flagged_high(self):
+    def test_zero_variability_with_positive_load_is_not_numeric(self):
         result = calculate_monotony([100, 100, 100])
 
         self.assertEqual(result.method, "zero_variability")
         self.assertEqual(result.warning, "zero_variability")
-        self.assertEqual(result.value, 99.0)
+        self.assertIsNone(result.value)
 
     def test_less_than_three_valid_days_is_insufficient(self):
         result = calculate_monotony([100, 200])

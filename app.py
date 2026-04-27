@@ -122,13 +122,15 @@ from modules.report_generator import (
     REPORT_AUDIENCE_OPTIONS,
     REPORT_SHEET_ORDER,
     REPORT_SHEET_EXPORT_NAMES,
-    build_executive_summary_df,
+    build_report_executive_sheet,
     build_report_sheets,
     collect_report_athletes,
     export_excel as shared_export_excel,
     generate_module_insights,
     generate_visual_report_pdf,
     normalize_report_audience,
+    report_requires_individual,
+    resolve_report_scope,
 )
 try:
     from PIL import Image
@@ -3232,6 +3234,18 @@ def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
               delta_color=delta_color)
 
 
+def _format_monotony_display(value, status=None, empty="-"):
+    if str(status or "").strip() == "zero_variability":
+        return "Sin variabilidad"
+    return f"{float(value):.2f}" if pd.notna(value) else empty
+
+
+def _format_strain_display(value, status=None, empty="-"):
+    if status is not None and str(status or "").strip() != "standard":
+        return empty
+    return f"{float(value):.0f} UA" if pd.notna(value) else empty
+
+
 def _build_chart_theme() -> dict:
     return {
         "colors": C,
@@ -4850,8 +4864,14 @@ def render_decision_panel():
                 "Atleta": risk_df["Athlete"],
                 "sRPE semana": risk_df["weekly_sRPE"].round(0).astype(int),
                 "ACWR EWMA": risk_df["ACWR_EWMA_last"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
-                "Monotonia": risk_df["monotony"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
-                "Strain": risk_df["strain"].map(lambda value: f"{value:.0f}" if pd.notna(value) else "-"),
+                "Monotonia": risk_df.apply(
+                    lambda row: _format_monotony_display(row.get("monotony"), row.get("monotony_status")),
+                    axis=1,
+                ),
+                "Strain": risk_df.apply(
+                    lambda row: _format_strain_display(row.get("strain"), row.get("monotony_status")),
+                    axis=1,
+                ),
                 "Zona": risk_df["Zona"],
                 "Delta sRPE": risk_df["delta_sRPE_text"],
             }
@@ -5714,6 +5734,11 @@ with tab_load:
             last_sessions = sub_rpe.tail(3)
             last_acwr = acwr_df[acwr_df["sRPE_diario"] > 0].tail(1)
             last_mono = mono_df.tail(1) if mono_df is not None else pd.DataFrame()
+            last_mono_status = (
+                last_mono["Monotony_Status"].values[0]
+                if not last_mono.empty and "Monotony_Status" in last_mono.columns
+                else None
+            )
             c1,c2,c3,c4,c5 = st.columns(5)
             c1.metric("sRPE última sesión",
                       f"{last_sessions['sRPE'].iloc[-1]:.0f} UA" if not last_sessions.empty else "—")
@@ -5723,10 +5748,10 @@ with tab_load:
                       f"{last_acwr['ACWR_EWMA'].values[0]:.2f}" if not last_acwr.empty else "—",
                       help="Óptimo: 0.8–1.3")
             c4.metric("Monotonía (sem)",
-                      f"{last_mono['Monotonia'].values[0]:.2f}" if not last_mono.empty else "—",
+                      _format_monotony_display(last_mono["Monotonia"].values[0], last_mono_status) if not last_mono.empty else "—",
                       help="Foster 2001 — límite: 2.0")
             c5.metric("Strain (sem)",
-                      f"{last_mono['Strain'].values[0]:.0f} UA" if not last_mono.empty else "—")
+                      _format_strain_display(last_mono["Strain"].values[0], last_mono_status) if not last_mono.empty else "—")
 
             # Alertas ACWR
             if not last_acwr.empty:
@@ -6331,21 +6356,13 @@ with tab_team:
 with tab_report:
     render_module_header("Reporte", "exportar datos para compartir con el cuerpo tecnico", kicker="Modulo")
 
+    report_state = dict(st.session_state)
+    report_athlete = "Todos"
+
     col_r1, col_r2 = st.columns(2)
 
     with col_r1:
-        render_subsection_header("Contenido del reporte", "seleccion de bloques para exportacion", kicker="Exportacion")
-        include_acwr     = st.checkbox("ACWR EWMA + sRPE diario", value=True)
-        include_mono     = st.checkbox("Monotonia + strain semanal", value=True)
-        include_wellness = st.checkbox("Wellness historico", value=True)
-        include_jumps    = st.checkbox("Evaluaciones de saltos (EUR ratio, DRI, Z-scores)", value=True)
-        include_maxes    = st.checkbox("Progresion de maximos", value=True)
-        include_volume   = st.checkbox("Volumen por sesion (Rep/Load)", value=True)
-        include_completion = st.checkbox("Completion rate", value=True)
-
-    with col_r2:
         render_subsection_header("Opciones", "alcance del archivo a exportar", kicker="Filtro")
-        report_athlete = "Todos"
         audience_choice = st.selectbox(
             "Destinatario del PDF",
             list(REPORT_AUDIENCE_OPTIONS.keys()),
@@ -6353,25 +6370,61 @@ with tab_report:
             key="sel_report_audience",
         )
         report_audience = normalize_report_audience(REPORT_AUDIENCE_OPTIONS[audience_choice])
-        athletes_r = collect_report_athletes(dict(st.session_state))
-        if athletes_r:
+        individual_scope = report_requires_individual(report_audience)
+        athletes_r = collect_report_athletes(report_state)
+        scope_options = athletes_r if individual_scope else ["Todos"] + athletes_r
+        if scope_options:
+            if st.session_state.get("sel_report_ath") not in scope_options:
+                st.session_state["sel_report_ath"] = scope_options[0]
             report_athlete = st.selectbox(
-                "Filtrar por atleta (opcional)",
-                ["Todos"] + athletes_r, key="sel_report_ath")
+                "Atleta del reporte" if individual_scope else "Filtrar por atleta",
+                scope_options,
+                key="sel_report_ath",
+            )
+        elif individual_scope:
+            _alert("No hay atletas disponibles para esta audiencia individual.", "y")
+
+    with col_r2:
+        render_subsection_header("Contenido del reporte", "paquete curado y anexo tecnico opcional", kicker="Exportacion")
+        include_technical_annex = st.checkbox(
+            "Agregar anexo tecnico al Excel",
+            value=False,
+            disabled=report_audience != "profe",
+            key="chk_report_technical_annex",
+        )
+        include_technical_annex = bool(include_technical_annex and report_audience == "profe")
+        if include_technical_annex:
+            include_acwr = st.checkbox("ACWR EWMA + sRPE diario", value=True)
+            include_mono = st.checkbox("Monotonia + strain semanal", value=True)
+            include_wellness = st.checkbox("Wellness historico", value=True)
+            include_jumps = st.checkbox("Evaluaciones de saltos", value=True)
+            include_maxes = st.checkbox("Progresion de maximos", value=True)
+            include_volume = st.checkbox("Volumen por sesion", value=True)
+            include_completion = st.checkbox("Completion rate detallado", value=True)
+        else:
+            include_acwr = False
+            include_mono = False
+            include_wellness = False
+            include_jumps = False
+            include_maxes = False
+            include_volume = False
+            include_completion = False
+            st.caption("El Excel mantiene el paquete ejecutivo curado. El anexo tecnico se agrega solo para profes.")
 
     st.markdown("---")
 
-    report_state = dict(st.session_state)
-    executive_df = build_executive_summary_df(report_state, report_athlete)
-    report_insights = generate_module_insights(report_state, report_athlete, report_audience)
+    effective_report_athlete = resolve_report_scope(report_state, report_athlete, report_audience)
+    preview_athlete = effective_report_athlete or report_athlete
+    executive_df = build_report_executive_sheet(report_state, report_athlete, report_audience)
+    report_insights = generate_module_insights(report_state, preview_athlete, report_audience)
     report_note = report_insights.get("report")
     profile_note = report_insights.get("profile")
-    if report_audience in {"atleta", "cliente"} and report_athlete == "Todos":
-        st.info("Para un PDF de atleta o cliente conviene elegir un atleta puntual para personalizar mejor el contenido.")
 
     render_subsection_header("Vista previa exportable", "bloques listos para excel y salida visual", kicker="Preview")
     if not executive_df.empty:
-        st.dataframe(executive_df, use_container_width=False, hide_index=True)
+        st.dataframe(executive_df, use_container_width=True, hide_index=True)
+    elif effective_report_athlete is None:
+        _alert("Elegir un atleta habilita el reporte individual para esta audiencia.", "y")
 
     preview_left, preview_right = st.columns(2)
     with preview_left:
@@ -6393,11 +6446,12 @@ with tab_report:
 
     st.markdown("---")
 
-    if st.button("Preparar exportables"):
+    if st.button("Preparar exportables", disabled=effective_report_athlete is None):
         sheets = build_report_sheets(
             report_state,
-            report_athlete,
+            preview_athlete,
             report_audience=report_audience,
+            include_technical_annex=include_technical_annex,
             include_acwr=include_acwr,
             include_mono=include_mono,
             include_wellness=include_wellness,
@@ -6412,8 +6466,10 @@ with tab_report:
         else:
             ordered_sheet_names = [name for name in REPORT_SHEET_ORDER if name in sheets]
             ordered_sheet_names.extend(name for name in sheets if name not in ordered_sheet_names)
+            curated_sheets = {"Resumen_Ejecutivo", "Interpretacion", "Contexto_Operativo", "Completion_Resumen", "Reporte_Meta"}
             export_rows = [
                 {
+                    "Tipo": "Corazon curado" if sheet_name in curated_sheets else "Anexo tecnico",
                     "Seccion": sheet_name.replace("_", " "),
                     "Hoja Excel": REPORT_SHEET_EXPORT_NAMES.get(sheet_name, sheet_name),
                     "Filas": len(sheets[sheet_name]),
@@ -6421,10 +6477,10 @@ with tab_report:
                 for sheet_name in ordered_sheet_names
             ]
             st.caption("Paquete exportable listo para descargar")
-            st.dataframe(pd.DataFrame(export_rows), use_container_width=False, hide_index=True)
+            st.dataframe(pd.DataFrame(export_rows), use_container_width=True, hide_index=True)
             excel_bytes = export_excel(sheets)
-            pdf_bytes = generate_visual_report_pdf(report_state, report_athlete, report_audience)
-            ath_label = report_athlete.replace(" ", "_") if report_athlete != "Todos" else "Equipo"
+            pdf_bytes = generate_visual_report_pdf(report_state, preview_athlete, report_audience)
+            ath_label = preview_athlete.replace(" ", "_") if preview_athlete != "Todos" else "Equipo"
             audience_label = audience_choice.replace(" ", "_")
             dl_1, dl_2 = st.columns(2)
             with dl_1:

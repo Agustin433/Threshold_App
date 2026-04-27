@@ -63,10 +63,22 @@ def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
     return result
 
 
+def _calendar_week_loads(series: pd.Series, week_end: pd.Timestamp) -> pd.Series:
+    end = pd.Timestamp(week_end).normalize()
+    start = end - pd.Timedelta(days=6)
+    loads = series.copy()
+    loads.index = pd.to_datetime(loads.index, errors="coerce").normalize()
+    loads = loads.dropna()
+    scoped = loads.loc[(loads.index >= start) & (loads.index <= end)]
+    if not scoped.empty:
+        scoped = scoped.groupby(scoped.index).sum()
+    return scoped.reindex(pd.date_range(start, end, freq="D"), fill_value=0.0)
+
+
 def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     """Weekly monotony and strain according to Foster."""
     daily = srpe_daily.copy()
-    daily["Date"] = pd.to_datetime(daily["Date"], errors="coerce")
+    daily["Date"] = pd.to_datetime(daily["Date"], errors="coerce").dt.normalize()
     daily["sRPE_diario"] = pd.to_numeric(daily["sRPE_diario"], errors="coerce")
     daily = daily.dropna(subset=["Date", "sRPE_diario"])
     if daily.empty:
@@ -84,14 +96,21 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
             ]
         )
 
-    series = daily.set_index("Date")["sRPE_diario"]
+    series = daily.groupby("Date")["sRPE_diario"].sum().sort_index()
     weekly = series.resample("W").agg(["sum", "mean"]).reset_index()
     weekly.columns = ["Semana", "Carga_Total", "Media"]
-    weekly["SD"] = series.resample("W").apply(lambda s: float(pd.Series(s).std(ddof=0)))
-    monotony_by_week = {week: calculate_monotony(group) for week, group in series.resample("W")}
+    calendar_loads_by_week = {week: _calendar_week_loads(series, week) for week, _ in series.resample("W")}
+    weekly["Media"] = weekly["Semana"].map(lambda week: float(calendar_loads_by_week[week].mean()))
+    weekly["SD"] = weekly["Semana"].map(lambda week: float(calendar_loads_by_week[week].std(ddof=0)))
+    monotony_by_week = {week: calculate_monotony(loads) for week, loads in calendar_loads_by_week.items()}
     weekly["Monotonia"] = weekly["Semana"].map(lambda week: monotony_by_week[week].value)
     weekly["Monotony_Status"] = weekly["Semana"].map(lambda week: monotony_by_week[week].method)
     weekly["Monotony_Warning"] = weekly["Semana"].map(lambda week: monotony_by_week[week].warning)
-    weekly["Strain"] = weekly["Carga_Total"] * weekly["Monotonia"]
-    weekly["Alerta"] = weekly["Monotonia"] > MONOTONY_HIGH
+    weekly["Monotonia"] = pd.to_numeric(weekly["Monotonia"], errors="coerce")
+    weekly["Strain"] = np.where(
+        weekly["Monotony_Status"].eq("standard"),
+        weekly["Carga_Total"] * weekly["Monotonia"],
+        np.nan,
+    )
+    weekly["Alerta"] = weekly["Monotonia"].gt(MONOTONY_HIGH).fillna(False)
     return weekly

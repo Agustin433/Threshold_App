@@ -5,6 +5,7 @@ import unittest
 import pandas as pd
 
 from charts.load_charts import chart_acwr
+from modules.load_monitoring import calc_monotony_strain
 
 
 def _chart_theme() -> dict:
@@ -59,6 +60,23 @@ class LoadMonitoringEWMATest(unittest.TestCase):
         trace_names = [trace.name for trace in figure.data]
 
         self.assertEqual(trace_names, ["sRPE diario", "ACWR EWMA"])
+
+    def test_monotony_strain_has_no_artificial_value_for_zero_variability(self):
+        srpe_daily = pd.DataFrame(
+            {
+                "Date": pd.date_range("2026-04-20", periods=7, freq="D"),
+                "sRPE_diario": [300] * 7,
+            }
+        )
+
+        weekly = calc_monotony_strain(srpe_daily)
+        row = weekly.iloc[0]
+
+        self.assertEqual(row["Monotony_Status"], "zero_variability")
+        self.assertEqual(row["Monotony_Warning"], "zero_variability")
+        self.assertTrue(pd.isna(row["Monotonia"]))
+        self.assertTrue(pd.isna(row["Strain"]))
+        self.assertFalse(bool(row["Alerta"]))
 
 
 if __name__ == "__main__":

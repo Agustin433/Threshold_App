@@ -207,7 +207,7 @@ def calculate_monotony(
     sd_load = float(values.std(ddof=0))
     if sd_load <= 0:
         return MonotonyResult(
-            zero_variability_value,
+            None,
             "zero_variability",
             "zero_variability",
             mean_load=mean_load,

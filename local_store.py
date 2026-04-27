@@ -489,6 +489,26 @@ def _current_week_start(today: pd.Timestamp | str | None = None) -> pd.Timestamp
     return today_ts - pd.Timedelta(days=int(today_ts.weekday()))
 
 
+def _calendar_load_series(
+    load_series: pd.Series,
+    week_start: pd.Timestamp | str,
+    week_end: pd.Timestamp | str | None = None,
+) -> pd.Series:
+    start = pd.Timestamp(week_start).normalize()
+    end = pd.Timestamp(week_end).normalize() if week_end is not None else start + pd.Timedelta(days=6)
+    if end < start:
+        end = start
+
+    values = pd.to_numeric(pd.Series(load_series), errors="coerce").dropna()
+    if isinstance(values.index, pd.DatetimeIndex):
+        dates = pd.to_datetime(values.index, errors="coerce")
+        valid_dates = ~pd.isna(dates)
+        values = pd.Series(values.to_numpy()[valid_dates], index=pd.DatetimeIndex(dates[valid_dates]).normalize())
+        values = values.groupby(values.index).sum()
+
+    return values.reindex(pd.date_range(start, end, freq="D"), fill_value=0.0)
+
+
 def _mark_current_week(df: pd.DataFrame, columns: list[str], *, today: pd.Timestamp | str | None = None) -> pd.DataFrame:
     if df is None or df.empty:
         return _empty_weekly_frame(columns)
@@ -589,8 +609,9 @@ def _build_weekly_load_summary(
         )
         weekly = weekly.merge(last_acwr, on="week_start", how="left")
         monotony_rows = []
-        for week_start, load_series in athlete_df.groupby("week_start")["sRPE_diario"]:
-            monotony_result = calculate_monotony(load_series)
+        for week_start, week_df in athlete_df.groupby("week_start"):
+            calendar_loads = _calendar_load_series(week_df.set_index("Date")["sRPE_diario"], week_start)
+            monotony_result = calculate_monotony(calendar_loads)
             monotony_rows.append(
                 {
                     "week_start": week_start,
@@ -604,7 +625,12 @@ def _build_weekly_load_summary(
             on="week_start",
             how="left",
         )
-        weekly["strain"] = weekly["weekly_sRPE"] * weekly["monotony"]
+        weekly["monotony"] = pd.to_numeric(weekly["monotony"], errors="coerce")
+        weekly["strain"] = np.where(
+            weekly["monotony_status"].eq("standard"),
+            weekly["weekly_sRPE"] * weekly["monotony"],
+            np.nan,
+        )
         weekly["Athlete"] = athlete
         weekly["is_current_week"] = False
         weekly = weekly[~((weekly["weekly_sRPE"] <= 0) & (weekly["sessions_count"] <= 0))]
@@ -782,8 +808,6 @@ def _ensure_current_week_load(
     today_ts = _resolve_today(today)
     current_week = _current_week_start(today_ts)
     result = _mark_current_week(weekly_load, WEEKLY_LOAD_COLUMNS, today=today_ts)
-    if not result.empty and result["week_start"].eq(current_week).any():
-        return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
     source = rpe_df.copy()
     if not {"Athlete", "Date", "sRPE"}.issubset(source.columns):
@@ -834,8 +858,13 @@ def _ensure_current_week_load(
         )
     current_rows = current_rows.merge(pd.DataFrame(acwr_last_rows), on=["Athlete", "week_start"], how="left")
     monotony_rows = []
-    for athlete, load_series in current_daily.groupby("Athlete")["sRPE_diario"]:
-        monotony_result = calculate_monotony(load_series)
+    for athlete, athlete_daily in current_daily.groupby("Athlete"):
+        calendar_loads = _calendar_load_series(
+            athlete_daily.set_index("Date")["sRPE_diario"],
+            current_week,
+            today_ts,
+        )
+        monotony_result = calculate_monotony(calendar_loads)
         monotony_rows.append(
             {
                 "Athlete": athlete,
@@ -850,9 +879,16 @@ def _ensure_current_week_load(
         on=["Athlete", "week_start"],
         how="left",
     )
-    current_rows["strain"] = current_rows["weekly_sRPE"] * current_rows["monotony"]
+    current_rows["monotony"] = pd.to_numeric(current_rows["monotony"], errors="coerce")
+    current_rows["strain"] = np.where(
+        current_rows["monotony_status"].eq("standard"),
+        current_rows["weekly_sRPE"] * current_rows["monotony"],
+        np.nan,
+    )
     current_rows["is_current_week"] = True
     current_rows = current_rows[WEEKLY_LOAD_COLUMNS]
+    if not result.empty:
+        result = result[~result["week_start"].eq(current_week)].copy()
     result = _append_missing_week_rows(result, current_rows, key_cols=["Athlete", "week_start"])
     return _mark_current_week(result, WEEKLY_LOAD_COLUMNS, today=today_ts).sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
