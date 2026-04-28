@@ -4,9 +4,12 @@ import pandas as pd
 import streamlit as st
 
 from charts.load_charts import chart_completion
+from local_store import build_weekly_summaries
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 from modules.page_state import ensure_page_state
 from modules.report_generator import collect_report_athletes
+
+WEEKLY_SUMMARY_KEYS = {"weekly_load", "weekly_wellness", "weekly_external", "weekly_team"}
 
 
 TEAM_COLORS = {
@@ -108,6 +111,46 @@ def _completion_detail_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") 
     return result[available_cols].sort_values("Date", ascending=False).reset_index(drop=True)
 
 
+def _weekly_summaries_from_state(acwr_dict: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    cached = st.session_state.get("weekly_summaries")
+    if isinstance(cached, dict) and WEEKLY_SUMMARY_KEYS.issubset(cached.keys()):
+        return cached
+
+    summaries = build_weekly_summaries(
+        st.session_state.rpe_df,
+        st.session_state.wellness_df,
+        st.session_state.raw_df,
+        acwr_dict=acwr_dict,
+    )
+    st.session_state.weekly_summaries = summaries
+    return summaries
+
+
+def _normalize_weekly_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return pd.DataFrame()
+    result = frame.copy()
+    if "week_start" in result.columns:
+        result["week_start"] = pd.to_datetime(result["week_start"], errors="coerce")
+    if "is_current_week" in result.columns:
+        result["is_current_week"] = result["is_current_week"].fillna(False).astype(bool)
+    return result
+
+
+def _current_or_latest_week(frame: pd.DataFrame) -> pd.DataFrame:
+    result = _normalize_weekly_frame(frame)
+    if result.empty:
+        return result
+    if "is_current_week" in result.columns:
+        current = result[result["is_current_week"].fillna(False)]
+        if not current.empty:
+            return current.copy()
+    if "week_start" in result.columns and result["week_start"].notna().any():
+        latest_week = result["week_start"].dropna().max()
+        return result[result["week_start"].eq(latest_week)].copy()
+    return result
+
+
 ensure_page_state(load_models=True)
 
 st.header("Dashboard Grupal")
@@ -123,8 +166,43 @@ mono_dict = st.session_state.mono_dict or {}
 jdf = st.session_state.jump_df
 completion_df = st.session_state.completion_df
 maxes_df = st.session_state.maxes_df
+weekly_summaries = _weekly_summaries_from_state(acwr_dict)
+weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
+weekly_team = _normalize_weekly_frame(weekly_summaries.get("weekly_team", pd.DataFrame()))
 
-if acwr_dict:
+current_week_load = _current_or_latest_week(weekly_load)
+current_week_team = _current_or_latest_week(weekly_team)
+
+if not current_week_load.empty:
+    st.markdown("### Estado semanal de carga del equipo")
+    load_display = current_week_load.copy()
+    load_display = load_display.sort_values(["weekly_sRPE", "sessions_count"], ascending=[False, False])
+    rows = pd.DataFrame(
+        {
+            "Atleta": load_display["Athlete"],
+            "sRPE semanal": pd.to_numeric(load_display["weekly_sRPE"], errors="coerce").round(0),
+            "Sesiones": pd.to_numeric(load_display["sessions_count"], errors="coerce").fillna(0).astype(int),
+            "ACWR EWMA": pd.to_numeric(load_display["ACWR_EWMA_last"], errors="coerce").round(2),
+            "Monotonia": pd.to_numeric(load_display["monotony"], errors="coerce").round(2),
+            "Strain": pd.to_numeric(load_display["strain"], errors="coerce").round(0),
+        }
+    )
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+elif not current_week_team.empty:
+    st.markdown("### Estado semanal del equipo")
+    team_display = current_week_team.copy().sort_values("week_start", ascending=False)
+    rename_map = {
+        "team_sRPE_mean": "sRPE promedio",
+        "team_sRPE_sum": "sRPE total",
+        "athletes_active": "Atletas activos",
+        "team_wellness_mean": "Wellness promedio",
+        "team_monotony_mean": "Monotonia promedio",
+        "team_strain_mean": "Strain promedio",
+    }
+    team_display = team_display.rename(columns=rename_map)
+    display_cols = [column for column in rename_map.values() if column in team_display.columns]
+    st.dataframe(team_display[display_cols], use_container_width=True, hide_index=True)
+elif acwr_dict:
     st.markdown("### Estado de carga del equipo")
     rows = []
     for athlete, adf in acwr_dict.items():

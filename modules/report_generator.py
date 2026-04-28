@@ -427,6 +427,7 @@ def _completion_snapshot(
 
 
 def _readiness_payload(quality_report: dict[str, object]) -> dict[str, object]:
+    """Readiness real derivado del quality report, no inventario local de archivos."""
     dataset_summary = quality_report.get("dataset_summary", pd.DataFrame())
     alerts = quality_report.get("alerts", [])
     if dataset_summary is None or dataset_summary.empty:

@@ -261,6 +261,90 @@ class WeeklySummariesTest(unittest.TestCase):
         self.assertEqual(list(summaries["weekly_external"].columns), local_store.WEEKLY_EXTERNAL_COLUMNS)
         self.assertEqual(list(summaries["weekly_team"].columns), local_store.WEEKLY_TEAM_COLUMNS)
 
+    def test_weekly_load_stays_visible_when_wellness_is_missing(self):
+        rpe_df = pd.DataFrame(
+            [
+                {"Date": "2026-04-20", "Athlete": "Ana Gomez", "RPE": 6, "Duration_min": 50, "sRPE": 300},
+                {"Date": "2026-04-22", "Athlete": "Ana Gomez", "RPE": 7, "Duration_min": 40, "sRPE": 280},
+            ]
+        )
+        acwr_dict, _ = local_store.build_load_models(rpe_df)
+
+        summaries = local_store.build_weekly_summaries(
+            rpe_df,
+            None,
+            None,
+            acwr_dict=acwr_dict,
+            today=pd.Timestamp("2026-04-22"),
+        )
+
+        weekly_load = summaries["weekly_load"]
+        weekly_wellness = summaries["weekly_wellness"]
+        weekly_team = summaries["weekly_team"]
+
+        self.assertFalse(weekly_load.empty)
+        self.assertTrue(weekly_wellness.empty)
+        self.assertFalse(weekly_team.empty)
+        self.assertEqual(weekly_load.iloc[0]["Athlete"], "Ana Gomez")
+        self.assertAlmostEqual(float(weekly_load.iloc[0]["weekly_sRPE"]), 580.0, places=3)
+
+    def test_weekly_wellness_stays_visible_when_rpe_and_raw_are_missing(self):
+        wellness_df = pd.DataFrame(
+            [
+                {"Date": "2026-04-20", "Athlete": "Ana Gomez", "Sueno_hs": 8, "Estres": 2, "Dolor": 1, "Wellness_Score": 11},
+                {"Date": "2026-04-21", "Athlete": "Ana Gomez", "Sueno_hs": 7, "Estres": 3, "Dolor": 2, "Wellness_Score": 12},
+            ]
+        )
+
+        summaries = local_store.build_weekly_summaries(
+            None,
+            wellness_df,
+            None,
+            today=pd.Timestamp("2026-04-22"),
+        )
+
+        weekly_load = summaries["weekly_load"]
+        weekly_wellness = summaries["weekly_wellness"]
+        weekly_external = summaries["weekly_external"]
+        weekly_team = summaries["weekly_team"]
+
+        self.assertTrue(weekly_load.empty)
+        self.assertFalse(weekly_wellness.empty)
+        self.assertTrue(weekly_external.empty)
+        self.assertFalse(weekly_team.empty)
+        self.assertEqual(weekly_wellness.iloc[0]["Athlete"], "Ana Gomez")
+        self.assertAlmostEqual(float(weekly_wellness.iloc[0]["Wellness_mean"]), 11.5, places=3)
+        self.assertTrue(pd.isna(weekly_wellness.iloc[0]["wellness_compliance"]))
+
+    def test_weekly_external_does_not_require_repload(self):
+        raw_df = pd.DataFrame(
+            [
+                {
+                    "Assigned Date": "2026-04-20",
+                    "Athlete": "Ana Gomez",
+                    "Exercise": "Back Squat",
+                    "Exercise Name": "Back Squat",
+                    "Tags": "Dominante de Rodilla",
+                    "Result": 80,
+                    "Reps": 5,
+                    "Sets": 4,
+                }
+            ]
+        )
+
+        summaries = local_store.build_weekly_summaries(
+            None,
+            None,
+            raw_df,
+            today=pd.Timestamp("2026-04-22"),
+        )
+
+        weekly_external = summaries["weekly_external"]
+
+        self.assertFalse(weekly_external.empty)
+        self.assertEqual(weekly_external.iloc[0]["Athlete"], "Ana Gomez")
+        self.assertAlmostEqual(float(weekly_external.iloc[0]["strength_kg"]), 400.0, places=3)
+
     def test_weekly_charts_render_from_summary_frames(self):
         weekly_load = pd.DataFrame(
             [

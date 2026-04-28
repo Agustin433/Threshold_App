@@ -38,6 +38,7 @@ from charts.load_charts import (
     chart_completion as shared_chart_completion,
     chart_maxes_trend as shared_chart_maxes_trend,
     chart_monotony_strain as shared_chart_monotony_strain,
+    chart_weekly_acwr_context as shared_chart_weekly_acwr_context,
     chart_weekly_external as shared_chart_weekly_external,
     chart_weekly_load as shared_chart_weekly_load,
     chart_weekly_strain as shared_chart_weekly_strain,
@@ -86,6 +87,7 @@ from modules.alerts import (
     select_executive_alerts,
 )
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
+from modules.load_monitoring import build_weekly_acwr_context
 from modules.jump_analysis import (
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
@@ -3311,6 +3313,7 @@ chart_weekly_load = _bind_chart(shared_chart_weekly_load)
 chart_weekly_strain = _bind_chart(shared_chart_weekly_strain)
 chart_weekly_wellness = _bind_chart(shared_chart_weekly_wellness)
 chart_weekly_external = _bind_chart(shared_chart_weekly_external)
+chart_weekly_acwr_context = _bind_chart(shared_chart_weekly_acwr_context)
 chart_volume_by_tag = _bind_chart(shared_chart_volume_by_tag)
 chart_maxes_trend = _bind_chart(shared_chart_maxes_trend)
 chart_radar = _bind_chart(shared_chart_radar)
@@ -3461,6 +3464,32 @@ def _overview_weekly_frame(df: pd.DataFrame | None) -> pd.DataFrame:
     result = df.copy()
     result["week_start"] = pd.to_datetime(result["week_start"], errors="coerce").dt.normalize()
     return result.dropna(subset=["week_start"])
+
+
+def _normalize_weekly_frame(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or df.empty or "week_start" not in df.columns:
+        return pd.DataFrame() if df is None else df
+    result = df.copy()
+    result["week_start"] = pd.to_datetime(result["week_start"], errors="coerce").dt.normalize()
+    if "is_current_week" in result.columns:
+        result["is_current_week"] = result["is_current_week"].fillna(False).astype(bool)
+    return result.dropna(subset=["week_start"])
+
+
+def _full_history_weekly_load(rpe_df: pd.DataFrame | None) -> pd.DataFrame:
+    full_rpe = read_full_dataset("rpe_df")
+    if full_rpe is None or full_rpe.empty:
+        full_rpe = rpe_df
+    if full_rpe is None or full_rpe.empty:
+        return pd.DataFrame()
+    full_acwr_dict, _ = build_load_models(full_rpe)
+    full_weekly = build_weekly_summaries(
+        full_rpe,
+        None,
+        None,
+        acwr_dict=full_acwr_dict or {},
+    )
+    return _normalize_weekly_frame(full_weekly.get("weekly_load", pd.DataFrame()))
 
 
 def _overview_current_week_slice(df: pd.DataFrame | None, today: pd.Timestamp | None = None) -> pd.DataFrame:
@@ -5219,11 +5248,11 @@ def render_decision_panel():
             )
             st.dataframe(ratio_display, use_container_width=True, hide_index=True)
 
-    render_subsection_header("Ranking de aplicacion", "quien es el mas aplicado", kicker="Bloque 7")
+    render_subsection_header("Ranking de ejecucion registrada", "quien sostiene mas trabajo visible en Raw Workouts", kicker="Bloque 7")
     if current_load.empty:
         st.caption("Sin datos semanales suficientes para calcular el ranking.")
     else:
-        raw_completion = pd.DataFrame(columns=["Athlete", "completion_pct"])
+        raw_execution = pd.DataFrame(columns=["Athlete", "execution_pct"])
         if prepared_raw_df is not None and not prepared_raw_df.empty:
             prepared_week = prepared_raw_df.copy()
             date_col = "Assigned Date" if "Assigned Date" in prepared_week.columns else "Date" if "Date" in prepared_week.columns else None
@@ -5236,16 +5265,16 @@ def render_decision_panel():
                     prepared_week = prepared_week.assign(
                         _result_numeric=pd.to_numeric(prepared_week.get("Result"), errors="coerce")
                     )
-                    raw_completion = (
+                    raw_execution = (
                         prepared_week.groupby("Athlete", as_index=False)
                         .agg(
                             total_rows=("Athlete", "size"),
                             completed_rows=("_result_numeric", lambda s: int(pd.Series(s).gt(0).sum())),
                         )
                     )
-                    raw_completion["completion_pct"] = np.where(
-                        raw_completion["total_rows"].gt(0),
-                        raw_completion["completed_rows"] / raw_completion["total_rows"],
+                    raw_execution["execution_pct"] = np.where(
+                        raw_execution["total_rows"].gt(0),
+                        raw_execution["completed_rows"] / raw_execution["total_rows"],
                         np.nan,
                     )
 
@@ -5261,13 +5290,13 @@ def render_decision_panel():
             how="left",
         )
         ranking_df = ranking_df.merge(
-            raw_completion[["Athlete", "completion_pct"]] if not raw_completion.empty else pd.DataFrame(columns=["Athlete", "completion_pct"]),
+            raw_execution[["Athlete", "execution_pct"]] if not raw_execution.empty else pd.DataFrame(columns=["Athlete", "execution_pct"]),
             on="Athlete",
             how="left",
         )
         max_sessions = max(int(ranking_df["sessions_count"].max()) if not ranking_df.empty else 0, 1)
         ranking_df["wellness_compliance"] = ranking_df["wellness_compliance"].clip(lower=0, upper=1).fillna(0)
-        ranking_df["completion_pct"] = ranking_df["completion_pct"].clip(lower=0, upper=1).fillna(0)
+        ranking_df["execution_pct"] = ranking_df["execution_pct"].clip(lower=0, upper=1).fillna(0)
         ranking_df["delta_pct"] = np.where(
             ranking_df["weekly_sRPE_prev"].fillna(0).gt(0),
             ((ranking_df["weekly_sRPE"] - ranking_df["weekly_sRPE_prev"]) / ranking_df["weekly_sRPE_prev"]) * 100,
@@ -5276,7 +5305,7 @@ def render_decision_panel():
         ranking_df["Score"] = (
             (ranking_df["sessions_count"] / max_sessions) * 30
             + ranking_df["wellness_compliance"] * 30
-            + ranking_df["completion_pct"] * 20
+            + ranking_df["execution_pct"] * 20
             + np.where(ranking_df["delta_pct"] >= -20, 20.0, 0.0)
         ).round(1)
         ranking_df["Tendencia carga"] = np.select(
@@ -5292,7 +5321,7 @@ def render_decision_panel():
                 "Score": ranking_df["Score"].map(lambda value: f"{value:.1f}"),
                 "Sessions": ranking_df["sessions_count"].astype(int),
                 "Wellness %": ranking_df["wellness_compliance"].map(lambda value: f"{value * 100:.0f}%"),
-                "Completion %": ranking_df["completion_pct"].map(lambda value: f"{value * 100:.0f}%"),
+                "Ejecucion registrada %": ranking_df["execution_pct"].map(lambda value: f"{value * 100:.0f}%"),
                 "Tendencia carga": ranking_df["Tendencia carga"],
             }
         )
@@ -5434,7 +5463,7 @@ with tab_overview:
     loaded_sources = sum(1 for _, ok in status_items if ok)
     missing_sources = [label for label, ok in status_items if not ok]
 
-    render_subsection_header("Readiness de fuentes", "estado rapido para saber si el sistema esta listo", kicker="Datos")
+    render_subsection_header("Fuentes cargadas", "inventario local; la calidad/readiness real viene del reporte P2", kicker="Datos")
     render_status_badges(status_items)
     modern_dataset_keys = ["rpe_df", "wellness_df", "completion_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
     dataset_rows = _active_dataset_rows(keys=modern_dataset_keys)
@@ -5451,9 +5480,9 @@ with tab_overview:
         )
 
     completion_signal = _overview_completion_snapshot(cdf)
-    readiness_tone = "success" if loaded_sources >= 5 and not overview_data_quality_alerts else "warning" if loaded_sources >= 3 else "danger"
-    readiness_detail = (
-        "Fuentes principales disponibles para triage."
+    source_inventory_tone = "success" if loaded_sources >= 5 and not overview_data_quality_alerts else "warning" if loaded_sources >= 3 else "danger"
+    source_inventory_detail = (
+        "Inventario local suficiente para triage."
         if not missing_sources else
         f"Faltan: {', '.join(missing_sources[:3])}{'...' if len(missing_sources) > 3 else ''}."
     )
@@ -5501,8 +5530,8 @@ with tab_overview:
 
     render_subsection_header("Señales ejecutivas", "4-6 indicadores para decidir que mirar ahora", kicker="Ahora")
     executive_cards = [
-        ("Fuentes listas", f"{loaded_sources}/{len(status_items)}", readiness_detail, readiness_tone),
-        ("Calidad de datos", f"{len(overview_data_quality_alerts)} alerta(s)", quality_detail, quality_tone),
+        ("Fuentes cargadas", f"{loaded_sources}/{len(status_items)}", source_inventory_detail, source_inventory_tone),
+        ("Calidad/readiness", f"{len(overview_data_quality_alerts)} alerta(s)", quality_detail, quality_tone),
         ("Carga semanal", weekly_srpe, load_detail, load_tone),
         ("Adherencia", str(completion_signal["value"]), str(completion_signal["detail"]), str(completion_signal["tone"])),
         ("Wellness", wellness_value, wellness_detail, wellness_tone),
@@ -5585,32 +5614,52 @@ with tab_load:
     athlete_summary = quality_report["athlete_summary"]
     alerts = quality_report["alerts"]
 
-    if rdf is None:
+    if not st.session_state.weekly_summaries:
+        st.session_state.weekly_summaries = build_weekly_summaries(
+            rdf,
+            wdf,
+            raw_df_state,
+            acwr_dict=st.session_state.acwr_dict or {},
+        )
+    weekly_summaries = st.session_state.weekly_summaries or {}
+    weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
+    weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
+    weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))
+    weekly_team = _normalize_weekly_frame(weekly_summaries.get("weekly_team", pd.DataFrame()))
+
+    weekly_athlete_options: list[str] = []
+    for weekly_frame in [weekly_load, weekly_wellness, weekly_external]:
+        if not weekly_frame.empty and "Athlete" in weekly_frame.columns:
+            weekly_athlete_options.extend(weekly_frame["Athlete"].dropna().astype(str).str.strip().tolist())
+    rpe_athlete_options = (
+        sorted(rdf["Athlete"].dropna().astype(str).str.strip().unique().tolist())
+        if rdf is not None and "Athlete" in rdf.columns else
+        []
+    )
+    athletes_load = sorted(set(rpe_athlete_options) | set(weekly_athlete_options)) or ["Sin atleta"]
+
+    if rdf is None and not weekly_athlete_options:
         _alert("Carga el archivo questionnaire-report.xlsx (RPE + Tiempo) y presiona Procesar todo.", "b")
     else:
-        athletes_load = (
-            sorted(rdf["Athlete"].dropna().unique())
-            if "Athlete" in rdf.columns else
-            ["Sin atleta"]
-        ) or ["Sin atleta"]
-        if not st.session_state.weekly_summaries:
-            st.session_state.weekly_summaries = build_weekly_summaries(
-                rdf,
-                wdf,
-                raw_df_state,
-                acwr_dict=st.session_state.acwr_dict or {},
-            )
-        weekly_summaries = st.session_state.weekly_summaries or {}
-        weekly_load = weekly_summaries.get("weekly_load", pd.DataFrame())
-        weekly_wellness = weekly_summaries.get("weekly_wellness", pd.DataFrame())
-        weekly_external = weekly_summaries.get("weekly_external", pd.DataFrame())
-        weekly_team = weekly_summaries.get("weekly_team", pd.DataFrame())
 
         with st.expander("Opciones de visualizacion", expanded=True):
             vista = st.radio("Vista", ["Diaria", "Semanal"], horizontal=True, key="load_view_mode")
             athlete_sel = st.selectbox("Seleccionar atleta", athletes_load, key="sel_load")
+            acwr_context_window = "16 semanas"
+            if vista == "Semanal":
+                acwr_context_window = st.radio(
+                    "Rango ACWR semanal",
+                    ["8 semanas", "16 semanas", "Temporada completa"],
+                    index=1,
+                    horizontal=True,
+                    key="weekly_acwr_context_window",
+                )
 
-        sub_rpe = rdf[rdf["Athlete"] == athlete_sel]
+        sub_rpe = (
+            rdf[rdf["Athlete"] == athlete_sel]
+            if rdf is not None and "Athlete" in rdf.columns else
+            pd.DataFrame()
+        )
         acwr_df = (st.session_state.acwr_dict or {}).get(athlete_sel)
         mono_df = (st.session_state.mono_dict or {}).get(athlete_sel)
         if mono_df is None:
@@ -5631,11 +5680,22 @@ with tab_load:
             if not weekly_external.empty and "Athlete" in weekly_external.columns
             else pd.DataFrame()
         )
+        acwr_context_weeks = {
+            "8 semanas": 8,
+            "16 semanas": 16,
+            "Temporada completa": None,
+        }.get(acwr_context_window, 16)
 
         if vista == "Semanal":
-            if weekly_load_athlete.empty:
+            if weekly_load_athlete.empty and weekly_wellness_athlete.empty and weekly_external_athlete.empty:
                 st.warning("Sin resumen semanal disponible para este atleta.")
             else:
+                acwr_context_source = _full_history_weekly_load(rdf)
+                weekly_acwr_context = build_weekly_acwr_context(
+                    acwr_context_source if not acwr_context_source.empty else weekly_load,
+                    athlete_sel,
+                    weeks=acwr_context_weeks,
+                )
                 current_week_rows = weekly_load_athlete.loc[
                     weekly_load_athlete.get("is_current_week", False).fillna(False)
                 ] if "is_current_week" in weekly_load_athlete.columns else pd.DataFrame()
@@ -5649,14 +5709,14 @@ with tab_load:
                             f"Incluye {_format_week_label(current_week_start, is_current_week=True)}."
                         )
                 render_subsection_header(
-                    "Carga interna semanal",
-                    "srpe semanal con monotonia del microciclo",
+                    "Contexto semanal de carga",
+                    "carga absoluta, cronica 4 semanas y ACWR rolling uncoupled",
                     kicker="Semanal",
                 )
                 st.plotly_chart(
-                    chart_weekly_load(weekly_load_athlete, athlete_sel),
+                    chart_weekly_acwr_context(weekly_acwr_context, athlete_sel),
                     use_container_width=False,
-                    key="weekly_load_main",
+                    key="weekly_acwr_context_main",
                 )
 
                 c_weekly_strain, c_weekly_well = st.columns(2)
@@ -5739,7 +5799,7 @@ with tab_load:
                     available_cols = [column for column in display_cols if column in team_display.columns]
                     st.dataframe(team_display[available_cols], use_container_width=True, hide_index=True)
         elif acwr_df is None:
-            st.warning("Sin datos de ACWR EWMA para este atleta.")
+            st.warning("Sin datos diarios de ACWR EWMA para este atleta; revisa la vista semanal si hay fuentes parciales.")
         else:
             # ── KPIs ──
             last_sessions = sub_rpe.tail(3)

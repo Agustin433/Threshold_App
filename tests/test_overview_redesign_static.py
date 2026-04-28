@@ -19,7 +19,8 @@ class OverviewRedesignStaticTest(unittest.TestCase):
         overview = _overview_block()
 
         self.assertIn("Overview Ejecutivo", overview)
-        self.assertIn("Readiness de fuentes", overview)
+        self.assertIn("Fuentes cargadas", overview)
+        self.assertIn("Calidad/readiness", overview)
         self.assertIn("Señales ejecutivas", overview)
         self.assertIn("Lectura integrada", overview)
         self.assertIn("Adonde ir despues", overview)
