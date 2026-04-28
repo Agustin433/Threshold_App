@@ -13,6 +13,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from local_store import build_weekly_summaries
+from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import compute_baseline_delta
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
@@ -31,7 +32,8 @@ REPORT_SHEET_ORDER = [
     "Wellness",
     "Evaluaciones_Saltos",
     "Maximos_Ejercicios",
-    "Volumen_Sesion",
+    "Volumen_Carga_Externa",
+    "Volumen_RepLoad_Legacy",
     "Completion_Rate",
     "Session_Notes",
     "Reporte_Meta",
@@ -47,7 +49,8 @@ REPORT_SHEET_EXPORT_NAMES = {
     "Wellness": "06_Wellness",
     "Evaluaciones_Saltos": "07_Evaluaciones",
     "Maximos_Ejercicios": "08_Maximos",
-    "Volumen_Sesion": "09_Volumen",
+    "Volumen_Carga_Externa": "09_Carga_Externa",
+    "Volumen_RepLoad_Legacy": "09_RepLoad_Legacy",
     "Completion_Rate": "10_Completion_Detalle",
     "Session_Notes": "11_Session_Notes",
     "Reporte_Meta": "99_Meta",
@@ -57,12 +60,23 @@ DATASET_LABELS = {
     "rpe_df": "RPE + Tiempo",
     "wellness_df": "Wellness",
     "completion_df": "Completion",
-    "rep_load_df": "Rep/Load",
+    "rep_load_df": "Rep/Load (legacy opcional)",
     "raw_df": "Raw Workouts",
     "session_notes_df": "Opt-outs / Notes",
     "maxes_df": "Maxes",
     "jump_df": "Evaluaciones",
 }
+
+MODERN_REPORT_DATASET_KEYS = [
+    "rpe_df",
+    "wellness_df",
+    "completion_df",
+    "raw_df",
+    "session_notes_df",
+    "maxes_df",
+    "jump_df",
+]
+LEGACY_REPORT_DATASET_KEYS = ["rep_load_df"]
 
 REPORT_AUDIENCE_OPTIONS = {
     "Atleta": "atleta",
@@ -107,6 +121,76 @@ def collect_report_athletes(state: dict[str, pd.DataFrame | None]) -> list[str]:
             continue
         athletes.update(frame["Athlete"].dropna().astype(str).str.strip().tolist())
     return sorted(athletes)
+
+
+def _has_rows(frame: pd.DataFrame | None) -> bool:
+    return frame is not None and not frame.empty
+
+
+def build_report_source_checklist(state: dict[str, pd.DataFrame | None]) -> list[dict[str, object]]:
+    """Checklist semantico: Raw Workouts es oficial; Rep/Load solo fallback legacy."""
+    raw_loaded = _has_rows(state.get("raw_df"))
+    rep_load_loaded = _has_rows(state.get("rep_load_df"))
+    volume_ok = raw_loaded or rep_load_loaded
+    if raw_loaded:
+        volume_status = "Cubierto por Raw Workouts"
+        volume_detail = "Fuente oficial para carga externa y analisis por estimulo."
+    elif rep_load_loaded:
+        volume_status = "Fallback legacy disponible"
+        volume_detail = "Rep/Load no reemplaza Raw Workouts como fuente moderna."
+    else:
+        volume_status = "Faltante"
+        volume_detail = "Cargar Raw Data Report - Workouts."
+
+    rows = [
+        {
+            "label": "RPE + Tiempo (sRPE, ACWR EWMA)",
+            "ok": _has_rows(state.get("rpe_df")),
+            "status": "Activo" if _has_rows(state.get("rpe_df")) else "Faltante",
+            "role": "principal",
+        },
+        {
+            "label": "Wellness 3 preguntas",
+            "ok": _has_rows(state.get("wellness_df")),
+            "status": "Activo" if _has_rows(state.get("wellness_df")) else "Faltante",
+            "role": "principal",
+        },
+        {
+            "label": "Completion rate",
+            "ok": _has_rows(state.get("completion_df")),
+            "status": "Activo" if _has_rows(state.get("completion_df")) else "Faltante",
+            "role": "principal",
+        },
+        {
+            "label": "Volumen/carga externa (Raw Workouts)",
+            "ok": volume_ok,
+            "status": volume_status,
+            "role": "principal" if raw_loaded else "legacy_fallback" if rep_load_loaded else "principal",
+            "detail": volume_detail,
+        },
+        {
+            "label": "Maximos ejercicios",
+            "ok": _has_rows(state.get("maxes_df")),
+            "status": "Activo" if _has_rows(state.get("maxes_df")) else "Faltante",
+            "role": "principal",
+        },
+        {
+            "label": "Evaluaciones saltos (CMJ/SJ/DJ/IMTP)",
+            "ok": _has_rows(state.get("jump_df")),
+            "status": "Activo" if _has_rows(state.get("jump_df")) else "Faltante",
+            "role": "principal",
+        },
+    ]
+    rows.append(
+        {
+            "label": "Rep/Load (legacy opcional)",
+            "ok": rep_load_loaded,
+            "status": "Legacy disponible" if rep_load_loaded else "Opcional no cargado",
+            "role": "legacy_optional",
+            "detail": "Fuente legacy. Usar Raw Data Report - Workouts como fuente oficial para carga externa.",
+        }
+    )
+    return rows
 
 
 def report_requires_individual(audience: str | None) -> bool:
@@ -818,6 +902,73 @@ def _build_session_notes_annex_sheet(
     return _preferred_columns(notes_df, ordered_columns)
 
 
+def _build_raw_external_volume_sheet(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str = "Todos",
+) -> pd.DataFrame:
+    prepared = prepare_raw_workouts_df(state.get("raw_df"))
+    if prepared is None or prepared.empty:
+        return pd.DataFrame()
+
+    result = prepared.copy()
+    if report_athlete != "Todos" and "Athlete" in result.columns:
+        result = result[result["Athlete"].astype(str).str.strip() == report_athlete]
+    if result.empty:
+        return pd.DataFrame()
+
+    result = result[
+        ~result.get("is_invalid", pd.Series(False, index=result.index)).fillna(False)
+        & ~result.get("is_untagged", pd.Series(False, index=result.index)).fillna(False)
+    ].copy()
+    if result.empty:
+        return pd.DataFrame()
+
+    if "Assigned Date" in result.columns:
+        result["Date"] = pd.to_datetime(result["Assigned Date"], errors="coerce")
+    elif "Date" in result.columns:
+        result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
+    result["Source"] = "Raw Workouts"
+    columns = [
+        "Source",
+        "Athlete",
+        "Date",
+        "Exercise",
+        "Exercise Name",
+        "Tags",
+        "stimulus_category",
+        "Category",
+        "Result",
+        "Reps",
+        "Sets",
+        "Volume_Load_kg",
+        "Contacts",
+        "Exposures",
+        "Distance_m",
+    ]
+    available = [column for column in columns if column in result.columns]
+    result = result[available].copy()
+    sort_cols = [column for column in ["Athlete", "Date", "stimulus_category", "Exercise"] if column in result.columns]
+    if sort_cols:
+        result = result.sort_values(sort_cols, ascending=[True, False, True, True][: len(sort_cols)], na_position="last")
+    return result.reset_index(drop=True)
+
+
+def _build_rep_load_legacy_volume_sheet(
+    state: dict[str, pd.DataFrame | None],
+    report_athlete: str = "Todos",
+) -> pd.DataFrame:
+    df = state.get("rep_load_df")
+    if df is None or df.empty:
+        return pd.DataFrame()
+    result = df.copy()
+    if report_athlete != "Todos" and "Athlete" in result.columns:
+        result = result[result["Athlete"].astype(str).str.strip() == report_athlete]
+    if result.empty:
+        return pd.DataFrame()
+    result["Source"] = "Rep/Load legacy"
+    return result.reset_index(drop=True)
+
+
 def build_report_executive_sheet(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
@@ -983,7 +1134,12 @@ def _build_report_metadata_df(
 ) -> pd.DataFrame:
     active_datasets = [
         DATASET_LABELS.get(key, key)
-        for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
+        for key in MODERN_REPORT_DATASET_KEYS
+        if state.get(key) is not None and not state.get(key).empty
+    ]
+    legacy_datasets = [
+        DATASET_LABELS.get(key, key)
+        for key in LEGACY_REPORT_DATASET_KEYS
         if state.get(key) is not None and not state.get(key).empty
     ]
     visible_athletes = collect_report_athletes(state)
@@ -996,7 +1152,8 @@ def _build_report_metadata_df(
             {"Campo": "Generado", "Valor": datetime.now().strftime("%d/%m/%Y %H:%M")},
             {"Campo": "Ventana operativa", "Valor": "Últimas 6 semanas visibles"},
             {"Campo": "Atletas visibles", "Valor": len(visible_athletes)},
-            {"Campo": "Datasets activos", "Valor": ", ".join(active_datasets) if active_datasets else "Sin datasets activos"},
+            {"Campo": "Fuentes modernas activas", "Valor": ", ".join(active_datasets) if active_datasets else "Sin fuentes modernas activas"},
+            {"Campo": "Fuentes legacy opcionales", "Valor": ", ".join(legacy_datasets) if legacy_datasets else "Sin fuentes legacy"},
             {"Campo": "Secciones incluidas", "Valor": ", ".join(included_sections) if included_sections else "Sin secciones"},
         ]
     )
@@ -1101,13 +1258,16 @@ def build_report_sheets(
             if not df.empty:
                 included_sections.append("Maximos")
 
-        if include_volume and state.get("rep_load_df") is not None:
-            df = state["rep_load_df"]
-            if effective_athlete != "Todos" and "Athlete" in df.columns:
-                df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
-            sheets["Volumen_Sesion"] = df
-            if not df.empty:
-                included_sections.append("Volumen")
+        if include_volume:
+            raw_volume_df = _build_raw_external_volume_sheet(state, effective_athlete)
+            if not raw_volume_df.empty:
+                sheets["Volumen_Carga_Externa"] = raw_volume_df
+                included_sections.append("Carga externa Raw Workouts")
+            else:
+                legacy_volume_df = _build_rep_load_legacy_volume_sheet(state, effective_athlete)
+                if not legacy_volume_df.empty:
+                    sheets["Volumen_RepLoad_Legacy"] = legacy_volume_df
+                    included_sections.append("Volumen Rep/Load legacy")
 
         if include_completion and state.get("completion_df") is not None:
             df = state["completion_df"]
@@ -1227,15 +1387,37 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
             ["Athlete", "Exercise Name", "Added Date", "Max Value"],
         )
         return _sort_export_frame(result, ["Athlete", "Added Date", "Exercise Name"], [True, False, True])
-    if sheet_name == "Volumen_Sesion":
+    if sheet_name == "Volumen_Carga_Externa":
         result = _preferred_columns(
             result,
-            ["Athlete", "Date", "Exercise", "Reps_Assigned", "Reps_Completed", "Load_kg"],
+            [
+                "Source",
+                "Athlete",
+                "Date",
+                "Exercise",
+                "Exercise Name",
+                "Tags",
+                "stimulus_category",
+                "Category",
+                "Result",
+                "Reps",
+                "Sets",
+                "Volume_Load_kg",
+                "Contacts",
+                "Exposures",
+                "Distance_m",
+            ],
+        )
+        return _sort_export_frame(result, ["Athlete", "Date", "stimulus_category", "Exercise"], [True, False, True, True])
+    if sheet_name in {"Volumen_RepLoad_Legacy", "Volumen_Sesion"}:
+        result = _preferred_columns(
+            result,
+            ["Source", "Athlete", "Date", "Exercise", "Reps_Assigned", "Reps_Completed", "Load_kg"],
         )
         if "Date" not in result.columns and "Assigned Date" in result.columns:
             result = _preferred_columns(
                 result,
-                ["Athlete", "Assigned Date", "Exercise", "Reps_Assigned", "Reps_Completed", "Load_kg", "Volume_Load", "Category"],
+                ["Source", "Athlete", "Assigned Date", "Exercise", "Reps_Assigned", "Reps_Completed", "Load_kg", "Volume_Load", "Category"],
             )
             return _sort_export_frame(result, ["Athlete", "Assigned Date", "Exercise"], [True, False, True])
         return _sort_export_frame(result, ["Athlete", "Date", "Exercise"], [True, False, True])
@@ -1841,7 +2023,7 @@ def _build_dashboard_page(
     athletes_text = str(len(summary_df))
     datasets_count = len(
         [
-            key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df", "jump_df"]
+            key for key in MODERN_REPORT_DATASET_KEYS
             if state.get(key) is not None and not state.get(key).empty
         ]
     )
@@ -2066,7 +2248,7 @@ def generate_module_insights(
     summary_df = build_executive_summary_df(state, effective_athlete, audience)
     athletes = _selected_athletes(state, effective_athlete)
     active_datasets = [
-        key for key in ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
+        key for key in MODERN_REPORT_DATASET_KEYS
         if state.get(key) is not None and not state.get(key).empty
     ]
     quality_report = _report_quality_report(state)

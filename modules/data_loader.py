@@ -329,15 +329,15 @@ UPLOAD_CONTRACTS: dict[str, dict[str, object]] = {
         "examples": ("completion.csv",),
     },
     "rep_load": {
-        "label": "Rep/Load Report",
+        "label": "Rep/Load Report (legacy opcional)",
         "extensions": ("csv",),
-        "expected_format": "TeamBuildr Rep/Load Report (.csv)",
+        "expected_format": "TeamBuildr Rep/Load Report (.csv) - legacy opcional",
         "examples": ("rep_load.csv",),
     },
     "raw_workouts": {
         "label": "Raw Data Report - Workouts",
         "extensions": ("csv",),
-        "expected_format": "TeamBuildr Raw Data Report - Workouts (.csv)",
+        "expected_format": "TeamBuildr Raw Data Report - Workouts (.csv) - fuente oficial para carga externa",
         "examples": ("raw_workouts.csv",),
     },
     "session_notes": {

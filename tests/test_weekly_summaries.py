@@ -134,6 +134,16 @@ class WeeklySummariesTest(unittest.TestCase):
                     "Sets": 3,
                 },
                 {
+                    "Assigned Date": "2026-04-09",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "Drop Catch",
+                    "Exercise Name": "Drop Catch",
+                    "Tags": "Catch_Landing",
+                    "Result": None,
+                    "Reps": 8,
+                    "Sets": 2,
+                },
+                {
                     "Assigned Date": "2026-04-10",
                     "Athlete": "Juan Perez",
                     "Exercise": "10m + COD 90 + 5m",
@@ -142,6 +152,27 @@ class WeeklySummariesTest(unittest.TestCase):
                     "Result": 10,
                     "Reps": 4,
                     "Sets": 1,
+                },
+                {
+                    "Assigned Date": "2026-04-10",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "Iso Hold",
+                    "Exercise Name": "Iso Hold",
+                    "Tags": "Iso_Overcoming",
+                    "Result": None,
+                    "Reps": None,
+                    "Sets": 2,
+                    "Duration_s": 30,
+                },
+                {
+                    "Assigned Date": "2026-04-10",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "90-90 Hip Stretch",
+                    "Exercise Name": "90-90 Hip Stretch",
+                    "Tags": "Stretch MMII",
+                    "Result": None,
+                    "Reps": None,
+                    "Sets": 2,
                 },
                 {
                     "Assigned Date": "2026-04-15",
@@ -199,10 +230,13 @@ class WeeklySummariesTest(unittest.TestCase):
         external_row = weekly_external.loc[weekly_external["week_start"] == week_one].iloc[0]
         self.assertAlmostEqual(float(external_row["strength_kg"]), 400.0, places=3)
         self.assertAlmostEqual(float(external_row["plyo_contacts"]), 20.0, places=3)
+        self.assertAlmostEqual(float(external_row["landing_contacts"]), 8.0, places=3)
+        self.assertAlmostEqual(float(external_row["iso_exposures"]), 30.0, places=3)
+        self.assertAlmostEqual(float(external_row["mobility_exposures"]), 2.0, places=3)
         self.assertAlmostEqual(float(external_row["olympic_exposures"]), 3.0, places=3)
         self.assertAlmostEqual(float(external_row["sprint_exposures"]), 4.0, places=3)
         self.assertAlmostEqual(float(external_row["sprint_distance_m"]), 40.0, places=3)
-        self.assertEqual(float(external_row["iso_exposures"]), 0.0)
+        self.assertEqual(float(external_row["core_exposures"]), 0.0)
 
         team_row = weekly_team.loc[weekly_team["week_start"] == week_one].iloc[0]
         self.assertEqual(int(team_row["athletes_active"]), 1)

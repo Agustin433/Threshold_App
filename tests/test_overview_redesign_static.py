@@ -30,7 +30,7 @@ class OverviewRedesignStaticTest(unittest.TestCase):
     def test_overview_uses_modern_summary_layers(self):
         overview = _overview_block()
 
-        self.assertIn("_active_dataset_rows()", overview)
+        self.assertIn("_active_dataset_rows(keys=modern_dataset_keys)", overview)
         self.assertIn("compute_data_quality_report(", overview)
         self.assertIn("build_alert_feed(", overview)
         self.assertIn("select_executive_alerts(", overview)
@@ -54,6 +54,14 @@ class OverviewRedesignStaticTest(unittest.TestCase):
         ]
         for fragment in legacy_fragments:
             self.assertNotIn(fragment, overview)
+
+    def test_p8_repload_is_not_report_checklist_requirement(self):
+        source = APP_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn("Rep/Load (volumen)", source)
+        self.assertIn("Volumen/carga externa (Raw Workouts oficial)", source)
+        self.assertIn("Fallback legacy", source)
+        self.assertIn("Rep/Load (legacy opcional)", source)
 
 
 if __name__ == "__main__":

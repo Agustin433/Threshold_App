@@ -50,7 +50,7 @@ if include_technical_annex:
     include_wellness = st.checkbox("Wellness", value=True)
     include_jumps = st.checkbox("Evaluaciones de saltos", value=True)
     include_maxes = st.checkbox("Maximos", value=True)
-    include_volume = st.checkbox("Volumen por sesion", value=True)
+    include_volume = st.checkbox("Carga externa / volumen por estimulo", value=True)
     include_completion = st.checkbox("Completion detallado", value=True)
 else:
     include_acwr = False

@@ -144,6 +144,27 @@ class Phase2HistoryTest(unittest.TestCase):
 
         self.assertTrue({"completion_team", "quadrant_cmj_imtp"} & slugs)
 
+    def test_repload_history_still_loads_as_legacy_dataset(self):
+        with isolated_store() as (local_store, _tmp_root):
+            source_df = pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-04-20",
+                        "Exercise": "Back Squat",
+                        "Load_kg": 80,
+                        "Reps_Completed": 5,
+                    }
+                ]
+            )
+
+            local_store.save_dataset("rep_load_df", source_df)
+            state = local_store.load_recent_state(weeks=6)
+
+            self.assertIsNotNone(state["rep_load_df"])
+            self.assertEqual(state["rep_load_df"].iloc[0]["Athlete"], "Ana Lopez")
+            self.assertIn("legacy", local_store.DATASET_LABELS["rep_load_df"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()

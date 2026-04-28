@@ -11,6 +11,7 @@ from charts.dashboard_charts import chart_cmj_trend
 from modules.report_generator import (
     build_executive_summary_df,
     build_report_executive_sheet,
+    build_report_source_checklist,
     build_report_sheets,
     collect_report_athletes,
     export_excel,
@@ -389,6 +390,128 @@ class Phase1ReportingTest(unittest.TestCase):
         self.assertIn("Resumen_Ejecutivo", sheets)
         self.assertIn("Interpretacion", sheets)
         self.assertIn("Reporte_Meta", sheets)
+
+    def test_report_checklist_treats_raw_workouts_as_official_volume_source(self):
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": None,
+            "raw_df": pd.DataFrame(
+                [{"Athlete": "Ana Lopez", "Assigned Date": "2026-04-20", "Exercise": "Back Squat"}]
+            ),
+            "maxes_df": None,
+            "jump_df": None,
+        }
+
+        checklist = build_report_source_checklist(state)
+        volume_row = next(row for row in checklist if row["label"].startswith("Volumen/carga externa"))
+        rep_load_row = next(row for row in checklist if row["label"].startswith("Rep/Load"))
+
+        self.assertTrue(volume_row["ok"])
+        self.assertEqual(volume_row["status"], "Cubierto por Raw Workouts")
+        self.assertEqual(volume_row["role"], "principal")
+        self.assertEqual(rep_load_row["status"], "Opcional no cargado")
+        self.assertEqual(rep_load_row["role"], "legacy_optional")
+
+    def test_report_checklist_marks_repload_as_legacy_fallback_only(self):
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": pd.DataFrame(
+                [{"Athlete": "Ana Lopez", "Date": "2026-04-20", "Exercise": "Back Squat", "Load_kg": 80}]
+            ),
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": None,
+        }
+
+        checklist = build_report_source_checklist(state)
+        volume_row = next(row for row in checklist if row["label"].startswith("Volumen/carga externa"))
+        rep_load_row = next(row for row in checklist if row["label"].startswith("Rep/Load"))
+
+        self.assertTrue(volume_row["ok"])
+        self.assertEqual(volume_row["status"], "Fallback legacy disponible")
+        self.assertEqual(volume_row["role"], "legacy_fallback")
+        self.assertEqual(rep_load_row["status"], "Legacy disponible")
+
+    def test_include_volume_exports_raw_workouts_before_repload_legacy(self):
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": None,
+            "raw_df": pd.DataFrame(
+                [
+                    {
+                        "Assigned Date": "2026-04-20",
+                        "Athlete": "Ana Lopez",
+                        "Exercise": "Back Squat",
+                        "Exercise Name": "Back Squat",
+                        "Tags": "Dominante de Rodilla",
+                        "Result": 80,
+                        "Reps": 5,
+                        "Sets": 4,
+                    }
+                ]
+            ),
+            "maxes_df": None,
+            "jump_df": None,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Todos",
+            report_audience="profe",
+            include_technical_annex=True,
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=False,
+            include_maxes=False,
+            include_volume=True,
+            include_completion=False,
+        )
+
+        self.assertIn("Volumen_Carga_Externa", sheets)
+        self.assertNotIn("Volumen_RepLoad_Legacy", sheets)
+        self.assertEqual(sheets["Volumen_Carga_Externa"].loc[0, "Source"], "Raw Workouts")
+
+    def test_include_volume_falls_back_to_repload_legacy_without_raw_workouts(self):
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": pd.DataFrame(
+                [{"Athlete": "Ana Lopez", "Date": "2026-04-20", "Exercise": "Back Squat", "Load_kg": 80}]
+            ),
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": None,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Todos",
+            report_audience="profe",
+            include_technical_annex=True,
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=False,
+            include_maxes=False,
+            include_volume=True,
+            include_completion=False,
+        )
+
+        self.assertIn("Volumen_RepLoad_Legacy", sheets)
+        self.assertNotIn("Volumen_Carga_Externa", sheets)
+        self.assertEqual(sheets["Volumen_RepLoad_Legacy"].loc[0, "Source"], "Rep/Load legacy")
 
 
 if __name__ == "__main__":

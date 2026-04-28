@@ -583,7 +583,7 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
             summaries = local_store.build_dataset_summaries(state)
             datasets = {row["Dataset"] for row in summaries}
 
-            self.assertTrue({"RPE + Tiempo", "Wellness", "Completion", "Rep/Load", "Raw Workouts", "Maxes", "Evaluaciones"}.issubset(datasets))
+            self.assertTrue({"RPE + Tiempo", "Wellness", "Completion", "Rep/Load (legacy opcional)", "Raw Workouts", "Maxes", "Evaluaciones"}.issubset(datasets))
             self.assertEqual(sorted(local_store.load_athlete_registry()), ["Juan Perez", "Maria Gomez"])
 
     def test_legacy_store_migration_copies_existing_files(self):

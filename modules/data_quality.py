@@ -15,7 +15,7 @@ DATASET_CONFIG = (
     ("maxes_df", "Maxes", ("Added Date", "Date")),
     ("jump_df", "Evaluaciones", ("Date",)),
 )
-# `rep_load_df` queda fuera del alcance oficial de P2 hasta cerrar P8.
+# `rep_load_df` queda fuera del alcance oficial: Raw Workouts es la fuente moderna de carga externa.
 
 
 def _reference_timestamp(reference_date=None) -> pd.Timestamp:

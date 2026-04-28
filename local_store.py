@@ -90,7 +90,7 @@ DATASET_LABELS: dict[str, str] = {
     "rpe_df": "RPE + Tiempo",
     "wellness_df": "Wellness",
     "completion_df": "Completion",
-    "rep_load_df": "Rep/Load",
+    "rep_load_df": "Rep/Load (legacy opcional)",
     "raw_df": "Raw Workouts",
     "session_notes_df": "Opt-outs / Notes",
     "maxes_df": "Maxes",

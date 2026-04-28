@@ -4142,10 +4142,16 @@ with st.sidebar:
                                        type=list(UPLOAD_CONTRACTS["wellness"]["extensions"]), key="u_wellness")
         f_completion = st.file_uploader("Completion Report (.csv)",
                                          type=list(UPLOAD_CONTRACTS["completion"]["extensions"]), key="u_comp")
-        f_rep_load = st.file_uploader("Rep/Load Report (.csv)",
-                                       type=list(UPLOAD_CONTRACTS["rep_load"]["extensions"]), key="u_rl")
-        f_raw = st.file_uploader("Raw Data Report – Workouts (.csv)",
-                                  type=list(UPLOAD_CONTRACTS["raw_workouts"]["extensions"]), key="u_raw")
+        f_rep_load = st.file_uploader(
+            "Rep/Load Report (legacy opcional)",
+            type=list(UPLOAD_CONTRACTS["rep_load"]["extensions"]),
+            key="u_rl",
+            help="Fuente legacy. Usar Raw Data Report - Workouts como fuente recomendada para carga externa y analisis por estimulo.",
+        )
+        f_raw = st.file_uploader("Raw Data Report – Workouts (.csv) - fuente oficial",
+                                  type=list(UPLOAD_CONTRACTS["raw_workouts"]["extensions"]),
+                                  key="u_raw",
+                                  help="Fuente oficial/recomendada para carga externa, volumen por estimulo y Load Monitoring.")
         f_session_notes = st.file_uploader("Opt-outs / Session Notes PDF (.pdf)",
                                             type=list(UPLOAD_CONTRACTS["session_notes"]["extensions"]), key="u_session_notes")
         f_maxes = st.file_uploader("Raw Data Report – Maxes (.csv)",
@@ -4479,7 +4485,7 @@ with st.sidebar:
                     ) or processed_any
                 if f_rep_load:
                     processed_any = _run_dataset_job(
-                        "Rep/Load Report",
+                        "Rep/Load Report (legacy opcional)",
                         "rep_load_df",
                         getattr(f_rep_load, "name", "rep_load.csv"),
                         lambda: parse_rep_load_report(f_rep_load),
@@ -4487,7 +4493,7 @@ with st.sidebar:
                     ) or processed_any
                 if f_raw:
                     processed_any = _run_dataset_job(
-                        "Raw Workouts",
+                        "Raw Workouts (fuente oficial)",
                         "raw_df",
                         getattr(f_raw, "name", "raw_workouts.csv"),
                         lambda: parse_raw_workouts(f_raw),
@@ -5421,8 +5427,7 @@ with tab_overview:
         ("RPE/sRPE", _overview_loaded(rdf)),
         ("Wellness", _overview_loaded(wdf)),
         ("Completion", _overview_loaded(cdf)),
-        ("Rep/Load", _overview_loaded(rldf)),
-        ("Raw Workouts", _overview_loaded(raw_df_state)),
+        ("Raw Workouts (oficial carga externa)", _overview_loaded(raw_df_state)),
         ("Maxes", _overview_loaded(maxes_df)),
         ("Saltos/Eval", _overview_loaded(jdf)),
     ]
@@ -5431,12 +5436,18 @@ with tab_overview:
 
     render_subsection_header("Readiness de fuentes", "estado rapido para saber si el sistema esta listo", kicker="Datos")
     render_status_badges(status_items)
-    dataset_rows = _active_dataset_rows()
+    modern_dataset_keys = ["rpe_df", "wellness_df", "completion_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
+    dataset_rows = _active_dataset_rows(keys=modern_dataset_keys)
     if dataset_rows:
         st.dataframe(
             pd.DataFrame(dataset_rows)[["Dataset", "Registros", "Atletas", "Ultima fecha", "Ventana activa"]],
             use_container_width=True,
             hide_index=True,
+        )
+    if _overview_loaded(rldf):
+        st.caption(
+            "Rep/Load (legacy opcional) disponible. Fuente legacy; usar Raw Data Report - Workouts "
+            "como fuente oficial para carga externa."
         )
 
     completion_signal = _overview_completion_snapshot(cdf)
@@ -6399,7 +6410,7 @@ with tab_report:
             include_wellness = st.checkbox("Wellness historico", value=True)
             include_jumps = st.checkbox("Evaluaciones de saltos", value=True)
             include_maxes = st.checkbox("Progresion de maximos", value=True)
-            include_volume = st.checkbox("Volumen por sesion", value=True)
+            include_volume = st.checkbox("Carga externa / volumen por estimulo", value=True)
             include_completion = st.checkbox("Completion rate detallado", value=True)
         else:
             include_acwr = False
@@ -6506,11 +6517,17 @@ with tab_report:
         ("RPE + Tiempo (sRPE, ACWR EWMA)", st.session_state.rpe_df is not None),
         ("Wellness 3 preguntas", st.session_state.wellness_df is not None),
         ("Completion rate", st.session_state.completion_df is not None),
-        ("Rep/Load (volumen)", st.session_state.rep_load_df is not None),
-        ("Raw workouts (por ejercicio/tag)", st.session_state.raw_df is not None),
+        ("Volumen/carga externa (Raw Workouts oficial)", st.session_state.raw_df is not None or st.session_state.rep_load_df is not None),
         ("Máximos ejercicios", st.session_state.maxes_df is not None),
         ("Evaluaciones saltos (CMJ/SJ/DJ/IMTP)", st.session_state.jump_df is not None),
     ]
     for label, ok in checklist:
-        state = "Activo" if ok else "Faltante"
+        if label.startswith("Volumen") and st.session_state.raw_df is None and st.session_state.rep_load_df is not None:
+            state = "Fallback legacy"
+        else:
+            state = "Activo" if ok else "Faltante"
         st.markdown(f"**{label}:** {state}")
+    if st.session_state.raw_df is None and st.session_state.rep_load_df is not None:
+        st.caption("Volumen disponible solo como fallback Rep/Load legacy; Raw Workouts sigue siendo la fuente oficial.")
+    elif st.session_state.rep_load_df is not None:
+        st.caption("Rep/Load (legacy opcional) disponible, no requerido si Raw Workouts esta cargado.")
