@@ -397,8 +397,22 @@ def _safe_float(value) -> float | None:
 
 
 def _wellness_score(sueno, estres, dolor):
-    values = [value for value in [sueno, estres, dolor] if value is not None]
-    return sum(values) if values else None
+    sleep = _safe_float(sueno)
+    stress = _safe_float(estres)
+    pain = _safe_float(dolor)
+    if sleep is None and stress is None and pain is None:
+        return None
+
+    # Higher score should represent better wellness: sleep contributes positively,
+    # while stress and pain are inverted on the observed 0-10 TeamBuildr scale.
+    score = 0.0
+    if sleep is not None:
+        score += max(0.0, min(10.0, sleep))
+    if stress is not None:
+        score += max(0.0, 10.0 - max(0.0, min(10.0, stress)))
+    if pain is not None:
+        score += max(0.0, 10.0 - max(0.0, min(10.0, pain)))
+    return score
 
 
 def _preview_columns(df: pd.DataFrame, limit: int = 10) -> str:
@@ -1046,8 +1060,11 @@ def parse_questionnaire_raw_csv(filepath_or_buffer) -> tuple[pd.DataFrame, pd.Da
                     wellness_df[column] = pd.NA
             valid_wellness_mask = wellness_df[wellness_columns].notna().all(axis=1)
             wellness_df["Wellness_Score"] = pd.NA
-            wellness_df.loc[valid_wellness_mask, "Wellness_Score"] = (
-                wellness_df.loc[valid_wellness_mask, wellness_columns].sum(axis=1)
+            wellness_df.loc[valid_wellness_mask, "Wellness_Score"] = wellness_df.loc[
+                valid_wellness_mask, wellness_columns
+            ].apply(
+                lambda row: _wellness_score(row.get("Sueno_hs"), row.get("Estres"), row.get("Dolor")),
+                axis=1,
             )
             for column in wellness_columns + ["Wellness_Score"]:
                 wellness_df[column] = pd.to_numeric(wellness_df[column], errors="coerce")

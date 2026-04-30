@@ -354,7 +354,7 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertAlmostEqual(float(rpe_df.loc[0, "Duration_min"]), 52.5, places=2)
         self.assertAlmostEqual(float(rpe_df.loc[0, "sRPE"]), 315.0, places=2)
         self.assertAlmostEqual(float(wellness_df.loc[0, "Dolor"]), 3.0, places=2)
-        self.assertAlmostEqual(float(wellness_df.loc[0, "Wellness_Score"]), 13.0, places=2)
+        self.assertAlmostEqual(float(wellness_df.loc[0, "Wellness_Score"]), 23.0, places=2)
 
     def test_raw_workouts_reimport_dedupes_by_athlete_date_exercise_and_set_number(self):
         raw_file = NamedBytesIO(

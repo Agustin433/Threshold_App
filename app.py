@@ -2901,8 +2901,19 @@ def _safe_float(val):
 
 
 def _wellness_score(sueno, estres, dolor):
-    vals = [v for v in [sueno, estres, dolor] if v is not None]
-    return sum(vals) if vals else None
+    sleep = _safe_float(sueno)
+    stress = _safe_float(estres)
+    pain = _safe_float(dolor)
+    if sleep is None and stress is None and pain is None:
+        return None
+    score = 0.0
+    if sleep is not None:
+        score += max(0.0, min(10.0, sleep))
+    if stress is not None:
+        score += max(0.0, 10.0 - max(0.0, min(10.0, stress)))
+    if pain is not None:
+        score += max(0.0, 10.0 - max(0.0, min(10.0, pain)))
+    return score
 
 
 def _classify_acwr(v: float) -> str:
