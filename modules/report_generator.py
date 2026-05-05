@@ -1925,6 +1925,135 @@ def _next_steps_from_row(row: pd.Series, *, audience: str) -> list[str]:
     ]
 
 
+ATHLETE_METRIC_EXPLANATIONS = [
+    ("sRPE", "carga interna percibida del entrenamiento."),
+    ("ACWR EWMA", "relación entre carga reciente y carga habitual, suavizada para ver tendencia."),
+    ("DRI", "métrica del Drop Jump que ayuda a interpretar tu perfil reactivo."),
+    ("EUR", "relación entre salto con contramovimiento y salto sin contramovimiento."),
+    ("IMTP", "fuerza isométrica máxima; ayuda a entender tu base de fuerza."),
+    ("Monotonía", "qué tan parecida fue la carga entre días de la semana."),
+]
+
+
+def _athlete_metric_explanation_rows(row: pd.Series | None) -> list[tuple[str, str]]:
+    if row is None or row.empty:
+        return ATHLETE_METRIC_EXPLANATIONS[:4]
+    available = {
+        "ACWR EWMA": _coerce_float(row.get("ACWR EWMA")) is not None,
+        "DRI": _coerce_float(row.get("DRI")) is not None,
+        "EUR": _coerce_float(_summary_eur_value(row)) is not None,
+        "IMTP": _coerce_float(row.get("IMTP N")) is not None,
+        "Monotonía": _coerce_float(row.get("Monotonia")) is not None,
+    }
+    rows = [ATHLETE_METRIC_EXPLANATIONS[0]]
+    rows.extend((label, text) for label, text in ATHLETE_METRIC_EXPLANATIONS[1:] if available.get(label))
+    return rows[:5] if len(rows) > 1 else ATHLETE_METRIC_EXPLANATIONS[:4]
+
+
+def _athlete_profile_interpretation(row: pd.Series | None) -> dict[str, str]:
+    if row is None or row.empty or not _row_has_eval_data(row):
+        return {
+            "what": "Faltan datos de evaluación física para construir el perfil neuromuscular.",
+            "meaning": "Por ahora no conviene sacar conclusiones sobre fuerza, salto o reactividad.",
+            "priority": "Completar una batería de evaluación con CMJ, SJ, Drop Jump/DRI e IMTP.",
+        }
+    profile = _profile_text(row, fallback="perfil parcial")
+    profile_key = profile.lower()
+    dri = _coerce_float(row.get("DRI"))
+    imtp = _coerce_float(row.get("IMTP N"))
+    eur = _coerce_float(_summary_eur_value(row))
+    cmj = _coerce_float(row.get("CMJ cm"))
+
+    what_parts = _compact_lines(
+        [
+            f"CMJ {_display_metric(cmj, digits=1, suffix=' cm')}" if cmj is not None else None,
+            f"DRI {_display_metric(dri, digits=2)}" if dri is not None else None,
+            f"IMTP {_display_metric(imtp, digits=0, suffix=' N')}" if imtp is not None else None,
+            f"{EUR_RATIO_LABEL} {_display_metric(eur, digits=2)}" if eur is not None else None,
+        ]
+    )
+    what = (
+        "El radar resume tus principales cualidades neuromusculares: "
+        + (" | ".join(what_parts) if what_parts else "hay métricas parciales disponibles.")
+    )
+
+    if "reactivo" in profile_key:
+        meaning = "Tu perfil actual se orienta hacia un perfil reactivo: buena respuesta en acciones rápidas, que debe sostenerse con fuerza de base y calidad técnica."
+        priority = "Priorizar reactividad con baja fatiga, buena técnica de contacto y mantenimiento de fuerza base."
+    elif "base" in profile_key or "fuerza" in profile_key:
+        meaning = "Tu perfil actual marca una base de fuerza relevante, pero la transferencia hacia acciones rápidas todavía debe seguir construyéndose."
+        priority = "Sostener fuerza base y progresar potencia/reactividad de forma gradual."
+    elif "poca" in profile_key:
+        meaning = "Tu perfil todavía necesita una base más sólida antes de pedir grandes aumentos de velocidad o reactividad."
+        priority = "Construir fuerza general, técnica de salto y continuidad de entrenamiento."
+    else:
+        meaning = f"Tu perfil actual se clasifica como {profile}; es una referencia útil, no una etiqueta fija."
+        priority = "Usar el perfil para orientar el próximo bloque y confirmar cambios en la siguiente medición."
+    return {"what": what, "meaning": meaning, "priority": priority}
+
+
+def _athlete_load_status_lines(row: pd.Series | None, internal_load: dict[str, object]) -> list[str]:
+    scope = str(internal_load.get("analysis_scope") or "")
+    acwr = _coerce_float(row.get("ACWR EWMA")) if row is not None and not row.empty else None
+    zone = _display_zone(row.get("Zona")) if row is not None and not row.empty and _has_text(row.get("Zona")) else PDF_MISSING_TEXT
+    monotony = _coerce_float(row.get("Monotonia")) if row is not None and not row.empty else None
+    lines: list[str] = [
+        "Las barras muestran sRPE: carga interna percibida del entrenamiento. La línea muestra ACWR EWMA: relación entre carga reciente y carga habitual.",
+        "Zona óptima sugiere relación estable; precaución o riesgo indican aumentos bruscos; subcarga indica baja continuidad relativa.",
+    ]
+    if scope == "current_week_partial":
+        total = _coerce_float(internal_load.get("current_week_total"))
+        sessions = int(_coerce_float(internal_load.get("current_week_sessions")) or 0)
+        if total is not None:
+            lines.append(
+                f"Semana en curso / datos parciales: acumulás {total:.0f} UA con {sessions} sesiones registradas. No compararlo todavía contra una semana completa."
+            )
+        else:
+            lines.append("Semana en curso / datos parciales: faltan datos suficientes para interpretar la carga acumulada.")
+    elif scope == "last_complete_week":
+        total = _coerce_float(internal_load.get("last_week_total"))
+        change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
+        line = f"Última semana completa: {total:.0f} UA." if total is not None else "Faltan datos suficientes para analizar la última semana completa."
+        if change_pct is not None:
+            line = f"{line} Cambio vs semana previa: {change_pct:+.1f}%."
+        lines.append(line)
+    else:
+        lines.append("Faltan datos de carga interna para este período.")
+
+    if acwr is not None and zone != PDF_MISSING_TEXT:
+        lines.append(f"Lectura actual: ACWR EWMA {_display_metric(acwr, digits=2)} en zona {zone}.")
+    if monotony is not None:
+        lines.append(f"Monotonía semanal: {_display_metric(monotony, digits=2)}. Si sube mucho, conviene variar mejor la carga entre días.")
+    return lines[:5]
+
+
+def _athlete_final_focus_blocks(row: pd.Series | None, completion_value: float | None) -> list[dict[str, str]]:
+    if row is None or row.empty:
+        return [
+            {"title": "Fortaleza principal", "body": "Faltan datos suficientes para definir una fortaleza principal."},
+            {"title": "Punto a vigilar", "body": "Completar carga, wellness y evaluación para mejorar la lectura."},
+            {"title": "Foco del próximo bloque", "body": "Construir continuidad y registrar datos de forma consistente."},
+            {"title": "Próxima medición o revisión", "body": "Realizar una evaluación física inicial y revisar carga semanal."},
+        ]
+    strengths = _strengths_from_row(row, audience="atleta")
+    gaps = _gaps_from_row(row, audience="atleta")
+    objective = _current_focus_text(row, audience="atleta")
+    next_steps = _next_steps_from_row(row, audience="atleta")
+    if completion_value is not None and completion_value < 70:
+        gaps = [f"La adherencia actual ({completion_value:.1f}%) puede limitar la lectura del bloque."] + gaps
+    next_review = (
+        "Repetir evaluación física en 6-8 semanas y revisar carga/wellness semanalmente."
+        if _row_has_eval_data(row)
+        else "Completar evaluación física y usarla como línea base del perfil."
+    )
+    return [
+        {"title": "Fortaleza principal", "body": strengths[0] if strengths else PDF_MISSING_TEXT},
+        {"title": "Punto a vigilar", "body": gaps[0] if gaps else PDF_MISSING_TEXT},
+        {"title": "Foco del próximo bloque", "body": f"{objective}. {next_steps[0] if next_steps else ''}".strip()},
+        {"title": "Próxima medición o revisión", "body": next_review},
+    ]
+
+
 def _pdf_label_value_card(
     commands: list[str],
     x: int,
@@ -3217,6 +3346,57 @@ def collect_report_plotly_figures(
         figures = [item for item in figures if item["slug"] in preferred][:2]
 
     return figures
+
+
+def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], athlete: str) -> dict[str, dict[str, object]]:
+    try:
+        from charts.load_charts import chart_acwr, chart_wellness
+        from charts.dashboard_charts import chart_radar
+    except Exception:
+        return {}
+
+    theme = _build_report_chart_theme()
+    payloads: dict[str, dict[str, object]] = {}
+
+    jump_team = _professional_jump_history(state, "Todos")
+    jump_history = _professional_jump_history(state, athlete)
+    if not jump_history.empty:
+        latest_row = jump_history.iloc[-1]
+        try:
+            payloads["radar_perfil"] = {
+                "slug": "radar_perfil",
+                "title": "Perfil neuromuscular",
+                "figure": chart_radar(latest_row, athlete, _team_mean_for_radar(jump_team), theme=theme),
+            }
+        except Exception:
+            pass
+
+    acwr_df = (state.get("acwr_dict") or {}).get(athlete)
+    if acwr_df is not None and not acwr_df.empty and {"Date", "sRPE_diario", "ACWR_EWMA"}.issubset(acwr_df.columns):
+        try:
+            payloads["acwr"] = {
+                "slug": "acwr",
+                "title": "Carga reciente: cómo venís tolerando el entrenamiento",
+                "figure": chart_acwr(acwr_df, athlete, theme=theme),
+            }
+        except Exception:
+            pass
+
+    wellness_df = state.get("wellness_df")
+    if wellness_df is not None and not wellness_df.empty and "Athlete" in wellness_df.columns:
+        athlete_wellness = wellness_df[_professional_athlete_mask(wellness_df["Athlete"], athlete)].copy()
+        if not athlete_wellness.empty and "Date" in athlete_wellness.columns:
+            athlete_wellness = athlete_wellness.sort_values("Date")
+            try:
+                payloads["wellness"] = {
+                    "slug": "wellness",
+                    "title": "Wellness reciente",
+                    "figure": chart_wellness(athlete_wellness, athlete, theme=theme),
+                }
+            except Exception:
+                pass
+
+    return payloads
 
 
 def export_plotly_figure_png(
@@ -5856,6 +6036,53 @@ def _generate_visual_report_pdf_reportlab(
             image,
         ]
 
+    def _box_flow(flowables: list[object], *, padding: int = 8) -> Table:
+        table = Table(
+            [[flowables]],
+            colWidths=[174 * mm],
+            style=TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), padding),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), padding),
+                    ("TOPPADDING", (0, 0), (-1, -1), padding),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), padding),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            ),
+        )
+        return table
+
+    def _compact_key_value_table(rows: list[tuple[str, str]]) -> Table:
+        data = [[_p(label, "CardLabel"), _p(value, "ReportMuted")] for label, value in rows]
+        table = Table(data, colWidths=[42 * mm, 132 * mm], hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
+                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        return table
+
+    def _chart_image(chart_payload: dict[str, object] | None, *, width_mm: float = 174, height_mm: float = 88) -> Image | None:
+        if not chart_payload:
+            return None
+        image_bytes = export_plotly_figure_png(chart_payload.get("figure"), width=1150, height=620, scale=2)
+        if not image_bytes:
+            return None
+        image = Image(BytesIO(image_bytes), width=width_mm * mm, height=height_mm * mm)
+        image.hAlign = "LEFT"
+        return image
+
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -5893,6 +6120,145 @@ def _generate_visual_report_pdf_reportlab(
     elif icon_logo is not None:
         story.append(icon_logo)
         story.append(Spacer(1, 8 * mm))
+
+    if audience == "atleta" and effective_athlete != "Todos":
+        focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
+        completion_value = _focus_completion_value(state, effective_athlete)
+        internal_load = _build_professional_internal_load_context(state, effective_athlete)
+        wellness_context = _professional_wellness_context(state, effective_athlete)
+        profile_reading = _athlete_profile_interpretation(focus_row)
+        load_lines = _athlete_load_status_lines(focus_row, internal_load)
+        final_blocks = _athlete_final_focus_blocks(focus_row, completion_value)
+        athlete_charts = _collect_athlete_pdf_chart_payloads(state, effective_athlete)
+        cards = _audience_dashboard_cards(state, focus_row, effective_athlete, audience)[:5] if not summary_df.empty else []
+        if not cards:
+            cards = [("Estado actual", PDF_MISSING_TEXT, "#708C9F")]
+
+        story.extend(
+            [
+                _p("Reporte individual para atleta", "ReportMuted"),
+                _p(effective_athlete, "ReportTitle"),
+                _p(f"Fecha: {datetime.now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
+                Spacer(1, 4 * mm),
+                _p("Resumen ejecutivo", "ReportSection"),
+                _box_flow(
+                    [
+                        _p(insights.get("report", {}).get("summary", "Reporte individual listo para revisar."), "ReportBody"),
+                        _p(
+                            "Lectura simple del estado actual: "
+                            + (profile_reading["meaning"] if _row_has_eval_data(focus_row) else "todavía faltan evaluaciones físicas; la lectura se apoya en carga, wellness y adherencia disponibles."),
+                            "ReportMuted",
+                        ),
+                    ],
+                    padding=8,
+                ),
+                Spacer(1, 5 * mm),
+                _metric_cards_table(cards),
+                Spacer(1, 5 * mm),
+                _p("Diccionario rápido", "ReportSection"),
+                _compact_key_value_table(_athlete_metric_explanation_rows(focus_row)),
+            ]
+        )
+
+        story.append(PageBreak())
+        story.append(_p("Perfil neuromuscular", "ReportSection"))
+        radar_image = _chart_image(athlete_charts.get("radar_perfil"), height_mm=92)
+        if radar_image is not None:
+            story.append(radar_image)
+            story.append(Spacer(1, 4 * mm))
+        else:
+            story.append(_box_flow([_p("Faltan datos de evaluación para mostrar el radar neuromuscular.", "ReportBody")], padding=8))
+            story.append(Spacer(1, 5 * mm))
+        story.append(
+            _box_flow(
+                [
+                    _p("Qué muestra", "BlockTitle"),
+                    _p(profile_reading["what"], "ReportBody"),
+                    _p("Qué significa para vos", "BlockTitle"),
+                    _p(profile_reading["meaning"], "ReportBody"),
+                    _p("Qué vamos a priorizar", "BlockTitle"),
+                    _p(profile_reading["priority"], "ReportBody"),
+                ],
+                padding=8,
+            )
+        )
+
+        story.append(PageBreak())
+        story.append(_p("Carga reciente: cómo venís tolerando el entrenamiento", "ReportSection"))
+        load_image = _chart_image(athlete_charts.get("acwr"), height_mm=82)
+        if load_image is not None:
+            story.append(load_image)
+            story.append(Spacer(1, 4 * mm))
+        else:
+            story.append(_box_flow([_p("Faltan datos de carga interna para mostrar el gráfico de sRPE y ACWR EWMA.", "ReportBody")], padding=8))
+            story.append(Spacer(1, 5 * mm))
+        story.append(_box_flow([_p(line, "ReportMuted") for line in load_lines], padding=8))
+        story.append(Spacer(1, 5 * mm))
+        story.append(_p("Wellness y adherencia", "ReportSection"))
+        wellness_summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
+        wellness_scale = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
+        wellness_rows = [
+            ("Wellness", _display_metric(wellness_summary.get("score_mean"), digits=1) if _coerce_float(wellness_summary.get("score_mean")) is not None else PDF_MISSING_TEXT),
+            ("Sueño", _display_metric(wellness_summary.get("sleep_mean"), digits=1, suffix=" h") if _coerce_float(wellness_summary.get("sleep_mean")) is not None else PDF_MISSING_TEXT),
+            ("Estrés", f"{_display_metric(wellness_summary.get('stress_mean'), digits=1)}{wellness_scale.get('stress', '')}" if _coerce_float(wellness_summary.get("stress_mean")) is not None else PDF_MISSING_TEXT),
+            ("Dolor", f"{_display_metric(wellness_summary.get('pain_mean'), digits=1)}{wellness_scale.get('pain', '')}" if _coerce_float(wellness_summary.get("pain_mean")) is not None else PDF_MISSING_TEXT),
+            ("Adherencia", _display_metric(completion_value, digits=1, suffix="%") if completion_value is not None else PDF_MISSING_TEXT),
+        ]
+        story.append(_compact_key_value_table(wellness_rows))
+        wellness_note = (
+            str(wellness_context.get("partial_message"))
+            if wellness_context.get("analysis_scope") == "current_week_partial" and wellness_context.get("partial_message")
+            else "La carga se interpreta mejor cuando se cruza con sueño, estrés, dolor, adherencia y criterio profesional."
+        )
+        story.append(Spacer(1, 3 * mm))
+        story.append(_box_flow([_p(wellness_note, "ReportMuted")], padding=6))
+
+        story.append(PageBreak())
+        story.append(_p("Fortalezas y próximos pasos", "ReportSection"))
+        final_cells: list[list[object]] = []
+        row_cells: list[object] = []
+        for idx, block in enumerate(final_blocks, start=1):
+            row_cells.append([_p(block["title"], "BlockTitle"), _p(block["body"], "ReportBody")])
+            if idx % 2 == 0:
+                final_cells.append(row_cells)
+                row_cells = []
+        if row_cells:
+            row_cells.append("")
+            final_cells.append(row_cells)
+        final_table = Table(final_cells, colWidths=[86 * mm, 86 * mm], hAlign="LEFT")
+        final_table.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.5, palette["line"]),
+                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(final_table)
+        story.append(Spacer(1, 6 * mm))
+        story.append(
+            _box_flow(
+                [
+                    _p("Nota de lectura", "BlockTitle"),
+                    _p(
+                        "Este informe no promete rendimiento ni reemplaza el criterio del entrenador. Sirve para entender qué se ve hoy, qué significa y qué conviene hacer después con la información disponible.",
+                        "ReportMuted",
+                    ),
+                ],
+                padding=8,
+            )
+        )
+        try:
+            doc.build(story)
+        except Exception:
+            return None
+        return buffer.getvalue()
 
     subtitle = {
         "atleta": "Reporte individual para atleta",
