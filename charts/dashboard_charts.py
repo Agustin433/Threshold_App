@@ -281,12 +281,12 @@ def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme
 def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
     data = _prepare_frame(df)
-    data = data.dropna(subset=["DJ_RSI_Z", "SJ_Z", "Athlete"])
+    data = data.dropna(subset=["DRI_Z", "SJ_Z", "Athlete"])
     if data.empty:
         return go.Figure()
 
     def quadrant(row: pd.Series) -> str:
-        high_x = row["DJ_RSI_Z"] >= 0
+        high_x = row["DRI_Z"] >= 0
         high_y = row["SJ_Z"] >= 0
         if high_x and high_y:
             return "Completo"
@@ -316,7 +316,7 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
             continue
         fig.add_trace(
             go.Scatter(
-                x=subset["DJ_RSI_Z"],
+                x=subset["DRI_Z"],
                 y=subset["SJ_Z"],
                 mode="markers+text",
                 marker=dict(size=13, color=color, line=dict(color=colors["card"], width=1.5)),
@@ -324,15 +324,15 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
                 textposition="top center",
                 textfont=dict(size=9, color=colors["gray"]),
                 name=quadrant_name,
-                hovertemplate="<b>%{text}</b><br>DJ RSI z: %{x:.2f}<br>SJ z: %{y:.2f}<extra></extra>",
+                hovertemplate="<b>%{text}</b><br>DRI z: %{x:.2f}<br>SJ z: %{y:.2f}<extra></extra>",
             )
         )
 
     fig.update_layout(
         **layout,
         height=500,
-        title=dict(text="<b>Cuadrante Principal - SJ z vs DJ RSI z</b>", font=dict(color=colors["navy"], size=13)),
-        xaxis=dict(title="DJ RSI z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
+        title=dict(text="<b>Cuadrante Principal - SJ z vs DRI z</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="DRI z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
         yaxis=dict(title="SJ z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
         legend=legend,
     )

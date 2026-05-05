@@ -87,6 +87,29 @@ REPORT_AUDIENCE_OPTIONS = {
 REPORT_AUDIENCE_LABELS = {value: key for key, value in REPORT_AUDIENCE_OPTIONS.items()}
 EUR_RATIO_LABEL = "EUR (ratio)"
 PDF_MISSING_TEXT = "Faltan datos"
+PROFESSIONAL_INTERVAL_WARNING = (
+    "Intervalo entre evaluaciones menor al recomendado de 6-8 semanas. "
+    "Interpretar cambios con cautela."
+)
+PROFESSIONAL_LARGE_CHANGE_WARNING = (
+    "Mejora individual marcada. Verificar consistencia del protocolo, familiarización, "
+    "condiciones del test y calidad del dato antes de atribuir todo el cambio a adaptación física."
+)
+PROFESSIONAL_RSI_METHOD_NOTE = (
+    "RSI calculado como altura de salto dividida por tiempo de contacto. Aunque dimensionalmente "
+    "puede expresarse como m/s, se interpreta como índice de fuerza reactiva, no como velocidad lineal."
+)
+PROFESSIONAL_METRIC_DIRECTIONS = {
+    "CMJ": "higher_is_better",
+    "SJ": "higher_is_better",
+    "DJ": "higher_is_better",
+    "RSI": "higher_is_better",
+    "Contact Time": "lower_is_better",
+    "EUR": "context_dependent",
+    "mRSI": "higher_is_better",
+    "IMTP": "higher_is_better",
+}
+PROFESSIONAL_EVOLUTION_PRIORITY = ("CMJ", "SJ", "DJ", "IMTP", "EUR", "Contact Time", "RSI", "mRSI")
 PROFESSIONAL_NO_EVALUATION_TEXT = (
     "Faltan datos de evaluación para este atleta en el período seleccionado.\n"
     "Este reporte se genera con la información disponible de entrenamiento, carga interna y wellness.\n"
@@ -108,6 +131,7 @@ PROFESSIONAL_PDF_METRICS = (
         "unit": "cm",
         "digits": 1,
         "higher_is_better": True,
+        "direction": PROFESSIONAL_METRIC_DIRECTIONS["CMJ"],
     },
     {
         "title": "SJ",
@@ -116,6 +140,7 @@ PROFESSIONAL_PDF_METRICS = (
         "unit": "cm",
         "digits": 1,
         "higher_is_better": True,
+        "direction": PROFESSIONAL_METRIC_DIRECTIONS["SJ"],
     },
     {
         "title": "DJ",
@@ -124,14 +149,16 @@ PROFESSIONAL_PDF_METRICS = (
         "unit": "cm",
         "digits": 1,
         "higher_is_better": True,
+        "direction": PROFESSIONAL_METRIC_DIRECTIONS["DJ"],
     },
     {
         "title": "RSI",
         "value_cols": ("DJ_RSI", "DRI"),
         "z_cols": ("DJ_RSI_Z", "DRI_Z"),
-        "unit": "m/s",
+        "unit": "rsi_index",
         "digits": 3,
         "higher_is_better": True,
+        "direction": PROFESSIONAL_METRIC_DIRECTIONS["RSI"],
     },
     {
         "title": "Contact Time",
@@ -140,6 +167,7 @@ PROFESSIONAL_PDF_METRICS = (
         "unit": "ms",
         "digits": 0,
         "higher_is_better": False,
+        "direction": PROFESSIONAL_METRIC_DIRECTIONS["Contact Time"],
     },
     {
         "title": "EUR",
@@ -148,14 +176,16 @@ PROFESSIONAL_PDF_METRICS = (
         "unit": "ratio",
         "digits": 3,
         "higher_is_better": True,
+        "direction": PROFESSIONAL_METRIC_DIRECTIONS["EUR"],
     },
     {
         "title": "mRSI",
         "value_cols": ("mRSI",),
         "z_cols": ("mRSI_Z",),
-        "unit": "m/s",
+        "unit": "mrsi_index",
         "digits": 3,
         "higher_is_better": True,
+        "direction": PROFESSIONAL_METRIC_DIRECTIONS["mRSI"],
     },
     {
         "title": "IMTP",
@@ -164,6 +194,7 @@ PROFESSIONAL_PDF_METRICS = (
         "unit": {"IMTP_N": "N", "IMTP_relPF": "N/kg"},
         "digits": {"IMTP_N": 0, "IMTP_relPF": 2},
         "higher_is_better": True,
+        "direction": PROFESSIONAL_METRIC_DIRECTIONS["IMTP"],
     },
 )
 
@@ -3297,6 +3328,26 @@ def _professional_metric_unit(spec: dict[str, object], value_col: str) -> str:
     return str(unit or "")
 
 
+def _professional_metric_display_unit(spec: dict[str, object], value_col: str) -> str:
+    unit = _professional_metric_unit(spec, value_col)
+    if unit == "rsi_index":
+        return "Índice RSI"
+    if unit == "mrsi_index":
+        return "Índice mRSI"
+    if unit == "ratio":
+        return "Ratio"
+    return unit or PDF_MISSING_TEXT
+
+
+def _professional_metric_delta_unit(spec: dict[str, object], value_col: str) -> str:
+    unit = _professional_metric_unit(spec, value_col)
+    if unit == "rsi_index":
+        return "unidades RSI"
+    if unit == "mrsi_index":
+        return "unidades mRSI"
+    return unit
+
+
 def _professional_metric_digits(spec: dict[str, object], value_col: str) -> int:
     digits = spec.get("digits", 1)
     if isinstance(digits, dict):
@@ -3311,7 +3362,7 @@ def _format_professional_metric_value(value: object, spec: dict[str, object], va
     digits = _professional_metric_digits(spec, value_col)
     unit = _professional_metric_unit(spec, value_col)
     rendered = f"{numeric:.{digits}f}"
-    if unit and unit != "ratio":
+    if unit and unit not in {"ratio", "rsi_index", "mrsi_index"}:
         return f"{rendered} {unit}"
     return rendered
 
@@ -3337,7 +3388,7 @@ def _professional_delta_text(
         return PDF_MISSING_TEXT
     delta = current_value - previous_value
     digits = _professional_metric_digits(spec, value_col)
-    unit = _professional_metric_unit(spec, value_col)
+    unit = _professional_metric_delta_unit(spec, value_col)
     rendered_delta = f"{delta:+.{digits}f}"
     if unit and unit != "ratio":
         rendered_delta = f"{rendered_delta} {unit}"
@@ -3355,37 +3406,258 @@ def _professional_best_text(series: pd.Series, spec: dict[str, object], value_co
     return _format_professional_metric_value(best, spec, value_col)
 
 
+def _professional_metric_direction(spec: dict[str, object]) -> str:
+    direction = str(spec.get("direction") or "").strip()
+    if direction:
+        return direction
+    return "higher_is_better" if bool(spec.get("higher_is_better", True)) else "lower_is_better"
+
+
+def _professional_threshold_text(
+    threshold_abs: float | None,
+    threshold_method: object,
+    spec: dict[str, object],
+    value_col: str,
+) -> str:
+    if threshold_abs is None:
+        return PDF_MISSING_TEXT
+    method = safe_value(threshold_method, fallback="")
+    rendered = f"+/- {_format_professional_metric_value(threshold_abs, spec, value_col)}"
+    delta_unit = _professional_metric_delta_unit(spec, value_col)
+    if delta_unit and delta_unit not in {"ratio", _professional_metric_unit(spec, value_col)}:
+        rendered = f"{rendered} {delta_unit}"
+    return f"{rendered} ({method})" if method else rendered
+
+
+def _professional_delta_payload(
+    history: pd.DataFrame,
+    latest_row: pd.Series | None,
+    value_col: str,
+) -> dict[str, object]:
+    if latest_row is None or history.empty or value_col not in history.columns:
+        return {}
+    try:
+        delta_df = compute_swc_delta(history, latest_row.get("Date"), variables=[value_col])
+    except Exception:
+        return {}
+    if delta_df.empty:
+        return {}
+    row = delta_df[delta_df["Variable"].astype(str).eq(value_col)].head(1)
+    if row.empty:
+        row = delta_df.head(1)
+    payload = row.iloc[0].to_dict()
+    return {
+        "threshold_abs": _coerce_float(payload.get("Threshold_abs")),
+        "threshold_method": safe_value(payload.get("Threshold_method"), fallback=""),
+        "temporal_signal": safe_value(payload.get("Signal")),
+        "delta_abs": _coerce_float(payload.get("Delta_abs")),
+        "delta_pct": _coerce_float(payload.get("Delta_pct")),
+    }
+
+
+def _professional_large_change_warning(spec: dict[str, object], delta_pct: float | None) -> str:
+    if delta_pct is None:
+        return ""
+    thresholds = {
+        "CMJ": 10.0,
+        "SJ": 10.0,
+        "DJ": 10.0,
+        "IMTP": 8.0,
+    }
+    threshold = thresholds.get(str(spec.get("title", "")))
+    if threshold is None or delta_pct <= threshold:
+        return ""
+    return PROFESSIONAL_LARGE_CHANGE_WARNING
+
+
 def _professional_metric_signal(
     current_value: float | None,
     previous_value: float | None,
     z_value: float | None,
     spec: dict[str, object],
-) -> tuple[str, str]:
+    threshold_abs: float | None = None,
+) -> tuple[str, str, str]:
     if current_value is None:
-        return PDF_MISSING_TEXT, "#708C9F"
+        return PDF_MISSING_TEXT, "#708C9F", "missing"
+    direction = _professional_metric_direction(spec)
+    if previous_value is not None:
+        delta = current_value - previous_value
+        if threshold_abs is not None and abs(delta) <= abs(threshold_abs):
+            return "Estable / dentro del ruido", "#708C9F", "individual_noise"
+        if abs(delta) < 1e-9:
+            return "Estable", "#C4A464", "individual"
+        if direction == "context_dependent":
+            return "Cambio contextual", "#C4A464", "individual_context"
+        improved = delta > 0 if direction == "higher_is_better" else delta < 0
+        if threshold_abs is None:
+            return ("Mejora leve", "#2F6B52", "individual") if improved else ("Caída leve", "#B87445", "individual")
+        return ("Mejora individual", "#2F6B52", "individual") if improved else ("Caída relevante", "#B56B73", "individual")
     if z_value is not None:
         if z_value >= 0.5:
-            return "Verde", "#2F6B52"
+            return "Referencia externa/grupal favorable", "#2F6B52", "reference"
         if z_value <= -0.5:
-            return "Rojo", "#B56B73"
-        return "Amarillo", "#C4A464"
-    if previous_value is None:
-        return PDF_MISSING_TEXT, "#708C9F"
-    delta = current_value - previous_value
-    if abs(delta) < 1e-9:
-        return "Amarillo", "#C4A464"
-    improved = delta > 0 if bool(spec.get("higher_is_better", True)) else delta < 0
-    return ("Verde", "#2F6B52") if improved else ("Rojo", "#B56B73")
+            return "Referencia externa/grupal baja", "#B56B73", "reference"
+        return "Referencia externa/grupal intermedia", "#C4A464", "reference"
+    return PDF_MISSING_TEXT, "#708C9F", "missing"
 
 
-def _professional_metric_interpretation(label: str, current_value: float | None) -> str:
+def _professional_metric_interpretation(
+    label: str,
+    current_value: float | None,
+    spec: dict[str, object] | None = None,
+    basis: str = "",
+) -> str:
     if current_value is None or label == PDF_MISSING_TEXT:
         return "Faltan datos para generar una interpretación confiable."
-    if label == "Verde":
-        return "Señal favorable frente a la referencia disponible; puede sostenerse o progresarse con contexto."
-    if label == "Rojo":
-        return "Señal por debajo de referencia; revisar fatiga, tecnica, dolor y prioridad del bloque."
+    title = str((spec or {}).get("title", ""))
+    if title == "EUR":
+        return (
+            "EUR debe interpretarse junto con CMJ y SJ; un aumento puede reflejar mejor uso del "
+            "contramovimiento o menor rendimiento relativo del SJ."
+        )
+    if label == "Estable / dentro del ruido":
+        return "Cambio dentro de la zona de ruido/CV/TE; evitar leerlo como mejora o caída real."
+    if label in {"Mejora individual", "Mejora leve"}:
+        return "Señal favorable frente a la evaluación previa; confirmar progresión con carga, wellness y contexto."
+    if label in {"Caída relevante", "Caída leve"}:
+        return "Señal negativa frente a la evaluación previa; revisar fatiga, técnica, dolor y prioridad del bloque."
+    if basis == "reference":
+        return "Semáforo basado en referencia externa/grupal, no en cambio individual."
     return "Señal estable o intermedia; decidir junto con carga, wellness y contexto deportivo."
+
+
+def _professional_quadrant_location(selected: dict[str, object] | None, spec: dict[str, object]) -> str:
+    if selected is None:
+        return PDF_MISSING_TEXT
+    x = _coerce_float(selected.get("x"))
+    y = _coerce_float(selected.get("y"))
+    if x is None or y is None:
+        return PDF_MISSING_TEXT
+    x_label = str(spec.get("x_label", "eje X"))
+    y_label = str(spec.get("y_label", "eje Y"))
+    x_zone = "alto" if x >= 0.35 else "bajo" if x <= -0.35 else "intermedio"
+    y_zone = "alto" if y >= 0.35 else "bajo" if y <= -0.35 else "intermedio"
+    return f"{x_label} {x_zone} (z={x:+.2f}) y {y_label} {y_zone} (z={y:+.2f})."
+
+
+def _professional_quadrant_athlete_meaning(selected: dict[str, object] | None) -> str:
+    if selected is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    x = _coerce_float(selected.get("x"))
+    y = _coerce_float(selected.get("y"))
+    if x is None or y is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    if x >= 0 and y >= 0:
+        return "El atleta se ubica en un perfil relativamente favorable para ambas dimensiones del cuadrante."
+    if x >= 0 > y:
+        return "El atleta muestra mejor perfil en el eje horizontal que en el vertical; conviene atacar la dimensión rezagada."
+    if y >= 0 > x:
+        return "El atleta muestra mejor perfil en el eje vertical que en el horizontal; conviene mejorar transferencia hacia la dimensión rezagada."
+    return "El atleta queda por debajo de la referencia en ambas dimensiones; priorizar bases antes de complejizar el bloque."
+
+
+def _professional_cmj_imtp_athlete_meaning(selected: dict[str, object] | None) -> str:
+    if selected is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    cmj = _coerce_float(selected.get("x"))
+    imtp = _coerce_float(selected.get("y"))
+    if cmj is None or imtp is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    cmj_zone = "alto" if cmj >= 0.35 else "bajo" if cmj <= -0.35 else "intermedio"
+    imtp_zone = "alto" if imtp >= 0.35 else "bajo" if imtp <= -0.35 else "intermedio"
+    if cmj_zone == "alto" and imtp_zone in {"intermedio", "bajo"}:
+        return "El perfil sugiere buena salida vertical relativa, con fuerza isométrica relativa menos destacada. Para el próximo bloque, conviene sostener potencia/salto y reforzar fuerza base sin perder expresión rápida."
+    if cmj_zone in {"intermedio", "bajo"} and imtp_zone == "alto":
+        return "La fuerza isométrica relativa aparece mejor que la expresión vertical. Conviene trabajar transferencia hacia salto, coordinación de impulso y velocidad de aplicación."
+    if cmj_zone == "alto" and imtp_zone == "alto":
+        return "El atleta combina buena salida vertical y fuerza isométrica relativa. El foco puede pasar por sostener capacidad y afinar transferencia específica del deporte."
+    if cmj_zone == "bajo" and imtp_zone == "bajo":
+        return "El perfil muestra limitación simultánea en fuerza base y salida vertical. Priorizar fuerza general, técnica de salto y progresión de potencia."
+    return "El perfil no muestra un extremo dominante; conviene integrar fuerza base y expresión vertical según el objetivo del bloque."
+
+
+def _professional_dri_sj_athlete_meaning(selected: dict[str, object] | None) -> str:
+    if selected is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    dri = _coerce_float(selected.get("x"))
+    sj = _coerce_float(selected.get("y"))
+    if dri is None or sj is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    dri_zone = "alto" if dri >= 0.35 else "bajo" if dri <= -0.35 else "intermedio"
+    sj_zone = "alto" if sj >= 0.35 else "bajo" if sj <= -0.35 else "intermedio"
+    if sj_zone == "alto" and dri_zone == "alto":
+        return "SJ alto + DRI alto: buen perfil concéntrico y buen comportamiento reactivo en DJ."
+    if sj_zone == "alto" and dri_zone in {"intermedio", "bajo"}:
+        return f"SJ alto + DRI {dri_zone}: buena capacidad concéntrica, pero DRI rezagado; priorizar estrategia reactiva, stiffness, contacto y tolerancia progresiva a DJ."
+    if sj_zone in {"intermedio", "bajo"} and dri_zone == "alto":
+        return "SJ bajo + DRI alto: buena respuesta reactiva relativa, pero falta base concéntrica."
+    if sj_zone == "bajo" and dri_zone == "bajo":
+        return "SJ bajo + DRI bajo: prioridad general de fuerza base y reactividad progresiva."
+    return f"SJ {sj_zone} + DRI {dri_zone}: no aparece un limitante extremo; conviene integrar fuerza concéntrica y reactividad según el bloque."
+
+
+def _professional_eur_cmj_athlete_meaning(selected: dict[str, object] | None) -> str:
+    if selected is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    eur = _coerce_float(selected.get("x"))
+    cmj = _coerce_float(selected.get("y"))
+    if eur is None or cmj is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    eur_zone = "alto" if eur >= 0.35 else "bajo" if eur <= -0.35 else "intermedio"
+    cmj_zone = "alto" if cmj >= 0.35 else "bajo" if cmj <= -0.35 else "intermedio"
+    if eur_zone == "alto" and cmj_zone == "alto":
+        return "El atleta presenta buen uso del contramovimiento y buen rendimiento vertical. Interpretar EUR junto con SJ para evitar sobrevalorar eficiencia elástica si el SJ cambia mucho."
+    if eur_zone == "alto" and cmj_zone in {"intermedio", "bajo"}:
+        return "EUR alto con CMJ menos destacado puede reflejar dependencia del contramovimiento o SJ bajo. Revisar fuerza concéntrica y técnica antes de concluir ventaja elástica real."
+    if eur_zone in {"intermedio", "bajo"} and cmj_zone == "alto":
+        return "CMJ alto con EUR menos destacado sugiere buena salida vertical, pero menor diferencia CMJ-SJ. Mantener potencia y revisar si la estrategia de contramovimiento puede optimizarse."
+    if eur_zone == "bajo" and cmj_zone == "bajo":
+        return "EUR y CMJ bajos sugieren prioridad en fuerza propulsiva, técnica de salto y progresión de capacidades elásticas."
+    return "La relación EUR-CMJ es intermedia; conviene leerla junto con SJ, DRI y contexto del bloque antes de cambiar prioridades."
+
+
+def _professional_quadrant_specific_meaning(selected: dict[str, object] | None, spec: dict[str, object]) -> str:
+    meaning_type = spec.get("meaning_type")
+    if meaning_type == "cmj_imtp":
+        return _professional_cmj_imtp_athlete_meaning(selected)
+    if meaning_type == "dri_sj":
+        return _professional_dri_sj_athlete_meaning(selected)
+    if meaning_type == "eur_cmj":
+        return _professional_eur_cmj_athlete_meaning(selected)
+    return _professional_quadrant_athlete_meaning(selected)
+
+
+def _professional_wellness_high(value: float | None, scale: object) -> bool:
+    if value is None:
+        return False
+    scale_text = str(scale or "")
+    if scale_text == "/5":
+        return value >= 4
+    if scale_text == "/10":
+        return value >= 7
+    return False
+
+
+def _professional_wellness_partial_message(payload: dict[str, object]) -> str:
+    summary = payload.get("last_week_summary", {}) if isinstance(payload.get("last_week_summary"), dict) else {}
+    scales = payload.get("scales", {}) if isinstance(payload.get("scales"), dict) else {}
+    days = int(_coerce_float(summary.get("days")) or 0)
+    if days <= 0:
+        return "Wellness parcial: faltan registros suficientes para tendencia. La lectura debe tomarse como alerta contextual puntual."
+    if days == 1:
+        sleep_mean = _coerce_float(summary.get("sleep_mean"))
+        stress_mean = _coerce_float(summary.get("stress_mean"))
+        pain_mean = _coerce_float(summary.get("pain_mean"))
+        signals: list[str] = []
+        if sleep_mean is not None:
+            signals.append("sueño bajo" if sleep_mean < 6.5 else f"sueño {sleep_mean:.1f} h")
+        if stress_mean is not None:
+            signals.append("estrés elevado" if _professional_wellness_high(stress_mean, scales.get("stress")) else f"estrés {stress_mean:.1f}{scales.get('stress', '')}")
+        if pain_mean is not None:
+            signals.append("dolor elevado" if _professional_wellness_high(pain_mean, scales.get("pain")) else f"dolor {pain_mean:.1f}{scales.get('pain', '')}")
+        detail = ", ".join(signals) if signals else "variables disponibles insuficientes"
+        return f"Wellness parcial: solo 1 día con registro. {detail.capitalize()} en ese registro; usar como alerta contextual, no como tendencia."
+    return f"Wellness parcial: solo {days} días con registro. Faltan registros suficientes para tendencia. La lectura debe tomarse como alerta contextual puntual."
 
 
 def _build_professional_metric_cards(
@@ -3407,7 +3679,11 @@ def _build_professional_metric_cards(
         current_value = _coerce_float(latest_row.get(value_col)) if latest_row is not None else None
         previous_value = _coerce_float(previous_row.get(value_col)) if previous_row is not None else None
         z_value = _professional_z_value(latest_row, spec)
-        signal, color = _professional_metric_signal(current_value, previous_value, z_value, spec)
+        delta_payload = _professional_delta_payload(history, latest_row, value_col)
+        threshold_abs = _coerce_float(delta_payload.get("threshold_abs"))
+        threshold_method = delta_payload.get("threshold_method")
+        delta_pct = _coerce_float(delta_payload.get("delta_pct"))
+        signal, color, signal_basis = _professional_metric_signal(current_value, previous_value, z_value, spec, threshold_abs)
         missing_fields = sum(
             [
                 current_value is None,
@@ -3416,17 +3692,24 @@ def _build_professional_metric_cards(
                 metric_rows.empty,
             ]
         )
+        if threshold_abs is None:
+            missing_fields += 1
         cards.append(
             {
                 "title": spec["title"],
                 "state": "missing" if current_value is None else "partial" if missing_fields else "available",
                 "value": _format_professional_metric_value(current_value, spec, value_col),
+                "unit_label": _professional_metric_display_unit(spec, value_col),
                 "delta": _professional_delta_text(current_value, previous_value, spec, value_col),
                 "z_score": f"{z_value:+.2f}" if z_value is not None else PDF_MISSING_TEXT,
                 "best": _professional_best_text(metric_rows[value_col] if not metric_rows.empty else pd.Series(dtype=float), spec, value_col),
+                "threshold": _professional_threshold_text(threshold_abs, threshold_method, spec, value_col),
+                "large_change_warning": _professional_large_change_warning(spec, delta_pct),
                 "signal": signal,
                 "signal_color": color,
-                "interpretation": _professional_metric_interpretation(signal, current_value),
+                "signal_basis": signal_basis,
+                "direction": _professional_metric_direction(spec),
+                "interpretation": _professional_metric_interpretation(signal, current_value, spec, signal_basis),
             }
         )
     return cards
@@ -3457,6 +3740,7 @@ def _build_professional_evolution_sections(
         delta_text = PDF_MISSING_TEXT
         threshold_text = PDF_MISSING_TEXT
         signal = PDF_MISSING_TEXT
+        large_change_warning = ""
         if len(points) >= 2:
             latest_date = points[-1]["date"]
             try:
@@ -3468,12 +3752,11 @@ def _build_professional_evolution_sections(
                 current_value = _coerce_float(row.get("Valor_actual"))
                 previous_value = _coerce_float(row.get("Valor_anterior"))
                 delta_text = _professional_delta_text(current_value, previous_value, spec, value_col)
+                large_change_warning = _professional_large_change_warning(spec, _coerce_float(row.get("Delta_pct")))
                 threshold = _coerce_float(row.get("Threshold_abs"))
                 method = safe_value(row.get("Threshold_method"), fallback="")
                 if threshold is not None:
-                    threshold_text = f"+/- {_format_professional_metric_value(threshold, spec, value_col)}"
-                    if method:
-                        threshold_text = f"{threshold_text} ({method})"
+                    threshold_text = _professional_threshold_text(threshold, method, spec, value_col)
                 signal = safe_value(row.get("Signal"))
 
         if len(points) < 2:
@@ -3492,9 +3775,11 @@ def _build_professional_evolution_sections(
                 "state": state_label,
                 "points": points,
                 "unit": _professional_metric_unit(spec, value_col),
+                "unit_label": _professional_metric_display_unit(spec, value_col),
                 "delta": delta_text,
                 "threshold": threshold_text,
                 "signal": signal,
+                "large_change_warning": large_change_warning,
                 "message": message,
                 "what": "Evolución entre evaluaciones de perfil físico separadas por ventanas de 6-8 semanas.",
                 "meaning": f"Cambio vs evaluación previa: {delta_text}. Zona de ruido/CV/TE: {threshold_text}.",
@@ -3516,19 +3801,22 @@ def _build_professional_quadrant_sections(
             "x_label": "CMJ z",
             "y_col": "IMTP_relPF_Z",
             "y_label": "IMTP relPF z",
-            "what": "Cruza salida vertical con fuerza isometrica relativa.",
-            "meaning": "Arriba/derecha sugiere perfil fuerte y expresivo; abajo/izquierda marca deficit global.",
+            "what": "Cruza salida vertical con fuerza isométrica relativa.",
+            "meaning": "Arriba/derecha sugiere perfil fuerte y expresivo; abajo/izquierda marca déficit global.",
             "decision": "Priorizar fuerza base, potencia o transferencia según el cuadrante del atleta.",
+            "meaning_type": "cmj_imtp",
         },
         {
-            "title": "Cuadrante reactividad rapida vs fuerza concentrica",
-            "x_cols": ("DJ_RSI_Z", "DRI_Z"),
-            "x_label": "DJ RSI z",
+            "title": "Cuadrante fuerza concéntrica vs DRI",
+            "x_cols": ("DRI_Z",),
+            "x_label": "DRI z",
             "y_col": "SJ_Z",
             "y_label": "SJ z",
-            "what": "Cruza RSI de drop jump con salida concentrica en SJ.",
-            "meaning": "Distingue si el limite viene mas por reactividad rapida o por capacidad concentrica.",
-            "decision": "Orientar el bloque hacia fuerza/propulsión, stiffness/reactividad o integración.",
+            "what": "Cruza la capacidad concéntrica expresada en SJ con el DRI del Drop Jump.",
+            "meaning": "Distingue si el limitante principal parece estar en fuerza concéntrica, DRI/reactividad o integración entre ambas.",
+            "decision": "Orientar el próximo bloque según si el limitante principal parece estar en fuerza concéntrica, DRI/reactividad o integración entre ambas.",
+            "missing_message": "Faltan datos para construir el cuadrante SJ vs DRI.",
+            "meaning_type": "dri_sj",
         },
         {
             "title": "Cuadrante eficiencia SSC lenta vs CMJ",
@@ -3539,6 +3827,7 @@ def _build_professional_quadrant_sections(
             "what": "Cruza el uso del contramovimiento con el rendimiento vertical actual.",
             "meaning": "Ayuda a separar atletas que saltan alto por capacidad general de quienes aprovechan mejor el SSC.",
             "decision": "Ajustar técnica, fuerza concéntrica o estrategia elástica según la ubicación.",
+            "meaning_type": "eur_cmj",
         },
     ]
     sections: list[dict[str, object]] = []
@@ -3571,10 +3860,56 @@ def _build_professional_quadrant_sections(
                 "points": points,
                 "selected": selected,
                 "state": state_label,
-                "message": "" if selected is not None else "Faltan datos para ubicar al atleta en este cuadrante.",
+                "message": "" if selected is not None else str(spec.get("missing_message") or "Faltan datos para ubicar al atleta en este cuadrante."),
+                "location": _professional_quadrant_location(selected, spec),
+                "athlete_meaning": _professional_quadrant_specific_meaning(selected, spec),
             }
         )
     return sections
+
+
+def _professional_report_today() -> pd.Timestamp:
+    return pd.Timestamp(datetime.now()).normalize()
+
+
+def _professional_week_start(value: object) -> pd.Timestamp:
+    date = pd.Timestamp(value).normalize()
+    return date - pd.Timedelta(days=int(date.weekday()))
+
+
+def _professional_week_label(week_start: pd.Timestamp) -> str:
+    start = pd.Timestamp(week_start).normalize()
+    end = start + pd.Timedelta(days=6)
+    return f"{start:%d/%m/%Y} - {end:%d/%m/%Y}"
+
+
+def _professional_week_points_from_daily(
+    frame: pd.DataFrame,
+    week_start: pd.Timestamp,
+    value_col: str,
+    *,
+    end_date: pd.Timestamp | None = None,
+) -> tuple[list[dict[str, object]], int, int]:
+    week_start = pd.Timestamp(week_start).normalize()
+    week_end = week_start + pd.Timedelta(days=6)
+    if end_date is not None:
+        week_end = min(week_end, pd.Timestamp(end_date).normalize())
+    week_df = frame[(frame["Date"] >= week_start) & (frame["Date"] <= week_end)].copy()
+    if week_df.empty:
+        return [], 0, 0
+    daily_sum = week_df.groupby("Date", as_index=False)[value_col].sum()
+    daily_lookup = {
+        pd.Timestamp(row["Date"]).normalize(): float(row[value_col])
+        for _, row in daily_sum.iterrows()
+    }
+    points = [
+        {
+            "label": (week_start + pd.Timedelta(days=day)).strftime("%d/%m"),
+            "value": daily_lookup.get(week_start + pd.Timedelta(days=day), 0.0),
+        }
+        for day in range(7)
+    ]
+    return points, int(len(week_df)), int(week_df["Date"].nunique())
 
 
 def _build_professional_training_context(
@@ -3588,15 +3923,21 @@ def _build_professional_training_context(
     if not weekly_load.empty and "Athlete" in weekly_load.columns:
         weekly_load = weekly_load[_professional_athlete_mask(weekly_load["Athlete"], athlete)].copy()
     weekly_load = weekly_load.sort_values("week_start") if "week_start" in weekly_load.columns else weekly_load
-    current_load = weekly_load.tail(1).copy()
+    if not weekly_load.empty and "week_start" in weekly_load.columns:
+        current_week_start = _professional_week_start(_professional_report_today())
+        complete_week_start = current_week_start - pd.Timedelta(days=7)
+        completed_load = weekly_load[pd.to_datetime(weekly_load["week_start"], errors="coerce").dt.normalize() == complete_week_start].copy()
+        current_load = completed_load if not completed_load.empty else weekly_load[pd.to_datetime(weekly_load["week_start"], errors="coerce").dt.normalize() < current_week_start].tail(1).copy()
+    else:
+        current_load = weekly_load.tail(1).copy()
     load_row = current_load.iloc[-1] if not current_load.empty else pd.Series(dtype=object)
     sessions_count = _coerce_float(load_row.get("sessions_count"))
     weekly_srpe = _coerce_float(load_row.get("weekly_sRPE"))
-    sessions_text = f"{int(sessions_count)} sesión(es)" if sessions_count is not None else PDF_MISSING_TEXT
+    sessions_text = str(int(sessions_count)) if sessions_count is not None else PDF_MISSING_TEXT
     if completion.get("numeric") is not None:
         adherence_text = safe_value(completion.get("value"))
     elif sessions_count is not None:
-        adherence_text = f"Faltan datos. Sesiones registradas: {int(sessions_count)}."
+        adherence_text = PDF_MISSING_TEXT
     else:
         adherence_text = PDF_MISSING_TEXT
     rows.append(("Adherencia formal", adherence_text))
@@ -3608,6 +3949,9 @@ def _build_professional_training_context(
         valid_load = weekly_load.copy()
         valid_load["weekly_sRPE"] = pd.to_numeric(valid_load["weekly_sRPE"], errors="coerce")
         valid_load = valid_load.dropna(subset=["weekly_sRPE"]).sort_values("week_start" if "week_start" in valid_load.columns else "weekly_sRPE")
+        if "week_start" in valid_load.columns:
+            current_week_start = _professional_week_start(_professional_report_today())
+            valid_load = valid_load[pd.to_datetime(valid_load["week_start"], errors="coerce").dt.normalize() < current_week_start]
         if len(valid_load) >= 2:
             current = float(valid_load.iloc[-1]["weekly_sRPE"])
             previous = float(valid_load.iloc[-2]["weekly_sRPE"])
@@ -3616,7 +3960,7 @@ def _build_professional_training_context(
             load_evolution = f"{delta:+.0f} UA vs semana previa"
             if pct is not None:
                 load_evolution = f"{load_evolution} ({pct:+.1f}%)"
-    rows.append(("Evolucion de carga", load_evolution))
+    rows.append(("Evolución de carga", load_evolution))
 
     exercises_text = PDF_MISSING_TEXT
     prepared = prepare_raw_workouts_df(state.get("raw_df"))
@@ -3658,8 +4002,14 @@ def _build_professional_internal_load_context(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
 ) -> dict[str, object]:
+    today = _professional_report_today()
+    current_week_start = _professional_week_start(today)
+    complete_week_start = current_week_start - pd.Timedelta(days=7)
     rpe_df = state.get("rpe_df")
     daily_points: list[dict[str, object]] = []
+    current_week_points: list[dict[str, object]] = []
+    current_week_sessions = 0
+    current_week_days = 0
     if rpe_df is not None and not rpe_df.empty and {"Athlete", "Date", "sRPE"}.issubset(rpe_df.columns):
         data = rpe_df.copy()
         data["Date"] = pd.to_datetime(data["Date"], errors="coerce").dt.normalize()
@@ -3668,23 +4018,8 @@ def _build_professional_internal_load_context(
         data = data[_professional_athlete_mask(data["Athlete"], athlete)]
         data = data[data["sRPE"] > 0].sort_values("Date")
         if not data.empty:
-            latest_date = data["Date"].max()
-            week_start = latest_date - pd.Timedelta(days=int(latest_date.weekday()))
-            week_df = data[(data["Date"] >= week_start) & (data["Date"] <= week_start + pd.Timedelta(days=6))]
-            daily_sum = week_df.groupby("Date", as_index=False)["sRPE"].sum()
-            daily_lookup = {
-                pd.Timestamp(row["Date"]).normalize(): float(row["sRPE"])
-                for _, row in daily_sum.iterrows()
-            }
-            daily_points = [
-                {
-                    "label": (week_start + pd.Timedelta(days=day)).strftime("%d/%m"),
-                    "value": daily_lookup.get(week_start + pd.Timedelta(days=day), 0.0),
-                }
-                for day in range(7)
-            ]
-            sessions_registered = int(len(week_df))
-            days_with_data = int(week_df["Date"].nunique())
+            daily_points, sessions_registered, days_with_data = _professional_week_points_from_daily(data, complete_week_start, "sRPE")
+            current_week_points, current_week_sessions, current_week_days = _professional_week_points_from_daily(data, current_week_start, "sRPE", end_date=today)
         else:
             sessions_registered = 0
             days_with_data = 0
@@ -3695,9 +4030,21 @@ def _build_professional_internal_load_context(
     weekly_summaries = _report_weekly_summaries(state)
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load"))
     weekly_points: list[dict[str, object]] = []
+    current_week_weekly_value = None
+    complete_week_weekly_value = None
+    complete_week_sessions = None
     if not weekly_load.empty and {"Athlete", "week_start", "weekly_sRPE"}.issubset(weekly_load.columns):
         weekly_load = weekly_load[_professional_athlete_mask(weekly_load["Athlete"], athlete)].copy()
+        weekly_load["week_start"] = pd.to_datetime(weekly_load["week_start"], errors="coerce").dt.normalize()
         weekly_load["weekly_sRPE"] = pd.to_numeric(weekly_load["weekly_sRPE"], errors="coerce")
+        complete_week_rows = weekly_load[weekly_load["week_start"].eq(complete_week_start)].dropna(subset=["weekly_sRPE"])
+        if not complete_week_rows.empty:
+            complete_week_weekly_value = _coerce_float(complete_week_rows.iloc[-1].get("weekly_sRPE"))
+            complete_week_sessions = _coerce_float(complete_week_rows.iloc[-1].get("sessions_count"))
+        current_week_rows = weekly_load[weekly_load["week_start"].eq(current_week_start)].dropna(subset=["weekly_sRPE"])
+        if not current_week_rows.empty:
+            current_week_weekly_value = _coerce_float(current_week_rows.iloc[-1].get("weekly_sRPE"))
+        weekly_load = weekly_load[weekly_load["week_start"] < current_week_start]
         weekly_load = weekly_load.dropna(subset=["week_start", "weekly_sRPE"]).sort_values("week_start").tail(16)
         if not weekly_load.empty:
             weekly_load["EMA6"] = weekly_load["weekly_sRPE"].ewm(span=6, adjust=False).mean()
@@ -3723,10 +4070,14 @@ def _build_professional_internal_load_context(
 
     has_daily = len(daily_points) > 0
     has_weekly = len(weekly_points) >= 2
-    total_last_week = sum(float(point.get("value") or 0) for point in daily_points) if daily_points else None
+    total_last_week = sum(float(point.get("value") or 0) for point in daily_points) if daily_points else complete_week_weekly_value
+    if sessions_registered == 0 and complete_week_sessions is not None:
+        sessions_registered = int(complete_week_sessions)
+    current_week_total = sum(float(point.get("value") or 0) for point in current_week_points) if current_week_points else current_week_weekly_value
+    analysis_scope = "last_complete_week" if total_last_week is not None else "current_week_partial" if current_week_total is not None else "missing"
     weekly_change = None
     weekly_change_pct = None
-    if len(weekly_points) >= 2:
+    if analysis_scope == "last_complete_week" and len(weekly_points) >= 2:
         current_week_value = _coerce_float(weekly_points[-1].get("value"))
         previous_week_value = _coerce_float(weekly_points[-2].get("value"))
         if current_week_value is not None and previous_week_value is not None:
@@ -3738,22 +4089,37 @@ def _build_professional_internal_load_context(
         missing_parts.append("sRPE última semana")
     if not has_weekly:
         missing_parts.append("sRPE semanal + EMA 6 semanas")
-    state_label = "available" if has_daily and has_weekly else "partial" if has_daily or has_weekly else "missing"
+    state_label = "available" if total_last_week is not None and has_weekly else "partial" if total_last_week is not None or has_weekly else "missing"
+    if analysis_scope == "current_week_partial":
+        state_label = "partial"
     return {
         "state": state_label,
+        "analysis_scope": analysis_scope,
+        "analysis_title": "Carga interna - última semana completa" if analysis_scope == "last_complete_week" else "Carga interna - semana en curso",
+        "analysis_week_label": _professional_week_label(complete_week_start if analysis_scope == "last_complete_week" else current_week_start),
         "daily_points": daily_points,
+        "current_week_points": current_week_points,
         "weekly_points": weekly_points,
-        "message": "" if has_daily or has_weekly else "Faltan datos de carga interna para este período.",
+        "message": "" if has_daily or has_weekly or current_week_total is not None else "Faltan datos suficientes para analizar la última semana completa.",
         "missing_parts": missing_parts,
         "last_week_total": total_last_week,
+        "current_week_total": current_week_total,
+        "current_week_sessions": current_week_sessions,
+        "current_week_days": current_week_days,
+        "current_week_partial_message": (
+            f"La semana actual está incompleta. El total acumulado hasta el momento es {current_week_total:.0f} UA "
+            f"con {current_week_sessions} sesión(es) registrada(s) y no debe compararse directamente con una semana completa."
+            if current_week_total is not None
+            else ""
+        ),
         "sessions_registered": sessions_registered,
         "days_without_data": max(0, 7 - days_with_data) if has_daily else None,
         "weekly_change": weekly_change,
         "weekly_change_pct": weekly_change_pct,
         "daily_explanation": {
-            "what": "sRPE diario o por sesión de la última semana útil.",
+            "what": "sRPE diario de la última semana completa." if analysis_scope == "last_complete_week" else "sRPE acumulado de la semana en curso.",
             "meaning": "Contexto agudo de carga interna percibida y duración acumulada.",
-            "decision": "Regular densidad inmediata si aparecen picos, días sin registro o acumulación brusca.",
+            "decision": "Regular densidad inmediata si aparecen picos, días sin registro o acumulación brusca." if analysis_scope == "last_complete_week" else "No comparar el acumulado parcial contra una semana completa; esperar cierre semanal o usarlo solo como señal operativa.",
         },
         "weekly_explanation": {
             "what": "Barras de sRPE semanal de las últimas 16 semanas con línea EMA de 6 semanas.",
@@ -3769,6 +4135,19 @@ def _professional_metric_display_groups(cards: list[dict[str, object]]) -> tuple
     return available, missing
 
 
+def _professional_prioritized_evolution_sections(
+    sections: list[dict[str, object]],
+    *,
+    max_charts: int = 6,
+) -> tuple[list[dict[str, object]], list[str]]:
+    priority = {title: idx for idx, title in enumerate(PROFESSIONAL_EVOLUTION_PRIORITY)}
+    chartable = [section for section in sections if len(section.get("points", [])) >= 2]
+    chartable = sorted(chartable, key=lambda section: priority.get(str(section.get("title")), 99))
+    selected = chartable[:max_charts]
+    omitted = [str(section.get("title", "Métrica")) for section in chartable[max_charts:]]
+    return selected, omitted
+
+
 def _professional_assessment_date_count(state: dict[str, pd.DataFrame | None], athlete: str) -> int:
     history = _professional_jump_history(state, athlete)
     if history.empty or "Date" not in history.columns:
@@ -3776,8 +4155,25 @@ def _professional_assessment_date_count(state: dict[str, pd.DataFrame | None], a
     return int(pd.to_datetime(history["Date"], errors="coerce").dropna().dt.normalize().nunique())
 
 
+def _professional_short_assessment_interval_warning(state: dict[str, pd.DataFrame | None], athlete: str) -> str:
+    history = _professional_jump_history(state, athlete)
+    if history.empty or "Date" not in history.columns:
+        return ""
+    dates = pd.to_datetime(history["Date"], errors="coerce").dropna().dt.normalize().drop_duplicates().sort_values()
+    if len(dates) < 2:
+        return ""
+    intervals = dates.diff().dropna().dt.days
+    if not intervals.empty and int(intervals.min()) < 42:
+        return PROFESSIONAL_INTERVAL_WARNING
+    return ""
+
+
 def _professional_quadrants_ready(sections: list[dict[str, object]]) -> bool:
     return len(sections) >= 3 and all(section.get("selected") is not None for section in sections[:3])
+
+
+def _professional_any_quadrant_ready(sections: list[dict[str, object]]) -> bool:
+    return any(section.get("selected") is not None for section in sections[:3])
 
 
 def _professional_status_label(state_label: object) -> str:
@@ -3821,6 +4217,10 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             "daily_points": [],
             "weekly_points": [],
             "last_week_summary": {},
+            "current_week_summary": {},
+            "analysis_scope": "missing",
+            "analysis_title": "Wellness - última semana completa",
+            "trend_allowed": False,
             "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "escala no definida"},
             "message": "Faltan datos de wellness para este período.",
         }
@@ -3840,6 +4240,10 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             "daily_points": [],
             "weekly_points": [],
             "last_week_summary": {},
+            "current_week_summary": {},
+            "analysis_scope": "missing",
+            "analysis_title": "Wellness - última semana completa",
+            "trend_allowed": False,
             "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "escala no definida"},
             "message": "Faltan datos de wellness para este período.",
         }
@@ -3850,11 +4254,24 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
         latest = result["Date"].max().strftime("%d/%m/%Y")
 
     daily_points: list[dict[str, object]] = []
+    current_week_points: list[dict[str, object]] = []
     last_week_summary: dict[str, object] = {}
-    if "Date" in result.columns and result["Date"].notna().any():
-        latest_date = result["Date"].max()
-        week_start = latest_date - pd.Timedelta(days=int(latest_date.weekday()))
-        week_df = result[(result["Date"] >= week_start) & (result["Date"] <= week_start + pd.Timedelta(days=6))].copy()
+    current_week_summary: dict[str, object] = {}
+    today = _professional_report_today()
+    current_week_start = _professional_week_start(today)
+    complete_week_start = current_week_start - pd.Timedelta(days=7)
+
+    def build_week_snapshot(
+        week_start: pd.Timestamp,
+        *,
+        end_date: pd.Timestamp | None = None,
+    ) -> tuple[list[dict[str, object]], dict[str, object]]:
+        week_start = pd.Timestamp(week_start).normalize()
+        week_end = week_start + pd.Timedelta(days=6)
+        if end_date is not None:
+            week_end = min(week_end, pd.Timestamp(end_date).normalize())
+        week_df = result[(result["Date"] >= week_start) & (result["Date"] <= week_end)].copy()
+        points: list[dict[str, object]] = []
         for day in range(7):
             date = week_start + pd.Timedelta(days=day)
             day_df = week_df[week_df["Date"].eq(date)]
@@ -3870,28 +4287,36 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
                     if source_col in day_df.columns and day_df[source_col].notna().any()
                     else None
                 )
-            daily_points.append(point)
+            points.append(point)
+        summary: dict[str, object] = {}
         for source_col, output_col in [
             ("Sueno_hs", "sleep_mean"),
             ("Estres", "stress_mean"),
             ("Dolor", "pain_mean"),
             ("Wellness_Score", "score_mean"),
         ]:
-            last_week_summary[output_col] = (
+            summary[output_col] = (
                 float(week_df[source_col].mean())
                 if source_col in week_df.columns and week_df[source_col].notna().any()
                 else None
             )
-        last_week_summary["days"] = int(week_df["Date"].nunique()) if not week_df.empty else 0
+        summary["days"] = int(week_df["Date"].nunique()) if not week_df.empty else 0
+        return points, summary
+
+    if "Date" in result.columns and result["Date"].notna().any():
+        daily_points, last_week_summary = build_week_snapshot(complete_week_start)
+        current_week_points, current_week_summary = build_week_snapshot(current_week_start, end_date=today)
 
     weekly_summaries = _report_weekly_summaries(state)
     weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness"))
     weekly_points: list[dict[str, object]] = []
     if not weekly_wellness.empty and {"Athlete", "week_start"}.issubset(weekly_wellness.columns):
         weekly_wellness = weekly_wellness[_professional_athlete_mask(weekly_wellness["Athlete"], athlete)].copy()
+        weekly_wellness["week_start"] = pd.to_datetime(weekly_wellness["week_start"], errors="coerce").dt.normalize()
         for column in ["Sueno_mean", "Estres_mean", "Dolor_mean", "Wellness_mean"]:
             if column in weekly_wellness.columns:
                 weekly_wellness[column] = pd.to_numeric(weekly_wellness[column], errors="coerce")
+        weekly_wellness = weekly_wellness[weekly_wellness["week_start"] < current_week_start]
         weekly_wellness = weekly_wellness.dropna(subset=["week_start"]).sort_values("week_start").tail(16)
         weekly_points = [
             {
@@ -3921,9 +4346,43 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
         ]
         if column not in result.columns or not result[column].notna().any()
     ]
+    last_week_days = int(_coerce_float(last_week_summary.get("days")) or 0)
+    current_week_days = int(_coerce_float(current_week_summary.get("days")) or 0)
+    if last_week_days > 0:
+        analysis_scope = "last_complete_week"
+        analysis_title = "Wellness - última semana completa"
+        analysis_week_label = _professional_week_label(complete_week_start)
+    elif current_week_days > 0:
+        analysis_scope = "current_week_partial"
+        analysis_title = "Wellness - semana en curso"
+        analysis_week_label = _professional_week_label(current_week_start)
+        daily_points = current_week_points
+        last_week_summary = current_week_summary
+        last_week_days = current_week_days
+    else:
+        analysis_scope = "missing"
+        analysis_title = "Wellness - última semana completa"
+        analysis_week_label = _professional_week_label(complete_week_start)
+    trend_allowed = analysis_scope == "last_complete_week" and last_week_days >= 3
+    partial_message = ""
+    if has_any_metric and not trend_allowed:
+        if analysis_scope == "current_week_partial":
+            day_label = "1 día" if last_week_days == 1 else f"{last_week_days} días"
+            partial_message = (
+                f"Wellness - semana en curso. Registro parcial: {day_label} con datos. "
+                "La lectura debe tomarse como alerta contextual puntual, no como tendencia semanal cerrada."
+            )
+        else:
+            partial_message = _professional_wellness_partial_message(
+                {
+                    "last_week_summary": last_week_summary,
+                    "scales": scales,
+                }
+            )
+
     if not has_any_metric:
         state_label = "missing"
-    elif rows_count >= 3 and not missing_variables:
+    elif trend_allowed and rows_count >= 3 and not missing_variables:
         state_label = "available"
     else:
         state_label = "partial"
@@ -3932,9 +4391,16 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
         "rows": rows_count,
         "latest": latest,
         "daily_points": daily_points,
+        "current_week_points": current_week_points,
         "weekly_points": weekly_points,
         "last_week_summary": last_week_summary,
+        "current_week_summary": current_week_summary,
+        "analysis_scope": analysis_scope,
+        "analysis_title": analysis_title,
+        "analysis_week_label": analysis_week_label,
         "missing_variables": missing_variables,
+        "trend_allowed": trend_allowed,
+        "partial_message": partial_message,
         "scales": scales,
         "message": "" if state_label != "missing" else "Faltan datos de wellness para este período.",
     }
@@ -4026,9 +4492,20 @@ def _build_professional_integrated_interpretation(
     wellness_context: dict[str, object],
 ) -> list[str]:
     lines: list[str] = []
+    load_scope = str(internal_load.get("analysis_scope") or "")
     weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
     weekly_change = _coerce_float(internal_load.get("weekly_change"))
-    if weekly_change_pct is not None:
+    if load_scope == "current_week_partial":
+        partial_total = _coerce_float(internal_load.get("current_week_total"))
+        partial_sessions = int(_coerce_float(internal_load.get("current_week_sessions")) or 0)
+        if partial_total is not None:
+            lines.append(
+                f"El acumulado parcial de la semana actual es {partial_total:.0f} UA con {partial_sessions} sesiones registradas. "
+                "Al tratarse de una semana en curso, no debe interpretarse todavía como una caída real frente a la semana previa."
+            )
+        else:
+            lines.append("La semana actual está incompleta y faltan datos suficientes para interpretar la carga acumulada.")
+    elif weekly_change_pct is not None:
         direction = "aumentó" if weekly_change_pct > 0 else "disminuyó" if weekly_change_pct < 0 else "se mantuvo estable"
         lines.append(f"La carga interna semanal {direction} {weekly_change_pct:+.1f}% respecto a la semana previa.")
     elif weekly_change is not None:
@@ -4048,17 +4525,9 @@ def _build_professional_integrated_interpretation(
     sleep_mean = _coerce_float(summary.get("sleep_mean"))
     scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
 
-    def high_context(value: float | None, scale: object) -> bool:
-        if value is None:
-            return False
-        scale_text = str(scale or "")
-        if scale_text == "/5":
-            return value >= 4
-        if scale_text == "/10":
-            return value >= 7
-        return False
-
     wellness_comments: list[str] = []
+    if wellness_context.get("state") == "partial" and wellness_context.get("partial_message"):
+        wellness_comments.append("La lectura del wellness es limitada por baja cantidad de registros.")
     if sleep_delta is not None and sleep_delta < -0.2:
         wellness_comments.append(f"El sueño cambió {sleep_delta:+.1f} h respecto a la semana previa; si baja, reduce margen de recuperación.")
     if stress_delta is not None and stress_delta > 0.2:
@@ -4074,11 +4543,11 @@ def _build_professional_integrated_interpretation(
             wellness_comments.append(f"El {score_label} disminuyó {magnitude:.1f} puntos respecto a la semana previa.")
         else:
             wellness_comments.append(f"El {score_label} aumentó {magnitude:.1f} puntos respecto a la semana previa, señal compatible con buena tolerancia si el contexto acompaña.")
-    if weekly_change_pct is not None and weekly_change_pct > 10 and high_context(stress_mean, scales.get("stress")):
+    if load_scope != "current_week_partial" and weekly_change_pct is not None and weekly_change_pct > 10 and _professional_wellness_high(stress_mean, scales.get("stress")):
         wellness_comments.append(
             f"El estrés promedio fue elevado ({stress_mean:.1f}{scales.get('stress', '')}), por lo que conviene progresar de manera conservadora y controlar volumen/densidad."
         )
-    if pain_mean is not None and high_context(pain_mean, scales.get("pain")):
+    if pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain")):
         wellness_comments.append(f"El dolor promedio fue elevado ({pain_mean:.1f}{scales.get('pain', '')}); revisar tolerancia antes de aumentar carga.")
     if sleep_mean is not None and sleep_mean < 6.5:
         wellness_comments.append(f"El sueño promedio fue bajo ({sleep_mean:.1f} h); priorizar recuperación antes de escalar volumen.")
@@ -4089,7 +4558,8 @@ def _build_professional_integrated_interpretation(
     score_comment_idx = next((idx for idx, comment in enumerate(wellness_comments) if score_label in comment), None)
     stress_comment_idx = next((idx for idx, comment in enumerate(wellness_comments) if "estrés promedio fue elevado" in comment), None)
     if (
-        weekly_change_pct is not None
+        load_scope != "current_week_partial"
+        and weekly_change_pct is not None
         and weekly_change_pct > 10
         and score_comment_idx is not None
         and stress_comment_idx is not None
@@ -4110,13 +4580,21 @@ def _build_professional_integrated_interpretation(
     return lines
 
 
-def _build_professional_next_steps(has_evaluations: bool) -> list[str]:
-    if not has_evaluations:
+def _build_professional_next_steps(evaluation_state: str) -> list[str]:
+    clean = str(evaluation_state or "").strip().lower()
+    if clean == "missing":
         return [
             "Completar batería de evaluación: CMJ, SJ, DJ/RSI e IMTP.",
             "Mantener registro de sRPE y wellness durante las próximas semanas.",
             "Usar la próxima evaluación como línea base del perfil físico.",
             "No interpretar carga interna como perfil físico.",
+        ]
+    if clean == "partial":
+        return [
+            "Completar métricas faltantes, especialmente mRSI o DRI si corresponde.",
+            "Repetir evaluación en 6-8 semanas.",
+            "Mantener misma entrada en calor, protocolo y condiciones para comparar mejor.",
+            "Usar carga interna y wellness solo para regular el corto plazo, no para reemplazar el perfil físico.",
         ]
     return [
         "Usar perfil físico para orientar el próximo bloque.",
@@ -4253,7 +4731,7 @@ def _generate_professional_profile_pdf_reportlab(
     )
 
     def _p(text: object, style_name: str = "ProfBody") -> Paragraph:
-        safe = escape(_ascii_text(safe_value(text, fallback=""))).replace("\n", "<br/>")
+        safe = escape(safe_value(text, fallback="")).replace("\n", "<br/>")
         return Paragraph(safe, styles[style_name])
 
     def _box(flowables: list[object], *, background=None, padding: int = 8) -> Table:
@@ -4319,12 +4797,16 @@ def _generate_professional_profile_pdf_reportlab(
             cell_flow = [
                 _p(card.get("title", "-"), "ProfCardTitle"),
                 _p(card.get("value", PDF_MISSING_TEXT), "ProfCardValue"),
+                _p(f"Unidad: {card.get('unit_label', PDF_MISSING_TEXT)}", "ProfMuted"),
                 _p(f"Delta vs última: {card.get('delta', PDF_MISSING_TEXT)}", "ProfMuted"),
                 _p(f"Z-score: {card.get('z_score', PDF_MISSING_TEXT)}", "ProfMuted"),
-                _p(f"Mejor valor historico: {card.get('best', PDF_MISSING_TEXT)}", "ProfMuted"),
-                _p(f"Semaforo: {card.get('signal', PDF_MISSING_TEXT)}", "ProfMuted"),
+                _p(f"Mejor valor histórico: {card.get('best', PDF_MISSING_TEXT)}", "ProfMuted"),
+                _p(f"Zona ruido/CV/TE: {card.get('threshold', PDF_MISSING_TEXT)}", "ProfMuted"),
+                _p(f"Semáforo: {card.get('signal', PDF_MISSING_TEXT)}", "ProfMuted"),
                 _p(card.get("interpretation", ""), "ProfBody"),
             ]
+            if card.get("large_change_warning"):
+                cell_flow.append(_p(f"Advertencia: {card.get('large_change_warning')}", "ProfMuted"))
             cell = Table([[cell_flow]], colWidths=[84 * mm])
             cell.setStyle(
                 TableStyle(
@@ -4587,19 +5069,24 @@ def _generate_professional_profile_pdf_reportlab(
         return table
 
     def _load_summary_rows(payload: dict[str, object]) -> list[tuple[str, str]]:
+        scope = str(payload.get("analysis_scope") or "")
         change_pct = _coerce_float(payload.get("weekly_change_pct"))
         change = _coerce_float(payload.get("weekly_change"))
-        if change_pct is not None:
+        if scope == "current_week_partial":
+            change_text = "Semana en curso incompleta"
+        elif change_pct is not None:
             change_text = f"{change_pct:+.1f}%"
         elif change is not None:
             change_text = f"{change:+.0f} UA"
         else:
             change_text = PDF_MISSING_TEXT
-        total = _coerce_float(payload.get("last_week_total"))
+        total = _coerce_float(payload.get("current_week_total" if scope == "current_week_partial" else "last_week_total"))
+        sessions = payload.get("current_week_sessions" if scope == "current_week_partial" else "sessions_registered")
+        days = payload.get("current_week_days" if scope == "current_week_partial" else "days_without_data")
         return [
             ("Total semanal", f"{total:.0f} UA" if total is not None else PDF_MISSING_TEXT),
-            ("Sesiones registradas", str(int(payload.get("sessions_registered") or 0)) if payload.get("sessions_registered") is not None else PDF_MISSING_TEXT),
-            ("Días sin sesión registrada", str(int(payload.get("days_without_data"))) if payload.get("days_without_data") is not None else PDF_MISSING_TEXT),
+            ("Sesiones registradas", str(int(sessions or 0)) if sessions is not None else PDF_MISSING_TEXT),
+            ("Días con registro" if scope == "current_week_partial" else "Días sin sesión registrada", str(int(days)) if days is not None else PDF_MISSING_TEXT),
             ("Cambio vs semana previa", change_text),
         ]
 
@@ -4662,6 +5149,13 @@ def _generate_professional_profile_pdf_reportlab(
     def _explanation_lines(payload: dict[str, object]) -> list[object]:
         if payload.get("state") == "missing":
             return [_p("Faltan datos para generar una interpretación confiable.", "ProfMuted")]
+        if payload.get("location") is not None:
+            return [
+                _p(f"Qué estoy viendo: {payload.get('what', PDF_MISSING_TEXT)}", "ProfMuted"),
+                _p(f"Dónde se ubica el atleta: {payload.get('location', PDF_MISSING_TEXT)}", "ProfMuted"),
+                _p(f"Qué significa para este atleta: {payload.get('athlete_meaning', payload.get('meaning', PDF_MISSING_TEXT))}", "ProfMuted"),
+                _p(f"Qué decisión sugiere: {payload.get('decision', PDF_MISSING_TEXT)}", "ProfMuted"),
+            ]
         return [
             _p(f"Qué estoy viendo: {payload.get('what', PDF_MISSING_TEXT)}", "ProfMuted"),
             _p(f"Qué significa: {payload.get('meaning', PDF_MISSING_TEXT)}", "ProfMuted"),
@@ -4694,8 +5188,14 @@ def _generate_professional_profile_pdf_reportlab(
     overview = _build_professional_report_overview(state, report_athlete, cards, training_context, internal_load)
     available_cards, missing_metric_titles = _professional_metric_display_groups(cards)
     has_evaluations = bool(available_cards)
+    evaluation_state = "missing" if not has_evaluations else "partial" if missing_metric_titles else "available"
+    has_evolution_charts = _professional_assessment_date_count(state, report_athlete) >= 2 and any(
+        len(section.get("points", [])) >= 2 for section in evolution_sections
+    )
+    has_quadrant_charts = _professional_any_quadrant_ready(quadrant_sections)
+    assessment_interval_warning = _professional_short_assessment_interval_warning(state, report_athlete)
     integrated_lines = _build_professional_integrated_interpretation(internal_load, wellness_context)
-    next_steps = _build_professional_next_steps(has_evaluations)
+    next_steps = _build_professional_next_steps(evaluation_state)
 
     def _append_metric_cards(target: list[object]) -> None:
         if not available_cards:
@@ -4707,6 +5207,9 @@ def _generate_professional_profile_pdf_reportlab(
         if missing_metric_titles:
             target.append(Spacer(1, 3 * mm))
             target.append(_box([_p(f"Métricas no disponibles: {', '.join(missing_metric_titles)}.", "ProfMuted")]))
+        if any(card.get("title") in {"RSI", "mRSI"} for card in available_cards):
+            target.append(Spacer(1, 3 * mm))
+            target.append(_box([_p(f"Nota metodológica: {PROFESSIONAL_RSI_METHOD_NOTE}", "ProfMuted")], padding=5))
 
     def _append_evolution_section(target: list[object]) -> None:
         target.extend(
@@ -4715,28 +5218,43 @@ def _generate_professional_profile_pdf_reportlab(
                 _p("Evolución entre fechas de evaluación. No interpretar como readiness semanal.", "ProfMuted"),
             ]
         )
+        if assessment_interval_warning:
+            target.append(_box([_p(assessment_interval_warning, "ProfMuted")], padding=5))
+            target.append(Spacer(1, 3 * mm))
         if _professional_assessment_date_count(state, report_athlete) < 2:
             target.append(_collapsed_box(PROFESSIONAL_NO_EVOLUTION_TEXT))
             return
         missing_evolution_titles: list[str] = []
-        for section in evolution_sections:
+        selected_sections, omitted_evolution_titles = _professional_prioritized_evolution_sections(evolution_sections)
+        for section in selected_sections:
             chart = _line_chart(section.get("points", []), color=palette["steel"])
             if chart is None:
                 missing_evolution_titles.append(str(section.get("title", "Métrica")))
                 continue
             target.append(_chart_explanation_panel(chart, str(section.get("title", "Métrica")), section))
+            if section.get("large_change_warning"):
+                target.append(_box([_p(str(section.get("large_change_warning")), "ProfMuted")], padding=5))
             target.append(Spacer(1, 4 * mm))
+        charted_titles = {str(section.get("title", "Métrica")) for section in selected_sections}
+        for section in evolution_sections:
+            title = str(section.get("title", "Métrica"))
+            if title not in charted_titles and len(section.get("points", [])) < 2:
+                missing_evolution_titles.append(title)
+        if omitted_evolution_titles:
+            target.append(_box([_p(f"Evolución no graficada para compactar el reporte: {', '.join(omitted_evolution_titles)}.", "ProfMuted")], padding=5))
         if missing_evolution_titles:
             target.append(_box([_p(f"Métricas sin evolución suficiente: {', '.join(missing_evolution_titles)}. Faltan datos.", "ProfMuted")]))
 
     def _append_quadrants_section(target: list[object]) -> None:
         target.append(_p("Cuadrantes de perfil físico", "ProfSection"))
-        if not _professional_quadrants_ready(quadrant_sections):
+        if not _professional_any_quadrant_ready(quadrant_sections):
             target.append(_collapsed_box(PROFESSIONAL_NO_QUADRANTS_TEXT))
             return
         for section in quadrant_sections[:3]:
             chart = _quadrant_chart(section)
             if chart is None:
+                target.append(_collapsed_box(str(section.get("message") or "Faltan datos para ubicar al atleta en este cuadrante.")))
+                target.append(Spacer(1, 4 * mm))
                 continue
             target.append(_chart_explanation_panel(chart, str(section.get("title", "Cuadrante")), section))
             target.append(Spacer(1, 4 * mm))
@@ -4752,26 +5270,35 @@ def _generate_professional_profile_pdf_reportlab(
 
     def _append_internal_last_week(target: list[object], *, include_title: bool = True, compact: bool = False) -> None:
         if include_title:
-            target.append(_p("Carga interna - última semana", "ProfSection"))
+            target.append(_p(internal_load.get("analysis_title", "Carga interna - última semana completa"), "ProfSection"))
         if internal_load["state"] == "missing":
-            target.append(_collapsed_box("Faltan datos de carga interna para este período."))
+            target.append(_collapsed_box("Faltan datos suficientes para analizar la última semana completa."))
             return
         summary_rows = _load_summary_rows(internal_load)
         if compact:
             target.append(_box([_p(" | ".join(f"{label}: {value}" for label, value in summary_rows), "ProfMuted")], padding=5))
         else:
             target.append(_key_value_table(summary_rows))
+        point_key = "current_week_points" if internal_load.get("analysis_scope") == "current_week_partial" else "daily_points"
         daily_chart = _bar_chart(
-            internal_load.get("daily_points", []),
+            internal_load.get(point_key, []),
             height_mm=34 if compact else 42,
             title="sRPE diario",
             y_unit="UA",
         )
         if daily_chart is None:
             target.append(Spacer(1, 3 * mm))
-            target.append(_collapsed_box("Faltan datos de carga interna de la última semana."))
+            message = (
+                str(internal_load.get("current_week_partial_message"))
+                if internal_load.get("analysis_scope") == "current_week_partial"
+                else "Faltan datos suficientes para analizar la última semana completa."
+            )
+            target.append(_collapsed_box(message))
             return
         target.append(Spacer(1, 2 * mm if compact else 3 * mm))
+        if internal_load.get("analysis_scope") == "current_week_partial":
+            target.append(_collapsed_box(str(internal_load.get("current_week_partial_message"))))
+            target.append(Spacer(1, 2 * mm if compact else 3 * mm))
         target.append(
             _chart_explanation_panel(
                 daily_chart,
@@ -4788,10 +5315,19 @@ def _generate_professional_profile_pdf_reportlab(
             target.append(_collapsed_box("Faltan datos para mostrar sRPE semanal + EMA 6 semanas."))
             return
         target.append(weekly_chart)
-        total = _coerce_float(internal_load.get("last_week_total"))
-        change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
-        summary = f"Total última semana: {total:.0f} UA." if total is not None else "Total última semana: Faltan datos."
-        if change_pct is not None:
+        if internal_load.get("analysis_scope") == "current_week_partial":
+            total = _coerce_float(internal_load.get("current_week_total"))
+            change_pct = None
+            summary = (
+                f"Acumulado parcial de la semana en curso: {total:.0f} UA. No comparar directamente con semanas completas."
+                if total is not None
+                else "Semana en curso parcial: Faltan datos."
+            )
+        else:
+            total = _coerce_float(internal_load.get("last_week_total"))
+            change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
+            summary = f"Total última semana completa: {total:.0f} UA." if total is not None else "Total última semana completa: Faltan datos."
+        if internal_load.get("analysis_scope") != "current_week_partial" and change_pct is not None:
             summary = f"{summary} Cambio vs semana previa: {change_pct:+.1f}%."
         target.append(
             _box(
@@ -4808,16 +5344,20 @@ def _generate_professional_profile_pdf_reportlab(
 
     def _append_wellness_last_week(target: list[object], *, include_title: bool = True, compact: bool = False) -> None:
         if include_title:
-            target.append(_p("Wellness - última semana", "ProfSection"))
+            target.append(_p(wellness_context.get("analysis_title", "Wellness - última semana completa"), "ProfSection"))
         if wellness_context.get("state") == "missing":
             target.append(_collapsed_box("Faltan datos de wellness para este período."))
             return
         summary_rows = _wellness_summary_rows(wellness_context)
         target.append(_mini_cards_table(summary_rows))
+        if wellness_context.get("state") == "partial" and not wellness_context.get("trend_allowed"):
+            target.append(Spacer(1, 3 * mm))
+            target.append(_collapsed_box(str(wellness_context.get("partial_message") or _professional_wellness_partial_message(wellness_context))))
+            return
         daily_chart = _wellness_chart(wellness_context.get("daily_points", []), height_mm=34 if compact else 42)
         if daily_chart is None:
             target.append(Spacer(1, 3 * mm))
-            target.append(_collapsed_box("Faltan datos para mostrar tendencia diaria de wellness score."))
+            target.append(_collapsed_box("Faltan registros suficientes para tendencia. La lectura debe tomarse como alerta contextual puntual."))
             return
         target.append(Spacer(1, 2 * mm if compact else 3 * mm))
         target.append(
@@ -4826,9 +5366,9 @@ def _generate_professional_profile_pdf_reportlab(
                 "Wellness score",
                 {
                     "state": wellness_context.get("state"),
-                    "what": "Tendencia diaria del wellness score de la última semana registrada.",
+                    "what": "Tendencia diaria del wellness score de la última semana completa." if wellness_context.get("analysis_scope") == "last_complete_week" else "Registro parcial de wellness de la semana en curso.",
                     "meaning": "Muestra recuperación percibida y carga contextual alrededor del entrenamiento sin mezclar escalas crudas.",
-                    "decision": "Regular volumen, densidad o selección de ejercicios si empeoran sueño, estrés o dolor.",
+                    "decision": "Regular volumen, densidad o selección de ejercicios si empeoran sueño, estrés o dolor." if wellness_context.get("analysis_scope") == "last_complete_week" else "No leerlo como tendencia semanal cerrada; usarlo solo como alerta contextual hasta completar la semana.",
                 },
             )
         )
@@ -4839,9 +5379,12 @@ def _generate_professional_profile_pdf_reportlab(
         if wellness_context.get("state") == "missing":
             target.append(_collapsed_box("Faltan datos de wellness para este período."))
             return
+        if wellness_context.get("state") == "partial" and not wellness_context.get("trend_allowed"):
+            target.append(_collapsed_box("Tendencia de wellness no disponible por baja cantidad de registros."))
+            return
         weekly_chart = _wellness_chart(wellness_context.get("weekly_points", []), width_mm=174, height_mm=38 if compact else 46)
         if weekly_chart is None:
-            target.append(_collapsed_box("Faltan datos para mostrar tendencia de wellness score de las últimas 16 semanas."))
+            target.append(_collapsed_box("Faltan registros suficientes para tendencia. La lectura debe tomarse como alerta contextual puntual."))
             return
         target.append(weekly_chart)
         missing_variables = wellness_context.get("missing_variables") or []
@@ -4853,17 +5396,28 @@ def _generate_professional_profile_pdf_reportlab(
     def _append_acute_interpretation(target: list[object]) -> None:
         target.append(_p("Interpretación aguda", "ProfSection"))
         lines: list[str] = []
-        total = _coerce_float(internal_load.get("last_week_total"))
-        weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
-        if total is not None:
-            load_text = f"La carga interna de la última semana fue {total:.0f} UA."
-            if weekly_change_pct is not None:
-                load_text = f"{load_text} Cambió {weekly_change_pct:+.1f}% respecto a la semana previa."
+        if internal_load.get("analysis_scope") == "current_week_partial":
+            total = _coerce_float(internal_load.get("current_week_total"))
+            sessions = int(_coerce_float(internal_load.get("current_week_sessions")) or 0)
+            if total is not None:
+                lines.append(
+                    f"El acumulado parcial de la semana actual es {total:.0f} UA con {sessions} sesiones registradas. "
+                    "No debe compararse directamente con una semana completa."
+                )
             else:
-                load_text = f"{load_text} No hay comparación suficiente contra la semana previa."
-            lines.append(load_text)
+                lines.append("La semana en curso está incompleta y faltan datos suficientes para interpretarla.")
         else:
-            lines.append("Faltan datos para interpretar la carga interna aguda.")
+            total = _coerce_float(internal_load.get("last_week_total"))
+            weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
+            if total is not None:
+                load_text = f"La carga interna de la última semana completa fue {total:.0f} UA."
+                if weekly_change_pct is not None:
+                    load_text = f"{load_text} Cambió {weekly_change_pct:+.1f}% respecto a la semana previa."
+                else:
+                    load_text = f"{load_text} No hay comparación suficiente contra la semana previa."
+                lines.append(load_text)
+            else:
+                lines.append("Faltan datos para interpretar la carga interna aguda.")
 
         summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
         scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
@@ -4880,7 +5434,8 @@ def _generate_professional_profile_pdf_reportlab(
                 details.append(f"estrés {stress_mean:.1f}{scales.get('stress', '')}")
             if pain_mean is not None:
                 details.append(f"dolor {pain_mean:.1f}{scales.get('pain', '')}")
-            lines.append("Wellness última semana: " + (", ".join(details) if details else PDF_MISSING_TEXT) + ".")
+            wellness_label = "Wellness última semana completa" if wellness_context.get("analysis_scope") == "last_complete_week" else "Wellness semana en curso"
+            lines.append(f"{wellness_label}: " + (", ".join(details) if details else PDF_MISSING_TEXT) + ".")
         lines.append("Decisión sugerida: progresar con cautela si sube la carga y aparecen peor sueño, estrés elevado, dolor o caída de calidad de sesión.")
         target.append(_box([_p(" ".join(lines), "ProfMuted")], padding=5))
 
@@ -4900,7 +5455,13 @@ def _generate_professional_profile_pdf_reportlab(
 
     def _append_limitations(target: list[object], *, compact: bool = False) -> None:
         target.append(_p("Limitaciones del reporte", "ProfSection"))
+        extra_notes: list[str] = []
+        if assessment_interval_warning:
+            extra_notes.append(assessment_interval_warning)
+        if any(card.get("title") in {"RSI", "mRSI"} for card in available_cards):
+            extra_notes.append(PROFESSIONAL_RSI_METHOD_NOTE)
         if compact:
+            notes_text = " ".join(extra_notes)
             target.append(
                 _box(
                     [
@@ -4912,23 +5473,21 @@ def _generate_professional_profile_pdf_reportlab(
                             "Las decisiones deben considerar contexto deportivo, dolor, wellness y criterio profesional. Si una sección muestra \"Faltan datos\", no había información suficiente para generar esa parte del análisis.",
                             "ProfMuted",
                         ),
+                        *([_p(notes_text, "ProfMuted")] if notes_text else []),
                     ],
                     padding=5,
                 )
             )
             return
-        target.append(
-            _box(
-                [
-                    _p("- Las evaluaciones son perfilado físico cada 6-8 semanas.", "ProfBody"),
-                    _p("- No deben interpretarse como readiness semanal.", "ProfBody"),
-                    _p("- El sRPE es una estimación práctica de carga interna.", "ProfBody"),
-                    _p("- Las decisiones deben considerar contexto deportivo, dolor, wellness y criterio profesional.", "ProfBody"),
-                    _p("- Si una sección muestra \"Faltan datos\", no había información suficiente para generar esa parte del análisis.", "ProfBody"),
-                ],
-                padding=6,
-            )
-        )
+        limitation_lines = [
+            "- Las evaluaciones son perfilado físico cada 6-8 semanas.",
+            "- No deben interpretarse como readiness semanal.",
+            "- El sRPE es una estimación práctica de carga interna.",
+            "- Las decisiones deben considerar contexto deportivo, dolor, wellness y criterio profesional.",
+            "- Si una sección muestra \"Faltan datos\", no había información suficiente para generar esa parte del análisis.",
+        ]
+        limitation_lines.extend(f"- {note}" for note in extra_notes)
+        target.append(_box([_p(line, "ProfBody") for line in limitation_lines], padding=6))
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -4979,24 +5538,32 @@ def _generate_professional_profile_pdf_reportlab(
         _append_next_steps(story, compact=True)
         _append_limitations(story, compact=True)
     else:
-        story.append(PageBreak())
+        compact_evaluation_report = evaluation_state == "partial"
+        section_gap = 3 * mm if compact_evaluation_report else 5 * mm
+        if has_evolution_charts:
+            story.append(PageBreak())
+        else:
+            story.append(Spacer(1, section_gap))
         _append_evolution_section(story)
-        story.append(PageBreak())
+        if has_quadrant_charts:
+            story.append(PageBreak())
+        else:
+            story.append(Spacer(1, section_gap))
         _append_quadrants_section(story)
         story.append(PageBreak())
         _append_training_section(story)
-        story.append(Spacer(1, 5 * mm))
-        _append_internal_last_week(story)
-        story.append(Spacer(1, 5 * mm))
-        _append_wellness_last_week(story)
+        story.append(Spacer(1, section_gap))
+        _append_internal_last_week(story, compact=compact_evaluation_report)
+        story.append(Spacer(1, section_gap))
+        _append_wellness_last_week(story, compact=compact_evaluation_report)
         story.append(PageBreak())
-        _append_internal_16_weeks(story)
-        story.append(Spacer(1, 5 * mm))
-        _append_wellness_16_weeks(story)
-        story.append(Spacer(1, 5 * mm))
-        _append_integrated_interpretation(story)
-        _append_next_steps(story)
-        _append_limitations(story)
+        _append_internal_16_weeks(story, compact=compact_evaluation_report)
+        story.append(Spacer(1, section_gap))
+        _append_wellness_16_weeks(story, compact=compact_evaluation_report)
+        story.append(Spacer(1, section_gap))
+        _append_integrated_interpretation(story, compact=compact_evaluation_report)
+        _append_next_steps(story, compact=compact_evaluation_report)
+        _append_limitations(story, compact=compact_evaluation_report)
 
     try:
         doc.build(story)
