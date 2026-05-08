@@ -14,9 +14,17 @@ from charts.load_charts import (
     chart_weekly_wellness,
     chart_wellness,
 )
-from local_store import build_load_models, build_weekly_summaries, read_full_dataset
+from local_store import (
+    HISTORY_MODE_FULL,
+    RECENT_WEEKS,
+    build_load_models,
+    build_weekly_summaries,
+    load_dataset_for_history_mode,
+    read_full_dataset,
+)
 from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
+from modules.history_mode import history_mode_caption, render_history_mode_selector
 from modules.load_monitoring import build_weekly_acwr_context
 from modules.page_state import collect_state_athletes, ensure_page_state
 from modules.page_visuals import build_page_theme, render_insight_block
@@ -42,13 +50,7 @@ def _weekly_summaries_from_state(
     raw_df: pd.DataFrame | None,
     acwr_dict: dict[str, pd.DataFrame],
 ) -> dict[str, pd.DataFrame]:
-    cached = st.session_state.get("weekly_summaries")
-    if isinstance(cached, dict) and WEEKLY_SUMMARY_KEYS.issubset(cached.keys()):
-        return cached
-
-    summaries = build_weekly_summaries(rpe_df, wellness_df, raw_df, acwr_dict=acwr_dict)
-    st.session_state.weekly_summaries = summaries
-    return summaries
+    return build_weekly_summaries(rpe_df, wellness_df, raw_df, acwr_dict=acwr_dict)
 
 
 def _full_history_weekly_load(rpe_df: pd.DataFrame | None) -> pd.DataFrame:
@@ -57,7 +59,7 @@ def _full_history_weekly_load(rpe_df: pd.DataFrame | None) -> pd.DataFrame:
         full_rpe = rpe_df
     if full_rpe is None or full_rpe.empty:
         return pd.DataFrame()
-    full_acwr_dict, _ = build_load_models(full_rpe)
+    full_acwr_dict, _ = build_load_models(full_rpe, weeks=None)
     summaries = build_weekly_summaries(
         full_rpe,
         None,
@@ -230,13 +232,18 @@ ensure_page_state(load_models=True)
 st.header("Monitoreo de Carga")
 st.caption("La carga de archivos se hace desde la app principal.")
 st.page_link("app.py", label="Abrir dashboard principal")
+history_mode = render_history_mode_selector(key="load_monitoring_page_history_mode")
 
 theme = build_page_theme()
-rdf = st.session_state.rpe_df
-wdf = st.session_state.wellness_df
-raw_df = st.session_state.raw_df
-acwr_dict = st.session_state.acwr_dict or {}
-mono_dict = st.session_state.mono_dict or {}
+rdf = load_dataset_for_history_mode("rpe_df", history_mode)
+wdf = load_dataset_for_history_mode("wellness_df", history_mode)
+raw_df = load_dataset_for_history_mode("raw_df", history_mode)
+acwr_dict, mono_dict = build_load_models(
+    rdf,
+    weeks=None if history_mode == HISTORY_MODE_FULL else RECENT_WEEKS,
+)
+acwr_dict = acwr_dict or {}
+mono_dict = mono_dict or {}
 prepared_raw_df = prepare_raw_workouts_df(raw_df) if raw_df is not None else None
 weekly_summaries = _weekly_summaries_from_state(rdf, wdf, raw_df, acwr_dict)
 weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
@@ -267,6 +274,7 @@ daily_athlete_options = (
 )
 athletes = sorted(set(weekly_athlete_options) | set(daily_athlete_options)) or ["Sin atleta"]
 athlete = st.selectbox("Atleta", athletes)
+st.caption(history_mode_caption(weekly_load if not weekly_load.empty else rdf, mode=history_mode, date_col="Date"))
 acwr_context_window = st.radio(
     "Rango ACWR semanal",
     ["8 semanas", "16 semanas", "Temporada completa"],
@@ -294,6 +302,7 @@ _render_weekly_block(
 if rdf is None or not acwr_dict:
     st.info("Sin modelo diario de carga procesado. La vista semanal canonica puede seguir mostrando wellness o carga externa parcial si existen.")
 else:
+    st.caption(history_mode_caption(rdf, mode=history_mode, date_col="Date"))
     sub_rpe = rdf[rdf["Athlete"] == athlete].sort_values("Date")
     acwr_df = acwr_dict.get(athlete)
     mono_df = mono_dict.get(athlete)

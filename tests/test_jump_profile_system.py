@@ -12,8 +12,10 @@ from charts.dashboard_charts import (
 )
 from modules.jump_analysis import (
     _prepare_jump_df,
+    _records_to_jump_df,
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
+    build_profile_radar_row,
     build_jump_baseline_display_table,
     build_jump_delta_display_table,
     build_jump_feedback_lines,
@@ -444,6 +446,72 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertTrue(len(figure.data) >= 2)
         self.assertEqual(list(figure.data[-1].theta), ["CMJ", "CMJ"])
+
+    def test_profile_radar_row_recovers_missing_imtp_axis_from_latest_valid_snapshot(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Radar",
+                        "Date": "2026-04-01",
+                        "CMJ_cm": 34,
+                        "SJ_cm": 30,
+                        "DJ_cm": 26,
+                        "DJ_tc_ms": 220,
+                        "IMTP_N": 3000,
+                        "BW_kg": 80,
+                    },
+                    {
+                        "Athlete": "Atleta Radar",
+                        "Date": "2026-04-10",
+                        "CMJ_cm": 36,
+                        "SJ_cm": 31,
+                        "DJ_cm": 27,
+                        "DJ_tc_ms": 210,
+                        "IMTP_N": 3200,
+                        "BW_kg": 0,
+                    },
+                ]
+            )
+        )
+
+        radar_row = build_profile_radar_row(jump_df[jump_df["Athlete"] == "Atleta Radar"])
+        figure = chart_radar(radar_row, "Atleta Radar", None, theme=_chart_theme())
+
+        self.assertIsNotNone(radar_row)
+        self.assertTrue(bool(radar_row.get("Profile_Composed")))
+        self.assertAlmostEqual(float(radar_row["IMTP_relPF"]), 37.5, places=2)
+        self.assertEqual(
+            list(figure.data[-1].theta)[:-1],
+            ["SJ", "CMJ", "DJ height", "DJ RSI", "TC inv", "IMTP relPF"],
+        )
+
+    def test_records_to_jump_df_keeps_positive_body_weight_when_zero_arrives_later_same_day(self):
+        jump_df = _records_to_jump_df(
+            [
+                {
+                    "Athlete": "Atleta Radar",
+                    "Date": "2026-04-10",
+                    "test_type": "CMJ",
+                    "CMJ_cm": 36,
+                    "SJ_cm": 31,
+                    "DJ_cm": 27,
+                    "DJ_tc_ms": 210,
+                    "BW_kg": 88,
+                },
+                {
+                    "Athlete": "Atleta Radar",
+                    "Date": "2026-04-10",
+                    "test_type": "IMTP",
+                    "IMTP_N": 4191,
+                    "BW_kg": 0,
+                },
+            ]
+        )
+
+        self.assertEqual(len(jump_df), 1)
+        self.assertAlmostEqual(float(jump_df.iloc[0]["BW_kg"]), 88.0, places=2)
+        self.assertAlmostEqual(float(jump_df.iloc[0]["IMTP_relPF"]), 47.62, places=2)
 
     def test_dsi_requires_propulsive_force_without_peak_force_fallback(self):
         jump_df = _prepare_jump_df(

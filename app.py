@@ -48,6 +48,7 @@ from charts.load_charts import (
 )
 from local_store import (
     DATASET_SPECS,
+    HISTORY_MODE_FULL,
     RECENT_WEEKS,
     build_load_models,
     build_weekly_summaries,
@@ -55,6 +56,7 @@ from local_store import (
     collect_athlete_names,
     find_athlete_name_conflicts,
     load_athlete_registry,
+    load_dataset_for_history_mode,
     read_full_dataset,
     load_recent_dataset,
     load_recent_state,
@@ -82,6 +84,7 @@ from modules.data_loader import (
     parse_xlsx_questionnaire as shared_parse_xlsx_questionnaire,
 )
 from modules.data_quality import compute_data_quality_report
+from modules.history_mode import history_mode_caption, render_history_mode_selector
 from modules.alerts import (
     build_alert_feed,
     select_executive_alerts,
@@ -93,6 +96,7 @@ from modules.jump_analysis import (
     _records_to_jump_df as shared_records_to_jump_df,
     build_composite_profile_metric_table as shared_build_composite_profile_metric_table,
     build_composite_profile_snapshot as shared_build_composite_profile_snapshot,
+    build_profile_radar_row as shared_build_profile_radar_row,
     build_jump_baseline_display_table as shared_build_jump_baseline_display_table,
     build_jump_delta_display_table as shared_build_jump_delta_display_table,
     build_jump_feedback_lines as shared_build_jump_feedback_lines,
@@ -3306,6 +3310,7 @@ _prepare_jump_df = shared_prepare_jump_df
 _records_to_jump_df = shared_records_to_jump_df
 build_composite_profile_metric_table = shared_build_composite_profile_metric_table
 build_composite_profile_snapshot = shared_build_composite_profile_snapshot
+build_profile_radar_row = shared_build_profile_radar_row
 build_jump_feedback_lines = shared_build_jump_feedback_lines
 build_jump_flag_rows = shared_build_jump_flag_rows
 build_jump_metric_table = shared_build_jump_metric_table
@@ -3465,6 +3470,41 @@ def _completion_view_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") ->
     return grouped[["Date", "Pct"]].sort_values("Date").reset_index(drop=True)
 
 
+def _completion_detail_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") -> pd.DataFrame:
+    if comp_df is None or comp_df.empty:
+        return pd.DataFrame()
+
+    result = comp_df.copy()
+    if "Date" in result.columns:
+        result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
+    if "Pct" in result.columns:
+        result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
+
+    if _completion_has_athlete_column(result) and athlete != "Todos":
+        result["Athlete"] = result["Athlete"].astype(str).str.strip()
+        result = result[result["Athlete"] == athlete]
+
+    if result.empty:
+        return pd.DataFrame()
+
+    dated_rows = result.dropna(subset=["Date"]).copy() if "Date" in result.columns else pd.DataFrame()
+    if not dated_rows.empty:
+        result = dated_rows.sort_values("Date", ascending=False)
+
+    preferred_cols = [
+        "Athlete",
+        "Date",
+        "Assigned",
+        "Completed",
+        "Pct",
+        "completion_scope",
+        "source_type",
+    ]
+    available_cols = [column for column in preferred_cols if column in result.columns]
+    available_cols.extend(column for column in result.columns if column not in available_cols)
+    return result[available_cols].reset_index(drop=True)
+
+
 def _overview_loaded(df: pd.DataFrame | None) -> bool:
     return df is not None and not df.empty
 
@@ -3493,7 +3533,7 @@ def _full_history_weekly_load(rpe_df: pd.DataFrame | None) -> pd.DataFrame:
         full_rpe = rpe_df
     if full_rpe is None or full_rpe.empty:
         return pd.DataFrame()
-    full_acwr_dict, _ = build_load_models(full_rpe)
+    full_acwr_dict, _ = build_load_models(full_rpe, weeks=None)
     full_weekly = build_weekly_summaries(
         full_rpe,
         None,
@@ -3535,14 +3575,25 @@ def _overview_completion_snapshot(comp_df: pd.DataFrame | None, today: pd.Timest
 
     source = comp_df.copy()
     source["Date"] = pd.to_datetime(source["Date"], errors="coerce")
-    source = source.dropna(subset=["Date"])
-    if source.empty:
+    dated_source = source.dropna(subset=["Date"]).copy()
+    if dated_source.empty:
+        summary_result = calculate_completion_rate(source)
+        if summary_result.value is None:
+            return {
+                "value": "Sin dato",
+                "detail": "Cargar Completion Report para adherencia oficial.",
+                "tone": "neutral",
+                "numeric": None,
+            }
+        completion_mean = float(summary_result.value)
+        tone = "success" if completion_mean >= 90 else "warning" if completion_mean >= 70 else "danger"
         return {
-            "value": "Sin dato",
-            "detail": "Cargar Completion Report para adherencia oficial.",
-            "tone": "neutral",
-            "numeric": None,
+            "value": f"{completion_mean:.0f}%",
+            "detail": "Periodo cargado (sin fecha).",
+            "tone": tone,
+            "numeric": completion_mean,
         }
+    source = dated_source
 
     today_ts = pd.Timestamp.today().normalize() if today is None else pd.Timestamp(today).normalize()
     current_week = today_ts - pd.Timedelta(days=int(today_ts.weekday()))
@@ -5604,9 +5655,16 @@ with tab_decision:
 with tab_load:
     render_module_header("Monitoreo de Carga", "srpe · acwr · strain · monotonia", kicker="Modulo")
 
-    rdf = st.session_state.rpe_df
-    wdf = st.session_state.wellness_df
-    raw_df_state = st.session_state.raw_df
+    history_mode = render_history_mode_selector(key="app_load_history_mode")
+    rdf = load_dataset_for_history_mode("rpe_df", history_mode)
+    wdf = load_dataset_for_history_mode("wellness_df", history_mode)
+    raw_df_state = load_dataset_for_history_mode("raw_df", history_mode)
+    acwr_dict, mono_dict = build_load_models(
+        rdf,
+        weeks=None if history_mode == HISTORY_MODE_FULL else RECENT_WEEKS,
+    )
+    acwr_dict = acwr_dict or {}
+    mono_dict = mono_dict or {}
     prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if raw_df_state is not None else None
     athletes_list = known_athlete_names()
     quality_report = compute_data_quality_report(
@@ -5625,14 +5683,12 @@ with tab_load:
     athlete_summary = quality_report["athlete_summary"]
     alerts = quality_report["alerts"]
 
-    if not st.session_state.weekly_summaries:
-        st.session_state.weekly_summaries = build_weekly_summaries(
-            rdf,
-            wdf,
-            raw_df_state,
-            acwr_dict=st.session_state.acwr_dict or {},
-        )
-    weekly_summaries = st.session_state.weekly_summaries or {}
+    weekly_summaries = build_weekly_summaries(
+        rdf,
+        wdf,
+        raw_df_state,
+        acwr_dict=acwr_dict,
+    )
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
     weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
     weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))
@@ -5649,7 +5705,7 @@ with tab_load:
     )
     athletes_load = sorted(set(rpe_athlete_options) | set(weekly_athlete_options)) or ["Sin atleta"]
 
-    if rdf is None and not weekly_athlete_options:
+    if (rdf is None or rdf.empty) and not weekly_athlete_options:
         _alert("Carga el archivo questionnaire-report.xlsx (RPE + Tiempo) y presiona Procesar todo.", "b")
     else:
 
@@ -5666,13 +5722,21 @@ with tab_load:
                     key="weekly_acwr_context_window",
                 )
 
+        st.caption(
+            history_mode_caption(
+                weekly_load if vista == "Semanal" and not weekly_load.empty else rdf,
+                mode=history_mode,
+                date_col="Date",
+            )
+        )
+
         sub_rpe = (
             rdf[rdf["Athlete"] == athlete_sel]
             if rdf is not None and "Athlete" in rdf.columns else
             pd.DataFrame()
         )
-        acwr_df = (st.session_state.acwr_dict or {}).get(athlete_sel)
-        mono_df = (st.session_state.mono_dict or {}).get(athlete_sel)
+        acwr_df = acwr_dict.get(athlete_sel)
+        mono_df = mono_dict.get(athlete_sel)
         if mono_df is None:
             mono_df = pd.DataFrame(columns=["Semana", "Monotonia", "Strain", "Alerta"])
         acwr_label = "ACWR EWMA"
@@ -6203,12 +6267,22 @@ with tab_profile:
         with st.expander("Opciones de visualizacion", expanded=True):
             ath_p = st.selectbox("Atleta", sorted(athletes_all) or ["Sin atleta"], key="sel_profile")
 
+        athlete_jump_history = pd.DataFrame()
+        last_j = None
+        radar_row = None
+        profile_eval_row = None
+        if jdf is not None and ath_p in jdf["Athlete"].values:
+            athlete_jump_history = jdf[jdf["Athlete"] == ath_p].sort_values("Date")
+            if not athlete_jump_history.empty:
+                last_j = athlete_jump_history.iloc[-1]
+                radar_row = build_profile_radar_row(athlete_jump_history)
+                profile_eval_row = radar_row if radar_row is not None else last_j
+
         col_radar, col_info = st.columns([1.2, 0.8])
 
         with col_radar:
-            if jdf is not None and ath_p in jdf["Athlete"].values:
-                ath_row = jdf[jdf["Athlete"] == ath_p].sort_values("Date").iloc[-1]
-                st.plotly_chart(chart_radar(ath_row, ath_p, None),
+            if radar_row is not None:
+                st.plotly_chart(chart_radar(radar_row, ath_p, None),
                                 use_container_width=False, key="radar_profile")
             else:
                 _alert("Sin datos de evaluaciones para este atleta. El radar requiere datos de saltos.", "b")
@@ -6216,10 +6290,9 @@ with tab_profile:
         with col_info:
             render_subsection_header(ath_p, "contexto integrado de carga, wellness y evaluacion", kicker="Atleta")
 
-            if jdf is not None and ath_p in jdf["Athlete"].values:
-                last_j = jdf[jdf["Athlete"] == ath_p].sort_values("Date").iloc[-1]
-                render_jump_flag_chips(build_jump_flag_rows(last_j))
-                render_jump_feedback(build_jump_feedback_lines(last_j), kicker="Lectura de perfil")
+            if profile_eval_row is not None:
+                render_jump_flag_chips(build_jump_flag_rows(profile_eval_row))
+                render_jump_feedback(build_jump_feedback_lines(profile_eval_row), kicker="Lectura de perfil")
 
             # ACWR
             if st.session_state.acwr_dict and ath_p in st.session_state.acwr_dict:
@@ -6240,7 +6313,7 @@ with tab_profile:
                            "g" if w_mean >= 20 else "y" if w_mean >= 12 else "r")
 
             # Jump KPIs
-            if jdf is not None and ath_p in jdf["Athlete"].values:
+            if last_j is not None:
                 render_subsection_header("KPIs de evaluacion", "ultima referencia consolidada del atleta", kicker="Rendimiento")
                 kpi_display = {
                     "CMJ": ("CMJ_cm", "cm"), "SJ": ("SJ_cm", "cm"),
@@ -6410,7 +6483,8 @@ with tab_team:
     if st.session_state.completion_df is not None:
         st.markdown("---")
         render_subsection_header("Adherencia y completion", "porcentaje de cumplimiento del equipo", kicker="Adherencia")
-        completion_team_df = st.session_state.completion_df
+        completion_history_mode = render_history_mode_selector(key="completion_sel_team_history")
+        completion_team_df = load_dataset_for_history_mode("completion_df", completion_history_mode)
         completion_sel_team = "Todos"
         if _completion_has_athlete_column(completion_team_df):
             completion_sel_team = st.selectbox(
@@ -6422,14 +6496,28 @@ with tab_team:
             st.caption("El Completion Report actual no trae columna de atleta. Se muestra la vista global.")
 
         completion_team_view = _completion_view_df(completion_team_df, completion_sel_team)
-        if completion_team_view.empty:
+        completion_team_detail = _completion_detail_df(completion_team_df, completion_sel_team)
+        if completion_team_view.empty and completion_team_detail.empty:
             _alert("No hay datos de completion para la seleccion actual.", "b")
         else:
-            st.plotly_chart(
-                chart_completion(completion_team_view, athlete_label=completion_sel_team),
-                use_container_width=False,
-                key="completion_team",
-            )
+            if not completion_team_view.empty:
+                st.caption(history_mode_caption(completion_team_view, mode=completion_history_mode, date_col="Date"))
+                st.plotly_chart(
+                    chart_completion(completion_team_view, athlete_label=completion_sel_team),
+                    use_container_width=False,
+                    key="completion_team",
+                )
+            elif not completion_team_detail.empty:
+                completion_snapshot = calculate_completion_rate(completion_team_detail)
+                snapshot_value = completion_snapshot.value if completion_snapshot.value is not None else 0.0
+                st.caption("Vista: historial sin fechas. Se muestra como snapshot acumulado del periodo cargado.")
+                st.metric("Completion ponderado", f"{snapshot_value:.1f}%")
+                detail_cols = [column for column in ["Athlete", "Assigned", "Completed", "Pct"] if column in completion_team_detail.columns]
+                st.dataframe(
+                    completion_team_detail[detail_cols],
+                    use_container_width=False,
+                    hide_index=True,
+                )
 
 
 # ─────────────────────────────────────────────────────────────────────

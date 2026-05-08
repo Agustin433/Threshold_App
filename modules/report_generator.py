@@ -15,7 +15,12 @@ from openpyxl.utils import get_column_letter
 from local_store import build_weekly_summaries
 from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
-from modules.jump_analysis import _prepare_jump_df, compute_baseline_delta, compute_swc_delta
+from modules.jump_analysis import (
+    _prepare_jump_df,
+    build_profile_radar_row,
+    compute_baseline_delta,
+    compute_swc_delta,
+)
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 
 
@@ -506,12 +511,25 @@ def _completion_snapshot(
 
     result = cdf.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
-    result = result.dropna(subset=["Date"])
     if athlete != "Todos" and "Athlete" in result.columns:
         result = result[result["Athlete"].astype(str).str.strip() == athlete]
     if result.empty:
         detail = "Sin completion para el atleta seleccionado." if athlete != "Todos" else "Sin completion visible."
         return {"value": "Sin dato", "detail": detail, "numeric": None, "period_label": "Sin dato"}
+
+    dated_result = result.dropna(subset=["Date"]).copy()
+    if dated_result.empty:
+        completion_result = calculate_completion_rate(result)
+        if completion_result.value is None:
+            return {"value": "Sin dato", "detail": "Periodo cargado (sin fecha)", "numeric": None, "period_label": "Sin dato"}
+        completion_mean = round(float(completion_result.value), 1)
+        return {
+            "value": f"{completion_mean:.1f}%",
+            "detail": "Periodo cargado (sin fecha)",
+            "numeric": completion_mean,
+            "period_label": "Periodo cargado (sin fecha)",
+        }
+    result = dated_result
 
     today_ts = (pd.Timestamp(today) if today is not None else pd.Timestamp(datetime.now())).normalize()
     current_week = today_ts - pd.Timedelta(days=today_ts.weekday())
@@ -3284,13 +3302,13 @@ def collect_report_plotly_figures(
 
     if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and effective_athlete in jdf["Athlete"].values:
         athlete_jdf = jdf[jdf["Athlete"] == effective_athlete].sort_values("Date")
-        latest_row = athlete_jdf.iloc[-1]
+        radar_row = build_profile_radar_row(athlete_jdf)
         if audience in {"atleta", "profe"}:
             figures.append(
                 {
                     "slug": "radar_perfil",
                     "title": "Perfil neuromuscular",
-                    "figure": chart_radar(latest_row, effective_athlete, _team_mean_for_radar(jdf), theme=theme),
+                    "figure": chart_radar(radar_row, effective_athlete, _team_mean_for_radar(jdf), theme=theme),
                 }
             )
         if len(_cmj_series(state, effective_athlete)) >= 2:
@@ -3361,12 +3379,12 @@ def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], a
     jump_team = _professional_jump_history(state, "Todos")
     jump_history = _professional_jump_history(state, athlete)
     if not jump_history.empty:
-        latest_row = jump_history.iloc[-1]
+        radar_row = build_profile_radar_row(jump_history)
         try:
             payloads["radar_perfil"] = {
                 "slug": "radar_perfil",
                 "title": "Perfil neuromuscular",
-                "figure": chart_radar(latest_row, athlete, _team_mean_for_radar(jump_team), theme=theme),
+                "figure": chart_radar(radar_row, athlete, _team_mean_for_radar(jump_team), theme=theme),
             }
         except Exception:
             pass

@@ -16,6 +16,8 @@ from modules.metrics import calculate_monotony
 RECENT_WEEKS = 6
 RECENT_DAYS = RECENT_WEEKS * 7
 MONOTONY_HIGH = 2.0
+HISTORY_MODE_RECENT = "recent_6_weeks"
+HISTORY_MODE_FULL = "full_history"
 
 APP_ROOT = Path(__file__).resolve().parent
 STORE_DIR_ENV_VAR = "THRESHOLD_STORE_DIR"
@@ -53,6 +55,8 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
         "date_col": "Date",
         "athlete_col": "Athlete",
         "dedupe_cols": ["Athlete", "Date"],
+        "allow_missing_date": True,
+        "include_undated_in_recent": True,
     },
     "rep_load_df": {
         "filename": "rep_load_history.csv",
@@ -265,6 +269,7 @@ def _normalize_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
     result = df.copy()
     athlete_col = spec.get("athlete_col")
     date_col = spec.get("date_col")
+    allow_missing_date = bool(spec.get("allow_missing_date"))
 
     if athlete_col and athlete_col in result.columns:
         result[athlete_col] = result[athlete_col].map(normalize_athlete_name)
@@ -272,7 +277,8 @@ def _normalize_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
 
     if date_col and date_col in result.columns:
         result[date_col] = pd.to_datetime(result[date_col], errors="coerce").dt.normalize()
-        result = result.dropna(subset=[date_col])
+        if not allow_missing_date:
+            result = result.dropna(subset=[date_col])
 
     return result.reset_index(drop=True)
 
@@ -397,27 +403,124 @@ def overwrite_dataset(state_key: str, df: pd.DataFrame | None) -> pd.DataFrame:
     return normalized
 
 
-def filter_recent_window(df: pd.DataFrame, date_col: str, weeks: int = RECENT_WEEKS) -> pd.DataFrame:
-    if df is None or df.empty or date_col not in df.columns:
+def _available_week_starts(
+    df: pd.DataFrame | None,
+    *,
+    date_col: str | None = None,
+    week_col: str = "week_start",
+) -> pd.DatetimeIndex:
+    if df is None or df.empty:
+        return pd.DatetimeIndex([])
+
+    if week_col in df.columns:
+        week_series = pd.to_datetime(df[week_col], errors="coerce").dt.normalize()
+    elif date_col and date_col in df.columns:
+        dates = pd.to_datetime(df[date_col], errors="coerce").dt.normalize()
+        week_series = dates - pd.to_timedelta(dates.dt.weekday, unit="D")
+    else:
+        return pd.DatetimeIndex([])
+
+    unique_weeks = pd.to_datetime(pd.Index(week_series.dropna().unique()), errors="coerce")
+    unique_weeks = unique_weeks[~pd.isna(unique_weeks)].sort_values()
+    return pd.DatetimeIndex(unique_weeks)
+
+
+def get_available_week_range(
+    df: pd.DataFrame | None,
+    *,
+    date_col: str | None = None,
+    week_col: str = "week_start",
+    weeks: int | None = RECENT_WEEKS,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    available_weeks = _available_week_starts(df, date_col=date_col, week_col=week_col)
+    if available_weeks.empty:
+        return None, None
+    visible_weeks = available_weeks if weeks is None or weeks <= 0 else available_weeks[-weeks:]
+    return pd.Timestamp(visible_weeks[0]).normalize(), pd.Timestamp(visible_weeks[-1]).normalize()
+
+
+def filter_by_history_mode(
+    df: pd.DataFrame | None,
+    *,
+    mode: str = HISTORY_MODE_RECENT,
+    date_col: str | None = None,
+    week_col: str = "week_start",
+    weeks: int = RECENT_WEEKS,
+    include_undated: bool = False,
+) -> pd.DataFrame:
+    if df is None or df.empty:
         return pd.DataFrame() if df is None else df
+    if mode == HISTORY_MODE_FULL:
+        return df.copy().reset_index(drop=True)
 
-    recent_df = df.copy()
-    recent_df[date_col] = pd.to_datetime(recent_df[date_col], errors="coerce").dt.normalize()
-    recent_df = recent_df.dropna(subset=[date_col])
-    if recent_df.empty:
-        return recent_df
+    result = df.copy()
+    if week_col in result.columns:
+        temporal_series = pd.to_datetime(result[week_col], errors="coerce").dt.normalize()
+    elif date_col and date_col in result.columns:
+        dates = pd.to_datetime(result[date_col], errors="coerce").dt.normalize()
+        temporal_series = dates - pd.to_timedelta(dates.dt.weekday, unit="D")
+    else:
+        return result.reset_index(drop=True) if include_undated else result.iloc[0:0].copy()
 
-    max_date = recent_df[date_col].max()
-    cutoff = max_date - pd.Timedelta(weeks=weeks)
-    return recent_df[recent_df[date_col] >= cutoff].reset_index(drop=True)
+    available_weeks = _available_week_starts(result, date_col=date_col, week_col=week_col)
+    if available_weeks.empty:
+        return result.loc[temporal_series.isna()].reset_index(drop=True) if include_undated else result.iloc[0:0].copy()
+
+    visible_weeks = available_weeks if weeks <= 0 else available_weeks[-weeks:]
+    mask = temporal_series.isin(visible_weeks)
+    if include_undated:
+        mask |= temporal_series.isna()
+    return result.loc[mask].reset_index(drop=True)
+
+
+def filter_recent_window(
+    df: pd.DataFrame,
+    date_col: str,
+    weeks: int = RECENT_WEEKS,
+    *,
+    include_undated: bool = False,
+) -> pd.DataFrame:
+    return filter_by_history_mode(
+        df,
+        mode=HISTORY_MODE_RECENT,
+        date_col=date_col,
+        weeks=weeks,
+        include_undated=include_undated,
+    )
 
 
 def load_recent_dataset(state_key: str, weeks: int = RECENT_WEEKS) -> pd.DataFrame:
     spec = DATASET_SPECS[state_key]
     df = read_full_dataset(state_key)
     date_col = str(spec["date_col"])
-    df = filter_recent_window(df, date_col, weeks=weeks)
+    df = filter_recent_window(
+        df,
+        date_col,
+        weeks=weeks,
+        include_undated=bool(spec.get("include_undated_in_recent")),
+    )
     return _sort_frame(df, spec)
+
+
+def load_dataset_for_history_mode(
+    state_key: str,
+    mode: str = HISTORY_MODE_RECENT,
+    *,
+    weeks: int = RECENT_WEEKS,
+) -> pd.DataFrame:
+    spec = DATASET_SPECS[state_key]
+    df = read_full_dataset(state_key)
+    if mode == HISTORY_MODE_FULL:
+        return _sort_frame(df, spec)
+    return _sort_frame(
+        filter_recent_window(
+            df,
+            str(spec["date_col"]),
+            weeks=weeks,
+            include_undated=bool(spec.get("include_undated_in_recent")),
+        ),
+        spec,
+    )
 
 
 def load_recent_state(weeks: int = RECENT_WEEKS) -> dict[str, pd.DataFrame | None]:
@@ -442,7 +545,11 @@ def load_full_history_state(keys: list[str] | None = None) -> dict[str, pd.DataF
     return state
 
 
-def build_load_models(rpe_df: pd.DataFrame | None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+def build_load_models(
+    rpe_df: pd.DataFrame | None,
+    *,
+    weeks: int | None = RECENT_WEEKS,
+) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
     if rpe_df is None or rpe_df.empty:
         return {}, {}
     if not {"Athlete", "Date", "sRPE"}.issubset(rpe_df.columns):
@@ -463,8 +570,12 @@ def build_load_models(rpe_df: pd.DataFrame | None) -> tuple[dict[str, pd.DataFra
         athlete_df = source[source["Athlete"] == athlete].sort_values("Date")
         acwr_df = calc_acwr(athlete_df["sRPE"], pd.DatetimeIndex(athlete_df["Date"]))
         mono_df = calc_monotony_strain(acwr_df)
-        acwr_dict[athlete] = filter_recent_window(acwr_df, "Date")
-        mono_dict[athlete] = filter_recent_window(mono_df, "Semana")
+        if weeks is None:
+            acwr_dict[athlete] = acwr_df.reset_index(drop=True)
+            mono_dict[athlete] = mono_df.reset_index(drop=True)
+        else:
+            acwr_dict[athlete] = filter_recent_window(acwr_df, "Date", weeks=weeks)
+            mono_dict[athlete] = filter_recent_window(mono_df, "Semana", weeks=weeks)
 
     return acwr_dict, mono_dict
 
@@ -1064,8 +1175,11 @@ def build_dataset_summaries(
             athlete_count = int(df[athlete_col].dropna().nunique())
 
         if latest is not None:
-            window_start = (latest - pd.Timedelta(weeks=weeks)).normalize()
-            window_label = f"{window_start:%d/%m/%Y} - {latest:%d/%m/%Y}"
+            window_start, window_end = get_available_week_range(df, date_col=date_col, weeks=weeks)
+            if window_start is not None and window_end is not None:
+                window_label = f"{window_start:%d/%m/%Y} - {window_end:%d/%m/%Y}"
+            else:
+                window_label = latest.strftime("%d/%m/%Y")
             latest_label = latest.strftime("%d/%m/%Y")
             earliest_label = earliest.strftime("%d/%m/%Y") if earliest is not None else "—"
         else:

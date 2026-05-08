@@ -524,6 +524,42 @@ def _require_any_numeric_content(
     )
 
 
+def _match_columns_case_insensitive(
+    columns: pd.Index | list[str],
+    expected: list[str],
+) -> dict[str, str] | None:
+    lookup = {str(column).strip().lower(): str(column) for column in columns}
+    resolved: dict[str, str] = {}
+    for column_name in expected:
+        matched = lookup.get(column_name.strip().lower())
+        if matched is None:
+            return None
+        resolved[column_name] = matched
+    return resolved
+
+
+def _clean_numeric_text(series: pd.Series) -> pd.Series:
+    return (
+        series.astype(str)
+        .str.strip()
+        .replace({"": pd.NA, "nan": pd.NA, "None": pd.NA, "--": pd.NA})
+    )
+
+
+def _parse_completion_percent_series(series: pd.Series) -> pd.Series:
+    cleaned = (
+        _clean_numeric_text(series)
+        .str.replace("%", "", regex=False)
+        .str.replace(",", ".", regex=False)
+    )
+    return pd.to_numeric(cleaned, errors="coerce")
+
+
+def _is_completion_aggregate_row(value: object) -> bool:
+    normalized = str(value or "").strip().casefold()
+    return normalized in {"average", "avg", "total"}
+
+
 def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     """Read CSV exports with multiple encoding fallbacks."""
     if isinstance(file, (str, os.PathLike, Path)):
@@ -1196,11 +1232,48 @@ def parse_completion_report(file) -> pd.DataFrame:
     assigned_options = ["Assigned", "Asignado"]
     completed_options = ["Completed", "Completado"]
     athlete_options = ["Athlete", "Name", "Player", "Atleta"]
+    percent_options = ["Percent", "Pct", "Percentage", "Porcentaje"]
 
     date_col = next((col for col in date_options if col in df.columns), None)
     assigned_col = next((col for col in assigned_options if col in df.columns), None)
     completed_col = next((col for col in completed_options if col in df.columns), None)
     athlete_col = next((col for col in athlete_options if col in df.columns), None)
+    percent_col = next((col for col in percent_options if col in df.columns), None)
+    summary_columns = _match_columns_case_insensitive(
+        df.columns,
+        ["Athlete", "Assigned", "Completed", "Percent"],
+    )
+
+    if date_col is None and summary_columns is not None:
+        result = df.rename(
+            columns={
+                summary_columns["Athlete"]: "Athlete",
+                summary_columns["Assigned"]: "Assigned",
+                summary_columns["Completed"]: "Completed",
+                summary_columns["Percent"]: "Percent",
+            }
+        ).copy()
+        result["Athlete"] = result["Athlete"].astype(str).str.strip()
+        result = result[~result["Athlete"].map(_is_completion_aggregate_row)]
+        result["Athlete"] = result["Athlete"].str.title()
+        result["Assigned"] = pd.to_numeric(_clean_numeric_text(result["Assigned"]), errors="coerce")
+        result["Completed"] = pd.to_numeric(_clean_numeric_text(result["Completed"]), errors="coerce")
+        result["Pct"] = _parse_completion_percent_series(result["Percent"])
+        missing_pct = result["Pct"].isna()
+        computed_pct = (result["Completed"] / result["Assigned"].where(result["Assigned"] > 0)) * 100.0
+        result.loc[missing_pct, "Pct"] = computed_pct.loc[missing_pct]
+        result["Date"] = pd.NaT
+        result["completion_scope"] = "uploaded_period_total"
+        result["source_type"] = "completion_report_summary"
+        result = result[result["Athlete"].notna() & result["Athlete"].ne("")]
+        if result.empty:
+            raise ValueError(
+                "Completion Report: el archivo no contiene atletas reales luego de filtrar filas agregadas."
+            )
+        _require_numeric_content(result, "Completion Report", "Assigned", "Assigned/Asignado")
+        _require_numeric_content(result, "Completion Report", "Completed", "Completed/Completado")
+        return result.reset_index(drop=True)
+
     if not date_col or not assigned_col or not completed_col:
         missing_map: dict[str, list[str]] = {}
         if not date_col:
@@ -1215,10 +1288,17 @@ def parse_completion_report(file) -> pd.DataFrame:
     df["Completed"] = pd.to_numeric(df[completed_col], errors="coerce")
     if athlete_col:
         df["Athlete"] = df[athlete_col].astype(str).str.strip().str.title()
+    if percent_col and percent_col in df.columns:
+        parsed_pct = _parse_completion_percent_series(df[percent_col])
+        df["Pct"] = parsed_pct
     df = _require_valid_dates(df, "Completion Report", "Date", date_col)
     _require_numeric_content(df, "Completion Report", "Assigned", "Assigned/Asignado")
     _require_numeric_content(df, "Completion Report", "Completed", "Completed/Completado")
-    df["Pct"] = (df["Completed"] / df["Assigned"].where(df["Assigned"] > 0)) * 100
+    computed_pct = (df["Completed"] / df["Assigned"].where(df["Assigned"] > 0)) * 100
+    if "Pct" in df.columns:
+        df["Pct"] = df["Pct"].fillna(computed_pct)
+    else:
+        df["Pct"] = computed_pct
     valid_df = df.dropna(subset=["Pct"]).copy()
     if valid_df.empty:
         raise ValueError(

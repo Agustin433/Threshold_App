@@ -43,6 +43,28 @@ def isolated_store():
 
 
 class Phase2HistoryTest(unittest.TestCase):
+    def test_filter_recent_window_uses_last_available_weeks_instead_of_calendar_cutoff(self):
+        with isolated_store() as (local_store, _tmp_root):
+            source_df = pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-01-05", "sRPE": 100},
+                    {"Athlete": "Ana Lopez", "Date": "2026-01-12", "sRPE": 110},
+                    {"Athlete": "Ana Lopez", "Date": "2026-01-19", "sRPE": 120},
+                    {"Athlete": "Ana Lopez", "Date": "2026-01-26", "sRPE": 130},
+                    {"Athlete": "Ana Lopez", "Date": "2026-02-02", "sRPE": 140},
+                    {"Athlete": "Ana Lopez", "Date": "2026-02-09", "sRPE": 150},
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-27", "sRPE": 160},
+                ]
+            )
+
+            filtered = local_store.filter_recent_window(source_df, "Date", weeks=6)
+            visible_dates = pd.to_datetime(filtered["Date"]).dt.strftime("%Y-%m-%d").tolist()
+
+            self.assertEqual(
+                visible_dates,
+                ["2026-01-12", "2026-01-19", "2026-01-26", "2026-02-02", "2026-02-09", "2026-04-27"],
+            )
+
     def test_create_history_backup_writes_timestamped_csv(self):
         with isolated_store() as (_local_store, _tmp_root):
             import modules.history_manager as history_manager_module
@@ -164,6 +186,30 @@ class Phase2HistoryTest(unittest.TestCase):
             self.assertIsNotNone(state["rep_load_df"])
             self.assertEqual(state["rep_load_df"].iloc[0]["Athlete"], "Ana Lopez")
             self.assertIn("legacy", local_store.DATASET_LABELS["rep_load_df"].lower())
+
+    def test_recent_completion_state_keeps_undated_summary_rows(self):
+        with isolated_store() as (local_store, _tmp_root):
+            source_df = pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": pd.NaT,
+                        "Assigned": 120,
+                        "Completed": 90,
+                        "Pct": 75.0,
+                        "completion_scope": "uploaded_period_total",
+                        "source_type": "completion_report_summary",
+                    }
+                ]
+            )
+
+            local_store.save_dataset("completion_df", source_df)
+            state = local_store.load_recent_state(weeks=6)
+
+            self.assertIsNotNone(state["completion_df"])
+            self.assertEqual(len(state["completion_df"]), 1)
+            self.assertTrue(pd.to_datetime(state["completion_df"]["Date"], errors="coerce").isna().all())
+            self.assertEqual(state["completion_df"].iloc[0]["source_type"], "completion_report_summary")
 
 
 if __name__ == "__main__":

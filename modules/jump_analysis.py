@@ -1099,6 +1099,36 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
     return snapshot_row, pd.DataFrame(source_rows, columns=["Variable", "Fecha origen"])
 
 
+def _count_renderable_radar_axes(row: pd.Series | dict[str, object]) -> int:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row)
+    axes, _ = _available_radar_axes(row_series)
+    renderable = 0
+    for _, _, _, z_col in axes:
+        z_value = pd.to_numeric(pd.Series([row_series.get(z_col)]), errors="coerce").iloc[0]
+        if pd.notna(z_value):
+            renderable += 1
+    return renderable
+
+
+def build_profile_radar_row(jump_df: pd.DataFrame) -> pd.Series | None:
+    """Choose the safest radar row, upgrading to a composed snapshot only when it adds axes."""
+    data = _prepare_jump_df(jump_df)
+    if data.empty:
+        return None
+
+    if "Date" in data.columns:
+        data = data.sort_values("Date")
+    latest_row = data.iloc[-1]
+
+    composite_row, _ = build_composite_profile_snapshot(data)
+    if composite_row is None:
+        return latest_row
+
+    if _count_renderable_radar_axes(composite_row) > _count_renderable_radar_axes(latest_row):
+        return composite_row
+    return latest_row
+
+
 def build_composite_profile_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:
     row_series = row if isinstance(row, pd.Series) else pd.Series(row)
     rows: list[dict[str, object]] = []
@@ -1243,6 +1273,11 @@ def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
                 or field.startswith("__")
             ):
                 continue
+            if field == "BW_kg":
+                numeric_value = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+                existing_bw = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
+                if pd.notna(existing_bw) and existing_bw > 0 and (pd.isna(numeric_value) or numeric_value <= 0):
+                    continue
             if value is not None and not (isinstance(value, float) and np.isnan(value)):
                 row[field] = value
 

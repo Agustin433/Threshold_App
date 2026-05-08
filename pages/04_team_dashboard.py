@@ -4,7 +4,8 @@ import pandas as pd
 import streamlit as st
 
 from charts.load_charts import chart_completion
-from local_store import build_weekly_summaries
+from local_store import build_weekly_summaries, load_dataset_for_history_mode
+from modules.history_mode import history_mode_caption, render_history_mode_selector
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 from modules.page_state import ensure_page_state
 from modules.report_generator import collect_report_athletes
@@ -89,14 +90,14 @@ def _completion_view_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") ->
 
 
 def _completion_detail_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") -> pd.DataFrame:
-    if comp_df is None or comp_df.empty or "Date" not in comp_df.columns:
+    if comp_df is None or comp_df.empty:
         return pd.DataFrame()
 
     result = comp_df.copy()
-    result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
+    if "Date" in result.columns:
+        result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
     if "Pct" in result.columns:
         result["Pct"] = pd.to_numeric(result["Pct"], errors="coerce")
-    result = result.dropna(subset=["Date"])
 
     if _completion_has_athlete_column(result) and athlete != "Todos":
         result["Athlete"] = result["Athlete"].astype(str).str.strip()
@@ -105,10 +106,14 @@ def _completion_detail_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") 
     if result.empty:
         return pd.DataFrame()
 
-    preferred_cols = ["Athlete", "Date", "Assigned", "Completed", "Pct"]
+    dated_rows = result.dropna(subset=["Date"]).copy() if "Date" in result.columns else pd.DataFrame()
+    if not dated_rows.empty:
+        result = dated_rows.sort_values("Date", ascending=False)
+
+    preferred_cols = ["Athlete", "Date", "Assigned", "Completed", "Pct", "completion_scope", "source_type"]
     available_cols = [column for column in preferred_cols if column in result.columns]
     available_cols.extend(column for column in result.columns if column not in available_cols)
-    return result[available_cols].sort_values("Date", ascending=False).reset_index(drop=True)
+    return result[available_cols].reset_index(drop=True)
 
 
 def _weekly_summaries_from_state(acwr_dict: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
@@ -249,6 +254,8 @@ if maxes_df is not None and not maxes_df.empty:
 
 if completion_df is not None and not completion_df.empty:
     st.markdown("### Completion")
+    completion_history_mode = render_history_mode_selector(key="team_dashboard_completion_history_mode")
+    completion_df = load_dataset_for_history_mode("completion_df", completion_history_mode)
     completion_scope = "Todos"
     if _completion_has_athlete_column(completion_df):
         completion_scope = st.selectbox(
@@ -263,12 +270,24 @@ if completion_df is not None and not completion_df.empty:
     completion_detail = _completion_detail_df(completion_df, completion_scope)
 
     if completion_view.empty:
-        st.info("No hay datos de completion para la selección actual.")
+        if completion_detail.empty:
+            st.info("No hay datos de completion para la selección actual.")
+        else:
+            completion_rate = calculate_completion_rate(completion_detail)
+            completion_value = completion_rate.value if completion_rate.value is not None else 0.0
+            st.caption("Vista: historial sin fechas. Se muestra como snapshot acumulado del periodo cargado.")
+            metric_cols = st.columns(3)
+            metric_cols[0].metric("Completion ponderado", f"{completion_value:.0f}%")
+            metric_cols[1].metric("Filas visibles", len(completion_detail))
+            metric_cols[2].metric("Rango", "Sin fechas")
+            detail_cols = [column for column in ["Athlete", "Assigned", "Completed", "Pct"] if column in completion_detail.columns]
+            st.dataframe(completion_detail[detail_cols], use_container_width=True, hide_index=True)
     else:
         completion_rate = calculate_completion_rate(completion_detail)
         if completion_rate.value is None:
             completion_rate = calculate_completion_rate(completion_view)
         completion_value = completion_rate.value if completion_rate.value is not None else 0.0
+        st.caption(history_mode_caption(completion_view, mode=completion_history_mode, date_col="Date"))
         metric_cols = st.columns(3)
         metric_cols[0].metric("Completion ponderado", f"{completion_value:.0f}%")
         metric_cols[1].metric("Sesiones visibles", len(completion_view))

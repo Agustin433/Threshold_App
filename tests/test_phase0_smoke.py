@@ -231,7 +231,7 @@ class Phase0SmokeTest(unittest.TestCase):
                 ["2025-12-01", "2026-04-12"],
             )
             self.assertIsNotNone(recent_rpe_df)
-            self.assertEqual(len(recent_rpe_df), 1)
+            self.assertEqual(len(recent_rpe_df), 2)
 
     def test_parsers_accept_valid_exports(self):
         rpe_df = data_loader.parse_xlsx_questionnaire(
