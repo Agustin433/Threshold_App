@@ -7,7 +7,21 @@ import html
 import pandas as pd
 import streamlit as st
 
-from charts.dashboard_charts import chart_cmj_trend, chart_composite_profile_radar, chart_jump_metric_trend
+from charts.dashboard_charts import (
+    chart_cmj_trend,
+    chart_composite_profile_radar,
+    chart_jump_metric_trend,
+    make_force_time_points_chart,
+    make_left_right_force_chart,
+    make_rfd_points_chart,
+)
+from modules.force_time_analysis import (
+    get_asymmetry_summary,
+    get_force_time_points,
+    get_rfd_points,
+    interpret_imtp_force_time,
+    summarize_force_time_test,
+)
 from modules.jump_analysis import (
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
@@ -132,6 +146,50 @@ def _format_eval_date(value: object) -> str:
     return parsed.strftime("%d/%m/%Y") if pd.notna(parsed) else "Sin fecha"
 
 
+def _format_force_time_metric(value: object, *, fmt: str, unit: str) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return "Sin dato"
+    suffix = f" {unit}".rstrip()
+    return f"{float(numeric):{fmt}}{suffix}"
+
+
+def _format_side_label(side: object) -> str:
+    if side == "left":
+        return "izquierda"
+    if side == "right":
+        return "derecha"
+    return "Sin dato"
+
+
+def _render_force_time_interpretation(interpretation: dict[str, object]) -> None:
+    if not interpretation:
+        return
+    sections = [
+        interpretation.get("peak_force_text"),
+        interpretation.get("force_time_text"),
+        interpretation.get("rfd_text"),
+        interpretation.get("asymmetry_text"),
+        interpretation.get("decision_note"),
+    ]
+    content = "".join(
+        f'<div style="margin:0 0 0.42rem;color:#221F20;">{html.escape(str(section).strip())}</div>'
+        for section in sections
+        if str(section or "").strip()
+    )
+    if not content:
+        return
+    st.markdown(
+        '<div style="background:#FEFEFE;border:1px solid rgba(13,60,94,0.10);'
+        'border-radius:16px;padding:1rem 1.1rem;margin:0.4rem 0 1rem;'
+        'box-shadow:0 1px 0 rgba(13,60,94,0.04);">'
+        '<div style="font-size:0.78rem;letter-spacing:0.08em;text-transform:uppercase;'
+        'color:#708C9F;font-weight:700;margin-bottom:0.55rem;">Lectura IMTP force-time</div>'
+        f"{content}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_history_chart(
     athlete_hist: pd.DataFrame,
     athlete: str,
@@ -223,6 +281,80 @@ else:
         use_container_width=True,
         hide_index=True,
     )
+
+    imtp_force_time_summary = summarize_force_time_test(selected_row, test_id="imtp")
+    if imtp_force_time_summary.get("has_valid_force_time"):
+        asymmetry_summary = get_asymmetry_summary(imtp_force_time_summary)
+        force_time_points = get_force_time_points(imtp_force_time_summary)
+        rfd_points = get_rfd_points(imtp_force_time_summary)
+        interpretation = interpret_imtp_force_time(imtp_force_time_summary)
+
+        st.markdown("### Detalle force-time IMTP")
+        st.caption(
+            "Perfil por puntos derivado del resumen exportado. Este bloque usa valores exportados "
+            "por ventana y no representa una curva force-time continua de adquisicion."
+        )
+
+        force_metrics = st.columns(4)
+        force_metrics[0].metric(
+            "Peak Force",
+            _format_force_time_metric(imtp_force_time_summary.get("peak_force_n"), fmt=".0f", unit="N"),
+        )
+        force_metrics[1].metric(
+            "Force Avg",
+            _format_force_time_metric(imtp_force_time_summary.get("avg_force_n"), fmt=".0f", unit="N"),
+        )
+        force_metrics[2].metric(
+            "Time to Peak",
+            _format_force_time_metric(imtp_force_time_summary.get("time_to_peak_s"), fmt=".2f", unit="s"),
+        )
+        force_metrics[3].metric(
+            "Asymmetry",
+            _format_force_time_metric(imtp_force_time_summary.get("absolute_asymmetry_pct"), fmt=".1f", unit="%"),
+        )
+
+        asymmetry_chart_col, asymmetry_text_col = st.columns([1.1, 0.9])
+        with asymmetry_chart_col:
+            left_right_chart = make_left_right_force_chart(asymmetry_summary, theme=theme)
+            if left_right_chart is None:
+                st.info("Sin datos suficientes para comparar fuerza maxima entre lados.")
+            else:
+                st.plotly_chart(left_right_chart, use_container_width=True)
+        with asymmetry_text_col:
+            stronger_side = asymmetry_summary.get("stronger_side")
+            weaker_side = asymmetry_summary.get("weaker_side")
+            side_difference_n = asymmetry_summary.get("side_difference_n")
+            st.markdown(f"**Mayor produccion:** {_format_side_label(stronger_side)}")
+            st.markdown(f"**Menor produccion:** {_format_side_label(weaker_side)}")
+            st.markdown(
+                f"**Diferencia:** {_format_force_time_metric(side_difference_n, fmt='.0f', unit='N')}"
+            )
+            st.markdown(
+                f"**Interpretacion:** {asymmetry_summary.get('interpretation') or 'Sin datos suficientes para interpretar asimetria.'}"
+            )
+
+        profile_left, profile_right = st.columns(2)
+        with profile_left:
+            force_time_chart = make_force_time_points_chart(force_time_points, theme=theme)
+            if force_time_chart is None:
+                st.info("Sin datos suficientes para mostrar el perfil de fuerza por puntos exportados.")
+            else:
+                st.plotly_chart(force_time_chart, use_container_width=True)
+            st.caption(
+                "Lectura por puntos exportados: 50, 100, 150, 200, 250 ms y Peak Force."
+            )
+        with profile_right:
+            rfd_chart = make_rfd_points_chart(rfd_points, theme=theme)
+            if rfd_chart is None:
+                st.info("Sin datos suficientes para mostrar RFD por ventanas exportadas.")
+            else:
+                st.plotly_chart(rfd_chart, use_container_width=True)
+            st.caption(
+                "RFD = tasa de desarrollo de fuerza. Sin un TE o umbral de confiabilidad propio, "
+                "conviene leerla con cautela y como apoyo descriptivo."
+            )
+
+        _render_force_time_interpretation(interpretation)
 
     st.markdown("### Perfil actual compuesto")
     if current_profile_row is None:

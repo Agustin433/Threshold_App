@@ -545,3 +545,107 @@ def chart_jump_metric_trend(
         yaxis=dict(title=unit, gridcolor=grid_soft, zeroline=False),
     )
     return fig
+
+
+def make_left_right_force_chart(asymmetry_summary: dict[str, object] | None, *, theme: dict) -> go.Figure | None:
+    colors, layout, _, grid_soft, _, _ = _theme_parts(theme)
+    summary = asymmetry_summary or {}
+    left_force = _numeric_value(summary.get("left_force_n"))
+    right_force = _numeric_value(summary.get("right_force_n"))
+
+    bars: list[tuple[str, float, str]] = []
+    if left_force is not None:
+        bars.append(("Izquierda", left_force, colors["steel"]))
+    if right_force is not None:
+        bars.append(("Derecha", right_force, colors["yellow"]))
+    if not bars:
+        return None
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=[item[0] for item in bars],
+                y=[item[1] for item in bars],
+                marker=dict(color=[item[2] for item in bars], line=dict(color=colors["card"], width=1.2)),
+                text=[f"{item[1]:.0f} N" for item in bars],
+                textposition="outside",
+                hovertemplate="<b>%{x}</b><br>%{y:.0f} N<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        **layout,
+        height=320,
+        showlegend=False,
+        title=dict(text="<b>Fuerza maxima por lado</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="N", gridcolor=grid_soft, zeroline=False),
+    )
+    return fig
+
+
+def make_force_time_points_chart(
+    force_time_points: list[dict[str, object]] | None,
+    *,
+    theme: dict,
+) -> go.Figure | None:
+    colors, layout, _, grid_soft, _, _ = _theme_parts(theme)
+    points = force_time_points or []
+    labels = [str(point.get("label") or "") for point in points]
+    values = [_numeric_value(point.get("value_n")) for point in points]
+    if not any(value is not None for value in values):
+        return None
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=labels,
+            y=values,
+            mode="lines+markers",
+            connectgaps=False,
+            line=dict(color=colors["steel"], width=2.5),
+            marker=dict(size=8, color=colors["steel"], line=dict(color=colors["card"], width=1)),
+            hovertemplate="<b>%{x}</b><br>%{y:.0f} N<extra></extra>",
+            name="Fuerza",
+        )
+    )
+    fig.update_layout(
+        **layout,
+        height=320,
+        showlegend=False,
+        title=dict(text="<b>Perfil force-time por puntos</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="Ventana exportada", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="N", gridcolor=grid_soft, zeroline=False),
+    )
+    return fig
+
+
+def make_rfd_points_chart(rfd_points: list[dict[str, object]] | None, *, theme: dict) -> go.Figure | None:
+    colors, layout, _, grid_soft, _, _ = _theme_parts(theme)
+    points = rfd_points or []
+    filtered_points = [point for point in points if point.get("time_ms") != 200]
+    labels = [str(point.get("label") or "") for point in filtered_points]
+    values = [_numeric_value(point.get("value_n_s")) for point in filtered_points]
+    if not any(value is not None for value in values):
+        return None
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=labels,
+                y=values,
+                marker=dict(color=colors["blue"], line=dict(color=colors["card"], width=1.2)),
+                hovertemplate="<b>%{x}</b><br>%{y:.0f} N/s<extra></extra>",
+                name="RFD",
+            )
+        ]
+    )
+    fig.update_layout(
+        **layout,
+        height=320,
+        showlegend=False,
+        title=dict(text="<b>RFD por ventana exportada</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="Ventana exportada", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="N/s", gridcolor=grid_soft, zeroline=False),
+    )
+    return fig
