@@ -28,9 +28,19 @@ create table if not exists public.evaluations (
     imtp_avg_n double precision,
     imtp_force_l_n double precision,
     imtp_force_r_n double precision,
+    imtp_force_50_n double precision,
+    imtp_force_100_n double precision,
+    imtp_force_150_n double precision,
+    imtp_force_200_n double precision,
+    imtp_force_250_n double precision,
     imtp_n double precision,
     imtp_pretension double precision,
+    imtp_rfd_50_n_s double precision,
+    imtp_rfd_100_n_s double precision,
+    imtp_rfd_150_n_s double precision,
+    imtp_rfd_250_n_s double precision,
     imtp_time_max_s double precision,
+    imtp_time_pull_s double precision,
     rfd_50 double precision,
     rfd_100 double precision,
     rfd_150 double precision,
@@ -66,3 +76,6 @@ execute function public.set_evaluations_updated_at();
 
 comment on table public.evaluations is
 'Fuente unica de verdad para evaluaciones individuales de saltos e IMTP.';
+
+comment on column public.evaluations.imtp_rfd_50_n_s is
+'Campo canonico IMTP RFD 50 N/s. Los antiguos rfd_50/rfd_100/rfd_150/rfd_250 se conservan solo como alias legacy de lectura.';

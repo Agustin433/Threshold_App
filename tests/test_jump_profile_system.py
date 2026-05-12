@@ -513,6 +513,49 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertAlmostEqual(float(jump_df.iloc[0]["BW_kg"]), 88.0, places=2)
         self.assertAlmostEqual(float(jump_df.iloc[0]["IMTP_relPF"]), 47.62, places=2)
 
+    def test_prepare_jump_df_normalizes_legacy_imtp_rfd_aliases_when_new_missing(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Legacy",
+                        "Date": "2026-04-10",
+                        "IMTP_N": 3800,
+                        "BW_kg": 80,
+                        "RFD_50": 1200,
+                        "RFD_100": 2400,
+                        "RFD_150": 3200,
+                        "RFD_250": 4100,
+                    }
+                ]
+            )
+        )
+
+        self.assertEqual(len(jump_df), 1)
+        self.assertEqual(float(jump_df.iloc[0]["IMTP_rfd_50_N_s"]), 1200.0)
+        self.assertEqual(float(jump_df.iloc[0]["IMTP_rfd_100_N_s"]), 2400.0)
+        self.assertEqual(float(jump_df.iloc[0]["IMTP_rfd_150_N_s"]), 3200.0)
+        self.assertEqual(float(jump_df.iloc[0]["IMTP_rfd_250_N_s"]), 4100.0)
+
+    def test_prepare_jump_df_preserves_new_imtp_rfd_values_over_legacy_aliases(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Canonico",
+                        "Date": "2026-04-10",
+                        "IMTP_N": 3800,
+                        "BW_kg": 80,
+                        "RFD_100": 2400,
+                        "IMTP_rfd_100_N_s": 2558,
+                    }
+                ]
+            )
+        )
+
+        self.assertEqual(len(jump_df), 1)
+        self.assertEqual(float(jump_df.iloc[0]["IMTP_rfd_100_N_s"]), 2558.0)
+
     def test_dsi_requires_propulsive_force_without_peak_force_fallback(self):
         jump_df = _prepare_jump_df(
             pd.DataFrame(

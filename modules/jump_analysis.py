@@ -7,6 +7,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from modules.data_loader import _normalize_legacy_imtp_rfd_aliases_frame
+
 # Ref1: Normative data EFL 2025 - professional male soccer.
 # External z-scores below are orientative, not normative, for other sports.
 # Ref2: McMahon et al. 2022 - Super League vs Championship Rugby League.
@@ -1211,6 +1213,7 @@ def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     result = jump_df.copy()
+    result = _normalize_legacy_imtp_rfd_aliases_frame(result)
     if "Athlete" in result.columns:
         result["Athlete"] = result["Athlete"].astype(str).str.strip().str.title()
     if "Date" in result.columns:

@@ -12,6 +12,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 import pandas as pd
+from openpyxl import Workbook
 
 from charts.load_charts import chart_volume_by_tag
 from modules import data_loader
@@ -110,6 +111,38 @@ def _forceplate_bytes() -> bytes:
         ["Stabilization Time (ms)", 1180, 1125],
     ]
     return _build_minimal_xlsx(rows)
+
+
+def _imtp_involution_bytes() -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "IMTP Summary"
+    worksheet.append(["References", "Rep 1"])
+    rows = [
+        ("Time Max Force (s)", 2.63),
+        ("Time Pull (s)", 3.00),
+        ("RFD at 50 (N/s)", 1260),
+        ("RFD at 100 (N/s)", 2558),
+        ("RFD at 150 (N/s)", 3411),
+        ("RFD at 250 (N/s)", 4493),
+        ("Force At 50 (N)", 1172),
+        ("Force At 100 (N)", 1364),
+        ("Force At 150 (N)", 1620),
+        ("Force At 200 (N)", 1957),
+        ("Force At 250 (N)", 2232),
+        ("Force Max (N)", 3385),
+        ("Force Avg (N)", 2993),
+        ("Force Left Max (N)", 1731),
+        ("Force Right Max (N)", 1653),
+        ("Asimmetry (%)", 4.5),
+        ("Pre-tension (N)", 1109),
+    ]
+    for label, value in rows:
+        worksheet.append([label, value])
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
 
 
 def _csv_bytes(text: str) -> bytes:
@@ -355,6 +388,47 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertAlmostEqual(float(rpe_df.loc[0, "sRPE"]), 315.0, places=2)
         self.assertAlmostEqual(float(wellness_df.loc[0, "Dolor"]), 3.0, places=2)
         self.assertAlmostEqual(float(wellness_df.loc[0, "Wellness_Score"]), 23.0, places=2)
+
+    def test_parse_forceplate_file_supports_imtp_involution_summary_exports(self):
+        record = data_loader.parse_forceplate_file(
+            _imtp_involution_bytes(),
+            "IMTP",
+            filename="imtp.xlsx",
+        )
+
+        expected_fields = {
+            "IMTP_N",
+            "IMTP_avg_N",
+            "IMTP_force_L_N",
+            "IMTP_force_R_N",
+            "IMTP_asym_pct",
+            "IMTP_pretension",
+            "IMTP_time_max_s",
+            "IMTP_time_pull_s",
+            "IMTP_force_50_N",
+            "IMTP_force_100_N",
+            "IMTP_force_150_N",
+            "IMTP_force_200_N",
+            "IMTP_force_250_N",
+            "IMTP_rfd_50_N_s",
+            "IMTP_rfd_100_N_s",
+            "IMTP_rfd_150_N_s",
+            "IMTP_rfd_250_N_s",
+        }
+
+        self.assertEqual(record["test_type"], "IMTP")
+        self.assertTrue(expected_fields.issubset(record.keys()))
+        self.assertNotIn("IMTP_rfd_200_N_s", record)
+
+        record["Athlete"] = "Juan Perez"
+        record["Date"] = pd.Timestamp("2026-04-03")
+        jump_df = _records_to_jump_df([record])
+
+        self.assertEqual(len(jump_df), 1)
+        self.assertTrue(expected_fields.issubset(jump_df.columns))
+        self.assertNotIn("IMTP_rfd_200_N_s", jump_df.columns)
+        self.assertEqual(float(jump_df.iloc[0]["IMTP_force_100_N"]), 1364.0)
+        self.assertEqual(float(jump_df.iloc[0]["IMTP_rfd_250_N_s"]), 4493.0)
 
     def test_raw_workouts_reimport_dedupes_by_athlete_date_exercise_and_set_number(self):
         raw_file = NamedBytesIO(

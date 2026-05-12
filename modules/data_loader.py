@@ -13,6 +13,10 @@ import zipfile
 import zlib
 
 import pandas as pd
+from openpyxl.utils.exceptions import InvalidFileException
+
+from modules.evaluation_registry import get_evaluation_spec, get_storage_mapping
+from modules.involution_parser import parse_involution_summary_excel
 
 _DATE_RE = re.compile(
     r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}$"
@@ -266,18 +270,29 @@ _DJ_MAP = {
     "Force Right Contact Max (N)": ("DJ_force_R_N", "max"),
 }
 
+_IMTP_SPEC = get_evaluation_spec("imtp") or {}
+_IMTP_STORAGE_MAPPING = get_storage_mapping("imtp")
+_IMTP_LEGACY_STORAGE_ALIASES: dict[str, str] = dict(_IMTP_SPEC.get("legacy_storage_aliases", {}))
+
 _IMTP_MAP = {
-    "Force Max (N)": ("IMTP_N", "max"),
-    "Force Avg (N)": ("IMTP_avg_N", "mean"),
-    "RFD at 50 (N/s)": ("RFD_50", "max"),
-    "RFD at 100 (N/s)": ("RFD_100", "max"),
-    "RFD at 150 (N/s)": ("RFD_150", "max"),
-    "RFD at 250 (N/s)": ("RFD_250", "max"),
-    "Asimmetry (%)": ("IMTP_asym_pct", "mean"),
-    "Pre-tension (N)": ("IMTP_pretension", "mean"),
-    "Time Max Force (s)": ("IMTP_time_max_s", "mean"),
-    "Force Left Max (N)": ("IMTP_force_L_N", "max"),
-    "Force Right Max (N)": ("IMTP_force_R_N", "max"),
+    "Force Max (N)": (_IMTP_STORAGE_MAPPING["force_max_n"], "max"),
+    "Force Avg (N)": (_IMTP_STORAGE_MAPPING["force_avg_n"], "mean"),
+    "RFD at 50 (N/s)": (_IMTP_STORAGE_MAPPING["rfd_50_n_s"], "max"),
+    "RFD at 100 (N/s)": (_IMTP_STORAGE_MAPPING["rfd_100_n_s"], "max"),
+    "RFD at 150 (N/s)": (_IMTP_STORAGE_MAPPING["rfd_150_n_s"], "max"),
+    "RFD at 250 (N/s)": (_IMTP_STORAGE_MAPPING["rfd_250_n_s"], "max"),
+    "Force At 50 (N)": (_IMTP_STORAGE_MAPPING["force_50_n"], "max"),
+    "Force At 100 (N)": (_IMTP_STORAGE_MAPPING["force_100_n"], "max"),
+    "Force At 150 (N)": (_IMTP_STORAGE_MAPPING["force_150_n"], "max"),
+    "Force At 200 (N)": (_IMTP_STORAGE_MAPPING["force_200_n"], "max"),
+    "Force At 250 (N)": (_IMTP_STORAGE_MAPPING["force_250_n"], "max"),
+    "Asimmetry (%)": (_IMTP_STORAGE_MAPPING["asymmetry_pct"], "mean"),
+    "Asymmetry (%)": (_IMTP_STORAGE_MAPPING["asymmetry_pct"], "mean"),
+    "Pre-tension (N)": (_IMTP_STORAGE_MAPPING["pre_tension_n"], "mean"),
+    "Time Max Force (s)": (_IMTP_STORAGE_MAPPING["time_to_peak_s"], "mean"),
+    "Time Pull (s)": (_IMTP_STORAGE_MAPPING["time_pull_s"], "mean"),
+    "Force Left Max (N)": (_IMTP_STORAGE_MAPPING["force_left_max_n"], "max"),
+    "Force Right Max (N)": (_IMTP_STORAGE_MAPPING["force_right_max_n"], "max"),
 }
 
 TEST_MAPS = {"CMJ": _CMJ_MAP, "SJ": _SJ_MAP, "DJ": _DJ_MAP, "IMTP": _IMTP_MAP}
@@ -300,6 +315,7 @@ EVALUATION_DB_COLUMN_MAP = {
     "Athlete": "athlete",
     "Date": "date",
     **{col: col.lower() for col in RAW_EVALUATION_COLUMNS if col not in LOCAL_ONLY_EVALUATION_COLUMNS},
+    **{col: col.lower() for col in _IMTP_LEGACY_STORAGE_ALIASES},
 }
 SUPABASE_EVALUATIONS_TABLE = "evaluations"
 
@@ -1883,6 +1899,60 @@ def _extract_best(values: list[float], agg: str) -> float | None:
     return round(sum(values) / len(values), 3)
 
 
+def _is_missing_evaluation_value(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except Exception:
+        return False
+
+
+def _normalize_legacy_imtp_rfd_aliases_record(record: dict[str, object]) -> dict[str, object]:
+    result = dict(record)
+    for legacy_field, canonical_field in _IMTP_LEGACY_STORAGE_ALIASES.items():
+        if not _is_missing_evaluation_value(result.get(canonical_field)):
+            continue
+        legacy_value = result.get(legacy_field)
+        if _is_missing_evaluation_value(legacy_value):
+            continue
+        result[canonical_field] = legacy_value
+    return result
+
+
+def _normalize_legacy_imtp_rfd_aliases_frame(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None:
+        return pd.DataFrame()
+    if df.empty:
+        return df.copy()
+
+    result = df.copy()
+    for legacy_field, canonical_field in _IMTP_LEGACY_STORAGE_ALIASES.items():
+        if legacy_field not in result.columns:
+            continue
+        if canonical_field not in result.columns:
+            result[canonical_field] = pd.Series([None] * len(result), index=result.index, dtype=object)
+
+        legacy_values = pd.to_numeric(result[legacy_field], errors="coerce")
+        canonical_values = pd.to_numeric(result[canonical_field], errors="coerce")
+        fill_mask = canonical_values.isna() & legacy_values.notna()
+        if fill_mask.any():
+            result.loc[fill_mask, canonical_field] = legacy_values.loc[fill_mask]
+    return result
+
+
+def _parse_involution_imtp_forceplate(file_bytes: bytes) -> dict[str, object]:
+    parsed = parse_involution_summary_excel(file_bytes, test_id="imtp")
+    result: dict[str, object] = {"test_type": "IMTP"}
+    for normalized_field, storage_field in _IMTP_STORAGE_MAPPING.items():
+        value = parsed["metrics"].get(normalized_field)
+        if value is None:
+            continue
+        result[storage_field] = value
+        result[f"{storage_field}_reps"] = [value]
+    return result
+
+
 def parse_forceplate_file(
     file_bytes: bytes,
     test_type: str,
@@ -1894,19 +1964,25 @@ def parse_forceplate_file(
         str(UPLOAD_CONTRACTS["forceplate"]["label"]),
         tuple(UPLOAD_CONTRACTS["forceplate"]["extensions"]),
     )
+    resolved_test_type = str(test_type or "").strip().upper()
+    if resolved_test_type == "IMTP":
+        try:
+            return _parse_involution_imtp_forceplate(file_bytes)
+        except (ValueError, InvalidFileException, OSError, zipfile.BadZipFile):
+            pass
     try:
         raw = _read_forceplate_xlsx(file_bytes)
     except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
         raise ValueError(
             "El archivo de evaluacion debe ser un .xlsx valido exportado desde la plataforma de fuerza."
         ) from exc
-    metric_map = TEST_MAPS.get(test_type, {})
-    result: dict[str, object] = {"test_type": test_type}
+    metric_map = TEST_MAPS.get(resolved_test_type, TEST_MAPS.get(test_type, {}))
+    result: dict[str, object] = {"test_type": resolved_test_type or test_type}
     for metric_name, (col_name, agg) in metric_map.items():
         if metric_name in raw:
             result[col_name] = _extract_best(raw[metric_name], agg)
             result[f"{col_name}_reps"] = raw[metric_name]
-    return result
+    return _normalize_legacy_imtp_rfd_aliases_record(result)
 
 
 def parse_jump_eval(file) -> pd.DataFrame:
@@ -1935,4 +2011,4 @@ def parse_jump_eval(file) -> pd.DataFrame:
         "Date",
         "__source_date",
     )
-    return df
+    return _normalize_legacy_imtp_rfd_aliases_frame(df)

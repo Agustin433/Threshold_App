@@ -10,7 +10,9 @@ import pandas as pd
 from modules.remote_store import (
     _supabase_request,
     dataset_df_to_remote_records,
+    jump_df_to_db_records,
     load_remote_dataset,
+    load_remote_evaluations,
     load_remote_evaluations_frame,
     save_remote_evaluations,
     supabase_dataset_store_enabled,
@@ -133,6 +135,103 @@ class Phase3RemoteStoreTest(unittest.TestCase):
         self.assertIn("Athlete", df.columns)
         self.assertIn("Date", df.columns)
         self.assertIn("CMJ_cm", df.columns)
+
+    def test_jump_df_to_db_records_includes_new_imtp_force_time_columns(self):
+        eval_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-01",
+                    "IMTP_N": 3385,
+                    "IMTP_avg_N": 2993,
+                    "IMTP_force_L_N": 1731,
+                    "IMTP_force_R_N": 1653,
+                    "IMTP_asym_pct": 4.5,
+                    "IMTP_pretension": 1109,
+                    "IMTP_time_max_s": 2.63,
+                    "IMTP_time_pull_s": 3.0,
+                    "IMTP_force_50_N": 1172,
+                    "IMTP_force_100_N": 1364,
+                    "IMTP_force_150_N": 1620,
+                    "IMTP_force_200_N": 1957,
+                    "IMTP_force_250_N": 2232,
+                    "IMTP_rfd_50_N_s": 1260,
+                    "IMTP_rfd_100_N_s": 2558,
+                    "IMTP_rfd_150_N_s": 3411,
+                    "IMTP_rfd_250_N_s": 4493,
+                }
+            ]
+        )
+
+        records = jump_df_to_db_records(eval_df)
+
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record["athlete"], "Ana Lopez")
+        self.assertEqual(record["date"], "2026-04-01")
+        self.assertEqual(record["imtp_force_50_n"], 1172.0)
+        self.assertEqual(record["imtp_force_200_n"], 1957.0)
+        self.assertEqual(record["imtp_rfd_100_n_s"], 2558.0)
+        self.assertEqual(record["imtp_time_pull_s"], 3.0)
+        self.assertNotIn("rfd_100", record)
+        self.assertNotIn("imtp_rfd_200_n_s", record)
+
+    def test_load_remote_evaluations_preserves_new_imtp_force_time_columns(self):
+        with patched_env(
+            {
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_KEY": "test-key",
+            }
+        ):
+            with patch(
+                "modules.remote_store._supabase_request",
+                side_effect=[
+                    [
+                        {
+                            "athlete": "Ana Lopez",
+                            "date": "2026-04-01",
+                            "imtp_n": 3385,
+                            "imtp_time_pull_s": 3.0,
+                            "imtp_force_100_n": 1364,
+                            "imtp_rfd_100_n_s": 2558,
+                        }
+                    ],
+                    [],
+                ],
+            ):
+                df = load_remote_evaluations()
+
+        self.assertEqual(len(df), 1)
+        self.assertEqual(float(df.iloc[0]["IMTP_N"]), 3385.0)
+        self.assertEqual(float(df.iloc[0]["IMTP_time_pull_s"]), 3.0)
+        self.assertEqual(float(df.iloc[0]["IMTP_force_100_N"]), 1364.0)
+        self.assertEqual(float(df.iloc[0]["IMTP_rfd_100_N_s"]), 2558.0)
+
+    def test_load_remote_evaluations_uses_legacy_rfd_aliases_as_fallback(self):
+        with patched_env(
+            {
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_KEY": "test-key",
+            }
+        ):
+            with patch(
+                "modules.remote_store._supabase_request",
+                side_effect=[
+                    [
+                        {
+                            "athlete": "Ana Lopez",
+                            "date": "2026-04-01",
+                            "imtp_n": 3385,
+                            "rfd_100": 2400,
+                        }
+                    ],
+                    [],
+                ],
+            ):
+                df = load_remote_evaluations()
+
+        self.assertEqual(len(df), 1)
+        self.assertEqual(float(df.iloc[0]["IMTP_rfd_100_N_s"]), 2400.0)
 
     def test_save_remote_evaluations_preserves_inserted_and_updated_counts(self):
         eval_df = pd.DataFrame(
