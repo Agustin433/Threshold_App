@@ -27,10 +27,15 @@ from modules.report_generator import (
     generate_visual_report_pdf,
     safe_value,
 )
+from modules.report_force_time import build_force_time_report_payload
 
 
 def _pdf_page_count(pdf: bytes) -> int:
     return len(re.findall(rb"/Type\s*/Page\b", pdf))
+
+
+def _pdf_text(pdf: bytes) -> str:
+    return pdf.decode("latin-1", errors="ignore").lower()
 
 
 class FixedProfessionalReportDate(real_datetime):
@@ -100,6 +105,55 @@ def _weekly_state_without_evaluations() -> dict[str, object]:
             "weekly_team": pd.DataFrame(),
         },
     }
+
+
+def _professional_state_with_force_time() -> dict[str, object]:
+    state = _weekly_state_without_evaluations()
+    state["jump_df"] = pd.DataFrame(
+        [
+            {
+                "Athlete": "Ana Lopez",
+                "Date": "2026-04-01",
+                "CMJ_cm": 32.0,
+                "SJ_cm": 29.0,
+                "DJ_cm": 24.0,
+                "DJ_tc_ms": 230,
+                "DRI": 1.4,
+                "IMTP_N": 3300,
+                "EUR": 1.10,
+                "NM_Profile": "Reactivo",
+            },
+            {
+                "Athlete": "Ana Lopez",
+                "Date": "2026-05-01",
+                "CMJ_cm": 33.0,
+                "SJ_cm": 30.0,
+                "DJ_cm": 25.0,
+                "DJ_tc_ms": 225,
+                "DRI": 1.5,
+                "IMTP_N": 3385,
+                "IMTP_avg_N": 2993,
+                "IMTP_force_L_N": 1731,
+                "IMTP_force_R_N": 1653,
+                "IMTP_asym_pct": 4.5,
+                "IMTP_pretension": 1109,
+                "IMTP_time_max_s": 2.63,
+                "IMTP_time_pull_s": 3.0,
+                "IMTP_force_50_N": 1172,
+                "IMTP_force_100_N": 1364,
+                "IMTP_force_150_N": 1620,
+                "IMTP_force_200_N": 1957,
+                "IMTP_force_250_N": 2232,
+                "IMTP_rfd_50_N_s": 1260,
+                "IMTP_rfd_100_N_s": 2558,
+                "IMTP_rfd_150_N_s": 3411,
+                "IMTP_rfd_250_N_s": 4493,
+                "EUR": 1.12,
+                "NM_Profile": "Reactivo",
+            },
+        ]
+    )
+    return state
 
 
 class ProfessionalPdfReportTest(unittest.TestCase):
@@ -661,6 +715,47 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertTrue(any("Completar métricas faltantes" in step for step in steps))
         self.assertTrue(any("entrada en calor" in step for step in steps))
         self.assertTrue(any("no para reemplazar el perfil físico" in step for step in steps))
+
+
+    def test_professional_pdf_with_imtp_force_time_generates_contextual_block(self):
+        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+            with patch.object(report_generator, "draw_force_time_test_block", wraps=report_generator.draw_force_time_test_block) as mocked_draw:
+                pdf = generate_visual_report_pdf(_professional_state_with_force_time(), "Ana Lopez", "profe")
+
+        self.assertIsNotNone(pdf)
+        self.assertEqual(mocked_draw.call_count, 1)
+
+    def test_professional_pdf_without_imtp_force_time_generates_without_optional_block(self):
+        state = _weekly_state_without_evaluations()
+        state["jump_df"] = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Date": "2026-05-01", "CMJ_cm": 32.0, "SJ_cm": 28.0, "IMTP_N": 1900},
+            ]
+        )
+
+        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+            with patch.object(report_generator, "draw_force_time_test_block", wraps=report_generator.draw_force_time_test_block) as mocked_draw:
+                pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
+
+        self.assertIsNotNone(pdf)
+        self.assertEqual(mocked_draw.call_count, 0)
+
+    def test_force_time_payload_for_professional_stays_descriptive(self):
+        payload = build_force_time_report_payload(
+            _professional_state_with_force_time()["jump_df"].iloc[-1],
+            report_type="professional",
+        )
+        combined = " ".join(str(value) for value in payload["interpretation"].values()).lower()
+
+        self.assertTrue(payload["has_valid_force_time"])
+        self.assertIn("rfd", combined)
+        self.assertIn("cautela", combined)
+        self.assertNotIn("curva cruda", combined)
+        self.assertNotIn("raw curve", combined)
+        self.assertNotIn("riesgo de lesi", combined)
+        self.assertNotIn("lesion probable", combined)
+        self.assertNotIn("diagn", combined)
+        self.assertNotIn("rfd 200", combined)
 
 
 if __name__ == "__main__":

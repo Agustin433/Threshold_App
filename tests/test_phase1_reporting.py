@@ -222,6 +222,94 @@ class Phase1ReportingTest(unittest.TestCase):
         eur_column = headers.index("EUR (ratio)") + 1
         self.assertEqual(eval_sheet.cell(row=2, column=eur_column).value, 1.17)
 
+    def test_jump_reports_export_imtp_force_time_columns_at_end_without_rfd_200(self):
+        jump_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-03",
+                    "CMJ_cm": 35,
+                    "SJ_cm": 30,
+                    "DJ_cm": 24,
+                    "DJ_tc_ms": 225,
+                    "EUR": 1.167,
+                    "DRI": 1.6,
+                    "IMTP_N": 3385,
+                    "IMTP_avg_N": 2993,
+                    "IMTP_force_L_N": 1731,
+                    "IMTP_force_R_N": 1653,
+                    "IMTP_asym_pct": 4.5,
+                    "IMTP_pretension": 1109,
+                    "IMTP_time_max_s": 2.63,
+                    "IMTP_force_50_N": 1172,
+                    "IMTP_force_100_N": 1364,
+                    "IMTP_force_150_N": 1620,
+                    "IMTP_force_200_N": 1957,
+                    "IMTP_force_250_N": 2232,
+                    "IMTP_rfd_50_N_s": 1260,
+                    "IMTP_rfd_100_N_s": 2558,
+                    "IMTP_rfd_150_N_s": 3411,
+                    "IMTP_rfd_250_N_s": 4493,
+                    "IMTP_time_pull_s": 3.0,
+                    "NM_Profile": "Reactivo",
+                }
+            ]
+        )
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": jump_df,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Ana Lopez",
+            report_audience="profe",
+            include_technical_annex=True,
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=True,
+            include_maxes=False,
+            include_volume=False,
+            include_completion=False,
+        )
+
+        workbook = load_workbook(BytesIO(export_excel(sheets)))
+        self.assertIn("07_Evaluaciones", workbook.sheetnames)
+        eval_sheet = workbook["07_Evaluaciones"]
+        headers = [cell.value for cell in eval_sheet[1]]
+
+        self.assertIn("IMTP_N", headers)
+        self.assertIn("IMTP_avg_N", headers)
+        self.assertIn("IMTP_force_L_N", headers)
+        self.assertIn("IMTP_force_R_N", headers)
+        self.assertIn("IMTP_asym_pct", headers)
+        self.assertIn("IMTP_pretension", headers)
+        self.assertIn("IMTP_time_max_s", headers)
+        self.assertEqual(
+            headers[-10:],
+            [
+                "IMTP_force_50_N",
+                "IMTP_force_100_N",
+                "IMTP_force_150_N",
+                "IMTP_force_200_N",
+                "IMTP_force_250_N",
+                "IMTP_rfd_50_N_s",
+                "IMTP_rfd_100_N_s",
+                "IMTP_rfd_150_N_s",
+                "IMTP_rfd_250_N_s",
+                "IMTP_time_pull_s",
+            ],
+        )
+        self.assertNotIn("IMTP_rfd_200_N_s", headers)
+
     def test_individual_audiences_require_single_athlete_scope(self):
         state = {
             "rpe_df": None,

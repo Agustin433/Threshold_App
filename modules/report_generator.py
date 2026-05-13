@@ -22,6 +22,7 @@ from modules.jump_analysis import (
     compute_swc_delta,
 )
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
+from modules.report_force_time import build_force_time_report_payload, draw_force_time_test_block
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -202,6 +203,19 @@ PROFESSIONAL_PDF_METRICS = (
         "direction": PROFESSIONAL_METRIC_DIRECTIONS["IMTP"],
     },
 )
+
+IMTP_FORCE_TIME_EXPORT_COLUMNS = [
+    "IMTP_force_50_N",
+    "IMTP_force_100_N",
+    "IMTP_force_150_N",
+    "IMTP_force_200_N",
+    "IMTP_force_250_N",
+    "IMTP_rfd_50_N_s",
+    "IMTP_rfd_100_N_s",
+    "IMTP_rfd_150_N_s",
+    "IMTP_rfd_250_N_s",
+    "IMTP_time_pull_s",
+]
 
 
 def normalize_report_audience(audience: str | None) -> str:
@@ -1533,7 +1547,25 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
     if sheet_name == "Evaluaciones_Saltos":
         result = _preferred_columns(
             result,
-            ["Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "EUR", "DRI", "IMTP_N", "NM_Profile"],
+            [
+                "Athlete",
+                "Date",
+                "CMJ_cm",
+                "SJ_cm",
+                "DJ_cm",
+                "DJ_tc_ms",
+                "EUR",
+                "DRI",
+                "IMTP_N",
+                "NM_Profile",
+                "IMTP_avg_N",
+                "IMTP_force_L_N",
+                "IMTP_force_R_N",
+                "IMTP_asym_pct",
+                "IMTP_pretension",
+                "IMTP_time_max_s",
+                *IMTP_FORCE_TIME_EXPORT_COLUMNS,
+            ],
         )
         result = result.rename(columns={"EUR": EUR_RATIO_LABEL})
         return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
@@ -5378,6 +5410,11 @@ def _generate_professional_profile_pdf_reportlab(
         )
 
     cards = _build_professional_metric_cards(state, report_athlete)
+    force_time_payload = build_force_time_report_payload(
+        _latest_jump_row(state, report_athlete),
+        test_id="imtp",
+        report_type="professional",
+    )
     evolution_sections = _build_professional_evolution_sections(state, report_athlete)
     quadrant_sections = _build_professional_quadrant_sections(state, report_athlete)
     training_context = _build_professional_training_context(state, report_athlete)
@@ -5748,6 +5785,22 @@ def _generate_professional_profile_pdf_reportlab(
         else:
             story.append(Spacer(1, section_gap))
         _append_quadrants_section(story)
+        if force_time_payload.get("has_valid_force_time"):
+            story.append(PageBreak())
+            draw_force_time_test_block(
+                {
+                    "story": story,
+                    "p": _p,
+                    "box": _box,
+                    "Table": Table,
+                    "TableStyle": TableStyle,
+                    "Spacer": Spacer,
+                    "mm": mm,
+                    "palette": palette,
+                },
+                force_time_payload,
+                report_type="professional",
+            )
         story.append(PageBreak())
         _append_training_section(story)
         story.append(Spacer(1, section_gap))
@@ -6141,6 +6194,11 @@ def _generate_visual_report_pdf_reportlab(
 
     if audience == "atleta" and effective_athlete != "Todos":
         focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
+        force_time_payload = build_force_time_report_payload(
+            _latest_jump_row(state, effective_athlete),
+            test_id="imtp",
+            report_type="athlete",
+        )
         completion_value = _focus_completion_value(state, effective_athlete)
         internal_load = _build_professional_internal_load_context(state, effective_athlete)
         wellness_context = _professional_wellness_context(state, effective_athlete)
@@ -6200,6 +6258,23 @@ def _generate_visual_report_pdf_reportlab(
                 padding=8,
             )
         )
+
+        if force_time_payload.get("has_valid_force_time"):
+            story.append(PageBreak())
+            draw_force_time_test_block(
+                {
+                    "story": story,
+                    "p": _p,
+                    "box": _box_flow,
+                    "Table": Table,
+                    "TableStyle": TableStyle,
+                    "Spacer": Spacer,
+                    "mm": mm,
+                    "palette": palette,
+                },
+                force_time_payload,
+                report_type="athlete",
+            )
 
         story.append(PageBreak())
         story.append(_p("Carga reciente: cómo venís tolerando el entrenamiento", "ReportSection"))
