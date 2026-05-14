@@ -116,6 +116,7 @@ from modules.jump_analysis import (
 )
 from modules.force_time_analysis import (
     get_asymmetry_summary as shared_get_asymmetry_summary,
+    get_force_time_interpretation_lines as shared_get_force_time_interpretation_lines,
     get_force_time_points as shared_get_force_time_points,
     get_force_time_storage_presence as shared_get_force_time_storage_presence,
     get_rfd_points as shared_get_rfd_points,
@@ -3223,17 +3224,7 @@ def _format_force_time_side_label(side: object) -> str:
 
 
 def render_force_time_interpretation(interpretation: dict[str, object], *, kicker: str) -> None:
-    if not interpretation:
-        return
-
-    sections = [
-        interpretation.get("peak_force_text"),
-        interpretation.get("force_time_text"),
-        interpretation.get("rfd_text"),
-        interpretation.get("asymmetry_text"),
-        interpretation.get("decision_note"),
-    ]
-    lines = [str(section).strip() for section in sections if str(section or "").strip()]
+    lines = get_force_time_interpretation_lines(interpretation)
     if not lines:
         return
     render_jump_feedback(lines, kicker=kicker)
@@ -3455,6 +3446,7 @@ compute_baseline_delta = shared_compute_baseline_delta
 compute_swc_delta = shared_compute_swc_delta
 select_primary_profile_row = shared_select_primary_profile_row
 get_asymmetry_summary = shared_get_asymmetry_summary
+get_force_time_interpretation_lines = shared_get_force_time_interpretation_lines
 get_force_time_points = shared_get_force_time_points
 get_force_time_storage_presence = shared_get_force_time_storage_presence
 get_rfd_points = shared_get_rfd_points

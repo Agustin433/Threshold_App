@@ -6,6 +6,17 @@ import pandas as pd
 
 from modules.evaluation_registry import get_evaluation_spec, get_storage_mapping
 
+FORCE_TIME_POINT_METRICS = ("force_50_n", "force_100_n", "force_150_n", "force_200_n", "force_250_n")
+CORE_FORCE_TIME_POINT_METRICS = ("force_100_n", "force_200_n", "force_250_n")
+INTERPRETATION_TEXT_FIELDS = (
+    "title",
+    "peak_force_text",
+    "force_time_text",
+    "rfd_text",
+    "asymmetry_text",
+    "decision_note",
+)
+
 NORMALIZED_TO_SUMMARY = {
     "force_max_n": "peak_force_n",
     "force_avg_n": "avg_force_n",
@@ -68,6 +79,20 @@ def _resolve_spec(spec: dict[str, object] | None, test_id: str) -> dict[str, obj
     if isinstance(spec, Mapping):
         return dict(spec)
     return get_evaluation_spec(test_id) or {}
+
+
+def _storage_mapping_for_test(test_id: str) -> dict[str, str]:
+    resolved_spec = _resolve_spec(None, str(test_id or "").strip().lower() or "imtp")
+    storage_mapping = dict(resolved_spec.get("storage_mapping", {})) if resolved_spec.get("storage_mapping") else {}
+    if not storage_mapping:
+        storage_mapping = get_storage_mapping(test_id)
+    return storage_mapping
+
+
+def _primary_storage_field(test_id: str) -> str | None:
+    resolved_spec = _resolve_spec(None, str(test_id or "").strip().lower() or "imtp")
+    primary_metric = str(resolved_spec.get("primary_metric") or "force_max_n").strip()
+    return _storage_mapping_for_test(test_id).get(primary_metric)
 
 
 def _nested_metrics(source: dict[str, object]) -> dict[str, object]:
@@ -181,6 +206,56 @@ def _format_pct(value: object, *, digits: int = 1) -> str:
     return f"{float(numeric):.{digits}f}%"
 
 
+def _safe_text_fragment(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        clean = value.strip()
+        return clean or None
+    if isinstance(value, (int, float, bool)):
+        return str(value).strip()
+    if isinstance(value, Mapping):
+        preferred_keys = ("text", "value", "label", "title", "body")
+        for key in preferred_keys:
+            if key in value:
+                candidate = _safe_text_fragment(value.get(key))
+                if candidate:
+                    return candidate
+        parts = [
+            fragment
+            for fragment in (_safe_text_fragment(candidate) for candidate in value.values())
+            if fragment
+        ]
+        return " | ".join(parts) if parts else None
+    if isinstance(value, (list, tuple, set)):
+        parts = [
+            fragment
+            for fragment in (_safe_text_fragment(candidate) for candidate in value)
+            if fragment
+        ]
+        return " | ".join(parts) if parts else None
+    clean = str(value).strip()
+    return clean or None
+
+
+def normalize_force_time_interpretation(interpretation: object) -> dict[str, object]:
+    source = _to_mapping(interpretation)
+    normalized: dict[str, object] = {"basis": str(source.get("basis") or "missing")}
+    for field in INTERPRETATION_TEXT_FIELDS:
+        normalized[field] = _safe_text_fragment(source.get(field))
+    return normalized
+
+
+def get_force_time_interpretation_lines(interpretation: object) -> list[str]:
+    normalized = normalize_force_time_interpretation(interpretation)
+    return [
+        text
+        for field in INTERPRETATION_TEXT_FIELDS[1:]
+        for text in [_safe_text_fragment(normalized.get(field))]
+        if text
+    ]
+
+
 def summarize_force_time_test(
     row_or_record: object,
     spec: dict[str, object] | None = None,
@@ -233,7 +308,7 @@ def summarize_force_time_test(
         _coerce_number(summary.get("peak_force_n")) is not None
         and any(
             _coerce_number(summary.get(field)) is not None
-            for field in ("force_50_n", "force_100_n", "force_150_n", "force_200_n", "force_250_n")
+            for field in FORCE_TIME_POINT_METRICS
         )
     )
     summary["has_valid_rfd"] = any(
@@ -250,29 +325,178 @@ def summarize_force_time_test(
     return summary
 
 
-def get_force_time_storage_presence(
+def get_force_time_presence_report(
     row_or_record: object,
     *,
     test_id: str = "imtp",
 ) -> dict[str, object]:
     source = _to_mapping(row_or_record)
-    resolved_spec = _resolve_spec(None, str(test_id or "").strip().lower() or "imtp")
-    storage_mapping = dict(resolved_spec.get("storage_mapping", {})) if resolved_spec.get("storage_mapping") else {}
-    if not storage_mapping:
-        storage_mapping = get_storage_mapping(test_id)
+    clean_test_id = str(test_id or "").strip().lower() or "imtp"
+    storage_mapping = _storage_mapping_for_test(clean_test_id)
+    primary_field = _primary_storage_field(clean_test_id)
+    summary = summarize_force_time_test(source, test_id=clean_test_id)
 
-    storage_fields = list(dict.fromkeys(storage_mapping.values()))
-    available_columns = [field for field in storage_fields if field in source]
+    ordered_fields: list[str] = []
+    if primary_field:
+        ordered_fields.append(primary_field)
+    for metric_name in (
+        "force_avg_n",
+        "force_left_max_n",
+        "force_right_max_n",
+        "asymmetry_pct",
+        "time_to_peak_s",
+        "time_pull_s",
+        "pre_tension_n",
+        *FORCE_TIME_POINT_METRICS,
+        "rfd_50_n_s",
+        "rfd_100_n_s",
+        "rfd_150_n_s",
+        "rfd_250_n_s",
+    ):
+        storage_field = storage_mapping.get(metric_name)
+        if storage_field and storage_field not in ordered_fields:
+            ordered_fields.append(storage_field)
+
+    available_columns = [field for field in ordered_fields if field in source]
     non_null_fields = [field for field in available_columns if _coerce_number(source.get(field)) is not None]
+    field_presence = {
+        field: {
+            "available": field in source,
+            "non_null": _coerce_number(source.get(field)) is not None,
+            "value_preview": source.get(field),
+        }
+        for field in ordered_fields
+    }
+
+    core_force_time_fields = [
+        storage_mapping[metric_name]
+        for metric_name in CORE_FORCE_TIME_POINT_METRICS
+        if storage_mapping.get(metric_name)
+    ]
+    force_time_point_fields = [
+        storage_mapping[metric_name]
+        for metric_name in FORCE_TIME_POINT_METRICS
+        if storage_mapping.get(metric_name)
+    ]
 
     return {
-        "test_id": str(test_id or "").strip().lower() or "imtp",
-        "storage_fields": storage_fields,
+        "test_id": clean_test_id,
+        "primary_field": primary_field,
+        "storage_fields": ordered_fields,
         "available_columns": available_columns,
         "non_null_fields": non_null_fields,
         "available_column_count": len(available_columns),
         "non_null_field_count": len(non_null_fields),
+        "field_presence": field_presence,
+        "core_force_time_fields": core_force_time_fields,
+        "force_time_point_fields": force_time_point_fields,
+        "has_basic_data": bool(primary_field and field_presence.get(primary_field, {}).get("non_null")),
+        "has_force_time_points": any(
+            field_presence.get(field, {}).get("non_null")
+            for field in force_time_point_fields
+        ),
+        "has_core_force_time_points": all(
+            field_presence.get(field, {}).get("non_null")
+            for field in core_force_time_fields
+        )
+        if core_force_time_fields
+        else False,
+        "has_valid_force_time": bool(summary.get("has_valid_force_time")),
+        "has_valid_rfd": bool(summary.get("has_valid_rfd")),
+        "has_valid_asymmetry": bool(summary.get("has_valid_asymmetry")),
+        "summary": summary,
     }
+
+
+def get_force_time_storage_presence(
+    row_or_record: object,
+    *,
+    test_id: str = "imtp",
+) -> dict[str, object]:
+    report = get_force_time_presence_report(row_or_record, test_id=test_id)
+    return {
+        "test_id": report["test_id"],
+        "storage_fields": report["storage_fields"],
+        "available_columns": report["available_columns"],
+        "non_null_fields": report["non_null_fields"],
+        "available_column_count": report["available_column_count"],
+        "non_null_field_count": report["non_null_field_count"],
+        "field_presence": {
+            field: {
+                "available": details.get("available"),
+                "non_null": details.get("non_null"),
+            }
+            for field, details in report["field_presence"].items()
+        },
+    }
+
+
+def select_basic_force_time_test_row(
+    jump_df: pd.DataFrame,
+    *,
+    test_id: str = "imtp",
+    selected_date: object | None = None,
+) -> pd.Series | None:
+    if jump_df is None or jump_df.empty:
+        return None
+
+    primary_field = _primary_storage_field(test_id)
+    if not primary_field:
+        return None
+
+    data = jump_df.copy()
+    if "Date" in data.columns:
+        data["Date"] = pd.to_datetime(data["Date"], errors="coerce").dt.normalize()
+        data = data.sort_values("Date", ascending=False)
+
+    selected_timestamp = pd.to_datetime(selected_date, errors="coerce")
+    if pd.notna(selected_timestamp) and "Date" in data.columns:
+        same_day_rows = data.loc[data["Date"] == selected_timestamp.normalize()].copy()
+        if not same_day_rows.empty:
+            for _, row in same_day_rows.iterrows():
+                if get_force_time_presence_report(row, test_id=test_id).get("has_basic_data"):
+                    return row
+
+    for _, row in data.iterrows():
+        if get_force_time_presence_report(row, test_id=test_id).get("has_basic_data"):
+            return row
+    return None
+
+
+def list_force_time_test_rows(
+    jump_df: pd.DataFrame,
+    *,
+    test_id: str = "imtp",
+) -> pd.DataFrame:
+    if jump_df is None or jump_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "Date",
+                "has_basic_data",
+                "has_force_time_points",
+                "has_valid_force_time",
+                "non_null_field_count",
+            ]
+        )
+
+    data = jump_df.copy()
+    if "Date" in data.columns:
+        data["Date"] = pd.to_datetime(data["Date"], errors="coerce").dt.normalize()
+        data = data.sort_values("Date", ascending=False)
+
+    rows: list[dict[str, object]] = []
+    for _, row in data.iterrows():
+        report = get_force_time_presence_report(row, test_id=test_id)
+        rows.append(
+            {
+                "Date": row.get("Date"),
+                "has_basic_data": bool(report.get("has_basic_data")),
+                "has_force_time_points": bool(report.get("has_force_time_points")),
+                "has_valid_force_time": bool(report.get("has_valid_force_time")),
+                "non_null_field_count": int(report.get("non_null_field_count", 0)),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def select_force_time_test_row(
@@ -412,7 +636,8 @@ def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object
         "y estado del atleta. No tomar decisiones fuertes basadas solo en RFD cuando no hay TE disponible."
     )
 
-    return {
+    return normalize_force_time_interpretation(
+        {
         "title": "IMTP force-time",
         "peak_force_text": peak_force_text,
         "force_time_text": force_time_text,
@@ -420,7 +645,8 @@ def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object
         "asymmetry_text": asymmetry_text,
         "decision_note": decision_note,
         "basis": basis,
-    }
+        }
+    )
 
 
 def interpret_hamstring_force_time(summary: Mapping[str, object]) -> dict[str, object]:
@@ -472,7 +698,8 @@ def interpret_hamstring_force_time(summary: Mapping[str, object]) -> dict[str, o
         "en RFD cuando no hay TE disponible."
     )
 
-    return {
+    return normalize_force_time_interpretation(
+        {
         "title": "ISO Push Hip-Hamstring Bilateral force-time",
         "peak_force_text": peak_force_text,
         "force_time_text": force_time_text,
@@ -480,4 +707,5 @@ def interpret_hamstring_force_time(summary: Mapping[str, object]) -> dict[str, o
         "asymmetry_text": _compose_asymmetry_text(source),
         "decision_note": decision_note,
         "basis": basis,
-    }
+        }
+    )

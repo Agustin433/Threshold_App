@@ -18,10 +18,13 @@ from charts.dashboard_charts import (
 from modules.force_time_analysis import (
     get_asymmetry_summary,
     get_force_time_points,
-    get_force_time_storage_presence,
+    get_force_time_interpretation_lines,
+    get_force_time_presence_report,
     get_rfd_points,
     interpret_hamstring_force_time,
     interpret_imtp_force_time,
+    list_force_time_test_rows,
+    select_basic_force_time_test_row,
     select_force_time_test_row,
     summarize_force_time_test,
 )
@@ -166,27 +169,74 @@ def _format_side_label(side: object) -> str:
     return "Sin dato"
 
 
+def _format_force_time_presence_preview(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        if bool(pd.isna(value)):
+            return "-"
+    except Exception:
+        pass
+    if isinstance(value, float):
+        return f"{value:.3f}".rstrip("0").rstrip(".")
+    text = str(value).strip()
+    return text if len(text) <= 32 else f"{text[:29]}..."
+
+
+def _build_force_time_field_presence_table(
+    row_or_record: object,
+    *,
+    fields: list[str],
+) -> pd.DataFrame:
+    source = row_or_record.to_dict() if hasattr(row_or_record, "to_dict") else {}
+    rows: list[dict[str, object]] = []
+    for field in fields:
+        value = source.get(field)
+        try:
+            non_null = not bool(pd.isna(value))
+        except Exception:
+            non_null = value is not None
+        rows.append(
+            {
+                "Campo": field,
+                "Columna existe": "Si" if field in source else "No",
+                "Valor no nulo": "Si" if non_null else "No",
+                "Vista previa": _format_force_time_presence_preview(value),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _prepare_force_time_detection_rows(rows_df: pd.DataFrame) -> pd.DataFrame:
+    if rows_df is None or rows_df.empty:
+        return pd.DataFrame(columns=["Fecha", "Dato basico", "Puntos force-time", "Force-time valido", "Campos no nulos"])
+    display = rows_df.copy()
+    display["Fecha"] = display["Date"].map(_format_eval_date)
+    for column in ("has_basic_data", "has_force_time_points", "has_valid_force_time"):
+        display[column] = display[column].map(lambda value: "Si" if bool(value) else "No")
+    display = display.rename(
+        columns={
+            "has_basic_data": "Dato basico",
+            "has_force_time_points": "Puntos force-time",
+            "has_valid_force_time": "Force-time valido",
+            "non_null_field_count": "Campos no nulos",
+        }
+    )
+    return display[["Fecha", "Dato basico", "Puntos force-time", "Force-time valido", "Campos no nulos"]]
+
+
 def _render_force_time_interpretation(
     interpretation: dict[str, object],
     *,
     heading: str,
 ) -> None:
-    if not interpretation:
+    sections = get_force_time_interpretation_lines(interpretation)
+    if not sections:
         return
-    sections = [
-        interpretation.get("peak_force_text"),
-        interpretation.get("force_time_text"),
-        interpretation.get("rfd_text"),
-        interpretation.get("asymmetry_text"),
-        interpretation.get("decision_note"),
-    ]
     content = "".join(
-        f'<div style="margin:0 0 0.42rem;color:#221F20;">{html.escape(str(section).strip())}</div>'
+        f'<div style="margin:0 0 0.42rem;color:#221F20;">{html.escape(section)}</div>'
         for section in sections
-        if str(section or "").strip()
     )
-    if not content:
-        return
     st.markdown(
         '<div style="background:#FEFEFE;border:1px solid rgba(13,60,94,0.10);'
         'border-radius:16px;padding:1rem 1.1rem;margin:0.4rem 0 1rem;'
@@ -344,7 +394,17 @@ else:
         test_id="imtp",
         selected_date=selected_date_value,
     )
+    imtp_basic_row = select_basic_force_time_test_row(
+        athlete_hist,
+        test_id="imtp",
+        selected_date=selected_date_value,
+    )
     iso_ham_force_time_row = select_force_time_test_row(
+        athlete_hist,
+        test_id="iso_push_hamstring",
+        selected_date=selected_date_value,
+    )
+    iso_ham_basic_row = select_basic_force_time_test_row(
         athlete_hist,
         test_id="iso_push_hamstring",
         selected_date=selected_date_value,
@@ -396,6 +456,7 @@ else:
     )
 
     imtp_force_time_summary = summarize_force_time_test(imtp_force_time_row, test_id="imtp")
+    imtp_basic_presence = get_force_time_presence_report(imtp_basic_row, test_id="imtp")
     if imtp_force_time_summary.get("has_valid_force_time"):
         _render_force_time_detail_block(
             title="Detalle force-time IMTP",
@@ -407,6 +468,10 @@ else:
             summary=imtp_force_time_summary,
             interpretation=interpret_imtp_force_time(imtp_force_time_summary),
             theme=theme,
+        )
+    elif imtp_basic_presence.get("has_basic_data"):
+        st.caption(
+            "IMTP cargado, pero sin datos force-time suficientes para graficar el perfil por puntos."
         )
 
     iso_ham_force_time_summary = summarize_force_time_test(
@@ -428,15 +493,27 @@ else:
         )
 
     with st.expander("Estado de deteccion force-time", expanded=False):
-        imtp_force_time_presence = get_force_time_storage_presence(imtp_force_time_row, test_id="imtp")
-        iso_ham_force_time_presence = get_force_time_storage_presence(
+        imtp_force_time_presence = get_force_time_presence_report(imtp_force_time_row, test_id="imtp")
+        iso_ham_force_time_presence = get_force_time_presence_report(
             iso_ham_force_time_row,
             test_id="iso_push_hamstring",
         )
+        iso_ham_basic_presence = get_force_time_presence_report(
+            iso_ham_basic_row,
+            test_id="iso_push_hamstring",
+        )
+        imtp_history = list_force_time_test_rows(athlete_hist, test_id="imtp")
+        iso_ham_history = list_force_time_test_rows(athlete_hist, test_id="iso_push_hamstring")
+        imtp_any_rows = imtp_history[imtp_history["non_null_field_count"] > 0].copy()
+        imtp_force_rows = imtp_history[imtp_history["has_force_time_points"]].copy()
+        imtp_candidate_row = imtp_force_time_row if imtp_force_time_row is not None else imtp_basic_row
         detection_rows = pd.DataFrame(
             [
                 {
                     "Bloque": "IMTP force-time",
+                    "Fecha basica": _format_eval_date(
+                        imtp_basic_row.get("Date") if imtp_basic_row is not None else None
+                    ),
                     "Fecha detectada": _format_eval_date(
                         imtp_force_time_row.get("Date") if imtp_force_time_row is not None else None
                     ),
@@ -446,6 +523,9 @@ else:
                 },
                 {
                     "Bloque": "ISO Push Hip-Hamstring",
+                    "Fecha basica": _format_eval_date(
+                        iso_ham_basic_row.get("Date") if iso_ham_basic_row is not None else None
+                    ),
                     "Fecha detectada": _format_eval_date(
                         iso_ham_force_time_row.get("Date") if iso_ham_force_time_row is not None else None
                     ),
@@ -455,10 +535,88 @@ else:
                 },
             ]
         )
+        st.caption(f"Filas del atleta en el dataframe: {len(athlete_hist)}")
         st.dataframe(detection_rows, use_container_width=True, hide_index=True)
+        if not imtp_basic_presence.get("has_basic_data") and not imtp_force_time_presence.get("has_valid_force_time"):
+            st.caption("No se detectaron datos de IMTP para este atleta.")
+        elif imtp_basic_presence.get("has_basic_data") and not imtp_force_time_summary.get("has_valid_force_time"):
+            st.caption(
+                "IMTP detectado, pero faltan los campos force-time por puntos. "
+                "Volve a cargar el resumen exportado de Involution para generar el bloque force-time."
+            )
+
+        st.markdown("**Filas con algun campo IMTP**")
+        if imtp_any_rows.empty:
+            st.caption("Ninguna.")
+        else:
+            st.dataframe(
+                _prepare_force_time_detection_rows(imtp_any_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.markdown("**Filas con puntos force-time IMTP**")
+        if imtp_force_rows.empty:
+            st.caption("Ninguna.")
+        else:
+            st.dataframe(
+                _prepare_force_time_detection_rows(imtp_force_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.markdown("**Detalle de la fila IMTP candidata**")
+        if imtp_candidate_row is None:
+            st.caption("No hay una fila IMTP candidata para revisar.")
+        else:
+            st.dataframe(
+                _build_force_time_field_presence_table(
+                    imtp_candidate_row,
+                    fields=[
+                        "IMTP_N",
+                        "IMTP_avg_N",
+                        "IMTP_relPF",
+                        "IMTP_force_50_N",
+                        "IMTP_force_100_N",
+                        "IMTP_force_150_N",
+                        "IMTP_force_200_N",
+                        "IMTP_force_250_N",
+                        "IMTP_rfd_50_N_s",
+                        "IMTP_rfd_100_N_s",
+                        "IMTP_rfd_150_N_s",
+                        "IMTP_rfd_250_N_s",
+                        "IMTP_time_pull_s",
+                    ],
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        imtp_columns = imtp_force_time_presence.get("available_columns") or []
+        if imtp_columns:
+            st.caption("Columnas IMTP detectadas en la fila force-time: " + ", ".join(str(column) for column in imtp_columns))
+        elif imtp_basic_presence.get("available_columns"):
+            st.caption(
+                "Columnas IMTP detectadas en la fila basica: "
+                + ", ".join(str(column) for column in imtp_basic_presence.get("available_columns") or [])
+            )
+
+        iso_detection_rows = iso_ham_history[iso_ham_history["non_null_field_count"] > 0].copy()
+        if not iso_detection_rows.empty:
+            st.markdown("**Filas con campos ISO Push Hip-Hamstring**")
+            st.dataframe(
+                _prepare_force_time_detection_rows(iso_detection_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
         iso_columns = iso_ham_force_time_presence.get("available_columns") or []
         if iso_columns:
-            st.caption("ISO_HAM detectadas: " + ", ".join(str(column) for column in iso_columns))
+            st.caption("Columnas ISO_HAM detectadas en la fila force-time: " + ", ".join(str(column) for column in iso_columns))
+        elif iso_ham_basic_presence.get("available_columns"):
+            st.caption(
+                "Columnas ISO_HAM detectadas en la fila basica: "
+                + ", ".join(str(column) for column in iso_ham_basic_presence.get("available_columns") or [])
+            )
 
     st.markdown("### Perfil actual compuesto")
     if current_profile_row is None:

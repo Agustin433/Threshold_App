@@ -459,6 +459,37 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertNotIn("RFD 200", rfd_labels)
         self.assertNotIn("IMTP_rfd_200_N_s", jump_df.columns)
 
+    def test_imtp_force_time_round_trip_remains_renderable_without_iso_or_body_mass(self):
+        record = data_loader.parse_forceplate_file(
+            _imtp_involution_bytes(),
+            "IMTP",
+            filename="imtp.xlsx",
+        )
+        record["Athlete"] = "Juan Perez"
+        record["Date"] = pd.Timestamp("2026-04-03")
+        record.pop("BW_kg", None)
+
+        jump_df = _records_to_jump_df([record])
+        with isolated_store() as (local_store, _tmp_root):
+            local_store.save_dataset("jump_df", jump_df)
+            loaded = local_store.read_full_dataset("jump_df")
+            imtp_row = select_force_time_test_row(
+                loaded[loaded["Athlete"] == "Juan Perez"],
+                test_id="imtp",
+                selected_date="2026-04-03",
+            )
+            imtp_summary = summarize_force_time_test(imtp_row, test_id="imtp")
+            iso_summary = summarize_force_time_test(imtp_row, test_id="iso_push_hamstring")
+
+            self.assertIsNotNone(imtp_row)
+            self.assertTrue(imtp_summary["has_valid_force_time"])
+            self.assertIn("IMTP_force_100_N", loaded.columns)
+            self.assertIn("IMTP_force_200_N", loaded.columns)
+            self.assertIn("IMTP_force_250_N", loaded.columns)
+            self.assertIn("IMTP_rfd_250_N_s", loaded.columns)
+            self.assertNotIn("IMTP_rfd_200_N_s", loaded.columns)
+            self.assertFalse(iso_summary["has_valid_force_time"])
+
     def test_parse_forceplate_file_supports_iso_push_hamstring_involution_summary_exports(self):
         record = data_loader.parse_forceplate_file(
             _imtp_involution_bytes(),

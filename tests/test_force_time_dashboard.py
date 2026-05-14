@@ -12,9 +12,14 @@ from charts.dashboard_charts import (
 )
 from modules.force_time_analysis import (
     get_asymmetry_summary,
+    get_force_time_interpretation_lines,
     get_force_time_points,
+    get_force_time_presence_report,
     get_rfd_points,
     interpret_hamstring_force_time,
+    interpret_imtp_force_time,
+    list_force_time_test_rows,
+    select_basic_force_time_test_row,
     select_force_time_test_row,
     summarize_force_time_test,
 )
@@ -91,6 +96,78 @@ class ForceTimeDashboardTest(unittest.TestCase):
         self.assertEqual(summary["left_force_n"], 1731)
         self.assertEqual(summary["right_force_n"], 1653)
         self.assertEqual(summary["absolute_asymmetry_pct"], 4.5)
+
+    def test_imtp_renders_without_iso_when_imtp_fields_exist(self):
+        athlete_hist = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta IMTP",
+                    "Date": "2026-04-10",
+                    "CMJ_cm": 35,
+                    "SJ_cm": 31,
+                    "DJ_cm": 27,
+                    "DJ_tc_ms": 210,
+                    **_storage_row(
+                        IMTP_rfd_50_N_s=None,
+                        IMTP_rfd_100_N_s=None,
+                        IMTP_rfd_150_N_s=None,
+                        IMTP_rfd_250_N_s=None,
+                        IMTP_force_L_N=None,
+                        IMTP_force_R_N=None,
+                        IMTP_asym_pct=None,
+                    ),
+                }
+            ]
+        )
+
+        imtp_row = select_force_time_test_row(athlete_hist, test_id="imtp", selected_date="2026-04-10")
+        iso_row = select_force_time_test_row(
+            athlete_hist,
+            test_id="iso_push_hamstring",
+            selected_date="2026-04-10",
+        )
+        imtp_summary = summarize_force_time_test(imtp_row, test_id="imtp")
+
+        self.assertIsNotNone(imtp_row)
+        self.assertIsNone(iso_row)
+        self.assertTrue(imtp_summary["has_valid_force_time"])
+        self.assertFalse(imtp_summary["has_valid_rfd"])
+        self.assertFalse(imtp_summary["has_valid_asymmetry"])
+
+    def test_imtp_basic_row_without_force_time_points_stays_non_renderable_but_detectable(self):
+        athlete_hist = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta IMTP",
+                    "Date": "2026-04-10",
+                    "CMJ_cm": 35,
+                    "SJ_cm": 31,
+                    "IMTP_N": 3385,
+                    "IMTP_avg_N": 2993,
+                }
+            ]
+        )
+
+        basic_row = select_basic_force_time_test_row(
+            athlete_hist,
+            test_id="imtp",
+            selected_date="2026-04-10",
+        )
+        force_time_row = select_force_time_test_row(
+            athlete_hist,
+            test_id="imtp",
+            selected_date="2026-04-10",
+        )
+        report = get_force_time_presence_report(basic_row, test_id="imtp")
+        source = PAGE_PATH.read_text(encoding="utf-8")
+
+        self.assertIsNotNone(basic_row)
+        self.assertIsNone(force_time_row)
+        self.assertTrue(report["has_basic_data"])
+        self.assertFalse(report["has_force_time_points"])
+        self.assertFalse(report["has_valid_force_time"])
+        self.assertIn("IMTP cargado, pero sin datos force-time suficientes para graficar el perfil por puntos.", source)
+        self.assertIn("IMTP detectado, pero faltan los campos force-time por puntos.", source)
 
     def test_dashboard_stays_quiet_without_iso_push_hamstring_fields(self):
         summary = summarize_force_time_test(_storage_row(), test_id="iso_push_hamstring")
@@ -266,6 +343,109 @@ class ForceTimeDashboardTest(unittest.TestCase):
         self.assertTrue(summary["has_valid_force_time"])
         self.assertEqual(summary["peak_force_n"], 3385)
 
+    def test_imtp_force_time_lookup_keeps_older_valid_row_when_latest_row_is_basic_only(self):
+        athlete_hist = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta IMTP",
+                    "Date": "2026-04-01",
+                    **_storage_row(),
+                },
+                {
+                    "Athlete": "Atleta IMTP",
+                    "Date": "2026-04-10",
+                    "IMTP_N": 3200,
+                    "IMTP_avg_N": 2800,
+                },
+            ]
+        )
+
+        basic_row = select_basic_force_time_test_row(
+            athlete_hist,
+            test_id="imtp",
+            selected_date="2026-04-10",
+        )
+        force_time_row = select_force_time_test_row(
+            athlete_hist,
+            test_id="imtp",
+            selected_date="2026-04-10",
+        )
+        history = list_force_time_test_rows(athlete_hist, test_id="imtp")
+
+        self.assertEqual(pd.Timestamp(basic_row["Date"]).strftime("%Y-%m-%d"), "2026-04-10")
+        self.assertEqual(pd.Timestamp(force_time_row["Date"]).strftime("%Y-%m-%d"), "2026-04-01")
+        self.assertFalse(bool(history.iloc[0]["has_valid_force_time"]))
+        self.assertTrue(bool(history.iloc[1]["has_valid_force_time"]))
+
+    def test_imtp_block_guard_is_independent_from_iso_guard(self):
+        athlete_hist = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta IMTP",
+                    "Date": "2026-04-10",
+                    "CMJ_cm": 35,
+                    "SJ_cm": 31,
+                    "DJ_cm": 27,
+                    "DJ_tc_ms": 210,
+                    **_storage_row(
+                        IMTP_rfd_50_N_s=None,
+                        IMTP_rfd_100_N_s=None,
+                        IMTP_rfd_150_N_s=None,
+                        IMTP_rfd_250_N_s=None,
+                    ),
+                }
+            ]
+        )
+
+        imtp_summary = summarize_force_time_test(
+            select_force_time_test_row(athlete_hist, test_id="imtp", selected_date="2026-04-10"),
+            test_id="imtp",
+        )
+        iso_summary = summarize_force_time_test(
+            select_force_time_test_row(athlete_hist, test_id="iso_push_hamstring", selected_date="2026-04-10"),
+            test_id="iso_push_hamstring",
+        )
+
+        self.assertTrue(imtp_summary["has_valid_force_time"])
+        self.assertFalse(iso_summary["has_valid_force_time"])
+
+    def test_imtp_and_iso_render_guards_behave_as_independent_siblings(self):
+        scenarios = {
+            "imtp_only": (
+                pd.DataFrame([{"Athlete": "Atleta A", "Date": "2026-04-10", **_storage_row()}]),
+                True,
+                False,
+            ),
+            "iso_only": (
+                pd.DataFrame([{"Athlete": "Atleta A", "Date": "2026-04-10", **_hamstring_storage_row()}]),
+                False,
+                True,
+            ),
+            "both_valid": (
+                pd.DataFrame([{"Athlete": "Atleta A", "Date": "2026-04-10", **_storage_row(), **_hamstring_storage_row()}]),
+                True,
+                True,
+            ),
+            "neither_valid": (
+                pd.DataFrame([{"Athlete": "Atleta A", "Date": "2026-04-10", "CMJ_cm": 35, "SJ_cm": 31}]),
+                False,
+                False,
+            ),
+        }
+
+        for name, (athlete_hist, expect_imtp, expect_iso) in scenarios.items():
+            with self.subTest(name=name):
+                imtp_summary = summarize_force_time_test(
+                    select_force_time_test_row(athlete_hist, test_id="imtp", selected_date="2026-04-10"),
+                    test_id="imtp",
+                )
+                iso_summary = summarize_force_time_test(
+                    select_force_time_test_row(athlete_hist, test_id="iso_push_hamstring", selected_date="2026-04-10"),
+                    test_id="iso_push_hamstring",
+                )
+                self.assertEqual(bool(imtp_summary["has_valid_force_time"]), expect_imtp)
+                self.assertEqual(bool(iso_summary["has_valid_force_time"]), expect_iso)
+
     def test_force_time_row_lookup_tolerates_missing_columns_and_returns_none(self):
         athlete_hist = pd.DataFrame(
             [
@@ -352,6 +532,26 @@ class ForceTimeDashboardTest(unittest.TestCase):
         self.assertIn('("ISO Push Hip-Hamstring Bilateral", "iso_push_hamstring")', source)
         self.assertIn("FORCEPLATE_UPLOAD_TEST_IDS", source)
 
+    def test_dashboard_force_time_rendering_uses_streamlit_safe_interpretation_lines(self):
+        page_source = PAGE_PATH.read_text(encoding="utf-8")
+        app_source = APP_PATH.read_text(encoding="utf-8")
+        interpretation = interpret_imtp_force_time(summarize_force_time_test(_storage_row()))
+        lines = get_force_time_interpretation_lines(interpretation)
+
+        self.assertTrue(lines)
+        self.assertTrue(all(isinstance(line, str) for line in lines))
+        self.assertIn("get_force_time_interpretation_lines", page_source)
+        self.assertIn("get_force_time_interpretation_lines", app_source)
+
+    def test_dashboard_sources_do_not_call_pdf_force_time_draw_helpers(self):
+        page_source = PAGE_PATH.read_text(encoding="utf-8")
+        app_source = APP_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn("draw_force_time_test_block(", page_source)
+        self.assertNotIn("draw_force_time_test_block(", app_source)
+        self.assertNotIn("build_force_time_report_payload(", page_source)
+        self.assertNotIn("build_force_time_report_payload(", app_source)
+
     def test_dashboard_copy_avoids_banned_force_time_language_for_imtp_and_iso(self):
         source = PAGE_PATH.read_text(encoding="utf-8").lower()
         app_source = APP_PATH.read_text(encoding="utf-8").lower()
@@ -362,6 +562,16 @@ class ForceTimeDashboardTest(unittest.TestCase):
 
         self.assertIn("select_force_time_test_row", source)
         self.assertIn("estado de deteccion force-time", source)
+        self.assertIn("filas con algun campo imtp", source)
+        self.assertIn("filas con puntos force-time imtp", source)
+        self.assertIn("detalle de la fila imtp candidata", source)
+        self.assertIn("no se detectaron datos de imtp para este atleta.", source)
+        self.assertIn("imtp detectado, pero faltan los campos force-time por puntos.", source)
+        self.assertIn("imtp_avg_n", source)
+        self.assertIn("imtp_force_100_n", source)
+        self.assertIn("imtp_force_200_n", source)
+        self.assertIn("imtp_force_250_n", source)
+        self.assertIn("imtp_time_pull_s", source)
         self.assertIn("detalle force-time imtp", app_source)
         self.assertIn("fuerza isometrica complementaria - iso push hip-hamstring", app_source)
         self.assertIn("detalle force-time imtp", source)
@@ -372,6 +582,7 @@ class ForceTimeDashboardTest(unittest.TestCase):
         self.assertIn("contextual", combined)
         self.assertNotIn("curva cruda", combined)
         self.assertNotIn("raw curve", combined)
+        self.assertNotIn("rfd 200", combined)
         self.assertNotIn("riesgo de lesion alto", combined)
         self.assertNotIn("lesion probable", combined)
         self.assertNotIn("diagnostico", combined)
