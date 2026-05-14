@@ -18,8 +18,11 @@ from charts.dashboard_charts import (
 from modules.force_time_analysis import (
     get_asymmetry_summary,
     get_force_time_points,
+    get_force_time_storage_presence,
     get_rfd_points,
+    interpret_hamstring_force_time,
     interpret_imtp_force_time,
+    select_force_time_test_row,
     summarize_force_time_test,
 )
 from modules.jump_analysis import (
@@ -32,6 +35,7 @@ from modules.jump_analysis import (
     build_jump_temporal_context,
     compute_baseline_delta,
     compute_swc_delta,
+    select_primary_profile_row,
 )
 from modules.page_state import ensure_page_state
 from modules.page_visuals import build_page_theme
@@ -162,7 +166,11 @@ def _format_side_label(side: object) -> str:
     return "Sin dato"
 
 
-def _render_force_time_interpretation(interpretation: dict[str, object]) -> None:
+def _render_force_time_interpretation(
+    interpretation: dict[str, object],
+    *,
+    heading: str,
+) -> None:
     if not interpretation:
         return
     sections = [
@@ -184,10 +192,88 @@ def _render_force_time_interpretation(interpretation: dict[str, object]) -> None
         'border-radius:16px;padding:1rem 1.1rem;margin:0.4rem 0 1rem;'
         'box-shadow:0 1px 0 rgba(13,60,94,0.04);">'
         '<div style="font-size:0.78rem;letter-spacing:0.08em;text-transform:uppercase;'
-        'color:#708C9F;font-weight:700;margin-bottom:0.55rem;">Lectura IMTP force-time</div>'
+        f'color:#708C9F;font-weight:700;margin-bottom:0.55rem;">{html.escape(heading)}</div>'
         f"{content}</div>",
         unsafe_allow_html=True,
     )
+
+
+def _render_force_time_detail_block(
+    *,
+    title: str,
+    caption: str,
+    interpretation_heading: str,
+    summary: dict[str, object],
+    interpretation: dict[str, object],
+    theme: dict,
+) -> None:
+    asymmetry_summary = get_asymmetry_summary(summary)
+    force_time_points = get_force_time_points(summary)
+    rfd_points = get_rfd_points(summary)
+
+    st.markdown(f"### {title}")
+    st.caption(caption)
+
+    force_metrics = st.columns(4)
+    force_metrics[0].metric(
+        "Peak Force",
+        _format_force_time_metric(summary.get("peak_force_n"), fmt=".0f", unit="N"),
+    )
+    force_metrics[1].metric(
+        "Force Avg",
+        _format_force_time_metric(summary.get("avg_force_n"), fmt=".0f", unit="N"),
+    )
+    force_metrics[2].metric(
+        "Time to Peak",
+        _format_force_time_metric(summary.get("time_to_peak_s"), fmt=".2f", unit="s"),
+    )
+    force_metrics[3].metric(
+        "Asymmetry",
+        _format_force_time_metric(summary.get("absolute_asymmetry_pct"), fmt=".1f", unit="%"),
+    )
+
+    asymmetry_chart_col, asymmetry_text_col = st.columns([1.1, 0.9])
+    with asymmetry_chart_col:
+        left_right_chart = make_left_right_force_chart(asymmetry_summary, theme=theme)
+        if left_right_chart is None:
+            st.info("Sin datos suficientes para comparar fuerza maxima entre lados.")
+        else:
+            st.plotly_chart(left_right_chart, use_container_width=True)
+    with asymmetry_text_col:
+        stronger_side = asymmetry_summary.get("stronger_side")
+        weaker_side = asymmetry_summary.get("weaker_side")
+        side_difference_n = asymmetry_summary.get("side_difference_n")
+        st.markdown(f"**Mayor produccion:** {_format_side_label(stronger_side)}")
+        st.markdown(f"**Menor produccion:** {_format_side_label(weaker_side)}")
+        st.markdown(
+            f"**Diferencia:** {_format_force_time_metric(side_difference_n, fmt='.0f', unit='N')}"
+        )
+        st.markdown(
+            f"**Interpretacion:** {asymmetry_summary.get('interpretation') or 'Sin datos suficientes para interpretar asimetria.'}"
+        )
+
+    profile_left, profile_right = st.columns(2)
+    with profile_left:
+        force_time_chart = make_force_time_points_chart(force_time_points, theme=theme)
+        if force_time_chart is None:
+            st.info("Sin datos suficientes para mostrar el perfil force-time por puntos exportados.")
+        else:
+            st.plotly_chart(force_time_chart, use_container_width=True)
+        st.caption(
+            "Perfil force-time por puntos exportados: 50, 100, 150, 200, 250 ms y Peak Force."
+        )
+    with profile_right:
+        rfd_chart = make_rfd_points_chart(rfd_points, theme=theme)
+        if rfd_chart is None:
+            st.info("Sin datos suficientes para mostrar RFD por ventanas exportadas.")
+        else:
+            st.plotly_chart(rfd_chart, use_container_width=True)
+        st.caption(
+            "RFD = tasa de desarrollo de fuerza. Sin un TE o umbral de confiabilidad propio, "
+            "conviene leerla con cautela y como apoyo descriptivo."
+        )
+
+    _render_force_time_interpretation(interpretation, heading=interpretation_heading)
 
 
 def _render_history_chart(
@@ -239,19 +325,46 @@ else:
             format_func=lambda value: pd.Timestamp(value).strftime("%d/%m/%Y"),
         )
 
-    selected_rows = athlete_hist[athlete_hist["Date"] == pd.Timestamp(selected_date)].sort_values("Date")
-    selected_row = selected_rows.iloc[-1] if not selected_rows.empty else athlete_hist.iloc[-1]
+    selected_date_value = pd.Timestamp(selected_date).normalize()
+    selected_rows = athlete_hist[athlete_hist["Date"] == selected_date_value].sort_values("Date")
+    fallback_selected_row = selected_rows.iloc[-1] if not selected_rows.empty else athlete_hist.iloc[-1]
+    primary_profile_row = select_primary_profile_row(athlete_hist, selected_date_value)
+    primary_detail_row = primary_profile_row if primary_profile_row is not None else fallback_selected_row
+    primary_detail_date = pd.to_datetime(primary_detail_row.get("Date"), errors="coerce")
+    primary_detail_rows = (
+        athlete_hist[athlete_hist["Date"] == primary_detail_date].sort_values("Date")
+        if pd.notna(primary_detail_date)
+        else selected_rows
+    )
+    if primary_detail_rows.empty:
+        primary_detail_rows = selected_rows if not selected_rows.empty else athlete_hist.tail(1)
+
+    imtp_force_time_row = select_force_time_test_row(
+        athlete_hist,
+        test_id="imtp",
+        selected_date=selected_date_value,
+    )
+    iso_ham_force_time_row = select_force_time_test_row(
+        athlete_hist,
+        test_id="iso_push_hamstring",
+        selected_date=selected_date_value,
+    )
     current_profile_row, current_profile_sources = build_composite_profile_snapshot(athlete_hist)
-    delta_df = compute_swc_delta(athlete_hist, selected_date)
-    baseline_df = compute_baseline_delta(athlete_hist, selected_date)
+    delta_df = compute_swc_delta(athlete_hist, primary_detail_date)
+    baseline_df = compute_baseline_delta(athlete_hist, primary_detail_date)
     temporal_lines = build_jump_temporal_context(delta_df)
-    selected_feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
+    selected_feedback_lines = build_jump_feedback_lines(primary_detail_row) + temporal_lines
 
     st.markdown("### Evaluacion seleccionada")
     st.caption(f"Fecha elegida para el detalle puntual: {_format_eval_date(selected_date)}")
+    if pd.notna(primary_detail_date) and primary_detail_date != selected_date_value:
+        st.caption(
+            "La fecha elegida contiene solo datos complementarios o parciales. "
+            f"El detalle principal usa la ultima evaluacion valida del {_format_eval_date(primary_detail_date)}."
+        )
     metrics = st.columns(6)
     for column, (label, key, unit, fmt) in zip(metrics, SELECTED_METRIC_CONFIG):
-        value = selected_row.get(key)
+        value = primary_detail_row.get(key)
         suffix = f" {unit}".rstrip()
         column.metric(label, f"{value:{fmt}}{suffix}" if pd.notna(value) else "-")
 
@@ -271,90 +384,81 @@ else:
         st.caption(
             "Baseline insuficiente: se necesitan al menos 3 mediciones validas por variable para establecer la referencia inicial."
         )
-    _render_flag_chips(build_jump_flag_rows(selected_row))
+    _render_flag_chips(build_jump_flag_rows(primary_detail_row))
     _render_feedback(selected_feedback_lines)
 
     st.markdown("### Detalle de la evaluacion seleccionada")
-    detail_cols = [column for column in selected_rows.columns if not column.endswith("_reps")]
+    detail_cols = [column for column in primary_detail_rows.columns if not column.endswith("_reps")]
     st.dataframe(
-        selected_rows[detail_cols].rename(columns={"EUR": "EUR (ratio)"}),
+        primary_detail_rows[detail_cols].rename(columns={"EUR": "EUR (ratio)"}),
         use_container_width=True,
         hide_index=True,
     )
 
-    imtp_force_time_summary = summarize_force_time_test(selected_row, test_id="imtp")
+    imtp_force_time_summary = summarize_force_time_test(imtp_force_time_row, test_id="imtp")
     if imtp_force_time_summary.get("has_valid_force_time"):
-        asymmetry_summary = get_asymmetry_summary(imtp_force_time_summary)
-        force_time_points = get_force_time_points(imtp_force_time_summary)
-        rfd_points = get_rfd_points(imtp_force_time_summary)
-        interpretation = interpret_imtp_force_time(imtp_force_time_summary)
-
-        st.markdown("### Detalle force-time IMTP")
-        st.caption(
-            "Perfil por puntos derivado del resumen exportado. Este bloque usa valores exportados "
-            "por ventana y no representa una curva force-time continua de adquisicion."
+        _render_force_time_detail_block(
+            title="Detalle force-time IMTP",
+            caption=(
+                "Perfil por puntos derivado del resumen exportado. Este bloque usa valores exportados "
+                "por ventana y no representa una curva force-time continua de adquisicion."
+            ),
+            interpretation_heading="Lectura IMTP force-time",
+            summary=imtp_force_time_summary,
+            interpretation=interpret_imtp_force_time(imtp_force_time_summary),
+            theme=theme,
         )
 
-        force_metrics = st.columns(4)
-        force_metrics[0].metric(
-            "Peak Force",
-            _format_force_time_metric(imtp_force_time_summary.get("peak_force_n"), fmt=".0f", unit="N"),
-        )
-        force_metrics[1].metric(
-            "Force Avg",
-            _format_force_time_metric(imtp_force_time_summary.get("avg_force_n"), fmt=".0f", unit="N"),
-        )
-        force_metrics[2].metric(
-            "Time to Peak",
-            _format_force_time_metric(imtp_force_time_summary.get("time_to_peak_s"), fmt=".2f", unit="s"),
-        )
-        force_metrics[3].metric(
-            "Asymmetry",
-            _format_force_time_metric(imtp_force_time_summary.get("absolute_asymmetry_pct"), fmt=".1f", unit="%"),
+    iso_ham_force_time_summary = summarize_force_time_test(
+        iso_ham_force_time_row,
+        test_id="iso_push_hamstring",
+    )
+    if iso_ham_force_time_summary.get("has_valid_force_time"):
+        _render_force_time_detail_block(
+            title="Fuerza isometrica complementaria - ISO Push Hip-Hamstring",
+            caption=(
+                "Perfil force-time por puntos exportados para una lectura complementaria de la cadena posterior "
+                "y los flexores de rodilla. Este bloque usa valores exportados por ventana y no representa "
+                "una curva force-time continua de adquisicion."
+            ),
+            interpretation_heading="Lectura ISO Push Hip-Hamstring force-time",
+            summary=iso_ham_force_time_summary,
+            interpretation=interpret_hamstring_force_time(iso_ham_force_time_summary),
+            theme=theme,
         )
 
-        asymmetry_chart_col, asymmetry_text_col = st.columns([1.1, 0.9])
-        with asymmetry_chart_col:
-            left_right_chart = make_left_right_force_chart(asymmetry_summary, theme=theme)
-            if left_right_chart is None:
-                st.info("Sin datos suficientes para comparar fuerza maxima entre lados.")
-            else:
-                st.plotly_chart(left_right_chart, use_container_width=True)
-        with asymmetry_text_col:
-            stronger_side = asymmetry_summary.get("stronger_side")
-            weaker_side = asymmetry_summary.get("weaker_side")
-            side_difference_n = asymmetry_summary.get("side_difference_n")
-            st.markdown(f"**Mayor produccion:** {_format_side_label(stronger_side)}")
-            st.markdown(f"**Menor produccion:** {_format_side_label(weaker_side)}")
-            st.markdown(
-                f"**Diferencia:** {_format_force_time_metric(side_difference_n, fmt='.0f', unit='N')}"
-            )
-            st.markdown(
-                f"**Interpretacion:** {asymmetry_summary.get('interpretation') or 'Sin datos suficientes para interpretar asimetria.'}"
-            )
-
-        profile_left, profile_right = st.columns(2)
-        with profile_left:
-            force_time_chart = make_force_time_points_chart(force_time_points, theme=theme)
-            if force_time_chart is None:
-                st.info("Sin datos suficientes para mostrar el perfil de fuerza por puntos exportados.")
-            else:
-                st.plotly_chart(force_time_chart, use_container_width=True)
-            st.caption(
-                "Lectura por puntos exportados: 50, 100, 150, 200, 250 ms y Peak Force."
-            )
-        with profile_right:
-            rfd_chart = make_rfd_points_chart(rfd_points, theme=theme)
-            if rfd_chart is None:
-                st.info("Sin datos suficientes para mostrar RFD por ventanas exportadas.")
-            else:
-                st.plotly_chart(rfd_chart, use_container_width=True)
-            st.caption(
-                "RFD = tasa de desarrollo de fuerza. Sin un TE o umbral de confiabilidad propio, "
-                "conviene leerla con cautela y como apoyo descriptivo."
-            )
-
-        _render_force_time_interpretation(interpretation)
+    with st.expander("Estado de deteccion force-time", expanded=False):
+        imtp_force_time_presence = get_force_time_storage_presence(imtp_force_time_row, test_id="imtp")
+        iso_ham_force_time_presence = get_force_time_storage_presence(
+            iso_ham_force_time_row,
+            test_id="iso_push_hamstring",
+        )
+        detection_rows = pd.DataFrame(
+            [
+                {
+                    "Bloque": "IMTP force-time",
+                    "Fecha detectada": _format_eval_date(
+                        imtp_force_time_row.get("Date") if imtp_force_time_row is not None else None
+                    ),
+                    "Force-time valido": "Si" if imtp_force_time_summary.get("has_valid_force_time") else "No",
+                    "Campos no nulos": imtp_force_time_presence.get("non_null_field_count", 0),
+                    "Columnas detectadas": imtp_force_time_presence.get("available_column_count", 0),
+                },
+                {
+                    "Bloque": "ISO Push Hip-Hamstring",
+                    "Fecha detectada": _format_eval_date(
+                        iso_ham_force_time_row.get("Date") if iso_ham_force_time_row is not None else None
+                    ),
+                    "Force-time valido": "Si" if iso_ham_force_time_summary.get("has_valid_force_time") else "No",
+                    "Campos no nulos": iso_ham_force_time_presence.get("non_null_field_count", 0),
+                    "Columnas detectadas": iso_ham_force_time_presence.get("available_column_count", 0),
+                },
+            ]
+        )
+        st.dataframe(detection_rows, use_container_width=True, hide_index=True)
+        iso_columns = iso_ham_force_time_presence.get("available_columns") or []
+        if iso_columns:
+            st.caption("ISO_HAM detectadas: " + ", ".join(str(column) for column in iso_columns))
 
     st.markdown("### Perfil actual compuesto")
     if current_profile_row is None:

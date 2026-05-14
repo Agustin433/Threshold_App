@@ -8,6 +8,7 @@ import pandas as pd
 from modules.force_time_analysis import (
     get_asymmetry_summary,
     get_force_time_points,
+    get_force_time_storage_presence,
     get_rfd_points,
     interpret_hamstring_force_time,
     interpret_imtp_force_time,
@@ -127,6 +128,51 @@ class ForceTimeAnalysisTest(unittest.TestCase):
         self.assertAlmostEqual(summary["force_200_pct_peak"], 785 / 1280 * 100, places=4)
         self.assertAlmostEqual(summary["force_250_pct_peak"], 930 / 1280 * 100, places=4)
         self.assertNotIn("rfd_200_n_s", summary)
+
+    def test_summarize_force_time_test_for_iso_keeps_force_time_valid_without_rfd(self):
+        summary = summarize_force_time_test(
+            _hamstring_storage_row(
+                ISO_HAM_rfd_50_N_s=None,
+                ISO_HAM_rfd_100_N_s=None,
+                ISO_HAM_rfd_150_N_s=None,
+                ISO_HAM_rfd_250_N_s=None,
+            ),
+            test_id="iso_push_hamstring",
+        )
+
+        self.assertTrue(summary["has_valid_force_time"])
+        self.assertFalse(summary["has_valid_rfd"])
+
+    def test_summarize_force_time_test_for_iso_keeps_force_time_valid_without_asymmetry(self):
+        summary = summarize_force_time_test(
+            _hamstring_storage_row(
+                ISO_HAM_force_L_N=None,
+                ISO_HAM_force_R_N=None,
+                ISO_HAM_asym_pct=None,
+            ),
+            test_id="iso_push_hamstring",
+        )
+
+        self.assertTrue(summary["has_valid_force_time"])
+        self.assertFalse(summary["has_valid_asymmetry"])
+
+    def test_explicit_test_id_overrides_row_test_id_for_iso_detection(self):
+        summary = summarize_force_time_test(
+            {
+                "test_id": "imtp",
+                **_hamstring_storage_row(
+                    ISO_HAM_rfd_50_N_s=None,
+                    ISO_HAM_rfd_100_N_s=None,
+                    ISO_HAM_rfd_150_N_s=None,
+                    ISO_HAM_rfd_250_N_s=None,
+                ),
+            },
+            test_id="iso_push_hamstring",
+        )
+
+        self.assertEqual(summary["test_id"], "iso_push_hamstring")
+        self.assertTrue(summary["has_valid_force_time"])
+        self.assertEqual(summary["peak_force_n"], 1280)
 
     def test_summarize_force_time_test_uses_legacy_rfd_aliases_only_as_fallback(self):
         legacy_fallback = summarize_force_time_test(
@@ -290,6 +336,21 @@ class ForceTimeAnalysisTest(unittest.TestCase):
         self.assertNotIn("diagn", combined)
         self.assertNotIn("raw curve", combined)
         self.assertNotIn("curva cruda", combined)
+
+    def test_force_time_storage_presence_reports_available_and_non_null_iso_fields(self):
+        presence = get_force_time_storage_presence(
+            _hamstring_storage_row(
+                ISO_HAM_force_L_N=None,
+                ISO_HAM_force_R_N=None,
+                ISO_HAM_asym_pct=None,
+            ),
+            test_id="iso_push_hamstring",
+        )
+
+        self.assertIn("ISO_HAM_N", presence["available_columns"])
+        self.assertIn("ISO_HAM_force_100_N", presence["non_null_fields"])
+        self.assertGreaterEqual(presence["non_null_field_count"], 4)
+        self.assertNotIn("ISO_HAM_rfd_200_N_s", presence["storage_fields"])
 
     def test_force_time_product_copy_stays_safe_across_analysis_dashboard_and_report_helpers(self):
         combined = " ".join(

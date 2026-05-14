@@ -16,7 +16,12 @@ from openpyxl import Workbook
 
 from charts.load_charts import chart_volume_by_tag
 from modules import data_loader
-from modules.force_time_analysis import get_force_time_points, get_rfd_points, summarize_force_time_test
+from modules.force_time_analysis import (
+    get_force_time_points,
+    get_rfd_points,
+    select_force_time_test_row,
+    summarize_force_time_test,
+)
 from modules.jump_analysis import _records_to_jump_df
 
 
@@ -518,6 +523,74 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertEqual(rfd_labels, ["RFD 50", "RFD 100", "RFD 150", "RFD 250"])
         self.assertNotIn("RFD 200", rfd_labels)
         self.assertNotIn("ISO_HAM_rfd_200_N_s", jump_df.columns)
+
+    def test_same_day_iso_push_record_merges_additively_without_overwriting_primary_metrics(self):
+        primary_record = {
+            "Athlete": "Juan Perez",
+            "Date": pd.Timestamp("2026-04-04"),
+            "test_type": "CMJ",
+            "CMJ_cm": 36,
+            "SJ_cm": 31,
+            "DJ_cm": 27,
+            "DJ_tc_ms": 210,
+            "IMTP_N": 3200,
+            "BW_kg": 80,
+        }
+        iso_record = data_loader.parse_forceplate_file(
+            _imtp_involution_bytes(),
+            "iso_push_hamstring",
+            filename="iso_push_hamstring.xlsx",
+        )
+        iso_record["Athlete"] = "Juan Perez"
+        iso_record["Date"] = pd.Timestamp("2026-04-04")
+
+        jump_df = _records_to_jump_df([primary_record, iso_record])
+
+        self.assertEqual(len(jump_df), 1)
+        self.assertEqual(float(jump_df.iloc[0]["CMJ_cm"]), 36.0)
+        self.assertEqual(float(jump_df.iloc[0]["IMTP_relPF"]), 40.0)
+        self.assertEqual(float(jump_df.iloc[0]["ISO_HAM_force_100_N"]), 1364.0)
+        self.assertNotIn("ISO_HAM_rfd_200_N_s", jump_df.columns)
+
+    def test_iso_ham_fields_survive_local_store_round_trip_without_imtp(self):
+        jump_df = _records_to_jump_df(
+            [
+                {
+                    "Athlete": "Juan Perez",
+                    "Date": pd.Timestamp("2026-04-10"),
+                    "test_type": "CMJ",
+                    "CMJ_cm": 36,
+                    "SJ_cm": 31,
+                    "DJ_cm": 27,
+                    "DJ_tc_ms": 210,
+                    "BW_kg": 80,
+                },
+                {
+                    "Athlete": "Juan Perez",
+                    "Date": pd.Timestamp("2026-04-10"),
+                    "test_type": "ISO_PUSH_HAMSTRING",
+                    "ISO_HAM_N": 1280,
+                    "ISO_HAM_force_100_N": 455,
+                    "ISO_HAM_force_200_N": 785,
+                    "ISO_HAM_force_250_N": 930,
+                },
+            ]
+        )
+
+        with isolated_store() as (local_store, _tmp_root):
+            local_store.save_dataset("jump_df", jump_df)
+            loaded = local_store.read_full_dataset("jump_df")
+            iso_row = select_force_time_test_row(
+                loaded[loaded["Athlete"] == "Juan Perez"],
+                test_id="iso_push_hamstring",
+                selected_date="2026-04-10",
+            )
+            iso_summary = summarize_force_time_test(iso_row, test_id="iso_push_hamstring")
+
+            self.assertTrue(any(column.startswith("ISO_HAM") for column in loaded.columns))
+            self.assertIsNotNone(iso_row)
+            self.assertTrue(iso_summary["has_valid_force_time"])
+            self.assertFalse(summarize_force_time_test(iso_row, test_id="imtp")["has_valid_force_time"])
 
     def test_raw_workouts_reimport_dedupes_by_athlete_date_exercise_and_set_number(self):
         raw_file = NamedBytesIO(

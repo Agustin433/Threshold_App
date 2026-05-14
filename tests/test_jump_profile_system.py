@@ -25,6 +25,7 @@ from modules.jump_analysis import (
     choose_secondary_quadrant_x_spec,
     compute_baseline_delta,
     compute_swc_delta,
+    select_primary_profile_row,
 )
 
 
@@ -341,6 +342,20 @@ class JumpProfileSystemTest(unittest.TestCase):
             "15/04/2026",
         )
 
+    def test_composite_profile_metric_table_shows_zscores_when_history_is_sufficient(self):
+        jump_df = _composite_profile_source_df()
+        composite_row, _ = build_composite_profile_snapshot(jump_df)
+        metric_table = build_composite_profile_metric_table(composite_row)
+        zscores = dict(zip(metric_table["Variable"], metric_table["Z-score"]))
+
+        self.assertNotEqual(zscores["SJ"], "-")
+        self.assertNotEqual(zscores["CMJ"], "-")
+        self.assertNotEqual(zscores["DJ"], "-")
+        self.assertNotEqual(zscores["DRI"], "-")
+        self.assertNotEqual(zscores["TC"], "-")
+        self.assertNotEqual(zscores["EUR"], "-")
+        self.assertNotEqual(zscores["IMTP"], "-")
+
     def test_composite_profile_chart_renders_without_imtp(self):
         jump_df = _prepare_jump_df(
             pd.DataFrame(
@@ -386,6 +401,36 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(cmj_row["Valor"], "-")
         self.assertEqual(cmj_row["Z-score"], "-")
         self.assertEqual(cmj_row["Origen / referencia"], "-")
+
+    def test_composite_profile_metric_table_keeps_internal_zscores_missing_when_history_is_insufficient(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Z",
+                        "Date": "2026-04-10",
+                        "CMJ_cm": 35,
+                        "SJ_cm": 31,
+                        "DJ_cm": 27,
+                        "DJ_tc_ms": 210,
+                        "IMTP_N": 3000,
+                        "BW_kg": 80,
+                    }
+                ]
+            )
+        )
+
+        composite_row, _ = build_composite_profile_snapshot(jump_df)
+        metric_table = build_composite_profile_metric_table(composite_row)
+        zscores = dict(zip(metric_table["Variable"], metric_table["Z-score"]))
+
+        self.assertEqual(zscores["SJ"], "-")
+        self.assertNotEqual(zscores["CMJ"], "-")
+        self.assertEqual(zscores["DJ"], "-")
+        self.assertNotEqual(zscores["DRI"], "-")
+        self.assertEqual(zscores["TC"], "-")
+        self.assertEqual(zscores["EUR"], "-")
+        self.assertNotEqual(zscores["IMTP"], "-")
 
     def test_metric_trend_chart_uses_chronological_eval_dates(self):
         jump_df = _temporal_jump_df()
@@ -612,7 +657,22 @@ class JumpProfileSystemTest(unittest.TestCase):
         base_df = _prepare_jump_df(base_input)
         enriched_df = _prepare_jump_df(enriched_input)
 
-        for column in ("EUR", "DJ_RSI", "DRI", "IMTP_relPF", "Jump_Momentum", "DSI", "IMTP_Z", "NM_Profile"):
+        for column in (
+            "EUR",
+            "DJ_RSI",
+            "DRI",
+            "IMTP_relPF",
+            "Jump_Momentum",
+            "DSI",
+            "SJ_Z",
+            "CMJ_Z",
+            "DJ_height_Z",
+            "TC_inv_Z",
+            "EUR_Z",
+            "IMTP_relPF_Z",
+            "IMTP_Z",
+            "NM_Profile",
+        ):
             with self.subTest(column=column):
                 pd.testing.assert_series_equal(base_df[column], enriched_df[column], check_names=False)
 
@@ -692,6 +752,94 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(choose_secondary_quadrant_x_spec(base_df), choose_secondary_quadrant_x_spec(enriched_df))
         self.assertEqual(metric_table["Variable"].tolist(), ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
         self.assertNotIn("ISO_HAM_rfd_200_N_s", enriched_df.columns)
+
+    def test_primary_profile_row_ignores_newer_iso_only_row(self):
+        jump_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta ISO",
+                    "Date": "2026-04-01",
+                    "CMJ_cm": 38,
+                    "SJ_cm": 32,
+                    "DJ_cm": 28,
+                    "DJ_tc_ms": 220,
+                    "IMTP_N": 2800,
+                    "BW_kg": 78,
+                },
+                {
+                    "Athlete": "Atleta ISO",
+                    "Date": "2026-04-10",
+                    "ISO_HAM_N": 1280,
+                    "ISO_HAM_avg_N": 1115,
+                    "ISO_HAM_force_L_N": 670,
+                    "ISO_HAM_force_R_N": 610,
+                    "ISO_HAM_asym_pct": 9.4,
+                    "ISO_HAM_time_max_s": 1.84,
+                    "ISO_HAM_force_100_N": 455,
+                    "ISO_HAM_force_200_N": 785,
+                    "ISO_HAM_force_250_N": 930,
+                    "ISO_HAM_rfd_50_N_s": 1280,
+                    "ISO_HAM_rfd_100_N_s": 2240,
+                    "ISO_HAM_rfd_150_N_s": 2960,
+                    "ISO_HAM_rfd_250_N_s": 3720,
+                },
+            ]
+        )
+
+        primary_row = select_primary_profile_row(jump_df, selected_date="2026-04-10")
+        radar_row = build_profile_radar_row(jump_df[jump_df["Athlete"] == "Atleta ISO"])
+        composite_row, _ = build_composite_profile_snapshot(jump_df[jump_df["Athlete"] == "Atleta ISO"])
+
+        self.assertIsNotNone(primary_row)
+        self.assertEqual(pd.Timestamp(primary_row["Date"]).strftime("%Y-%m-%d"), "2026-04-01")
+        self.assertIsNotNone(radar_row)
+        self.assertAlmostEqual(float(radar_row["CMJ_cm"]), 38.0, places=3)
+        self.assertAlmostEqual(float(composite_row["IMTP_relPF"]), 35.9, places=1)
+        self.assertNotIn("ISO_HAM_rfd_200_N_s", composite_row.index)
+
+    def test_prepare_jump_df_merges_same_day_iso_rows_additively_without_changing_profile_metrics(self):
+        primary_row = {
+            "Athlete": "Atleta Merge",
+            "Date": "2026-04-01",
+            "CMJ_cm": 38,
+            "SJ_cm": 32,
+            "DJ_cm": 28,
+            "DJ_tc_ms": 220,
+            "IMTP_N": 2800,
+            "BW_kg": 78,
+            "CMJ_propulsive_PF_N": 2600,
+            "CMJ_rel_impulse": 2.45,
+            "CMJ_contraction_ms": 520,
+        }
+        iso_row = {
+            "Athlete": "Atleta Merge",
+            "Date": "2026-04-01",
+            "ISO_HAM_N": 1280,
+            "ISO_HAM_avg_N": 1115,
+            "ISO_HAM_force_L_N": 670,
+            "ISO_HAM_force_R_N": 610,
+            "ISO_HAM_asym_pct": 9.4,
+            "ISO_HAM_time_max_s": 1.84,
+            "ISO_HAM_force_100_N": 455,
+            "ISO_HAM_force_200_N": 785,
+            "ISO_HAM_force_250_N": 930,
+            "ISO_HAM_rfd_50_N_s": 1280,
+            "ISO_HAM_rfd_100_N_s": 2240,
+            "ISO_HAM_rfd_150_N_s": 2960,
+            "ISO_HAM_rfd_250_N_s": 3720,
+        }
+
+        base_df = _prepare_jump_df(pd.DataFrame([primary_row]))
+        merged_df = _prepare_jump_df(pd.DataFrame([primary_row, iso_row]))
+
+        self.assertEqual(len(merged_df), 1)
+        self.assertEqual(float(merged_df.iloc[0]["ISO_HAM_force_100_N"]), 455.0)
+        self.assertEqual(float(merged_df.iloc[0]["ISO_HAM_rfd_250_N_s"]), 3720.0)
+        self.assertNotIn("ISO_HAM_rfd_200_N_s", merged_df.columns)
+
+        for column in ("EUR", "DJ_RSI", "DRI", "IMTP_relPF", "Jump_Momentum", "DSI", "IMTP_Z", "NM_Profile"):
+            with self.subTest(column=column):
+                pd.testing.assert_series_equal(base_df[column], merged_df[column], check_names=False)
 
     def test_dsi_requires_propulsive_force_without_peak_force_fallback(self):
         jump_df = _prepare_jump_df(

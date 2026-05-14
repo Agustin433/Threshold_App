@@ -187,7 +187,7 @@ def summarize_force_time_test(
     test_id: str = "imtp",
 ) -> dict[str, object]:
     source = _to_mapping(row_or_record)
-    resolved_test_id = str(source.get("test_id") or test_id or "").strip().lower() or "imtp"
+    resolved_test_id = str(test_id or source.get("test_id") or "").strip().lower() or "imtp"
     resolved_spec = _resolve_spec(spec, resolved_test_id)
     storage_mapping = dict(resolved_spec.get("storage_mapping", {})) if resolved_spec.get("storage_mapping") else {}
     if not storage_mapping:
@@ -248,6 +248,61 @@ def summarize_force_time_test(
     summary["basis"] = _basis_from_summary(summary)
 
     return summary
+
+
+def get_force_time_storage_presence(
+    row_or_record: object,
+    *,
+    test_id: str = "imtp",
+) -> dict[str, object]:
+    source = _to_mapping(row_or_record)
+    resolved_spec = _resolve_spec(None, str(test_id or "").strip().lower() or "imtp")
+    storage_mapping = dict(resolved_spec.get("storage_mapping", {})) if resolved_spec.get("storage_mapping") else {}
+    if not storage_mapping:
+        storage_mapping = get_storage_mapping(test_id)
+
+    storage_fields = list(dict.fromkeys(storage_mapping.values()))
+    available_columns = [field for field in storage_fields if field in source]
+    non_null_fields = [field for field in available_columns if _coerce_number(source.get(field)) is not None]
+
+    return {
+        "test_id": str(test_id or "").strip().lower() or "imtp",
+        "storage_fields": storage_fields,
+        "available_columns": available_columns,
+        "non_null_fields": non_null_fields,
+        "available_column_count": len(available_columns),
+        "non_null_field_count": len(non_null_fields),
+    }
+
+
+def select_force_time_test_row(
+    jump_df: pd.DataFrame,
+    *,
+    test_id: str = "imtp",
+    selected_date: object | None = None,
+) -> pd.Series | None:
+    if jump_df is None or jump_df.empty:
+        return None
+
+    data = jump_df.copy()
+    if "Date" in data.columns:
+        data["Date"] = pd.to_datetime(data["Date"], errors="coerce").dt.normalize()
+        data = data.sort_values("Date", ascending=False)
+
+    selected_timestamp = pd.to_datetime(selected_date, errors="coerce")
+    if pd.notna(selected_timestamp) and "Date" in data.columns:
+        same_day_rows = data.loc[data["Date"] == selected_timestamp.normalize()].copy()
+        if not same_day_rows.empty:
+            for _, row in same_day_rows.iterrows():
+                summary = summarize_force_time_test(row, test_id=test_id)
+                if summary.get("has_valid_force_time"):
+                    return row
+
+    for _, row in data.iterrows():
+        summary = summarize_force_time_test(row, test_id=test_id)
+        if summary.get("has_valid_force_time"):
+            return row
+    return None
 
 
 def get_force_time_points(summary: Mapping[str, object]) -> list[dict[str, object]]:

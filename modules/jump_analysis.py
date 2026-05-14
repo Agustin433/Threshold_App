@@ -49,6 +49,8 @@ METRIC_LABELS = {
     "CMJ_rel_impulse": "Impulso Relativo Propulsivo",
 }
 
+PRIMARY_PROFILE_SOURCE_COLUMNS = ("CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "IMTP_N")
+
 VARIABLE_META: dict[str, dict[str, object]] = {
     "CMJ_cm": {
         "label": "CMJ",
@@ -1041,6 +1043,40 @@ def _latest_valid_numeric_row(df: pd.DataFrame, column: str) -> pd.Series | None
     return valid.iloc[0]
 
 
+def row_has_primary_profile_data(row: pd.Series | dict[str, object]) -> bool:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row)
+    for column in PRIMARY_PROFILE_SOURCE_COLUMNS:
+        numeric = pd.to_numeric(pd.Series([row_series.get(column)]), errors="coerce").iloc[0]
+        if pd.notna(numeric):
+            return True
+    return False
+
+
+def select_primary_profile_row(
+    jump_df: pd.DataFrame,
+    selected_date: object | None = None,
+) -> pd.Series | None:
+    data = _prepare_jump_df(jump_df)
+    if data.empty:
+        return None
+
+    selected_timestamp = pd.to_datetime(selected_date, errors="coerce")
+    if pd.notna(selected_timestamp) and "Date" in data.columns:
+        same_day_rows = data.loc[data["Date"] == selected_timestamp.normalize()].copy()
+        if not same_day_rows.empty:
+            same_day_rows = same_day_rows.sort_values("Date", ascending=False)
+            for _, row in same_day_rows.iterrows():
+                if row_has_primary_profile_data(row):
+                    return row
+
+    if "Date" in data.columns:
+        data = data.sort_values("Date", ascending=False)
+    for _, row in data.iterrows():
+        if row_has_primary_profile_data(row):
+            return row
+    return None
+
+
 def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series | None, pd.DataFrame]:
     data = _prepare_jump_df(jump_df)
     if data.empty:
@@ -1207,6 +1243,39 @@ def choose_secondary_quadrant_x_spec(df: pd.DataFrame) -> tuple[str, str]:
     return "CMJ_Z", "CMJ z"
 
 
+def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
+    if jump_df.empty or not {"Athlete", "Date"}.issubset(jump_df.columns):
+        return jump_df
+    if not jump_df.duplicated(subset=["Athlete", "Date"]).any():
+        return jump_df
+
+    merged_rows: list[dict[str, object]] = []
+    grouped = jump_df.sort_values(["Athlete", "Date"]).groupby(["Athlete", "Date"], sort=False, dropna=False)
+    for (_, _), group in grouped:
+        merged_row: dict[str, object] = {
+            "Athlete": group.iloc[-1]["Athlete"],
+            "Date": group.iloc[-1]["Date"],
+        }
+        for column in group.columns:
+            if column in {"Athlete", "Date", "NM_Profile"}:
+                continue
+
+            numeric_values = pd.to_numeric(group[column], errors="coerce")
+            if column == "BW_kg":
+                positive_values = numeric_values[(numeric_values.notna()) & (numeric_values > 0)]
+                if not positive_values.empty:
+                    merged_row[column] = positive_values.iloc[-1]
+                    continue
+
+            valid_values = numeric_values[numeric_values.notna()]
+            if not valid_values.empty:
+                merged_row[column] = valid_values.iloc[-1]
+
+        merged_rows.append(merged_row)
+
+    return pd.DataFrame(merged_rows)
+
+
 def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
     """Normalize the unified evaluations table and recompute derived metrics."""
     if jump_df is None or jump_df.empty:
@@ -1228,10 +1297,7 @@ def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
     if result.empty:
         return pd.DataFrame()
 
-    result = result.sort_values(["Athlete", "Date"]).drop_duplicates(
-        subset=["Athlete", "Date"],
-        keep="last",
-    )
+    result = _merge_duplicate_athlete_date_rows(result)
     result = calc_eur(result)
     result = calc_dj_rsi(result)
     result = calc_mrsi(result)

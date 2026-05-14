@@ -27,6 +27,9 @@ from charts.dashboard_charts import (
     chart_composite_profile_radar as shared_chart_composite_profile_radar,
     chart_cmj_trend as shared_chart_cmj_trend,
     chart_jump_metric_trend as shared_chart_jump_metric_trend,
+    make_force_time_points_chart as shared_make_force_time_points_chart,
+    make_left_right_force_chart as shared_make_left_right_force_chart,
+    make_rfd_points_chart as shared_make_rfd_points_chart,
     chart_quadrant_cmj_imtp as shared_chart_quadrant_cmj_imtp,
     chart_quadrant_exploratory as shared_chart_quadrant_exploratory,
     chart_quadrant_dri_sj as shared_chart_quadrant_dri_sj,
@@ -109,6 +112,17 @@ from modules.jump_analysis import (
     calc_zscores as shared_calc_zscores,
     compute_baseline_delta as shared_compute_baseline_delta,
     compute_swc_delta as shared_compute_swc_delta,
+    select_primary_profile_row as shared_select_primary_profile_row,
+)
+from modules.force_time_analysis import (
+    get_asymmetry_summary as shared_get_asymmetry_summary,
+    get_force_time_points as shared_get_force_time_points,
+    get_force_time_storage_presence as shared_get_force_time_storage_presence,
+    get_rfd_points as shared_get_rfd_points,
+    interpret_hamstring_force_time as shared_interpret_hamstring_force_time,
+    interpret_imtp_force_time as shared_interpret_imtp_force_time,
+    select_force_time_test_row as shared_select_force_time_test_row,
+    summarize_force_time_test as shared_summarize_force_time_test,
 )
 from modules.remote_store import (
     REMOTE_DATASET_KEYS,
@@ -3187,6 +3201,118 @@ def render_jump_feedback(lines: list[str], *, kicker: str = "Devolucion automati
     )
 
 
+def _format_eval_date(value: object) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    return parsed.strftime("%d/%m/%Y") if pd.notna(parsed) else "Sin fecha"
+
+
+def _format_force_time_metric(value: object, *, fmt: str, unit: str) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return "Sin dato"
+    suffix = f" {unit}".rstrip()
+    return f"{float(numeric):{fmt}}{suffix}"
+
+
+def _format_force_time_side_label(side: object) -> str:
+    if side == "left":
+        return "izquierda"
+    if side == "right":
+        return "derecha"
+    return "Sin dato"
+
+
+def render_force_time_interpretation(interpretation: dict[str, object], *, kicker: str) -> None:
+    if not interpretation:
+        return
+
+    sections = [
+        interpretation.get("peak_force_text"),
+        interpretation.get("force_time_text"),
+        interpretation.get("rfd_text"),
+        interpretation.get("asymmetry_text"),
+        interpretation.get("decision_note"),
+    ]
+    lines = [str(section).strip() for section in sections if str(section or "").strip()]
+    if not lines:
+        return
+    render_jump_feedback(lines, kicker=kicker)
+
+
+def render_force_time_detail_block(
+    *,
+    title: str,
+    detail: str,
+    summary: dict[str, object],
+    interpretation: dict[str, object],
+    interpretation_kicker: str,
+) -> None:
+    asymmetry_summary = get_asymmetry_summary(summary)
+    force_time_points = get_force_time_points(summary)
+    rfd_points = get_rfd_points(summary)
+
+    render_subsection_header(title, detail, kicker="Force-time")
+
+    force_metrics = st.columns(4)
+    force_metrics[0].metric(
+        "Peak Force",
+        _format_force_time_metric(summary.get("peak_force_n"), fmt=".0f", unit="N"),
+    )
+    force_metrics[1].metric(
+        "Force Avg",
+        _format_force_time_metric(summary.get("avg_force_n"), fmt=".0f", unit="N"),
+    )
+    force_metrics[2].metric(
+        "Time to Peak",
+        _format_force_time_metric(summary.get("time_to_peak_s"), fmt=".2f", unit="s"),
+    )
+    force_metrics[3].metric(
+        "Asymmetry",
+        _format_force_time_metric(summary.get("absolute_asymmetry_pct"), fmt=".1f", unit="%"),
+    )
+
+    asymmetry_chart_col, asymmetry_text_col = st.columns([1.1, 0.9])
+    with asymmetry_chart_col:
+        left_right_chart = make_left_right_force_chart(asymmetry_summary)
+        if left_right_chart is None:
+            _alert("Sin datos suficientes para comparar fuerza maxima entre lados.", "b")
+        else:
+            st.plotly_chart(left_right_chart, use_container_width=False)
+    with asymmetry_text_col:
+        stronger_side = asymmetry_summary.get("stronger_side")
+        weaker_side = asymmetry_summary.get("weaker_side")
+        side_difference_n = asymmetry_summary.get("side_difference_n")
+        st.markdown(f"**Mayor produccion:** {_format_force_time_side_label(stronger_side)}")
+        st.markdown(f"**Menor produccion:** {_format_force_time_side_label(weaker_side)}")
+        st.markdown(
+            f"**Diferencia:** {_format_force_time_metric(side_difference_n, fmt='.0f', unit='N')}"
+        )
+        st.markdown(
+            f"**Interpretacion:** {asymmetry_summary.get('interpretation') or 'Sin datos suficientes para interpretar asimetria.'}"
+        )
+
+    profile_left, profile_right = st.columns(2)
+    with profile_left:
+        force_time_chart = make_force_time_points_chart(force_time_points)
+        if force_time_chart is None:
+            _alert("Sin datos suficientes para mostrar el perfil force-time por puntos exportados.", "b")
+        else:
+            st.plotly_chart(force_time_chart, use_container_width=False)
+        st.caption("Perfil force-time por puntos exportados: 50, 100, 150, 200, 250 ms y Peak Force.")
+    with profile_right:
+        rfd_chart = make_rfd_points_chart(rfd_points)
+        if rfd_chart is None:
+            _alert("Sin datos suficientes para mostrar RFD por ventanas exportadas.", "b")
+        else:
+            st.plotly_chart(rfd_chart, use_container_width=False)
+        st.caption(
+            "RFD = tasa de desarrollo de fuerza. Sin un TE o umbral de confiabilidad propio, "
+            "conviene leerla con cautela y como apoyo descriptivo."
+        )
+
+    render_force_time_interpretation(interpretation, kicker=interpretation_kicker)
+
+
 def render_jump_temporal_delta_table(delta_df: pd.DataFrame):
     display_df = build_jump_delta_display_table(delta_df)
     if display_df.empty:
@@ -3290,6 +3416,14 @@ EVALUATION_PERSIST_COLUMNS = SHARED_EVALUATION_PERSIST_COLUMNS
 EVALUATION_DB_COLUMN_MAP = SHARED_EVALUATION_DB_COLUMN_MAP
 SUPABASE_EVALUATIONS_TABLE = SHARED_SUPABASE_EVALUATIONS_TABLE
 UPLOAD_CONTRACTS = SHARED_UPLOAD_CONTRACTS
+FORCEPLATE_UPLOAD_OPTIONS = [
+    ("CMJ", "CMJ"),
+    ("SJ", "SJ"),
+    ("DJ", "DJ"),
+    ("IMTP", "IMTP"),
+    ("ISO Push Hip-Hamstring Bilateral", "iso_push_hamstring"),
+]
+FORCEPLATE_UPLOAD_TEST_IDS = {label: test_id for label, test_id in FORCEPLATE_UPLOAD_OPTIONS}
 
 parse_xlsx_questionnaire = shared_parse_xlsx_questionnaire
 parse_questionnaire_raw_csv = shared_parse_questionnaire_raw_csv
@@ -3319,6 +3453,15 @@ build_jump_delta_display_table = shared_build_jump_delta_display_table
 build_jump_temporal_context = shared_build_jump_temporal_context
 compute_baseline_delta = shared_compute_baseline_delta
 compute_swc_delta = shared_compute_swc_delta
+select_primary_profile_row = shared_select_primary_profile_row
+get_asymmetry_summary = shared_get_asymmetry_summary
+get_force_time_points = shared_get_force_time_points
+get_force_time_storage_presence = shared_get_force_time_storage_presence
+get_rfd_points = shared_get_rfd_points
+interpret_hamstring_force_time = shared_interpret_hamstring_force_time
+interpret_imtp_force_time = shared_interpret_imtp_force_time
+select_force_time_test_row = shared_select_force_time_test_row
+summarize_force_time_test = shared_summarize_force_time_test
 export_excel = shared_export_excel
 
 chart_acwr = _bind_chart(shared_chart_acwr)
@@ -3339,6 +3482,9 @@ chart_quadrant_dri_sj = _bind_chart(shared_chart_quadrant_dri_sj)
 chart_completion = _bind_chart(shared_chart_completion)
 chart_cmj_trend = _bind_chart(shared_chart_cmj_trend)
 chart_jump_metric_trend = _bind_chart(shared_chart_jump_metric_trend)
+make_force_time_points_chart = _bind_chart(shared_make_force_time_points_chart)
+make_left_right_force_chart = _bind_chart(shared_make_left_right_force_chart)
+make_rfd_points_chart = _bind_chart(shared_make_rfd_points_chart)
 find_latest_valid_radar_row = shared_find_latest_valid_radar_row
 
 
@@ -4316,9 +4462,9 @@ with st.sidebar:
                 key="eval_date",
                 value=pd.Timestamp.today(),
             )
-            eval_type = st.selectbox(
+            eval_type_label = st.selectbox(
                 "Tipo de test",
-                ["CMJ", "SJ", "DJ", "IMTP"],
+                list(FORCEPLATE_UPLOAD_TEST_IDS),
                 key="eval_type",
             )
             eval_file = st.file_uploader(
@@ -4332,6 +4478,7 @@ with st.sidebar:
             st.session_state.sidebar_upload_expanded = True
             eval_athlete = typed_eval_athlete if selected_eval_athlete == "Escribir nuevo..." else selected_eval_athlete
             eval_athlete_name = normalize_athlete_name(eval_athlete)
+            eval_type = FORCEPLATE_UPLOAD_TEST_IDS.get(eval_type_label, eval_type_label)
             if not eval_athlete_name:
                 _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
             elif not eval_file:
@@ -6083,6 +6230,22 @@ with tab_eval:
             current_profile_flag_rows = build_jump_flag_rows(current_profile_row) if current_profile_row is not None else []
             current_profile_feedback_lines = build_jump_feedback_lines(current_profile_row) if current_profile_row is not None else []
         selected_date_text = sel_ts.strftime("%d/%m/%Y") if not pd.isna(sel_ts) else "Sin fecha"
+        imtp_force_time_row = select_force_time_test_row(hist_j, test_id="imtp", selected_date=sel_ts)
+        iso_ham_force_time_row = select_force_time_test_row(
+            hist_j,
+            test_id="iso_push_hamstring",
+            selected_date=sel_ts,
+        )
+        imtp_force_time_summary = summarize_force_time_test(imtp_force_time_row, test_id="imtp")
+        iso_ham_force_time_summary = summarize_force_time_test(
+            iso_ham_force_time_row,
+            test_id="iso_push_hamstring",
+        )
+        imtp_force_time_presence = get_force_time_storage_presence(imtp_force_time_row, test_id="imtp")
+        iso_ham_force_time_presence = get_force_time_storage_presence(
+            iso_ham_force_time_row,
+            test_id="iso_push_hamstring",
+        )
         st.markdown("---")
         render_subsection_header(
             "Evaluacion seleccionada",
@@ -6149,6 +6312,59 @@ with tab_eval:
             use_container_width=False,
             hide_index=True,
         )
+
+        if imtp_force_time_summary.get("has_valid_force_time"):
+            render_force_time_detail_block(
+                title="Detalle force-time IMTP",
+                detail=(
+                    "Perfil por puntos derivado del resumen exportado. Este bloque usa valores exportados "
+                    "por ventana y no representa una curva force-time continua de adquisicion."
+                ),
+                summary=imtp_force_time_summary,
+                interpretation=interpret_imtp_force_time(imtp_force_time_summary),
+                interpretation_kicker="Lectura IMTP force-time",
+            )
+
+        if iso_ham_force_time_summary.get("has_valid_force_time"):
+            render_force_time_detail_block(
+                title="Fuerza isometrica complementaria - ISO Push Hip-Hamstring",
+                detail=(
+                    "Perfil force-time por puntos exportados para una lectura complementaria de la cadena posterior "
+                    "y los flexores de rodilla. Este bloque usa valores exportados por ventana y no representa "
+                    "una curva force-time continua de adquisicion."
+                ),
+                summary=iso_ham_force_time_summary,
+                interpretation=interpret_hamstring_force_time(iso_ham_force_time_summary),
+                interpretation_kicker="Lectura ISO Push Hip-Hamstring force-time",
+            )
+
+        with st.expander("Estado de deteccion force-time", expanded=False):
+            detection_rows = pd.DataFrame(
+                [
+                    {
+                        "Bloque": "IMTP force-time",
+                        "Fecha detectada": _format_eval_date(
+                            imtp_force_time_row.get("Date") if imtp_force_time_row is not None else None
+                        ),
+                        "Force-time valido": "Si" if imtp_force_time_summary.get("has_valid_force_time") else "No",
+                        "Campos no nulos": imtp_force_time_presence.get("non_null_field_count", 0),
+                        "Columnas detectadas": imtp_force_time_presence.get("available_column_count", 0),
+                    },
+                    {
+                        "Bloque": "ISO Push Hip-Hamstring",
+                        "Fecha detectada": _format_eval_date(
+                            iso_ham_force_time_row.get("Date") if iso_ham_force_time_row is not None else None
+                        ),
+                        "Force-time valido": "Si" if iso_ham_force_time_summary.get("has_valid_force_time") else "No",
+                        "Campos no nulos": iso_ham_force_time_presence.get("non_null_field_count", 0),
+                        "Columnas detectadas": iso_ham_force_time_presence.get("available_column_count", 0),
+                    },
+                ]
+            )
+            st.dataframe(detection_rows, use_container_width=False, hide_index=True)
+            iso_columns = iso_ham_force_time_presence.get("available_columns") or []
+            if iso_columns:
+                st.caption("ISO_HAM detectadas: " + ", ".join(str(column) for column in iso_columns))
 
         st.markdown("---")
         render_subsection_header(
