@@ -93,6 +93,21 @@ class ForceTimeDashboardTest(unittest.TestCase):
         self.assertEqual(labels, ["RFD 50", "RFD 100", "RFD 150", "RFD 250"])
         self.assertNotIn("RFD 200", labels)
 
+    def test_dashboard_block_stays_guarded_when_peak_is_missing_but_partial_points_exist(self):
+        summary = summarize_force_time_test(
+            _storage_row(
+                IMTP_N=None,
+                IMTP_force_100_N=1364,
+                IMTP_force_150_N=1620,
+                IMTP_force_200_N=1957,
+            )
+        )
+        source = PAGE_PATH.read_text(encoding="utf-8")
+
+        self.assertFalse(summary["has_valid_force_time"])
+        self.assertIsNotNone(make_force_time_points_chart(get_force_time_points(summary), theme=self.theme))
+        self.assertIn('if imtp_force_time_summary.get("has_valid_force_time")', source)
+
     def test_dashboard_copy_avoids_banned_force_time_language(self):
         source = PAGE_PATH.read_text(encoding="utf-8").lower()
 

@@ -310,6 +310,57 @@ class Phase1ReportingTest(unittest.TestCase):
         )
         self.assertNotIn("IMTP_rfd_200_N_s", headers)
 
+    def test_jump_reports_export_prefers_canonical_imtp_rfd_values_over_legacy_aliases(self):
+        jump_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-03",
+                    "CMJ_cm": 35,
+                    "SJ_cm": 30,
+                    "DJ_cm": 24,
+                    "DJ_tc_ms": 225,
+                    "IMTP_N": 3385,
+                    "IMTP_rfd_100_N_s": 2558,
+                    "RFD_100": 2400,
+                }
+            ]
+        )
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": jump_df,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Ana Lopez",
+            report_audience="profe",
+            include_technical_annex=True,
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=True,
+            include_maxes=False,
+            include_volume=False,
+            include_completion=False,
+        )
+
+        workbook = load_workbook(BytesIO(export_excel(sheets)))
+        eval_sheet = workbook["07_Evaluaciones"]
+        headers = [cell.value for cell in eval_sheet[1]]
+        rfd_col = headers.index("IMTP_rfd_100_N_s") + 1
+
+        self.assertIn("IMTP_rfd_100_N_s", headers)
+        self.assertNotIn("RFD_100", headers)
+        self.assertEqual(eval_sheet.cell(row=2, column=rfd_col).value, 2558)
+
     def test_individual_audiences_require_single_athlete_scope(self):
         state = {
             "rpe_df": None,

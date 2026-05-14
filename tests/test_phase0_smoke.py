@@ -16,6 +16,7 @@ from openpyxl import Workbook
 
 from charts.load_charts import chart_volume_by_tag
 from modules import data_loader
+from modules.force_time_analysis import get_force_time_points, get_rfd_points, summarize_force_time_test
 from modules.jump_analysis import _records_to_jump_df
 
 
@@ -429,6 +430,29 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertNotIn("IMTP_rfd_200_N_s", jump_df.columns)
         self.assertEqual(float(jump_df.iloc[0]["IMTP_force_100_N"]), 1364.0)
         self.assertEqual(float(jump_df.iloc[0]["IMTP_rfd_250_N_s"]), 4493.0)
+
+    def test_imtp_involution_smoke_flow_reaches_summary_and_points_without_rfd_200(self):
+        record = data_loader.parse_forceplate_file(
+            _imtp_involution_bytes(),
+            "IMTP",
+            filename="imtp.xlsx",
+        )
+        record["Athlete"] = "Juan Perez"
+        record["Date"] = pd.Timestamp("2026-04-03")
+
+        jump_df = _records_to_jump_df([record])
+        self.assertEqual(len(jump_df), 1)
+
+        summary = summarize_force_time_test(jump_df.iloc[0], test_id="imtp")
+        force_labels = [point["label"] for point in get_force_time_points(summary)]
+        rfd_labels = [point["label"] for point in get_rfd_points(summary)]
+
+        self.assertTrue(summary["has_valid_force_time"])
+        self.assertTrue(summary["has_valid_rfd"])
+        self.assertEqual(force_labels, ["50 ms", "100 ms", "150 ms", "200 ms", "250 ms", "Peak"])
+        self.assertEqual(rfd_labels, ["RFD 50", "RFD 100", "RFD 150", "RFD 250"])
+        self.assertNotIn("RFD 200", rfd_labels)
+        self.assertNotIn("IMTP_rfd_200_N_s", jump_df.columns)
 
     def test_raw_workouts_reimport_dedupes_by_athlete_date_exercise_and_set_number(self):
         raw_file = NamedBytesIO(

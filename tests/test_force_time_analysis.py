@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 import pandas as pd
 
@@ -11,6 +12,10 @@ from modules.force_time_analysis import (
     interpret_imtp_force_time,
     summarize_force_time_test,
 )
+
+ANALYSIS_PATH = Path(__file__).resolve().parents[1] / "modules" / "force_time_analysis.py"
+DASHBOARD_PATH = Path(__file__).resolve().parents[1] / "pages" / "02_jump_evaluation.py"
+REPORT_PATH = Path(__file__).resolve().parents[1] / "modules" / "report_force_time.py"
 
 
 def _storage_row(**overrides) -> dict[str, object]:
@@ -82,6 +87,33 @@ class ForceTimeAnalysisTest(unittest.TestCase):
                 self.assertEqual(summary["rfd_100_n_s"], 2558)
                 self.assertEqual(summary["display_name"], "IMTP")
 
+    def test_summarize_force_time_test_uses_legacy_rfd_aliases_only_as_fallback(self):
+        legacy_fallback = summarize_force_time_test(
+            _storage_row(
+                IMTP_rfd_50_N_s=None,
+                IMTP_rfd_100_N_s=None,
+                IMTP_rfd_150_N_s=None,
+                IMTP_rfd_250_N_s=None,
+                RFD_50=1200,
+                RFD_100=2400,
+                RFD_150=3200,
+                RFD_250=4100,
+            )
+        )
+        canonical_priority = summarize_force_time_test(
+            _storage_row(
+                IMTP_rfd_100_N_s=2558,
+                RFD_100=2400,
+            )
+        )
+
+        self.assertEqual(legacy_fallback["rfd_50_n_s"], 1200)
+        self.assertEqual(legacy_fallback["rfd_100_n_s"], 2400)
+        self.assertEqual(legacy_fallback["rfd_150_n_s"], 3200)
+        self.assertEqual(legacy_fallback["rfd_250_n_s"], 4100)
+        self.assertEqual(canonical_priority["rfd_100_n_s"], 2558)
+        self.assertNotIn("rfd_200_n_s", legacy_fallback)
+
     def test_asymmetry_direction_prefers_left_when_left_is_higher(self):
         summary = summarize_force_time_test(_storage_row())
 
@@ -101,6 +133,20 @@ class ForceTimeAnalysisTest(unittest.TestCase):
         self.assertEqual(summary["side_difference_n"], 0)
         self.assertIsNone(summary["stronger_side"])
         self.assertIsNone(summary["weaker_side"])
+
+    def test_missing_side_values_clear_directional_summary(self):
+        summary = summarize_force_time_test(
+            _storage_row(
+                IMTP_force_L_N=None,
+                IMTP_force_R_N=1653,
+                IMTP_asym_pct=None,
+            )
+        )
+
+        self.assertIsNone(summary["stronger_side"])
+        self.assertIsNone(summary["weaker_side"])
+        self.assertIsNone(summary["side_difference_n"])
+        self.assertFalse(summary["has_valid_asymmetry"])
 
     def test_percentage_of_peak_uses_peak_force_safely(self):
         summary = summarize_force_time_test(_storage_row())
@@ -140,6 +186,23 @@ class ForceTimeAnalysisTest(unittest.TestCase):
         )
         self.assertTrue(all(point["time_ms"] != 200 for point in points))
 
+    def test_missing_rfd_values_remain_missing_without_creating_fake_points(self):
+        summary = summarize_force_time_test(
+            _storage_row(
+                IMTP_rfd_50_N_s=None,
+                IMTP_rfd_100_N_s=None,
+                IMTP_rfd_150_N_s=3411,
+                IMTP_rfd_250_N_s=None,
+            )
+        )
+        values_by_label = {point["label"]: point["value_n_s"] for point in get_rfd_points(summary)}
+
+        self.assertIsNone(values_by_label["RFD 50"])
+        self.assertIsNone(values_by_label["RFD 100"])
+        self.assertEqual(values_by_label["RFD 150"], 3411)
+        self.assertIsNone(values_by_label["RFD 250"])
+        self.assertEqual(set(values_by_label), {"RFD 50", "RFD 100", "RFD 150", "RFD 250"})
+
     def test_get_asymmetry_summary_changes_interpretation_by_band(self):
         missing = get_asymmetry_summary({"left_force_n": None, "right_force_n": None, "absolute_asymmetry_pct": None})
         low = get_asymmetry_summary({"left_force_n": 1000, "right_force_n": 950, "absolute_asymmetry_pct": 4.9})
@@ -168,6 +231,32 @@ class ForceTimeAnalysisTest(unittest.TestCase):
         self.assertNotIn("curva cruda", combined)
         self.assertNotIn("iso push", combined)
         self.assertEqual(interpretation["basis"], "valid")
+
+    def test_force_time_product_copy_stays_safe_across_analysis_dashboard_and_report_helpers(self):
+        combined = " ".join(
+            path.read_text(encoding="utf-8").lower()
+            for path in (ANALYSIS_PATH, DASHBOARD_PATH, REPORT_PATH)
+        )
+
+        self.assertIn("perfil force-time por puntos", combined)
+        self.assertIn("valores exportados", combined)
+        self.assertIn("cautela", combined)
+        self.assertIn("contextual", combined)
+        self.assertIn("no tomar decisiones fuertes", combined)
+        for forbidden_phrase in (
+            "curva cruda",
+            "raw curve",
+            "riesgo de lesión alto",
+            "riesgo de lesion alto",
+            "lesión probable",
+            "lesion probable",
+            "diagnóstico",
+            "diagnostico",
+            "rfd 200",
+            "imtp_rfd_200_n_s",
+        ):
+            with self.subTest(forbidden_phrase=forbidden_phrase):
+                self.assertNotIn(forbidden_phrase, combined)
 
 
 if __name__ == "__main__":

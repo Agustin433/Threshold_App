@@ -189,6 +189,26 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertEqual(cards[1]["value"], PDF_MISSING_TEXT)
         self.assertEqual(cards[1]["z_score"], PDF_MISSING_TEXT)
 
+    def test_metric_cards_keep_imtp_in_newtons_when_body_mass_is_missing(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-05-01",
+                        "IMTP_N": 3385,
+                    }
+                ]
+            )
+        }
+
+        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        imtp_card = next(card for card in cards if card["title"] == "IMTP")
+
+        self.assertEqual(imtp_card["value"], "3385 N")
+        self.assertEqual(imtp_card["unit_label"], "N")
+        self.assertNotEqual(imtp_card["unit_label"], "N/kg")
+
     def test_metric_cards_can_collapse_when_no_evaluations_exist(self):
         cards = _build_professional_metric_cards({"jump_df": None}, "Ana Lopez")
 

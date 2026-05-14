@@ -116,6 +116,25 @@ class InvolutionParserTest(unittest.TestCase):
         self.assertIn("force_avg_n", result["missing_metrics"])
         self.assertIn("asymmetry_pct", result["missing_metrics"])
 
+    def test_parser_tolerates_partial_force_time_exports_with_missing_and_invalid_cells(self):
+        partial_rows = [
+            row
+            for row in _valid_imtp_rows()
+            if row[0] not in {"Force At 200 (N)", "RFD at 250 (N/s)", "Asimmetry (%)"}
+        ]
+        partial_rows.append(("Force Avg (N)", "invalid number"))
+
+        result = parse_involution_summary_excel(_build_involution_workbook(partial_rows), test_id="imtp")
+
+        self.assertIsNone(result["metrics"]["force_200_n"])
+        self.assertIsNone(result["metrics"]["rfd_250_n_s"])
+        self.assertIsNone(result["metrics"]["asymmetry_pct"])
+        self.assertIsNone(result["metrics"]["force_avg_n"])
+        self.assertIn("force_200_n", result["missing_metrics"])
+        self.assertIn("rfd_250_n_s", result["missing_metrics"])
+        self.assertIn("asymmetry_pct", result["missing_metrics"])
+        self.assertIn("force_avg_n", result["missing_metrics"])
+
     def test_parser_tolerates_asimmetry_and_asymmetry_labels(self):
         for label in ("Asimmetry (%)", "Asymmetry (%)"):
             with self.subTest(label=label):

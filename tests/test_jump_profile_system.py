@@ -22,6 +22,7 @@ from modules.jump_analysis import (
     build_jump_flag_rows,
     build_jump_metric_table,
     build_jump_temporal_context,
+    choose_secondary_quadrant_x_spec,
     compute_baseline_delta,
     compute_swc_delta,
 )
@@ -555,6 +556,72 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertEqual(len(jump_df), 1)
         self.assertEqual(float(jump_df.iloc[0]["IMTP_rfd_100_N_s"]), 2558.0)
+
+    def test_extra_imtp_force_time_columns_are_additive_for_profile_radar_and_quadrants(self):
+        base_input = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta A",
+                    "Date": "2026-04-01",
+                    "CMJ_cm": 38,
+                    "SJ_cm": 32,
+                    "DJ_cm": 28,
+                    "DJ_tc_ms": 220,
+                    "IMTP_N": 2800,
+                    "BW_kg": 78,
+                    "CMJ_propulsive_PF_N": 2600,
+                    "CMJ_rel_impulse": 2.45,
+                    "CMJ_contraction_ms": 520,
+                },
+                {
+                    "Athlete": "Atleta B",
+                    "Date": "2026-04-01",
+                    "CMJ_cm": 30,
+                    "SJ_cm": 32,
+                    "DJ_cm": 25,
+                    "DJ_tc_ms": 180,
+                    "IMTP_N": 3200,
+                    "BW_kg": 85,
+                    "CMJ_propulsive_PF_N": 2500,
+                    "CMJ_rel_impulse": 2.10,
+                    "CMJ_contraction_ms": 650,
+                },
+            ]
+        )
+        enriched_input = base_input.copy()
+        for column, value in {
+            "IMTP_avg_N": 2993,
+            "IMTP_force_L_N": 1731,
+            "IMTP_force_R_N": 1653,
+            "IMTP_asym_pct": 4.5,
+            "IMTP_pretension": 1109,
+            "IMTP_time_max_s": 2.63,
+            "IMTP_time_pull_s": 3.0,
+            "IMTP_force_50_N": 1172,
+            "IMTP_force_100_N": 1364,
+            "IMTP_force_150_N": 1620,
+            "IMTP_force_200_N": 1957,
+            "IMTP_force_250_N": 2232,
+            "IMTP_rfd_50_N_s": 1260,
+            "IMTP_rfd_100_N_s": 2558,
+            "IMTP_rfd_150_N_s": 3411,
+            "IMTP_rfd_250_N_s": 4493,
+        }.items():
+            enriched_input[column] = value
+
+        base_df = _prepare_jump_df(base_input)
+        enriched_df = _prepare_jump_df(enriched_input)
+
+        for column in ("EUR", "DJ_RSI", "DRI", "IMTP_relPF", "Jump_Momentum", "DSI", "IMTP_Z", "NM_Profile"):
+            with self.subTest(column=column):
+                pd.testing.assert_series_equal(base_df[column], enriched_df[column], check_names=False)
+
+        base_radar = chart_radar(base_df.iloc[0], "Atleta A", None, theme=_chart_theme())
+        enriched_radar = chart_radar(enriched_df.iloc[0], "Atleta A", None, theme=_chart_theme())
+
+        self.assertEqual(list(base_radar.data[-1].theta), list(enriched_radar.data[-1].theta))
+        self.assertEqual(choose_secondary_quadrant_x_spec(base_df), choose_secondary_quadrant_x_spec(enriched_df))
+        self.assertNotIn("IMTP_rfd_200_N_s", enriched_df.columns)
 
     def test_dsi_requires_propulsive_force_without_peak_force_fallback(self):
         jump_df = _prepare_jump_df(

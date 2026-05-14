@@ -191,6 +191,18 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertIsNotNone(pdf)
         self.assertEqual(mocked_draw.call_count, 0)
 
+    def test_athlete_pdf_with_partial_imtp_force_time_skips_optional_block_safely(self):
+        state = _athlete_report_state_with_force_time()
+        state["jump_df"] = state["jump_df"].copy()
+        state["jump_df"].loc[0, "IMTP_N"] = None
+
+        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            with patch.object(report_generator, "draw_force_time_test_block", wraps=report_generator.draw_force_time_test_block) as mocked_draw:
+                pdf = generate_visual_report_pdf(state, "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        self.assertEqual(mocked_draw.call_count, 0)
+
     def test_force_time_payload_for_athlete_stays_descriptive(self):
         payload = build_force_time_report_payload(
             _athlete_report_state_with_force_time()["jump_df"].iloc[0],

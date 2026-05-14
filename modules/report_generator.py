@@ -365,6 +365,12 @@ IMTP_FORCE_TIME_EXPORT_COLUMNS = [
     "IMTP_rfd_250_N_s",
     "IMTP_time_pull_s",
 ]
+IMTP_LEGACY_RFD_EXPORT_COLUMNS = [
+    "RFD_50",
+    "RFD_100",
+    "RFD_150",
+    "RFD_250",
+]
 
 
 def normalize_report_audience(audience: str | None) -> str:
@@ -1699,6 +1705,7 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
         )
         return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
     if sheet_name == "Evaluaciones_Saltos":
+        result = result.drop(columns=[col for col in IMTP_LEGACY_RFD_EXPORT_COLUMNS if col in result.columns])
         result = _preferred_columns(
             result,
             [

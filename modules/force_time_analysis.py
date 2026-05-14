@@ -88,6 +88,7 @@ def _pick_metric_value(
     nested_metrics: dict[str, object],
     normalized_field: str,
     storage_mapping: dict[str, str],
+    legacy_storage_aliases: dict[str, str],
 ) -> int | float | None:
     candidates = []
     if normalized_field in nested_metrics:
@@ -98,6 +99,9 @@ def _pick_metric_value(
     storage_field = storage_mapping.get(normalized_field)
     if storage_field:
         candidates.append(source.get(storage_field))
+        for legacy_field, canonical_field in legacy_storage_aliases.items():
+            if canonical_field == storage_field:
+                candidates.append(source.get(legacy_field))
 
     for candidate in candidates:
         numeric = _coerce_number(candidate)
@@ -188,6 +192,11 @@ def summarize_force_time_test(
     storage_mapping = dict(resolved_spec.get("storage_mapping", {})) if resolved_spec.get("storage_mapping") else {}
     if not storage_mapping:
         storage_mapping = get_storage_mapping(resolved_test_id)
+    legacy_storage_aliases = (
+        dict(resolved_spec.get("legacy_storage_aliases", {}))
+        if resolved_spec.get("legacy_storage_aliases")
+        else {}
+    )
     nested_metrics = _nested_metrics(source)
 
     summary: dict[str, object] = {
@@ -196,7 +205,13 @@ def summarize_force_time_test(
     }
 
     for normalized_field, summary_field in NORMALIZED_TO_SUMMARY.items():
-        summary[summary_field] = _pick_metric_value(source, nested_metrics, normalized_field, storage_mapping)
+        summary[summary_field] = _pick_metric_value(
+            source,
+            nested_metrics,
+            normalized_field,
+            storage_mapping,
+            legacy_storage_aliases,
+        )
 
     asymmetry_pct = _coerce_number(summary.get("absolute_asymmetry_pct"))
     summary["absolute_asymmetry_pct"] = abs(float(asymmetry_pct)) if asymmetry_pct is not None else None
