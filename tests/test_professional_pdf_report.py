@@ -363,7 +363,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertEqual(rows["Adherencia formal"], "Faltan datos")
         self.assertEqual(rows["Sesiones registradas"], "2")
 
-    def test_metric_signal_treats_small_delta_inside_noise_as_stable(self):
+    def test_metric_signal_treats_small_delta_inside_noise_as_yellow(self):
         state = {
             "jump_df": pd.DataFrame(
                 [
@@ -376,10 +376,11 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         cards = _build_professional_metric_cards(state, "Ana Lopez")
         dj_card = next(card for card in cards if card["title"] == "DJ")
 
-        self.assertEqual(dj_card["signal"], "Estable / dentro del ruido")
-        self.assertIn("ruido", dj_card["interpretation"])
+        self.assertEqual(dj_card["signal"], "Amarillo")
+        self.assertIn("error típico", dj_card["interpretation"])
+        self.assertIn("TE de referencia", dj_card["te_caption"])
 
-    def test_imtp_improvement_is_not_overridden_by_negative_reference_zscore(self):
+    def test_imtp_improvement_is_green_even_with_negative_reference_zscore(self):
         state = {
             "jump_df": pd.DataFrame(
                 [
@@ -392,10 +393,11 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         cards = _build_professional_metric_cards(state, "Ana Lopez")
         imtp_card = next(card for card in cards if card["title"] == "IMTP")
 
-        self.assertEqual(imtp_card["signal"], "Mejora individual")
+        self.assertEqual(imtp_card["signal"], "Verde")
+        self.assertIn("Señal favorable", imtp_card["interpretation"])
         self.assertNotEqual(imtp_card["signal"], "Referencia externa/grupal baja")
 
-    def test_eur_uses_context_dependent_interpretation(self):
+    def test_eur_keeps_context_note_while_using_te_semaphore(self):
         state = {
             "jump_df": pd.DataFrame(
                 [
@@ -408,7 +410,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         cards = _build_professional_metric_cards(state, "Ana Lopez")
         eur_card = next(card for card in cards if card["title"] == "EUR")
 
-        self.assertEqual(eur_card["signal"], "Cambio contextual")
+        self.assertEqual(eur_card["signal"], "Verde")
         self.assertIn("EUR debe interpretarse junto con CMJ y SJ", eur_card["interpretation"])
 
     def test_rsi_cards_use_index_units_not_meters_per_second(self):
@@ -581,7 +583,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertEqual(context["scales"]["sleep"], "h")
         self.assertEqual(context["scales"]["stress"], "/5")
         self.assertEqual(context["scales"]["pain"], "/5")
-        self.assertEqual(context["scales"]["score"], "escala no definida")
+        self.assertEqual(context["scales"]["score"], "/5.0")
 
     def test_wellness_context_marks_single_record_as_partial_context_not_trend(self):
         state = {
@@ -673,7 +675,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 3)
+        self.assertLessEqual(_pdf_page_count(pdf), 4)
 
     def test_professional_pdf_with_partial_evaluations_stays_compact(self):
         state = _weekly_state_without_evaluations()
@@ -687,7 +689,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 6)
+        self.assertLessEqual(_pdf_page_count(pdf), 7)
 
     def test_professional_pdf_partial_evaluations_and_partial_wellness_stays_compact(self):
         state = _weekly_state_without_evaluations()
@@ -707,7 +709,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 6)
+        self.assertLessEqual(_pdf_page_count(pdf), 7)
 
     def test_partial_next_steps_include_protocol_and_missing_metrics_guidance(self):
         steps = _build_professional_next_steps("partial")

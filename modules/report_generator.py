@@ -203,6 +203,155 @@ PROFESSIONAL_PDF_METRICS = (
         "direction": PROFESSIONAL_METRIC_DIRECTIONS["IMTP"],
     },
 )
+PROFESSIONAL_TE_REFERENCES = {
+    "CMJ_cm": {"value": 1.5, "unit": "cm"},
+    "SJ_cm": {"value": 1.5, "unit": "cm"},
+    "DJ_cm": {"value": 0.4, "unit": "cm"},
+    "DJ_RSI": {"value": 0.031, "unit": "m/s"},
+    "DRI": {"value": 0.05, "unit": "DRI"},
+    "DJ_tc_ms": {"value": 4.0, "unit": "ms"},
+    "mRSI": {"value": 0.05, "unit": "mRSI"},
+    "EUR": {"value": 0.021, "unit": "ratio"},
+    "IMTP_N": {"value": 30.0, "unit": "N"},
+}
+
+
+def _report_sample_suffix(
+    n: int | None,
+    *,
+    singular: str = "día",
+    plural: str = "días",
+) -> str:
+    if n is None or n <= 0:
+        return ""
+    unit = singular if int(n) == 1 else plural
+    return f"(n={int(n)} {unit})"
+
+
+def _report_sample_warning(n: int | None) -> str:
+    if n is None or n <= 0:
+        return ""
+    if int(n) == 1:
+        return "⚠ Interpretación limitada — basada en un solo registro."
+    if int(n) < 3:
+        return f"⚠ Datos insuficientes para tendencia confiable (n={int(n)})."
+    return ""
+
+
+def _report_wellness_score_label(value: float | None) -> dict[str, object]:
+    if value is None or pd.isna(value):
+        return {
+            "score": float("nan"),
+            "label": PDF_MISSING_TEXT,
+            "interpretation": PDF_MISSING_TEXT,
+        }
+    score = max(1.0, min(5.0, float(value)))
+    if score >= 4.0:
+        return {
+            "score": score,
+            "label": "Óptimo",
+            "interpretation": "Bienestar favorable para progresar.",
+        }
+    if score >= 3.0:
+        return {
+            "score": score,
+            "label": "Aceptable",
+            "interpretation": "Progresar con monitoreo.",
+        }
+    if score >= 2.0:
+        return {
+            "score": score,
+            "label": "Atención",
+            "interpretation": "Progresar conservadoramente — auditar sueño y estrés.",
+        }
+    return {
+        "score": score,
+        "label": "Crítico",
+        "interpretation": "No aumentar carga hasta mejorar wellness.",
+    }
+
+
+def _report_wellness_source_column(frame: pd.DataFrame, *candidates: str) -> str | None:
+    for candidate in candidates:
+        if candidate in frame.columns:
+            return candidate
+    return None
+
+
+def _normalize_report_wellness_component(series: pd.Series, *, source_col: str) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    valid = numeric.dropna()
+    if valid.empty:
+        return numeric
+
+    # The PDF score is fixed to a 1-5 scale. Legacy exports may still arrive as
+    # sleep hours or 0-10 questionnaire values, so we normalize only for the
+    # report-level score while preserving raw component means elsewhere.
+    if source_col == "Sueno_hs" and float(valid.max()) > 5.0:
+        numeric = numeric / 2.0
+    elif float(valid.max()) > 5.0:
+        numeric = numeric / 2.0
+    return numeric.clip(lower=1.0, upper=5.0)
+
+
+def _report_wellness_score_series(frame: pd.DataFrame | None) -> pd.Series:
+    if frame is None or frame.empty:
+        return pd.Series(dtype="float64")
+
+    score_components: dict[str, pd.Series] = {}
+    sleep_col = _report_wellness_source_column(frame, "Sueno", "Sueno_hs")
+    if sleep_col is not None:
+        score_components["Sueno"] = _normalize_report_wellness_component(frame[sleep_col], source_col=sleep_col)
+    if "Estres" in frame.columns:
+        stress_raw = pd.to_numeric(frame["Estres"], errors="coerce")
+        stress_norm = _normalize_report_wellness_component(frame["Estres"], source_col="Estres")
+        if not stress_raw.dropna().empty and float(stress_raw.dropna().max()) > 5.0:
+            stress_norm = ((11.0 - stress_raw) // 2.0).clip(lower=1.0, upper=5.0)
+        else:
+            stress_norm = (6.0 - stress_norm).clip(lower=1.0, upper=5.0)
+        score_components["Estres"] = stress_norm
+    if "Dolor" in frame.columns:
+        pain_raw = pd.to_numeric(frame["Dolor"], errors="coerce")
+        pain_norm = _normalize_report_wellness_component(frame["Dolor"], source_col="Dolor")
+        if not pain_raw.dropna().empty and float(pain_raw.dropna().max()) > 5.0:
+            pain_norm = ((11.0 - pain_raw) // 2.0).clip(lower=1.0, upper=5.0)
+        else:
+            pain_norm = (6.0 - pain_norm).clip(lower=1.0, upper=5.0)
+        score_components["Dolor"] = pain_norm
+
+    if not score_components:
+        return pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
+
+    score_df = pd.DataFrame(score_components, index=frame.index)
+    return score_df.mean(axis=1).clip(lower=1.0, upper=5.0)
+
+
+def _professional_metric_te_reference(spec: dict[str, object], value_col: str) -> dict[str, object] | None:
+    title = str(spec.get("title", "")).strip()
+    ref = PROFESSIONAL_TE_REFERENCES.get(value_col)
+    if ref is not None:
+        return ref
+    title_fallback = {
+        "CMJ": "CMJ_cm",
+        "SJ": "SJ_cm",
+        "DJ": "DJ_cm",
+        "RSI": "DJ_RSI",
+        "Contact Time": "DJ_tc_ms",
+        "EUR": "EUR",
+        "mRSI": "mRSI",
+        "IMTP": "IMTP_N",
+    }
+    fallback_key = title_fallback.get(title)
+    if fallback_key is None:
+        return None
+    return PROFESSIONAL_TE_REFERENCES.get(fallback_key)
+
+
+def _professional_metric_te_caption(spec: dict[str, object], value_col: str) -> str:
+    reference = _professional_metric_te_reference(spec, value_col)
+    if reference is None:
+        return PDF_MISSING_TEXT
+    return f"TE de referencia: ± {reference['value']:g} {reference['unit']} (zona de ruido de medición)"
 
 IMTP_FORCE_TIME_EXPORT_COLUMNS = [
     "IMTP_force_50_N",
@@ -382,9 +531,12 @@ def _recent_wellness_mean(state: dict[str, pd.DataFrame | None], athlete: str) -
     if wdf is None or wdf.empty or "Athlete" not in wdf.columns:
         return None
     athlete_df = wdf[wdf["Athlete"] == athlete].sort_values("Date").tail(3)
-    if athlete_df.empty or "Wellness_Score" not in athlete_df.columns:
+    if athlete_df.empty:
         return None
-    return round(float(athlete_df["Wellness_Score"].mean()), 1)
+    score_series = _report_wellness_score_series(athlete_df).dropna()
+    if score_series.empty:
+        return None
+    return round(float(score_series.mean()), 1)
 
 
 def _latest_jump_row(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.Series | None:
@@ -647,16 +799,18 @@ def _acwr_series(state: dict[str, pd.DataFrame | None], athlete: str) -> list[tu
 
 def _wellness_series(state: dict[str, pd.DataFrame | None], athlete: str) -> list[tuple[str, float]]:
     wdf = state.get("wellness_df")
-    if wdf is None or wdf.empty or "Athlete" not in wdf.columns or "Wellness_Score" not in wdf.columns:
+    if wdf is None or wdf.empty or "Athlete" not in wdf.columns:
         return []
     athlete_df = (
         wdf[wdf["Athlete"] == athlete]
-        .dropna(subset=["Wellness_Score"])
         .sort_values("Date")
         .tail(10)
     )
+    athlete_df = athlete_df.copy()
+    athlete_df["__report_wellness_score"] = _report_wellness_score_series(athlete_df)
+    athlete_df = athlete_df.dropna(subset=["__report_wellness_score"])
     return [
-        (pd.to_datetime(row["Date"]).strftime("%d/%m"), float(row["Wellness_Score"]))
+        (pd.to_datetime(row["Date"]).strftime("%d/%m"), float(row["__report_wellness_score"]))
         for _, row in athlete_df.iterrows()
     ]
 
@@ -3365,7 +3519,8 @@ def collect_report_plotly_figures(
 
     wdf = state.get("wellness_df")
     if wdf is not None and not wdf.empty and "Athlete" in wdf.columns:
-        athlete_wdf = wdf[wdf["Athlete"] == effective_athlete].sort_values("Date")
+        athlete_wdf = wdf[wdf["Athlete"] == effective_athlete].sort_values("Date").copy()
+        athlete_wdf["Wellness_Score"] = _report_wellness_score_series(athlete_wdf)
         if not athlete_wdf.empty and len(_wellness_series(state, effective_athlete)) >= 2:
             figures.append(
                 {
@@ -3437,6 +3592,7 @@ def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], a
         athlete_wellness = wellness_df[_professional_athlete_mask(wellness_df["Athlete"], athlete)].copy()
         if not athlete_wellness.empty and "Date" in athlete_wellness.columns:
             athlete_wellness = athlete_wellness.sort_values("Date")
+            athlete_wellness["Wellness_Score"] = _report_wellness_score_series(athlete_wellness)
             try:
                 payloads["wellness"] = {
                     "slug": "wellness",
@@ -3663,25 +3819,37 @@ def _professional_delta_payload(
     history: pd.DataFrame,
     latest_row: pd.Series | None,
     value_col: str,
+    spec: dict[str, object] | None = None,
 ) -> dict[str, object]:
     if latest_row is None or history.empty or value_col not in history.columns:
         return {}
-    try:
-        delta_df = compute_swc_delta(history, latest_row.get("Date"), variables=[value_col])
-    except Exception:
+
+    metric_rows = history[["Date", value_col]].copy()
+    metric_rows["Date"] = pd.to_datetime(metric_rows["Date"], errors="coerce").dt.normalize()
+    metric_rows[value_col] = pd.to_numeric(metric_rows[value_col], errors="coerce")
+    metric_rows = metric_rows.dropna(subset=["Date", value_col]).sort_values("Date")
+    if metric_rows.empty:
         return {}
-    if delta_df.empty:
-        return {}
-    row = delta_df[delta_df["Variable"].astype(str).eq(value_col)].head(1)
-    if row.empty:
-        row = delta_df.head(1)
-    payload = row.iloc[0].to_dict()
+
+    latest_date = pd.to_datetime(latest_row.get("Date"), errors="coerce")
+    if pd.isna(latest_date):
+        latest_date = metric_rows.iloc[-1]["Date"]
+    latest_date = pd.Timestamp(latest_date).normalize()
+
+    latest_matches = metric_rows[metric_rows["Date"].eq(latest_date)]
+    current_value = _coerce_float(latest_matches.iloc[-1].get(value_col)) if not latest_matches.empty else _coerce_float(metric_rows.iloc[-1].get(value_col))
+    previous_rows = metric_rows[metric_rows["Date"] < latest_date]
+    previous_value = _coerce_float(previous_rows.iloc[-1].get(value_col)) if not previous_rows.empty else None
+    delta_abs = (current_value - previous_value) if current_value is not None and previous_value is not None else None
+    delta_pct = ((delta_abs / previous_value) * 100) if delta_abs is not None and previous_value not in [None, 0] else None
+    te_reference = _professional_metric_te_reference(spec or {}, value_col) if spec is not None else None
+
     return {
-        "threshold_abs": _coerce_float(payload.get("Threshold_abs")),
-        "threshold_method": safe_value(payload.get("Threshold_method"), fallback=""),
-        "temporal_signal": safe_value(payload.get("Signal")),
-        "delta_abs": _coerce_float(payload.get("Delta_abs")),
-        "delta_pct": _coerce_float(payload.get("Delta_pct")),
+        "threshold_abs": _coerce_float(te_reference.get("value")) if te_reference is not None else None,
+        "threshold_method": "TE de referencia" if te_reference is not None else "",
+        "temporal_signal": PDF_MISSING_TEXT,
+        "delta_abs": delta_abs,
+        "delta_pct": delta_pct,
     }
 
 
@@ -3707,28 +3875,23 @@ def _professional_metric_signal(
     spec: dict[str, object],
     threshold_abs: float | None = None,
 ) -> tuple[str, str, str]:
-    if current_value is None:
-        return PDF_MISSING_TEXT, "#708C9F", "missing"
+    if current_value is None or previous_value is None:
+        return "Sin dato", "#708C9F", "missing"
+    delta = _coerce_float(current_value - previous_value)
+    if delta is None:
+        return "Sin dato", "#708C9F", "missing"
+    threshold = _coerce_float(threshold_abs)
+    if threshold is None or threshold <= 0:
+        return PDF_MISSING_TEXT, "#708C9F", "fallback_no_te"
+    if abs(delta) <= threshold:
+        return "Amarillo", "#C4A464", "typical_error"
     direction = _professional_metric_direction(spec)
-    if previous_value is not None:
-        delta = current_value - previous_value
-        if threshold_abs is not None and abs(delta) <= abs(threshold_abs):
-            return "Estable / dentro del ruido", "#708C9F", "individual_noise"
-        if abs(delta) < 1e-9:
-            return "Estable", "#C4A464", "individual"
-        if direction == "context_dependent":
-            return "Cambio contextual", "#C4A464", "individual_context"
-        improved = delta > 0 if direction == "higher_is_better" else delta < 0
-        if threshold_abs is None:
-            return ("Mejora leve", "#2F6B52", "individual") if improved else ("Caída leve", "#B87445", "individual")
-        return ("Mejora individual", "#2F6B52", "individual") if improved else ("Caída relevante", "#B56B73", "individual")
-    if z_value is not None:
-        if z_value >= 0.5:
-            return "Referencia externa/grupal favorable", "#2F6B52", "reference"
-        if z_value <= -0.5:
-            return "Referencia externa/grupal baja", "#B56B73", "reference"
-        return "Referencia externa/grupal intermedia", "#C4A464", "reference"
-    return PDF_MISSING_TEXT, "#708C9F", "missing"
+    favorable = delta > 0
+    if direction == "lower_is_better":
+        favorable = delta < 0
+    if favorable:
+        return "Verde", "#2F6B52", "typical_error"
+    return "Rojo", "#B56B73", "typical_error"
 
 
 def _professional_metric_interpretation(
@@ -3737,23 +3900,27 @@ def _professional_metric_interpretation(
     spec: dict[str, object] | None = None,
     basis: str = "",
 ) -> str:
-    if current_value is None or label == PDF_MISSING_TEXT:
+    if current_value is None or label in {PDF_MISSING_TEXT, "Sin dato"}:
         return "Faltan datos para generar una interpretación confiable."
+    if basis == "fallback_no_te":
+        return "Sin TE de referencia; interpretar con cautela."
     title = str((spec or {}).get("title", ""))
+    base_message = ""
+    if label == "Amarillo":
+        base_message = "Cambio no concluyente. Dentro del TE/error típico; no tomar decisiones fuertes con este dato aislado."
+    elif label == "Verde":
+        base_message = "Señal favorable. Cambio > TE en dirección favorable."
+    elif label == "Rojo":
+        base_message = "Señal desfavorable. Cambio > TE en dirección desfavorable; revisar contexto antes de modificar carga."
     if title == "EUR":
-        return (
+        eur_note = (
             "EUR debe interpretarse junto con CMJ y SJ; un aumento puede reflejar mejor uso del "
             "contramovimiento o menor rendimiento relativo del SJ."
         )
-    if label == "Estable / dentro del ruido":
-        return "Cambio dentro de la zona de ruido/CV/TE; evitar leerlo como mejora o caída real."
-    if label in {"Mejora individual", "Mejora leve"}:
-        return "Señal favorable frente a la evaluación previa; confirmar progresión con carga, wellness y contexto."
-    if label in {"Caída relevante", "Caída leve"}:
-        return "Señal negativa frente a la evaluación previa; revisar fatiga, técnica, dolor y prioridad del bloque."
-    if basis == "reference":
-        return "Semáforo basado en referencia externa/grupal, no en cambio individual."
-    return "Señal estable o intermedia; decidir junto con carga, wellness y contexto deportivo."
+        return f"{base_message}. {eur_note}" if base_message else eur_note
+    if base_message:
+        return base_message
+    return "Faltan datos para interpretar el cambio frente a la evaluación previa."
 
 
 def _professional_quadrant_location(selected: dict[str, object] | None, spec: dict[str, object]) -> str:
@@ -3909,7 +4076,7 @@ def _build_professional_metric_cards(
         current_value = _coerce_float(latest_row.get(value_col)) if latest_row is not None else None
         previous_value = _coerce_float(previous_row.get(value_col)) if previous_row is not None else None
         z_value = _professional_z_value(latest_row, spec)
-        delta_payload = _professional_delta_payload(history, latest_row, value_col)
+        delta_payload = _professional_delta_payload(history, latest_row, value_col, spec)
         threshold_abs = _coerce_float(delta_payload.get("threshold_abs"))
         threshold_method = delta_payload.get("threshold_method")
         delta_pct = _coerce_float(delta_payload.get("delta_pct"))
@@ -3934,6 +4101,7 @@ def _build_professional_metric_cards(
                 "z_score": f"{z_value:+.2f}" if z_value is not None else PDF_MISSING_TEXT,
                 "best": _professional_best_text(metric_rows[value_col] if not metric_rows.empty else pd.Series(dtype=float), spec, value_col),
                 "threshold": _professional_threshold_text(threshold_abs, threshold_method, spec, value_col),
+                "te_caption": _professional_metric_te_caption(spec, value_col),
                 "large_change_warning": _professional_large_change_warning(spec, delta_pct),
                 "signal": signal,
                 "signal_color": color,
@@ -3972,22 +4140,16 @@ def _build_professional_evolution_sections(
         signal = PDF_MISSING_TEXT
         large_change_warning = ""
         if len(points) >= 2:
-            latest_date = points[-1]["date"]
-            try:
-                delta_df = compute_swc_delta(history, latest_date, variables=[value_col])
-            except Exception:
-                delta_df = pd.DataFrame()
-            if not delta_df.empty:
-                row = delta_df.iloc[0]
-                current_value = _coerce_float(row.get("Valor_actual"))
-                previous_value = _coerce_float(row.get("Valor_anterior"))
-                delta_text = _professional_delta_text(current_value, previous_value, spec, value_col)
-                large_change_warning = _professional_large_change_warning(spec, _coerce_float(row.get("Delta_pct")))
-                threshold = _coerce_float(row.get("Threshold_abs"))
-                method = safe_value(row.get("Threshold_method"), fallback="")
-                if threshold is not None:
-                    threshold_text = _professional_threshold_text(threshold, method, spec, value_col)
-                signal = safe_value(row.get("Signal"))
+            current_value = _coerce_float(points[-1].get("value"))
+            previous_value = _coerce_float(points[-2].get("value"))
+            delta_payload = _professional_delta_payload(history, pd.Series({"Date": points[-1]["date"]}), value_col, spec)
+            delta_text = _professional_delta_text(current_value, previous_value, spec, value_col)
+            large_change_warning = _professional_large_change_warning(spec, _coerce_float(delta_payload.get("delta_pct")))
+            threshold = _coerce_float(delta_payload.get("threshold_abs"))
+            method = safe_value(delta_payload.get("threshold_method"), fallback="")
+            if threshold is not None:
+                threshold_text = _professional_threshold_text(threshold, method, spec, value_col)
+            signal, _, _ = _professional_metric_signal(current_value, previous_value, None, spec, threshold)
 
         if len(points) < 2:
             state_label = "missing"
@@ -4012,7 +4174,7 @@ def _build_professional_evolution_sections(
                 "large_change_warning": large_change_warning,
                 "message": message,
                 "what": "Evolución entre evaluaciones de perfil físico separadas por ventanas de 6-8 semanas.",
-                "meaning": f"Cambio vs evaluación previa: {delta_text}. Zona de ruido/CV/TE: {threshold_text}.",
+                "meaning": f"Cambio vs evaluación previa: {delta_text}. TE de referencia: {threshold_text}.",
                 "decision": "Usar la dirección del cambio para ajustar prioridades del siguiente bloque, no como readiness semanal.",
             }
         )
@@ -4147,6 +4309,7 @@ def _build_professional_training_context(
     athlete: str,
 ) -> dict[str, object]:
     rows: list[tuple[str, str]] = []
+    rpe_df = state.get("rpe_df")
     completion = _professional_completion_snapshot(state, athlete)
     weekly_summaries = _report_weekly_summaries(state)
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load"))
@@ -4164,6 +4327,18 @@ def _build_professional_training_context(
     sessions_count = _coerce_float(load_row.get("sessions_count"))
     weekly_srpe = _coerce_float(load_row.get("weekly_sRPE"))
     sessions_text = str(int(sessions_count)) if sessions_count is not None else PDF_MISSING_TEXT
+    weekly_srpe_days = 0
+    if not weekly_load.empty and "week_start" in weekly_load.columns:
+        target_week = pd.to_datetime(load_row.get("week_start"), errors="coerce")
+        if pd.notna(target_week) and rpe_df is not None and not rpe_df.empty and {"Athlete", "Date", "sRPE"}.issubset(rpe_df.columns):
+            rpe_source = rpe_df.copy()
+            rpe_source["Date"] = pd.to_datetime(rpe_source["Date"], errors="coerce").dt.normalize()
+            rpe_source["sRPE"] = pd.to_numeric(rpe_source["sRPE"], errors="coerce")
+            rpe_source = rpe_source.dropna(subset=["Date", "sRPE"])
+            rpe_source = rpe_source[_professional_athlete_mask(rpe_source["Athlete"], athlete)]
+            week_start = pd.Timestamp(target_week).normalize()
+            week_end = week_start + pd.Timedelta(days=6)
+            weekly_srpe_days = int(rpe_source[(rpe_source["Date"] >= week_start) & (rpe_source["Date"] <= week_end)]["Date"].nunique())
     if completion.get("numeric") is not None:
         adherence_text = safe_value(completion.get("value"))
     elif sessions_count is not None:
@@ -4172,7 +4347,11 @@ def _build_professional_training_context(
         adherence_text = PDF_MISSING_TEXT
     rows.append(("Adherencia formal", adherence_text))
     rows.append(("Sesiones registradas", sessions_text))
-    rows.append(("sRPE semanal", f"{weekly_srpe:.0f} UA" if weekly_srpe is not None else PDF_MISSING_TEXT))
+    weekly_srpe_value = f"{weekly_srpe:.0f} UA" if weekly_srpe is not None else PDF_MISSING_TEXT
+    weekly_srpe_suffix = _report_sample_suffix(weekly_srpe_days)
+    if weekly_srpe_value != PDF_MISSING_TEXT and weekly_srpe_suffix:
+        weekly_srpe_value = f"{weekly_srpe_value}  {weekly_srpe_suffix}"
+    rows.append(("sRPE semanal", weekly_srpe_value))
 
     load_evolution = PDF_MISSING_TEXT
     if not weekly_load.empty and "weekly_sRPE" in weekly_load.columns:
@@ -4304,6 +4483,8 @@ def _build_professional_internal_load_context(
     if sessions_registered == 0 and complete_week_sessions is not None:
         sessions_registered = int(complete_week_sessions)
     current_week_total = sum(float(point.get("value") or 0) for point in current_week_points) if current_week_points else current_week_weekly_value
+    last_week_daily_mean = (total_last_week / days_with_data) if total_last_week is not None and days_with_data > 0 else None
+    current_week_daily_mean = (current_week_total / current_week_days) if current_week_total is not None and current_week_days > 0 else None
     analysis_scope = "last_complete_week" if total_last_week is not None else "current_week_partial" if current_week_total is not None else "missing"
     weekly_change = None
     weekly_change_pct = None
@@ -4333,7 +4514,10 @@ def _build_professional_internal_load_context(
         "message": "" if has_daily or has_weekly or current_week_total is not None else "Faltan datos suficientes para analizar la última semana completa.",
         "missing_parts": missing_parts,
         "last_week_total": total_last_week,
+        "last_week_daily_mean": last_week_daily_mean,
+        "last_week_days_with_data": days_with_data if has_daily else 0,
         "current_week_total": current_week_total,
+        "current_week_daily_mean": current_week_daily_mean,
         "current_week_sessions": current_week_sessions,
         "current_week_days": current_week_days,
         "current_week_partial_message": (
@@ -4433,7 +4617,7 @@ def _professional_wellness_scales(frame: pd.DataFrame) -> dict[str, str]:
         "sleep": "h",
         "stress": _professional_infer_response_scale(frame["Estres"]) if "Estres" in frame.columns else "Escala no definida",
         "pain": _professional_infer_response_scale(frame["Dolor"]) if "Dolor" in frame.columns else "Escala no definida",
-        "score": "escala no definida",
+        "score": "/5.0",
     }
 
 
@@ -4451,17 +4635,19 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             "analysis_scope": "missing",
             "analysis_title": "Wellness - última semana completa",
             "trend_allowed": False,
-            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "escala no definida"},
+            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "/5.0"},
             "message": "Faltan datos de wellness para este período.",
         }
     result = wdf.copy()
     if "Date" in result.columns:
         result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
     result = result[_professional_athlete_mask(result["Athlete"], athlete)]
-    numeric_cols = ["Sueno_hs", "Estres", "Dolor", "Wellness_Score"]
+    sleep_col = _report_wellness_source_column(result, "Sueno", "Sueno_hs")
+    numeric_cols = [column for column in [sleep_col, "Estres", "Dolor"] if column]
     for column in numeric_cols:
         if column in result.columns:
             result[column] = pd.to_numeric(result[column], errors="coerce")
+    result["__report_wellness_score"] = _report_wellness_score_series(result)
     if result.empty:
         return {
             "state": "missing",
@@ -4474,7 +4660,7 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             "analysis_scope": "missing",
             "analysis_title": "Wellness - última semana completa",
             "trend_allowed": False,
-            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "escala no definida"},
+            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "/5.0"},
             "message": "Faltan datos de wellness para este período.",
         }
     rows_count = int(len(result))
@@ -4507,28 +4693,33 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             day_df = week_df[week_df["Date"].eq(date)]
             point = {"label": date.strftime("%d/%m")}
             for source_col, output_col in [
-                ("Sueno_hs", "sleep"),
+                (sleep_col, "sleep"),
                 ("Estres", "stress"),
                 ("Dolor", "pain"),
-                ("Wellness_Score", "score"),
+                ("__report_wellness_score", "score"),
             ]:
                 point[output_col] = (
                     float(day_df[source_col].mean())
-                    if source_col in day_df.columns and day_df[source_col].notna().any()
+                    if source_col and source_col in day_df.columns and day_df[source_col].notna().any()
                     else None
                 )
             points.append(point)
         summary: dict[str, object] = {}
         for source_col, output_col in [
-            ("Sueno_hs", "sleep_mean"),
+            (sleep_col, "sleep_mean"),
             ("Estres", "stress_mean"),
             ("Dolor", "pain_mean"),
-            ("Wellness_Score", "score_mean"),
+            ("__report_wellness_score", "score_mean"),
         ]:
             summary[output_col] = (
                 float(week_df[source_col].mean())
-                if source_col in week_df.columns and week_df[source_col].notna().any()
+                if source_col and source_col in week_df.columns and week_df[source_col].notna().any()
                 else None
+            )
+            summary[output_col.replace("_mean", "_n")] = (
+                int(week_df[source_col].notna().sum())
+                if source_col and source_col in week_df.columns
+                else 0
             )
         summary["days"] = int(week_df["Date"].nunique()) if not week_df.empty else 0
         return points, summary
@@ -4537,44 +4728,108 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
         daily_points, last_week_summary = build_week_snapshot(complete_week_start)
         current_week_points, current_week_summary = build_week_snapshot(current_week_start, end_date=today)
 
-    weekly_summaries = _report_weekly_summaries(state)
-    weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness"))
     weekly_points: list[dict[str, object]] = []
-    if not weekly_wellness.empty and {"Athlete", "week_start"}.issubset(weekly_wellness.columns):
-        weekly_wellness = weekly_wellness[_professional_athlete_mask(weekly_wellness["Athlete"], athlete)].copy()
-        weekly_wellness["week_start"] = pd.to_datetime(weekly_wellness["week_start"], errors="coerce").dt.normalize()
-        for column in ["Sueno_mean", "Estres_mean", "Dolor_mean", "Wellness_mean"]:
-            if column in weekly_wellness.columns:
-                weekly_wellness[column] = pd.to_numeric(weekly_wellness[column], errors="coerce")
-        weekly_wellness = weekly_wellness[weekly_wellness["week_start"] < current_week_start]
-        weekly_wellness = weekly_wellness.dropna(subset=["week_start"]).sort_values("week_start").tail(16)
-        weekly_points = [
-            {
-                "label": pd.Timestamp(row["week_start"]).strftime("%d/%m"),
-                "week_start": pd.Timestamp(row["week_start"]).normalize(),
-                "sleep": _coerce_float(row.get("Sueno_mean")),
-                "stress": _coerce_float(row.get("Estres_mean")),
-                "pain": _coerce_float(row.get("Dolor_mean")),
-                "score": _coerce_float(row.get("Wellness_mean")),
-                "days": _coerce_float(row.get("wellness_days")),
+    if "Date" in result.columns and result["Date"].notna().any():
+        weekly_source = result.dropna(subset=["Date"]).copy()
+        weekly_source["week_start"] = weekly_source["Date"] - pd.to_timedelta(weekly_source["Date"].dt.weekday, unit="D")
+        weekly_source = weekly_source[weekly_source["week_start"] < current_week_start]
+        weekly_point_map: dict[pd.Timestamp, dict[str, object]] = {}
+        if not weekly_source.empty:
+            aggregation_kwargs: dict[str, tuple[str, str | object]] = {
+                "stress": ("Estres", "mean"),
+                "stress_n": ("Estres", lambda s: int(pd.Series(s).notna().sum())),
+                "pain": ("Dolor", "mean"),
+                "pain_n": ("Dolor", lambda s: int(pd.Series(s).notna().sum())),
+                "score": ("__report_wellness_score", "mean"),
+                "score_n": ("__report_wellness_score", lambda s: int(pd.Series(s).notna().sum())),
+                "days": ("Date", lambda s: int(pd.to_datetime(pd.Series(s), errors="coerce").dropna().dt.normalize().nunique())),
             }
-            for _, row in weekly_wellness.iterrows()
-        ]
+            if sleep_col and sleep_col in weekly_source.columns:
+                aggregation_kwargs["sleep"] = (sleep_col, "mean")
+                aggregation_kwargs["sleep_n"] = (sleep_col, lambda s: int(pd.Series(s).notna().sum()))
+            weekly_wellness = (
+                weekly_source.groupby("week_start", as_index=False)
+                .agg(**aggregation_kwargs)
+                .sort_values("week_start")
+                .tail(16)
+            )
+            weekly_points = []
+            for _, row in weekly_wellness.iterrows():
+                week_start = pd.Timestamp(row["week_start"]).normalize()
+                point = {
+                    "label": week_start.strftime("%d/%m"),
+                    "week_start": week_start,
+                    "sleep": _coerce_float(row.get("sleep")),
+                    "sleep_n": _coerce_float(row.get("sleep_n")),
+                    "stress": _coerce_float(row.get("stress")),
+                    "stress_n": _coerce_float(row.get("stress_n")),
+                    "pain": _coerce_float(row.get("pain")),
+                    "pain_n": _coerce_float(row.get("pain_n")),
+                    "score": _coerce_float(row.get("score")),
+                    "score_n": _coerce_float(row.get("score_n")),
+                    "days": _coerce_float(row.get("days")),
+                }
+                weekly_points.append(point)
+                weekly_point_map[week_start] = point
+
+        weekly_summaries = _report_weekly_summaries(state)
+        weekly_summary_source = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness"))
+        if not weekly_summary_source.empty and "Athlete" in weekly_summary_source.columns:
+            weekly_summary_source = weekly_summary_source[_professional_athlete_mask(weekly_summary_source["Athlete"], athlete)].copy()
+        if not weekly_summary_source.empty and "week_start" in weekly_summary_source.columns:
+            weekly_summary_source = weekly_summary_source.sort_values("week_start")
+            weekly_summary_source = weekly_summary_source[
+                pd.to_datetime(weekly_summary_source["week_start"], errors="coerce").dt.normalize() < current_week_start
+            ].tail(16)
+            summary_points: list[dict[str, object]] = []
+            for _, row in weekly_summary_source.iterrows():
+                week_start = pd.to_datetime(row.get("week_start"), errors="coerce")
+                if pd.isna(week_start):
+                    continue
+                week_start = pd.Timestamp(week_start).normalize()
+                days_value = _coerce_float(row.get("wellness_days"))
+                fallback_frame = pd.DataFrame(
+                    [
+                        {
+                            "Sueno_hs": row.get("Sueno_mean"),
+                            "Estres": row.get("Estres_mean"),
+                            "Dolor": row.get("Dolor_mean"),
+                        }
+                    ]
+                )
+                fallback_score_series = _report_wellness_score_series(fallback_frame).dropna()
+                fallback_score = float(fallback_score_series.iloc[0]) if not fallback_score_series.empty else None
+                summary_point = {
+                    "label": week_start.strftime("%d/%m"),
+                    "week_start": week_start,
+                    "sleep": _coerce_float(row.get("Sueno_mean")),
+                    "sleep_n": days_value,
+                    "stress": _coerce_float(row.get("Estres_mean")),
+                    "stress_n": days_value,
+                    "pain": _coerce_float(row.get("Dolor_mean")),
+                    "pain_n": days_value,
+                    "score": fallback_score,
+                    "score_n": days_value,
+                    "days": days_value,
+                }
+                summary_points.append(weekly_point_map.get(week_start, summary_point))
+            if summary_points:
+                weekly_points = summary_points
 
     has_any_metric = any(
         result[column].notna().any()
-        for column in numeric_cols
+        for column in [*numeric_cols, "__report_wellness_score"]
         if column in result.columns
     )
     missing_variables = [
         label
         for column, label in [
-            ("Sueno_hs", "sueño"),
+            (sleep_col, "sueño"),
             ("Estres", "estrés"),
             ("Dolor", "dolor"),
-            ("Wellness_Score", "wellness score"),
+            ("__report_wellness_score", "wellness score"),
         ]
-        if column not in result.columns or not result[column].notna().any()
+        if not column or column not in result.columns or not result[column].notna().any()
     ]
     last_week_days = int(_coerce_float(last_week_summary.get("days")) or 0)
     current_week_days = int(_coerce_float(current_week_summary.get("days")) or 0)
@@ -4764,7 +5019,7 @@ def _build_professional_integrated_interpretation(
         wellness_comments.append(f"El estrés cambió {stress_delta:+.1f} respecto a la semana previa y puede sumar carga contextual al bloque.")
     if pain_delta is not None and pain_delta > 0.2:
         wellness_comments.append(f"El dolor cambió {pain_delta:+.1f} respecto a la semana previa; conviene controlar volumen, densidad y selección de ejercicios.")
-    score_label = "wellness score" if str(scales.get("score", "")).lower().startswith("escala no definida") else "wellness"
+    score_label = "wellness score"
     if score_delta is not None:
         magnitude = abs(score_delta)
         if abs(score_delta) <= 0.5:
@@ -4871,7 +5126,7 @@ def _generate_professional_profile_pdf_reportlab(
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
         from reportlab.graphics.shapes import Circle, Drawing, Line, PolyLine, Rect, String
-        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
         from xml.sax.saxutils import escape
     except Exception:
         return None
@@ -4935,6 +5190,17 @@ def _generate_professional_profile_pdf_reportlab(
             leading=11.5,
             textColor=palette["gray"],
             spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfMutedItalic",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Oblique",
+            fontSize=8.5,
+            leading=11.5,
+            textColor=palette["gray"],
+            spaceAfter=3,
         )
     )
     styles.add(
@@ -5033,6 +5299,7 @@ def _generate_professional_profile_pdf_reportlab(
                 _p(f"Mejor valor histórico: {card.get('best', PDF_MISSING_TEXT)}", "ProfMuted"),
                 _p(f"Zona ruido/CV/TE: {card.get('threshold', PDF_MISSING_TEXT)}", "ProfMuted"),
                 _p(f"Semáforo: {card.get('signal', PDF_MISSING_TEXT)}", "ProfMuted"),
+                _p(card.get("te_caption", PDF_MISSING_TEXT), "ProfMuted"),
                 _p(card.get("interpretation", ""), "ProfBody"),
             ]
             if card.get("large_change_warning"):
@@ -5220,11 +5487,8 @@ def _generate_professional_profile_pdf_reportlab(
         bottom = 15
         plot_w = width - 36
         plot_h = height - 28
-        min_v = min(valid_values)
-        max_v = max(valid_values)
-        if min_v == max_v:
-            min_v -= 1
-            max_v += 1
+        min_v = 1.0
+        max_v = 5.0
         drawing = Drawing(width, height)
         drawing.add(Rect(0, 0, width, height, fillColor=palette["card"], strokeColor=palette["line"], strokeWidth=0.5))
         drawing.add(String(left, height - 9, "Wellness score", fontSize=7.5, fillColor=palette["navy"]))
@@ -5251,8 +5515,24 @@ def _generate_professional_profile_pdf_reportlab(
         drawing.add(String(left + plot_w - 62, bottom + plot_h + 3, "Wellness score", fontSize=6.5, fillColor=palette["gray"]))
         return drawing
 
-    def _key_value_table(rows: list[tuple[str, str]]) -> Table:
-        data = [[_p(label, "ProfCardTitle"), _p(value, "ProfBody")] for label, value in rows]
+    def _unpack_metric_row(row: dict[str, object] | tuple[str, str]) -> tuple[str, str, str]:
+        if isinstance(row, dict):
+            return (
+                str(row.get("label", "")),
+                safe_value(row.get("value"), fallback=PDF_MISSING_TEXT),
+                str(row.get("note", "") or ""),
+            )
+        label, value = row
+        return str(label), safe_value(value, fallback=PDF_MISSING_TEXT), ""
+
+    def _key_value_table(rows: list[dict[str, object] | tuple[str, str]]) -> Table:
+        data = []
+        for raw_row in rows:
+            label, value, note = _unpack_metric_row(raw_row)
+            value_flow: list[object] = [_p(value, "ProfBody")]
+            if note:
+                value_flow.append(_p(note, "ProfMutedItalic"))
+            data.append([_p(label, "ProfCardTitle"), value_flow])
         table = Table(data, colWidths=[56 * mm, 118 * mm], hAlign="LEFT")
         table.setStyle(
             TableStyle(
@@ -5270,11 +5550,15 @@ def _generate_professional_profile_pdf_reportlab(
         )
         return table
 
-    def _mini_cards_table(rows: list[tuple[str, str]]) -> Table:
+    def _mini_cards_table(rows: list[dict[str, object] | tuple[str, str]]) -> Table:
         cells: list[object] = []
-        for label, value in rows:
+        for raw_row in rows:
+            label, value, note = _unpack_metric_row(raw_row)
+            flowables: list[object] = [_p(label, "ProfCardTitle"), _p(value, "ProfBody")]
+            if note:
+                flowables.append(_p(note, "ProfMutedItalic"))
             card = Table(
-                [[[_p(label, "ProfCardTitle"), _p(value, "ProfBody")]]],
+                [[flowables]],
                 colWidths=[84 * mm],
             )
             card.setStyle(
@@ -5298,7 +5582,7 @@ def _generate_professional_profile_pdf_reportlab(
         table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
         return table
 
-    def _load_summary_rows(payload: dict[str, object]) -> list[tuple[str, str]]:
+    def _load_summary_rows(payload: dict[str, object]) -> list[dict[str, object]]:
         scope = str(payload.get("analysis_scope") or "")
         change_pct = _coerce_float(payload.get("weekly_change_pct"))
         change = _coerce_float(payload.get("weekly_change"))
@@ -5311,16 +5595,27 @@ def _generate_professional_profile_pdf_reportlab(
         else:
             change_text = PDF_MISSING_TEXT
         total = _coerce_float(payload.get("current_week_total" if scope == "current_week_partial" else "last_week_total"))
+        srpe_daily_mean = _coerce_float(payload.get("current_week_daily_mean" if scope == "current_week_partial" else "last_week_daily_mean"))
         sessions = payload.get("current_week_sessions" if scope == "current_week_partial" else "sessions_registered")
+        sample_days = int(payload.get("current_week_days" if scope == "current_week_partial" else "last_week_days_with_data") or 0)
         days = payload.get("current_week_days" if scope == "current_week_partial" else "days_without_data")
+        weekly_value = f"{total:.0f} UA" if total is not None else PDF_MISSING_TEXT
+        daily_value = f"{srpe_daily_mean:.1f} UA" if srpe_daily_mean is not None else PDF_MISSING_TEXT
+        sample_suffix = _report_sample_suffix(sample_days)
+        if weekly_value != PDF_MISSING_TEXT and sample_suffix:
+            weekly_value = f"{weekly_value}  {sample_suffix}"
+        if daily_value != PDF_MISSING_TEXT and sample_suffix:
+            daily_value = f"{daily_value}  {sample_suffix}"
+        sample_note = _report_sample_warning(sample_days)
         return [
-            ("Total semanal", f"{total:.0f} UA" if total is not None else PDF_MISSING_TEXT),
-            ("Sesiones registradas", str(int(sessions or 0)) if sessions is not None else PDF_MISSING_TEXT),
-            ("Días con registro" if scope == "current_week_partial" else "Días sin sesión registrada", str(int(days)) if days is not None else PDF_MISSING_TEXT),
-            ("Cambio vs semana previa", change_text),
+            {"label": "sRPE semanal", "value": weekly_value, "note": sample_note},
+            {"label": "sRPE diario", "value": daily_value, "note": sample_note},
+            {"label": "Sesiones registradas", "value": str(int(sessions or 0)) if sessions is not None else PDF_MISSING_TEXT},
+            {"label": "Días con registro" if scope == "current_week_partial" else "Días sin sesión registrada", "value": str(int(days)) if days is not None else PDF_MISSING_TEXT},
+            {"label": "Cambio vs semana previa", "value": change_text},
         ]
 
-    def _wellness_summary_rows(payload: dict[str, object]) -> list[tuple[str, str]]:
+    def _wellness_summary_rows(payload: dict[str, object]) -> list[dict[str, object]]:
         summary = payload.get("last_week_summary", {}) if isinstance(payload.get("last_week_summary"), dict) else {}
         scales = payload.get("scales", {}) if isinstance(payload.get("scales"), dict) else {}
         def fmt(value: object, digits: int = 1) -> str:
@@ -5336,11 +5631,19 @@ def _generate_professional_profile_pdf_reportlab(
             if scale.startswith("/"):
                 return f"{rendered}{scale}"
             return f"{rendered} · {scale}"
+        score_value = _coerce_float(summary.get("score_mean"))
+        score_meta = _report_wellness_score_label(score_value) if score_value is not None else None
+        score_days = int(_coerce_float(summary.get("score_n")) or 0)
+        rendered_score = (
+            f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']}) (n={score_days} días)"
+            if score_meta is not None
+            else PDF_MISSING_TEXT
+        )
         return [
             ("Sueño promedio", with_scale(summary.get("sleep_mean"), "sleep")),
             ("Estrés promedio", with_scale(summary.get("stress_mean"), "stress")),
             ("Dolor promedio", with_scale(summary.get("pain_mean"), "pain")),
-            ("Wellness score", with_scale(summary.get("score_mean"), "score")),
+            {"label": "Wellness score", "value": rendered_score, "note": _report_sample_warning(score_days)},
             ("Días con registro", str(int(summary.get("days"))) if summary.get("days") is not None else PDF_MISSING_TEXT),
         ]
 
@@ -5511,7 +5814,14 @@ def _generate_professional_profile_pdf_reportlab(
             return
         summary_rows = _load_summary_rows(internal_load)
         if compact:
-            target.append(_box([_p(" | ".join(f"{label}: {value}" for label, value in summary_rows), "ProfMuted")], padding=5))
+            compact_parts: list[str] = []
+            for row in summary_rows:
+                if isinstance(row, dict):
+                    compact_parts.append(f"{row.get('label', '')}: {safe_value(row.get('value'), fallback=PDF_MISSING_TEXT)}")
+                else:
+                    label, value = row
+                    compact_parts.append(f"{label}: {value}")
+            target.append(_box([_p(" | ".join(compact_parts), "ProfMuted")], padding=5))
         else:
             target.append(_key_value_table(summary_rows))
         point_key = "current_week_points" if internal_load.get("analysis_scope") == "current_week_partial" else "daily_points"
@@ -5577,13 +5887,266 @@ def _generate_professional_profile_pdf_reportlab(
             )
         )
 
+    rpe_daily_frame_cache: pd.DataFrame | None = None
+
+    def _rpe_daily_frame_for_pdf() -> pd.DataFrame:
+        nonlocal rpe_daily_frame_cache
+        if rpe_daily_frame_cache is not None:
+            return rpe_daily_frame_cache.copy()
+        rpe_df = state.get("rpe_df")
+        if rpe_df is None or rpe_df.empty or not {"Athlete", "Date", "sRPE"}.issubset(rpe_df.columns):
+            rpe_daily_frame_cache = pd.DataFrame()
+            return rpe_daily_frame_cache.copy()
+        daily = rpe_df.copy()
+        daily["Date"] = pd.to_datetime(daily["Date"], errors="coerce").dt.normalize()
+        daily["sRPE"] = pd.to_numeric(daily["sRPE"], errors="coerce")
+        daily = daily.dropna(subset=["Athlete", "Date", "sRPE"])
+        daily = daily[_professional_athlete_mask(daily["Athlete"], report_athlete)]
+        if daily.empty:
+            rpe_daily_frame_cache = pd.DataFrame()
+            return rpe_daily_frame_cache.copy()
+        daily = daily.groupby("Date", as_index=False)["sRPE"].sum().sort_values("Date")
+        full_index = pd.date_range(daily["Date"].min(), daily["Date"].max(), freq="D")
+        daily = (
+            daily.set_index("Date")
+            .reindex(full_index, fill_value=0.0)
+            .rename_axis("Date")
+            .reset_index()
+            .rename(columns={"index": "Date", "sRPE": "sRPE_diario"})
+        )
+        rpe_daily_frame_cache = daily
+        return rpe_daily_frame_cache.copy()
+
+    def _acwr_zone_label(value: float | None) -> str:
+        if value is None:
+            return PDF_MISSING_TEXT
+        if value < 0.80:
+            return "Subcarga"
+        if value <= 1.30:
+            return "Óptimo"
+        if value <= 1.50:
+            return "Precaución"
+        return "Alto riesgo"
+
+    def _build_acwr_ewma_frame_for_pdf() -> pd.DataFrame:
+        daily = _rpe_daily_frame_for_pdf()
+        if daily.empty or len(daily) < 7:
+            return pd.DataFrame()
+        result = daily.copy()
+        result["Aguda_7d"] = result["sRPE_diario"].ewm(alpha=0.25, adjust=False).mean()
+        result["Cronica_28d"] = result["sRPE_diario"].ewm(alpha=(2 / 29), adjust=False).mean()
+        result["ACWR_EWMA"] = result.apply(
+            lambda row: (float(row["Aguda_7d"]) / float(row["Cronica_28d"])) if _coerce_float(row["Cronica_28d"]) not in [None, 0] else None,
+            axis=1,
+        )
+        result["Zona"] = result["ACWR_EWMA"].map(lambda value: _acwr_zone_label(_coerce_float(value)))
+        return result
+
+    def _build_monotony_strain_frame_for_pdf() -> pd.DataFrame:
+        daily = _rpe_daily_frame_for_pdf()
+        if daily.empty:
+            return pd.DataFrame()
+        result = daily.copy()
+        result["week_start"] = result["Date"] - pd.to_timedelta(result["Date"].dt.weekday, unit="D")
+        current_week_start = _professional_week_start(_professional_report_today())
+        result = result[result["week_start"] < current_week_start]
+        if result.empty:
+            return pd.DataFrame()
+        rows: list[dict[str, object]] = []
+        for week_start, week_df in result.groupby("week_start"):
+            values = week_df.sort_values("Date")["sRPE_diario"].astype(float).tolist()
+            if len(values) < 7:
+                values.extend([0.0] * (7 - len(values)))
+            series = pd.Series(values[:7], dtype=float)
+            mean_value = float(series.mean())
+            std_value = float(series.std(ddof=0))
+            monotony_value = None if std_value == 0 else (mean_value / std_value)
+            strain_value = (float(series.sum()) * monotony_value) if monotony_value is not None else None
+            rows.append(
+                {
+                    "Semana": pd.Timestamp(week_start).normalize(),
+                    "Monotonia": monotony_value,
+                    "Strain": strain_value,
+                    "Alerta": bool(monotony_value is not None and monotony_value > 2.0),
+                }
+            )
+        return pd.DataFrame(rows).sort_values("Semana").tail(16).reset_index(drop=True) if rows else pd.DataFrame()
+
+    def _plotly_chart_image(
+        figure: object | None,
+        *,
+        width_mm: float = 174,
+        height_mm: float = 76,
+        width_px: int = 1200,
+        height_px: int = 560,
+    ) -> Image | None:
+        image_bytes = export_plotly_figure_png(figure, width=width_px, height=height_px, scale=2) if figure is not None else None
+        if not image_bytes:
+            return None
+        image = Image(BytesIO(image_bytes), width=width_mm * mm, height=height_mm * mm)
+        image.hAlign = "LEFT"
+        return image
+
+    def _build_acwr_figure(acwr_frame: pd.DataFrame) -> object | None:
+        if acwr_frame.empty:
+            return None
+        theme = _build_report_chart_theme()
+        try:
+            from charts.load_charts import chart_acwr
+            return chart_acwr(acwr_frame, report_athlete, theme=theme)
+        except Exception:
+            try:
+                import plotly.graph_objects as go
+            except Exception:
+                return None
+            fig = go.Figure()
+            for y0, y1, fill, label in [
+                (0.00, 0.80, "#E3F2FD", "Subcarga"),
+                (0.80, 1.30, "#E8F5E9", "Óptimo"),
+                (1.30, 1.50, "#FFF9C4", "Precaución"),
+                (1.50, max(2.5, float(pd.to_numeric(acwr_frame["ACWR_EWMA"], errors="coerce").max() or 2.5) + 0.2), "#FFEBEE", "Alto riesgo"),
+            ]:
+                fig.add_hrect(y0=y0, y1=y1, fillcolor=fill, line_width=0, layer="below", annotation_text=label, annotation_position="right")
+            fig.add_trace(
+                go.Scatter(
+                    x=acwr_frame["Date"],
+                    y=acwr_frame["ACWR_EWMA"],
+                    mode="lines",
+                    line=dict(color="#1E4D8C", width=2),
+                    name="ACWR EWMA",
+                )
+            )
+            fig.update_layout(height=420, margin=dict(l=44, r=28, t=48, b=40), xaxis=dict(title="Fecha"), yaxis=dict(title="ACWR EWMA"), showlegend=False)
+            return fig
+
+    def _build_monotony_figure(monotony_frame: pd.DataFrame) -> object | None:
+        if monotony_frame.empty:
+            return None
+        theme = _build_report_chart_theme()
+        try:
+            from charts.load_charts import chart_monotony_strain
+            return chart_monotony_strain(monotony_frame, theme=theme)
+        except Exception:
+            try:
+                import plotly.graph_objects as go
+                from plotly.subplots import make_subplots
+            except Exception:
+                return None
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            bar_colors = ["#D94F4F" if bool(row["Alerta"]) else "#4FC97E" for _, row in monotony_frame.iterrows()]
+            fig.add_trace(go.Bar(x=monotony_frame["Semana"], y=monotony_frame["Strain"], marker_color=bar_colors, name="Strain"), secondary_y=False)
+            fig.add_trace(
+                go.Scatter(
+                    x=monotony_frame["Semana"],
+                    y=monotony_frame["Monotonia"],
+                    mode="lines+markers",
+                    line=dict(color="#E8C84A", width=2, dash="dash"),
+                    name="Monotonía",
+                ),
+                secondary_y=True,
+            )
+            fig.add_hline(y=2.0, line_dash="dash", line_color="#E8C84A", annotation_text="Umbral monotonía", secondary_y=True)
+            fig.update_layout(height=420, margin=dict(l=44, r=28, t=48, b=40), showlegend=False)
+            fig.update_yaxes(title_text="Strain", secondary_y=False)
+            fig.update_yaxes(title_text="Monotonía", secondary_y=True)
+            return fig
+
+    def _append_acwr_section(target: list[object], *, compact: bool = False) -> None:
+        target.append(_p("GESTIÓN DE RIESGO", "ProfMuted"))
+        target.append(_p("Ratio Agudo:Crónico (ACWR EWMA)", "ProfSection"))
+        target.append(_p("¿La carga de esta semana es segura respecto a la carga acumulada?", "ProfMuted"))
+        acwr_frame = _build_acwr_ewma_frame_for_pdf()
+        if acwr_frame.empty:
+            target.append(_collapsed_box("Sin suficientes datos de carga para calcular ACWR (mínimo 7 días requeridos)."))
+            return
+        acwr_image = _plotly_chart_image(_build_acwr_figure(acwr_frame), height_mm=70 if compact else 78)
+        if acwr_image is None:
+            target.append(_collapsed_box("No se pudo renderizar el gráfico de ACWR para este reporte."))
+            return
+        target.append(acwr_image)
+        latest_acwr = _coerce_float(acwr_frame.dropna(subset=["ACWR_EWMA"]).tail(1).iloc[0].get("ACWR_EWMA")) if not acwr_frame.dropna(subset=["ACWR_EWMA"]).empty else None
+        zone_label = _acwr_zone_label(latest_acwr)
+        caption = (
+            "ACWR EWMA: zona óptima 0.80–1.30. Valores >1.50 indican incremento de riesgo "
+            "(Gabbett, 2016, BJSM; Hulin et al., 2016, BJSM). "
+            f"Interpretación: zona actual = {zone_label}."
+        )
+        target.append(_box([_p(caption, "ProfMuted")], padding=5 if compact else 6))
+
+    def _append_monotony_section(target: list[object], *, compact: bool = False) -> None:
+        target.append(_p("Monotonía y Strain semanal", "ProfSection"))
+        target.append(_p("¿Qué tan variado fue el estímulo? ¿Se acumuló estrés sin descarga?", "ProfMuted"))
+        monotony_frame = _build_monotony_strain_frame_for_pdf()
+        if monotony_frame.empty:
+            target.append(_collapsed_box("Sin suficientes datos para calcular monotonía y strain semanal."))
+            return
+        monotony_image = _plotly_chart_image(_build_monotony_figure(monotony_frame), height_mm=70 if compact else 78)
+        if monotony_image is None:
+            target.append(_collapsed_box("No se pudo renderizar el gráfico de monotonía y strain para este reporte."))
+            return
+        target.append(monotony_image)
+        target.append(
+            _box(
+                [
+                    _p(
+                        "Monotonía >2.0 indica distribución homogénea de la carga y menor variabilidad semanal. "
+                        "Strain alto sugiere acumulación de estrés sin suficiente descarga.",
+                        "ProfMuted",
+                    )
+                ],
+                padding=5 if compact else 6,
+            )
+        )
+
+    def _professional_wellness_rows_for_pdf(payload: dict[str, object]) -> list[dict[str, object]]:
+        summary = payload.get("last_week_summary", {}) if isinstance(payload.get("last_week_summary"), dict) else {}
+        scales = payload.get("scales", {}) if isinstance(payload.get("scales"), dict) else {}
+
+        def fmt(value: object, digits: int = 1) -> str:
+            numeric = _coerce_float(value)
+            return f"{numeric:.{digits}f}" if numeric is not None else PDF_MISSING_TEXT
+
+        def with_scale(value: object, key: str) -> str:
+            rendered = fmt(value)
+            if rendered == PDF_MISSING_TEXT:
+                return rendered
+            scale = str(scales.get(key, "Escala no definida"))
+            if scale == "h":
+                return f"{rendered} h"
+            if scale.startswith("/"):
+                return f"{rendered}{scale}"
+            return f"{rendered} · {scale}"
+
+        def metric_row(label: str, value: str, n_value: object, *, include_count: bool = True) -> dict[str, object]:
+            count = int(_coerce_float(n_value) or 0)
+            if include_count and value != PDF_MISSING_TEXT and count > 0:
+                value = f"{value}  {_report_sample_suffix(count)}"
+            return {"label": label, "value": value, "note": _report_sample_warning(count)}
+
+        score_value = _coerce_float(summary.get("score_mean"))
+        score_meta = _report_wellness_score_label(score_value) if score_value is not None else None
+        score_days = int(_coerce_float(summary.get("score_n")) or 0)
+        rendered_score = (
+            f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']}) (n={score_days} días)"
+            if score_meta is not None
+            else PDF_MISSING_TEXT
+        )
+
+        return [
+            metric_row("Sueño promedio", with_scale(summary.get("sleep_mean"), "sleep"), summary.get("sleep_n")),
+            metric_row("Estrés promedio", with_scale(summary.get("stress_mean"), "stress"), summary.get("stress_n")),
+            metric_row("Dolor promedio", with_scale(summary.get("pain_mean"), "pain"), summary.get("pain_n")),
+            metric_row("Wellness score", rendered_score, summary.get("score_n"), include_count=False),
+            {"label": "Días con registro", "value": str(int(summary.get("days"))) if summary.get("days") is not None else PDF_MISSING_TEXT},
+        ]
+
     def _append_wellness_last_week(target: list[object], *, include_title: bool = True, compact: bool = False) -> None:
         if include_title:
             target.append(_p(wellness_context.get("analysis_title", "Wellness - última semana completa"), "ProfSection"))
         if wellness_context.get("state") == "missing":
             target.append(_collapsed_box("Faltan datos de wellness para este período."))
             return
-        summary_rows = _wellness_summary_rows(wellness_context)
+        summary_rows = _professional_wellness_rows_for_pdf(wellness_context)
         target.append(_mini_cards_table(summary_rows))
         if wellness_context.get("state") == "partial" and not wellness_context.get("trend_allowed"):
             target.append(Spacer(1, 3 * mm))
@@ -5767,6 +6330,10 @@ def _generate_professional_profile_pdf_reportlab(
         story.append(PageBreak())
         _append_internal_16_weeks(story, compact=True)
         story.append(Spacer(1, 3 * mm))
+        _append_acwr_section(story, compact=True)
+        story.append(Spacer(1, 3 * mm))
+        _append_monotony_section(story, compact=True)
+        story.append(Spacer(1, 3 * mm))
         _append_wellness_16_weeks(story, compact=True)
         story.append(Spacer(1, 3 * mm))
         _append_integrated_interpretation(story, compact=True)
@@ -5809,6 +6376,10 @@ def _generate_professional_profile_pdf_reportlab(
         _append_wellness_last_week(story, compact=compact_evaluation_report)
         story.append(PageBreak())
         _append_internal_16_weeks(story, compact=compact_evaluation_report)
+        story.append(Spacer(1, section_gap))
+        _append_acwr_section(story, compact=compact_evaluation_report)
+        story.append(Spacer(1, section_gap))
+        _append_monotony_section(story, compact=compact_evaluation_report)
         story.append(Spacer(1, section_gap))
         _append_wellness_16_weeks(story, compact=compact_evaluation_report)
         story.append(Spacer(1, section_gap))
@@ -5908,6 +6479,17 @@ def _generate_visual_report_pdf_reportlab(
             leading=13,
             textColor=palette["gray"],
             spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ReportMutedItalic",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Oblique",
+            fontSize=9,
+            leading=13,
+            textColor=palette["gray"],
+            spaceAfter=3,
         )
     )
     styles.add(
@@ -6125,8 +6707,22 @@ def _generate_visual_report_pdf_reportlab(
         )
         return table
 
-    def _compact_key_value_table(rows: list[tuple[str, str]]) -> Table:
-        data = [[_p(label, "CardLabel"), _p(value, "ReportMuted")] for label, value in rows]
+    def _compact_key_value_table(rows: list[dict[str, object] | tuple[str, str]]) -> Table:
+        data = []
+        for row in rows:
+            if isinstance(row, dict):
+                label = str(row.get("label", ""))
+                value = safe_value(row.get("value"), fallback=PDF_MISSING_TEXT)
+                note = str(row.get("note", "") or "")
+            else:
+                label, value = row
+                label = str(label)
+                value = safe_value(value, fallback=PDF_MISSING_TEXT)
+                note = ""
+            value_flow: list[object] = [_p(value, "ReportMuted")]
+            if note:
+                value_flow.append(_p(note, "ReportMutedItalic"))
+            data.append([_p(label, "CardLabel"), value_flow])
         table = Table(data, colWidths=[42 * mm, 132 * mm], hAlign="LEFT")
         table.setStyle(
             TableStyle(
@@ -6290,12 +6886,29 @@ def _generate_visual_report_pdf_reportlab(
         story.append(_p("Wellness y adherencia", "ReportSection"))
         wellness_summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
         wellness_scale = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
+        def _athlete_metric_row(label: str, value: str, n_value: object, *, include_count: bool = True) -> dict[str, object]:
+            count = int(_coerce_float(n_value) or 0)
+            if include_count and value != PDF_MISSING_TEXT and count > 0:
+                value = f"{value}  {_report_sample_suffix(count)}"
+            return {"label": label, "value": value, "note": _report_sample_warning(count)}
+        athlete_score_value = _coerce_float(wellness_summary.get("score_mean"))
+        athlete_score_meta = _report_wellness_score_label(athlete_score_value) if athlete_score_value is not None else None
+        athlete_score_days = int(_coerce_float(wellness_summary.get("score_n")) or 0)
         wellness_rows = [
-            ("Wellness", _display_metric(wellness_summary.get("score_mean"), digits=1) if _coerce_float(wellness_summary.get("score_mean")) is not None else PDF_MISSING_TEXT),
-            ("Sueño", _display_metric(wellness_summary.get("sleep_mean"), digits=1, suffix=" h") if _coerce_float(wellness_summary.get("sleep_mean")) is not None else PDF_MISSING_TEXT),
-            ("Estrés", f"{_display_metric(wellness_summary.get('stress_mean'), digits=1)}{wellness_scale.get('stress', '')}" if _coerce_float(wellness_summary.get("stress_mean")) is not None else PDF_MISSING_TEXT),
-            ("Dolor", f"{_display_metric(wellness_summary.get('pain_mean'), digits=1)}{wellness_scale.get('pain', '')}" if _coerce_float(wellness_summary.get("pain_mean")) is not None else PDF_MISSING_TEXT),
-            ("Adherencia", _display_metric(completion_value, digits=1, suffix="%") if completion_value is not None else PDF_MISSING_TEXT),
+            _athlete_metric_row(
+                "Wellness",
+                (
+                    f"{float(athlete_score_meta['score']):.1f} / 5.0 ({athlete_score_meta['label']}) (n={athlete_score_days} días)"
+                    if athlete_score_meta is not None
+                    else PDF_MISSING_TEXT
+                ),
+                wellness_summary.get("score_n"),
+                include_count=False,
+            ),
+            _athlete_metric_row("Sueño", _display_metric(wellness_summary.get("sleep_mean"), digits=1, suffix=" h") if _coerce_float(wellness_summary.get("sleep_mean")) is not None else PDF_MISSING_TEXT, wellness_summary.get("sleep_n")),
+            _athlete_metric_row("Estrés", f"{_display_metric(wellness_summary.get('stress_mean'), digits=1)}{wellness_scale.get('stress', '')}" if _coerce_float(wellness_summary.get("stress_mean")) is not None else PDF_MISSING_TEXT, wellness_summary.get("stress_n")),
+            _athlete_metric_row("Dolor", f"{_display_metric(wellness_summary.get('pain_mean'), digits=1)}{wellness_scale.get('pain', '')}" if _coerce_float(wellness_summary.get("pain_mean")) is not None else PDF_MISSING_TEXT, wellness_summary.get("pain_n")),
+            {"label": "Adherencia", "value": _display_metric(completion_value, digits=1, suffix="%") if completion_value is not None else PDF_MISSING_TEXT},
         ]
         story.append(_compact_key_value_table(wellness_rows))
         wellness_note = (
