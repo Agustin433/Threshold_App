@@ -270,32 +270,48 @@ _DJ_MAP = {
     "Force Right Contact Max (N)": ("DJ_force_R_N", "max"),
 }
 
+def _build_force_time_metric_map(storage_mapping: dict[str, str]) -> dict[str, tuple[str, str]]:
+    return {
+        "Force Max (N)": (storage_mapping["force_max_n"], "max"),
+        "Force Avg (N)": (storage_mapping["force_avg_n"], "mean"),
+        "RFD at 50 (N/s)": (storage_mapping["rfd_50_n_s"], "max"),
+        "RFD at 100 (N/s)": (storage_mapping["rfd_100_n_s"], "max"),
+        "RFD at 150 (N/s)": (storage_mapping["rfd_150_n_s"], "max"),
+        "RFD at 250 (N/s)": (storage_mapping["rfd_250_n_s"], "max"),
+        "Force At 50 (N)": (storage_mapping["force_50_n"], "max"),
+        "Force At 100 (N)": (storage_mapping["force_100_n"], "max"),
+        "Force At 150 (N)": (storage_mapping["force_150_n"], "max"),
+        "Force At 200 (N)": (storage_mapping["force_200_n"], "max"),
+        "Force At 250 (N)": (storage_mapping["force_250_n"], "max"),
+        "Asimmetry (%)": (storage_mapping["asymmetry_pct"], "mean"),
+        "Asymmetry (%)": (storage_mapping["asymmetry_pct"], "mean"),
+        "Pre-tension (N)": (storage_mapping["pre_tension_n"], "mean"),
+        "Time Max Force (s)": (storage_mapping["time_to_peak_s"], "mean"),
+        "Time Pull (s)": (storage_mapping["time_pull_s"], "mean"),
+        "Force Left Max (N)": (storage_mapping["force_left_max_n"], "max"),
+        "Force Right Max (N)": (storage_mapping["force_right_max_n"], "max"),
+    }
+
+
 _IMTP_SPEC = get_evaluation_spec("imtp") or {}
 _IMTP_STORAGE_MAPPING = get_storage_mapping("imtp")
 _IMTP_LEGACY_STORAGE_ALIASES: dict[str, str] = dict(_IMTP_SPEC.get("legacy_storage_aliases", {}))
-
-_IMTP_MAP = {
-    "Force Max (N)": (_IMTP_STORAGE_MAPPING["force_max_n"], "max"),
-    "Force Avg (N)": (_IMTP_STORAGE_MAPPING["force_avg_n"], "mean"),
-    "RFD at 50 (N/s)": (_IMTP_STORAGE_MAPPING["rfd_50_n_s"], "max"),
-    "RFD at 100 (N/s)": (_IMTP_STORAGE_MAPPING["rfd_100_n_s"], "max"),
-    "RFD at 150 (N/s)": (_IMTP_STORAGE_MAPPING["rfd_150_n_s"], "max"),
-    "RFD at 250 (N/s)": (_IMTP_STORAGE_MAPPING["rfd_250_n_s"], "max"),
-    "Force At 50 (N)": (_IMTP_STORAGE_MAPPING["force_50_n"], "max"),
-    "Force At 100 (N)": (_IMTP_STORAGE_MAPPING["force_100_n"], "max"),
-    "Force At 150 (N)": (_IMTP_STORAGE_MAPPING["force_150_n"], "max"),
-    "Force At 200 (N)": (_IMTP_STORAGE_MAPPING["force_200_n"], "max"),
-    "Force At 250 (N)": (_IMTP_STORAGE_MAPPING["force_250_n"], "max"),
-    "Asimmetry (%)": (_IMTP_STORAGE_MAPPING["asymmetry_pct"], "mean"),
-    "Asymmetry (%)": (_IMTP_STORAGE_MAPPING["asymmetry_pct"], "mean"),
-    "Pre-tension (N)": (_IMTP_STORAGE_MAPPING["pre_tension_n"], "mean"),
-    "Time Max Force (s)": (_IMTP_STORAGE_MAPPING["time_to_peak_s"], "mean"),
-    "Time Pull (s)": (_IMTP_STORAGE_MAPPING["time_pull_s"], "mean"),
-    "Force Left Max (N)": (_IMTP_STORAGE_MAPPING["force_left_max_n"], "max"),
-    "Force Right Max (N)": (_IMTP_STORAGE_MAPPING["force_right_max_n"], "max"),
+_ISO_PUSH_HAMSTRING_STORAGE_MAPPING = get_storage_mapping("iso_push_hamstring")
+_FORCE_TIME_TEST_TYPE_TO_TEST_ID = {
+    "IMTP": "imtp",
+    "ISO_PUSH_HAMSTRING": "iso_push_hamstring",
 }
 
-TEST_MAPS = {"CMJ": _CMJ_MAP, "SJ": _SJ_MAP, "DJ": _DJ_MAP, "IMTP": _IMTP_MAP}
+_IMTP_MAP = _build_force_time_metric_map(_IMTP_STORAGE_MAPPING)
+_ISO_PUSH_HAMSTRING_MAP = _build_force_time_metric_map(_ISO_PUSH_HAMSTRING_STORAGE_MAPPING)
+
+TEST_MAPS = {
+    "CMJ": _CMJ_MAP,
+    "SJ": _SJ_MAP,
+    "DJ": _DJ_MAP,
+    "IMTP": _IMTP_MAP,
+    "ISO_PUSH_HAMSTRING": _ISO_PUSH_HAMSTRING_MAP,
+}
 LOCAL_ONLY_EVALUATION_COLUMNS = {
     "CMJ_propulsive_PF_N",
     "CMJ_rel_impulse",
@@ -372,7 +388,7 @@ UPLOAD_CONTRACTS: dict[str, dict[str, object]] = {
         "label": "Evaluacion individual",
         "extensions": ("xlsx",),
         "expected_format": "Export de plataforma de fuerza (.xlsx)",
-        "examples": ("cmj.xlsx", "sj.xlsx", "dj.xlsx", "imtp.xlsx"),
+        "examples": ("cmj.xlsx", "sj.xlsx", "dj.xlsx", "imtp.xlsx", "iso_push_hamstring.xlsx"),
     },
 }
 
@@ -1941,10 +1957,11 @@ def _normalize_legacy_imtp_rfd_aliases_frame(df: pd.DataFrame | None) -> pd.Data
     return result
 
 
-def _parse_involution_imtp_forceplate(file_bytes: bytes) -> dict[str, object]:
-    parsed = parse_involution_summary_excel(file_bytes, test_id="imtp")
-    result: dict[str, object] = {"test_type": "IMTP"}
-    for normalized_field, storage_field in _IMTP_STORAGE_MAPPING.items():
+def _parse_involution_force_time_forceplate(file_bytes: bytes, test_id: str) -> dict[str, object]:
+    parsed = parse_involution_summary_excel(file_bytes, test_id=test_id)
+    storage_mapping = get_storage_mapping(test_id)
+    result: dict[str, object] = {"test_type": str(test_id or "").strip().upper()}
+    for normalized_field, storage_field in storage_mapping.items():
         value = parsed["metrics"].get(normalized_field)
         if value is None:
             continue
@@ -1965,9 +1982,10 @@ def parse_forceplate_file(
         tuple(UPLOAD_CONTRACTS["forceplate"]["extensions"]),
     )
     resolved_test_type = str(test_type or "").strip().upper()
-    if resolved_test_type == "IMTP":
+    force_time_test_id = _FORCE_TIME_TEST_TYPE_TO_TEST_ID.get(resolved_test_type)
+    if force_time_test_id:
         try:
-            return _parse_involution_imtp_forceplate(file_bytes)
+            return _parse_involution_force_time_forceplate(file_bytes, force_time_test_id)
         except (ValueError, InvalidFileException, OSError, zipfile.BadZipFile):
             pass
     try:

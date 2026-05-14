@@ -454,6 +454,71 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertNotIn("RFD 200", rfd_labels)
         self.assertNotIn("IMTP_rfd_200_N_s", jump_df.columns)
 
+    def test_parse_forceplate_file_supports_iso_push_hamstring_involution_summary_exports(self):
+        record = data_loader.parse_forceplate_file(
+            _imtp_involution_bytes(),
+            "iso_push_hamstring",
+            filename="iso_push_hamstring.xlsx",
+        )
+
+        expected_fields = {
+            "ISO_HAM_N",
+            "ISO_HAM_avg_N",
+            "ISO_HAM_force_L_N",
+            "ISO_HAM_force_R_N",
+            "ISO_HAM_asym_pct",
+            "ISO_HAM_pretension",
+            "ISO_HAM_time_max_s",
+            "ISO_HAM_time_pull_s",
+            "ISO_HAM_force_50_N",
+            "ISO_HAM_force_100_N",
+            "ISO_HAM_force_150_N",
+            "ISO_HAM_force_200_N",
+            "ISO_HAM_force_250_N",
+            "ISO_HAM_rfd_50_N_s",
+            "ISO_HAM_rfd_100_N_s",
+            "ISO_HAM_rfd_150_N_s",
+            "ISO_HAM_rfd_250_N_s",
+        }
+
+        self.assertEqual(record["test_type"], "ISO_PUSH_HAMSTRING")
+        self.assertTrue(expected_fields.issubset(record.keys()))
+        self.assertNotIn("ISO_HAM_rfd_200_N_s", record)
+
+        record["Athlete"] = "Juan Perez"
+        record["Date"] = pd.Timestamp("2026-04-04")
+        jump_df = _records_to_jump_df([record])
+
+        self.assertEqual(len(jump_df), 1)
+        self.assertTrue(expected_fields.issubset(jump_df.columns))
+        self.assertNotIn("ISO_HAM_rfd_200_N_s", jump_df.columns)
+        self.assertEqual(float(jump_df.iloc[0]["ISO_HAM_force_100_N"]), 1364.0)
+        self.assertEqual(float(jump_df.iloc[0]["ISO_HAM_rfd_250_N_s"]), 4493.0)
+
+    def test_iso_push_hamstring_smoke_flow_reaches_summary_and_points_without_rfd_200(self):
+        record = data_loader.parse_forceplate_file(
+            _imtp_involution_bytes(),
+            "iso_push_hamstring",
+            filename="iso_push_hamstring.xlsx",
+        )
+        record["Athlete"] = "Juan Perez"
+        record["Date"] = pd.Timestamp("2026-04-04")
+
+        jump_df = _records_to_jump_df([record])
+        self.assertEqual(len(jump_df), 1)
+
+        summary = summarize_force_time_test(jump_df.iloc[0], test_id="iso_push_hamstring")
+        force_labels = [point["label"] for point in get_force_time_points(summary)]
+        rfd_labels = [point["label"] for point in get_rfd_points(summary)]
+
+        self.assertEqual(summary["display_name"], "ISO Push Hip-Hamstring Bilateral")
+        self.assertTrue(summary["has_valid_force_time"])
+        self.assertTrue(summary["has_valid_rfd"])
+        self.assertEqual(force_labels, ["50 ms", "100 ms", "150 ms", "200 ms", "250 ms", "Peak"])
+        self.assertEqual(rfd_labels, ["RFD 50", "RFD 100", "RFD 150", "RFD 250"])
+        self.assertNotIn("RFD 200", rfd_labels)
+        self.assertNotIn("ISO_HAM_rfd_200_N_s", jump_df.columns)
+
     def test_raw_workouts_reimport_dedupes_by_athlete_date_exercise_and_set_number(self):
         raw_file = NamedBytesIO(
             _csv_bytes(

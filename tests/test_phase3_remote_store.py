@@ -207,6 +207,75 @@ class Phase3RemoteStoreTest(unittest.TestCase):
         self.assertEqual(float(df.iloc[0]["IMTP_force_100_N"]), 1364.0)
         self.assertEqual(float(df.iloc[0]["IMTP_rfd_100_N_s"]), 2558.0)
 
+    def test_jump_df_to_db_records_includes_iso_hamstring_force_time_columns(self):
+        eval_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-01",
+                    "ISO_HAM_N": 1280,
+                    "ISO_HAM_avg_N": 1115,
+                    "ISO_HAM_force_L_N": 670,
+                    "ISO_HAM_force_R_N": 610,
+                    "ISO_HAM_asym_pct": 9.4,
+                    "ISO_HAM_pretension": 180,
+                    "ISO_HAM_time_max_s": 1.84,
+                    "ISO_HAM_time_pull_s": 2.2,
+                    "ISO_HAM_force_50_N": 290,
+                    "ISO_HAM_force_100_N": 455,
+                    "ISO_HAM_force_150_N": 620,
+                    "ISO_HAM_force_200_N": 785,
+                    "ISO_HAM_force_250_N": 930,
+                    "ISO_HAM_rfd_50_N_s": 1280,
+                    "ISO_HAM_rfd_100_N_s": 2240,
+                    "ISO_HAM_rfd_150_N_s": 2960,
+                    "ISO_HAM_rfd_250_N_s": 3720,
+                }
+            ]
+        )
+
+        records = jump_df_to_db_records(eval_df)
+
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record["athlete"], "Ana Lopez")
+        self.assertEqual(record["date"], "2026-04-01")
+        self.assertEqual(record["iso_ham_force_100_n"], 455.0)
+        self.assertEqual(record["iso_ham_rfd_100_n_s"], 2240.0)
+        self.assertEqual(record["iso_ham_time_pull_s"], 2.2)
+        self.assertNotIn("iso_ham_rfd_200_n_s", record)
+
+    def test_load_remote_evaluations_preserves_iso_hamstring_force_time_columns(self):
+        with patched_env(
+            {
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_KEY": "test-key",
+            }
+        ):
+            with patch(
+                "modules.remote_store._supabase_request",
+                side_effect=[
+                    [
+                        {
+                            "athlete": "Ana Lopez",
+                            "date": "2026-04-01",
+                            "iso_ham_n": 1280,
+                            "iso_ham_time_pull_s": 2.2,
+                            "iso_ham_force_100_n": 455,
+                            "iso_ham_rfd_100_n_s": 2240,
+                        }
+                    ],
+                    [],
+                ],
+            ):
+                df = load_remote_evaluations()
+
+        self.assertEqual(len(df), 1)
+        self.assertEqual(float(df.iloc[0]["ISO_HAM_N"]), 1280.0)
+        self.assertEqual(float(df.iloc[0]["ISO_HAM_time_pull_s"]), 2.2)
+        self.assertEqual(float(df.iloc[0]["ISO_HAM_force_100_N"]), 455.0)
+        self.assertEqual(float(df.iloc[0]["ISO_HAM_rfd_100_N_s"]), 2240.0)
+
     def test_load_remote_evaluations_uses_legacy_rfd_aliases_as_fallback(self):
         with patched_env(
             {
@@ -232,6 +301,32 @@ class Phase3RemoteStoreTest(unittest.TestCase):
 
         self.assertEqual(len(df), 1)
         self.assertEqual(float(df.iloc[0]["IMTP_rfd_100_N_s"]), 2400.0)
+
+    def test_load_remote_evaluations_older_records_without_iso_ham_columns_still_load_safely(self):
+        with patched_env(
+            {
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_KEY": "test-key",
+            }
+        ):
+            with patch(
+                "modules.remote_store._supabase_request",
+                side_effect=[
+                    [
+                        {
+                            "athlete": "Ana Lopez",
+                            "date": "2026-04-01",
+                            "imtp_n": 3385,
+                        }
+                    ],
+                    [],
+                ],
+            ):
+                df = load_remote_evaluations()
+
+        self.assertEqual(len(df), 1)
+        self.assertEqual(float(df.iloc[0]["IMTP_N"]), 3385.0)
+        self.assertNotIn("ISO_HAM_N", df.columns)
 
     def test_save_remote_evaluations_preserves_inserted_and_updated_counts(self):
         eval_df = pd.DataFrame(

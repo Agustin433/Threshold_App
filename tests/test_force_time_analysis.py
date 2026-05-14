@@ -9,6 +9,7 @@ from modules.force_time_analysis import (
     get_asymmetry_summary,
     get_force_time_points,
     get_rfd_points,
+    interpret_hamstring_force_time,
     interpret_imtp_force_time,
     summarize_force_time_test,
 )
@@ -66,6 +67,30 @@ def _normalized_metrics(**overrides) -> dict[str, object]:
     return metrics
 
 
+def _hamstring_storage_row(**overrides) -> dict[str, object]:
+    base = {
+        "ISO_HAM_N": 1280,
+        "ISO_HAM_avg_N": 1115,
+        "ISO_HAM_force_L_N": 670,
+        "ISO_HAM_force_R_N": 610,
+        "ISO_HAM_asym_pct": 9.4,
+        "ISO_HAM_pretension": 180,
+        "ISO_HAM_time_max_s": 1.84,
+        "ISO_HAM_time_pull_s": 2.20,
+        "ISO_HAM_force_50_N": 290,
+        "ISO_HAM_force_100_N": 455,
+        "ISO_HAM_force_150_N": 620,
+        "ISO_HAM_force_200_N": 785,
+        "ISO_HAM_force_250_N": 930,
+        "ISO_HAM_rfd_50_N_s": 1280,
+        "ISO_HAM_rfd_100_N_s": 2240,
+        "ISO_HAM_rfd_150_N_s": 2960,
+        "ISO_HAM_rfd_250_N_s": 3720,
+    }
+    base.update(overrides)
+    return base
+
+
 class ForceTimeAnalysisTest(unittest.TestCase):
     def test_summarize_force_time_test_reads_flat_imtp_storage_fields(self):
         summary = summarize_force_time_test(_storage_row())
@@ -86,6 +111,22 @@ class ForceTimeAnalysisTest(unittest.TestCase):
                 self.assertEqual(summary["force_100_n"], 1364)
                 self.assertEqual(summary["rfd_100_n_s"], 2558)
                 self.assertEqual(summary["display_name"], "IMTP")
+
+    def test_summarize_force_time_test_reads_iso_push_hamstring_storage_fields(self):
+        summary = summarize_force_time_test(_hamstring_storage_row(), test_id="iso_push_hamstring")
+
+        self.assertEqual(summary["display_name"], "ISO Push Hip-Hamstring Bilateral")
+        self.assertEqual(summary["peak_force_n"], 1280)
+        self.assertEqual(summary["avg_force_n"], 1115)
+        self.assertEqual(summary["force_100_n"], 455)
+        self.assertEqual(summary["rfd_100_n_s"], 2240)
+        self.assertEqual(summary["stronger_side"], "left")
+        self.assertEqual(summary["weaker_side"], "right")
+        self.assertEqual(summary["side_difference_n"], 60)
+        self.assertAlmostEqual(summary["force_100_pct_peak"], 455 / 1280 * 100, places=4)
+        self.assertAlmostEqual(summary["force_200_pct_peak"], 785 / 1280 * 100, places=4)
+        self.assertAlmostEqual(summary["force_250_pct_peak"], 930 / 1280 * 100, places=4)
+        self.assertNotIn("rfd_200_n_s", summary)
 
     def test_summarize_force_time_test_uses_legacy_rfd_aliases_only_as_fallback(self):
         legacy_fallback = summarize_force_time_test(
@@ -231,6 +272,24 @@ class ForceTimeAnalysisTest(unittest.TestCase):
         self.assertNotIn("curva cruda", combined)
         self.assertNotIn("iso push", combined)
         self.assertEqual(interpretation["basis"], "valid")
+
+    def test_interpret_hamstring_force_time_is_contextual_and_non_diagnostic(self):
+        summary = summarize_force_time_test(pd.Series(_hamstring_storage_row()), test_id="iso_push_hamstring")
+
+        interpretation = interpret_hamstring_force_time(summary)
+        combined = " ".join(str(value) for value in interpretation.values()).lower()
+
+        self.assertEqual(interpretation["basis"], "valid")
+        self.assertIn("cadena posterior", combined)
+        self.assertIn("flexores de rodilla", combined)
+        self.assertIn("rfd", combined)
+        self.assertIn("cautela", combined)
+        self.assertIn("contextual", combined)
+        self.assertNotIn("riesgo de lesi", combined)
+        self.assertNotIn("lesion probable", combined)
+        self.assertNotIn("diagn", combined)
+        self.assertNotIn("raw curve", combined)
+        self.assertNotIn("curva cruda", combined)
 
     def test_force_time_product_copy_stays_safe_across_analysis_dashboard_and_report_helpers(self):
         combined = " ".join(

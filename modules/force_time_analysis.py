@@ -300,10 +300,20 @@ def get_asymmetry_summary(summary: Mapping[str, object]) -> dict[str, object]:
     return result
 
 
+def _compose_asymmetry_text(source: Mapping[str, object]) -> str:
+    asymmetry = get_asymmetry_summary(source)
+    if asymmetry["absolute_asymmetry_pct"] is None:
+        return str(asymmetry["interpretation"])
+    return (
+        f"Izquierda {_format_number(asymmetry['left_force_n'], digits=0, unit='N')} vs derecha "
+        f"{_format_number(asymmetry['right_force_n'], digits=0, unit='N')}. "
+        f"{asymmetry['interpretation']}"
+    )
+
+
 def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object]:
     source = _to_mapping(summary)
     basis = str(source.get("basis") or "missing")
-    asymmetry = get_asymmetry_summary(source)
 
     peak_force = _coerce_number(source.get("peak_force_n"))
     if peak_force is None:
@@ -340,14 +350,7 @@ def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object
             "interpretarse con cautela si no hay TE o umbral de confiabilidad propio."
         )
 
-    if asymmetry["absolute_asymmetry_pct"] is None:
-        asymmetry_text = asymmetry["interpretation"]
-    else:
-        asymmetry_text = (
-            f"Izquierda {_format_number(asymmetry['left_force_n'], digits=0, unit='N')} vs derecha "
-            f"{_format_number(asymmetry['right_force_n'], digits=0, unit='N')}. "
-            f"{asymmetry['interpretation']}"
-        )
+    asymmetry_text = _compose_asymmetry_text(source)
 
     decision_note = (
         "Usar esta lectura como descripcion del perfil IMTP y combinarla con tendencia, contexto del test "
@@ -360,6 +363,66 @@ def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object
         "force_time_text": force_time_text,
         "rfd_text": rfd_text,
         "asymmetry_text": asymmetry_text,
+        "decision_note": decision_note,
+        "basis": basis,
+    }
+
+
+def interpret_hamstring_force_time(summary: Mapping[str, object]) -> dict[str, object]:
+    source = _to_mapping(summary)
+    basis = str(source.get("basis") or "missing")
+
+    peak_force = _coerce_number(source.get("peak_force_n"))
+    if peak_force is None:
+        peak_force_text = (
+            "Sin dato suficiente de Peak Force para describir la capacidad isometrica especifica "
+            "de la cadena posterior y los flexores de rodilla en esta posicion."
+        )
+    else:
+        peak_force_text = (
+            f"Peak Force de {_format_number(peak_force, digits=0, unit='N')}: "
+            "describe la capacidad isometrica especifica de la cadena posterior y los flexores "
+            "de rodilla en esta posicion de ISO Push bilateral."
+        )
+
+    if source.get("has_valid_force_time"):
+        pct_100 = _format_pct(source.get("force_100_pct_peak"))
+        pct_200 = _format_pct(source.get("force_200_pct_peak"))
+        pct_250 = _format_pct(source.get("force_250_pct_peak"))
+        force_time_text = (
+            "El perfil de fuerza por puntos exportados a 50, 100, 150, 200 y 250 ms describe "
+            "la expresion local de fuerza en ventanas tempranas e intermedias antes del pico. "
+            f"En esta medicion, Force@100 = {pct_100}, Force@200 = {pct_200} y Force@250 = {pct_250} del pico."
+        )
+    else:
+        force_time_text = (
+            "Faltan puntos suficientes del perfil de fuerza exportado para describir con claridad "
+            "la expresion local de fuerza antes del pico."
+        )
+
+    if source.get("has_valid_rfd"):
+        rfd_text = (
+            "La RFD describe la tasa de desarrollo de fuerza en las ventanas exportadas de 50, 100, 150 y 250 ms. "
+            "Sin TE especifico de este test, conviene interpretarla con cautela y como apoyo descriptivo."
+        )
+    else:
+        rfd_text = (
+            "No hay suficientes puntos de RFD para una lectura completa. Cuando se utilice, la RFD debe "
+            "interpretarse con cautela si no hay TE especifico de este test."
+        )
+
+    decision_note = (
+        "Usar esta lectura como descripcion complementaria de la capacidad isometrica local y combinarla "
+        "con tendencia, contexto del test y otras evaluaciones. No tomar decisiones fuertes basadas solo "
+        "en RFD cuando no hay TE disponible."
+    )
+
+    return {
+        "title": "ISO Push Hip-Hamstring Bilateral force-time",
+        "peak_force_text": peak_force_text,
+        "force_time_text": force_time_text,
+        "rfd_text": rfd_text,
+        "asymmetry_text": _compose_asymmetry_text(source),
         "decision_note": decision_note,
         "basis": basis,
     }

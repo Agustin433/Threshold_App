@@ -623,6 +623,76 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(choose_secondary_quadrant_x_spec(base_df), choose_secondary_quadrant_x_spec(enriched_df))
         self.assertNotIn("IMTP_rfd_200_N_s", enriched_df.columns)
 
+    def test_iso_push_hamstring_columns_do_not_change_profile_radar_or_composite(self):
+        base_input = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta A",
+                    "Date": "2026-04-01",
+                    "CMJ_cm": 38,
+                    "SJ_cm": 32,
+                    "DJ_cm": 28,
+                    "DJ_tc_ms": 220,
+                    "IMTP_N": 2800,
+                    "BW_kg": 78,
+                    "CMJ_propulsive_PF_N": 2600,
+                    "CMJ_rel_impulse": 2.45,
+                    "CMJ_contraction_ms": 520,
+                },
+                {
+                    "Athlete": "Atleta B",
+                    "Date": "2026-04-01",
+                    "CMJ_cm": 30,
+                    "SJ_cm": 32,
+                    "DJ_cm": 25,
+                    "DJ_tc_ms": 180,
+                    "IMTP_N": 3200,
+                    "BW_kg": 85,
+                    "CMJ_propulsive_PF_N": 2500,
+                    "CMJ_rel_impulse": 2.10,
+                    "CMJ_contraction_ms": 650,
+                },
+            ]
+        )
+        enriched_input = base_input.copy()
+        for column, value in {
+            "ISO_HAM_N": 1280,
+            "ISO_HAM_avg_N": 1115,
+            "ISO_HAM_force_L_N": 670,
+            "ISO_HAM_force_R_N": 610,
+            "ISO_HAM_asym_pct": 9.4,
+            "ISO_HAM_pretension": 180,
+            "ISO_HAM_time_max_s": 1.84,
+            "ISO_HAM_time_pull_s": 2.20,
+            "ISO_HAM_force_50_N": 290,
+            "ISO_HAM_force_100_N": 455,
+            "ISO_HAM_force_150_N": 620,
+            "ISO_HAM_force_200_N": 785,
+            "ISO_HAM_force_250_N": 930,
+            "ISO_HAM_rfd_50_N_s": 1280,
+            "ISO_HAM_rfd_100_N_s": 2240,
+            "ISO_HAM_rfd_150_N_s": 2960,
+            "ISO_HAM_rfd_250_N_s": 3720,
+        }.items():
+            enriched_input[column] = value
+
+        base_df = _prepare_jump_df(base_input)
+        enriched_df = _prepare_jump_df(enriched_input)
+
+        for column in ("EUR", "DJ_RSI", "DRI", "IMTP_relPF", "Jump_Momentum", "DSI", "IMTP_Z", "NM_Profile"):
+            with self.subTest(column=column):
+                pd.testing.assert_series_equal(base_df[column], enriched_df[column], check_names=False)
+
+        base_radar = chart_radar(base_df.iloc[0], "Atleta A", None, theme=_chart_theme())
+        enriched_radar = chart_radar(enriched_df.iloc[0], "Atleta A", None, theme=_chart_theme())
+        composite_row, _ = build_composite_profile_snapshot(enriched_df)
+        metric_table = build_composite_profile_metric_table(composite_row)
+
+        self.assertEqual(list(base_radar.data[-1].theta), list(enriched_radar.data[-1].theta))
+        self.assertEqual(choose_secondary_quadrant_x_spec(base_df), choose_secondary_quadrant_x_spec(enriched_df))
+        self.assertEqual(metric_table["Variable"].tolist(), ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
+        self.assertNotIn("ISO_HAM_rfd_200_N_s", enriched_df.columns)
+
     def test_dsi_requires_propulsive_force_without_peak_force_fallback(self):
         jump_df = _prepare_jump_df(
             pd.DataFrame(

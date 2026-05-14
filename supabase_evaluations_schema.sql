@@ -24,6 +24,23 @@ create table if not exists public.evaluations (
     dj_peak_force_n double precision,
     dj_tc_ms double precision,
     dri double precision,
+    iso_ham_asym_pct double precision,
+    iso_ham_avg_n double precision,
+    iso_ham_force_l_n double precision,
+    iso_ham_force_r_n double precision,
+    iso_ham_force_50_n double precision,
+    iso_ham_force_100_n double precision,
+    iso_ham_force_150_n double precision,
+    iso_ham_force_200_n double precision,
+    iso_ham_force_250_n double precision,
+    iso_ham_n double precision,
+    iso_ham_pretension double precision,
+    iso_ham_rfd_50_n_s double precision,
+    iso_ham_rfd_100_n_s double precision,
+    iso_ham_rfd_150_n_s double precision,
+    iso_ham_rfd_250_n_s double precision,
+    iso_ham_time_max_s double precision,
+    iso_ham_time_pull_s double precision,
     imtp_asym_pct double precision,
     imtp_avg_n double precision,
     imtp_force_l_n double precision,
@@ -57,6 +74,24 @@ create table if not exists public.evaluations (
     primary key (athlete, date)
 );
 
+alter table if exists public.evaluations add column if not exists iso_ham_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_avg_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_force_l_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_force_r_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_asym_pct double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_pretension double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_time_max_s double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_time_pull_s double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_force_50_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_force_100_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_force_150_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_force_200_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_force_250_n double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_rfd_50_n_s double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_rfd_100_n_s double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_rfd_150_n_s double precision;
+alter table if exists public.evaluations add column if not exists iso_ham_rfd_250_n_s double precision;
+
 create or replace function public.set_evaluations_updated_at()
 returns trigger
 language plpgsql
@@ -75,7 +110,7 @@ for each row
 execute function public.set_evaluations_updated_at();
 
 comment on table public.evaluations is
-'Fuente unica de verdad para evaluaciones individuales de saltos e IMTP.';
+'Fuente unica de verdad para evaluaciones individuales de saltos, IMTP e isometricos complementarios.';
 
 comment on column public.evaluations.imtp_rfd_50_n_s is
 'Campo canonico IMTP RFD 50 N/s. Los antiguos rfd_50/rfd_100/rfd_150/rfd_250 se conservan solo como alias legacy de lectura.';

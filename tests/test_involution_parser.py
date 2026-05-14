@@ -97,6 +97,32 @@ class InvolutionParserTest(unittest.TestCase):
         self.assertEqual(result["rep_column"], "Rep 1")
         self.assertEqual(result["metrics"]["force_250_n"], 2232)
 
+    def test_parser_reuses_same_involution_structure_for_iso_push_hamstring(self):
+        workbook_bytes = _build_involution_workbook(_valid_imtp_rows())
+
+        result = parse_involution_summary_excel(workbook_bytes, test_id="iso_push_hamstring")
+
+        self.assertEqual(result["test_id"], "iso_push_hamstring")
+        self.assertEqual(result["metrics"]["force_max_n"], 3385)
+        self.assertEqual(result["metrics"]["force_100_n"], 1364)
+        self.assertEqual(result["metrics"]["rfd_100_n_s"], 2558)
+        self.assertNotIn("rfd_200_n_s", result["metrics"])
+
+    def test_parser_keeps_test_id_explicit_and_does_not_autodetect_structure(self):
+        workbook_bytes = _build_involution_workbook(_valid_imtp_rows())
+
+        imtp_result = parse_involution_summary_excel(workbook_bytes, test_id="imtp")
+        iso_result = parse_involution_summary_excel(workbook_bytes, test_id="iso_push_hamstring")
+
+        self.assertEqual(imtp_result["test_id"], "imtp")
+        self.assertEqual(iso_result["test_id"], "iso_push_hamstring")
+
+    def test_parser_rejects_unsupported_test_ids_instead_of_guessing(self):
+        workbook_bytes = _build_involution_workbook(_valid_imtp_rows())
+
+        with self.assertRaises(ValueError):
+            parse_involution_summary_excel(workbook_bytes, test_id="unsupported_force_time_test")
+
     def test_parser_tolerates_missing_metrics_and_returns_none(self):
         partial_rows = [
             ("Time Max Force (s)", 2.63),
@@ -186,7 +212,20 @@ class InvolutionParserTest(unittest.TestCase):
         self.assertEqual(spec["primary_metric"], "force_max_n")
         self.assertEqual(spec["interpretation_model"], "imtp_force_time")
         self.assertEqual(spec["report_levels"], ["athlete", "professional"])
-        self.assertEqual(len(list_evaluation_specs()), 1)
+        self.assertEqual(len(list_evaluation_specs()), 2)
+
+    def test_registry_returns_iso_push_hamstring_spec(self):
+        spec = get_evaluation_spec("iso_push_hamstring")
+
+        self.assertIsNotNone(spec)
+        self.assertEqual(spec["id"], "iso_push_hamstring")
+        self.assertEqual(spec["display_name"], "ISO Push Hip-Hamstring Bilateral")
+        self.assertEqual(spec["category"], "posterior_chain_isometric")
+        self.assertEqual(spec["dashboard_group"], "Fuerza isometrica complementaria")
+        self.assertEqual(spec["primary_metric"], "force_max_n")
+        self.assertEqual(spec["interpretation_model"], "hamstring_force_time")
+        self.assertEqual(spec["report_levels"], ["athlete", "professional"])
+        self.assertEqual(spec["legacy_storage_aliases"], {})
 
     def test_registry_exposes_correct_imtp_storage_mapping(self):
         mapping = get_storage_mapping("imtp")
@@ -205,6 +244,15 @@ class InvolutionParserTest(unittest.TestCase):
                 "RFD_250": "IMTP_rfd_250_N_s",
             },
         )
+
+    def test_registry_exposes_correct_iso_push_hamstring_storage_mapping(self):
+        mapping = get_storage_mapping("iso_push_hamstring")
+
+        self.assertEqual(mapping["force_max_n"], "ISO_HAM_N")
+        self.assertEqual(mapping["time_pull_s"], "ISO_HAM_time_pull_s")
+        self.assertEqual(mapping["force_200_n"], "ISO_HAM_force_200_N")
+        self.assertEqual(mapping["rfd_250_n_s"], "ISO_HAM_rfd_250_N_s")
+        self.assertNotIn("rfd_200_n_s", mapping)
 
 
 if __name__ == "__main__":
