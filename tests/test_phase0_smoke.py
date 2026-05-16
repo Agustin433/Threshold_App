@@ -756,6 +756,62 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertTrue(any("Pliometria y aterrizajes" in text for text in annotation_texts))
         self.assertTrue(any("Sprint / COD" in text for text in annotation_texts))
 
+    def test_volume_panel_accepts_prepared_raw_workouts_without_changing_output(self):
+        raw_df = pd.DataFrame(
+            [
+                {
+                    "Assigned Date": "2026-04-02",
+                    "Result": 80,
+                    "Reps": 5,
+                    "Sets": 4,
+                    "Tags": "Dominante de Rodilla",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "Back Squat",
+                },
+                {
+                    "Assigned Date": "2026-04-03",
+                    "Result": None,
+                    "Reps": 20,
+                    "Sets": 5,
+                    "Tags": "Jump_Plyo",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "Pogo",
+                },
+                {
+                    "Assigned Date": "2026-04-04",
+                    "Result": 60,
+                    "Reps": 3,
+                    "Sets": 3,
+                    "Tags": "DLO",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "Hang Clean",
+                },
+                {
+                    "Assigned Date": "2026-04-05",
+                    "Result": 10,
+                    "Reps": 6,
+                    "Sets": 1,
+                    "Tags": "",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "10m + COD 90 + 5m",
+                },
+            ]
+        )
+        prepared_raw_df = data_loader.prepare_raw_workouts_df(raw_df)
+
+        raw_figure = chart_volume_by_tag(raw_df, "Juan Perez", theme=_chart_theme())
+        prepared_figure = chart_volume_by_tag(prepared_raw_df, "Juan Perez", theme=_chart_theme())
+
+        self.assertEqual([trace.name for trace in raw_figure.data], [trace.name for trace in prepared_figure.data])
+        for raw_trace, prepared_trace in zip(raw_figure.data, prepared_figure.data):
+            self.assertEqual([str(value) for value in raw_trace.x], [str(value) for value in prepared_trace.x])
+            self.assertEqual(list(raw_trace.y), list(prepared_trace.y))
+
+        self.assertEqual(
+            [annotation.text for annotation in raw_figure.layout.annotations],
+            [annotation.text for annotation in prepared_figure.layout.annotations],
+        )
+
     def test_invalid_extensions_raise_clear_errors(self):
         with self.assertRaisesRegex(ValueError, r"Completion Report: formato no soportado"):
             data_loader.parse_completion_report(

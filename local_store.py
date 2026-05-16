@@ -174,6 +174,21 @@ def _legacy_dataset_path(state_key: str) -> Path:
     return LEGACY_STORE_DIR / str(spec["filename"])
 
 
+def get_local_store_version(keys: list[str] | None = None) -> tuple[tuple[str, bool, int, int], ...]:
+    selected_keys = keys or list(DATASET_SPECS.keys())
+    version_parts: list[tuple[str, bool, int, int]] = []
+
+    for state_key in selected_keys:
+        path = _dataset_path(state_key)
+        if path.exists():
+            stat = path.stat()
+            version_parts.append((state_key, True, int(stat.st_mtime_ns), int(stat.st_size)))
+        else:
+            version_parts.append((state_key, False, 0, 0))
+
+    return tuple(version_parts)
+
+
 def _migrate_legacy_store() -> None:
     if STORE_DIR == LEGACY_STORE_DIR or not LEGACY_STORE_DIR.exists():
         return
@@ -792,17 +807,22 @@ def _build_weekly_wellness_summary(
         ["Athlete", "week_start", "sessions_count"]
     )
     weekly = weekly.merge(sessions, on=["Athlete", "week_start"], how="left")
+    sessions_count = pd.to_numeric(weekly["sessions_count"], errors="coerce")
     weekly["wellness_compliance"] = np.where(
-        weekly["sessions_count"].fillna(0).gt(0),
-        weekly["wellness_days"] / weekly["sessions_count"],
+        sessions_count.fillna(0).gt(0),
+        weekly["wellness_days"] / sessions_count,
         np.nan,
     )
     weekly["is_current_week"] = False
     return weekly[WEEKLY_WELLNESS_COLUMNS].sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
 
-def _build_weekly_external_summary(raw_df: pd.DataFrame | None) -> pd.DataFrame:
-    prepared = prepare_raw_workouts_df(raw_df)
+def _build_weekly_external_summary(
+    raw_df: pd.DataFrame | None,
+    *,
+    prepared_raw_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    prepared = prepared_raw_df if prepared_raw_df is not None else prepare_raw_workouts_df(raw_df)
     if prepared is None or prepared.empty:
         return _empty_weekly_frame(WEEKLY_EXTERNAL_COLUMNS)
 
@@ -1051,9 +1071,10 @@ def _ensure_current_week_wellness(
         on=["Athlete", "week_start"],
         how="left",
     )
+    current_sessions_count = pd.to_numeric(current_rows["sessions_count"], errors="coerce")
     current_rows["wellness_compliance"] = np.where(
-        current_rows["sessions_count"].fillna(0).gt(0),
-        current_rows["wellness_days"] / current_rows["sessions_count"],
+        current_sessions_count.fillna(0).gt(0),
+        current_rows["wellness_days"] / current_sessions_count,
         np.nan,
     )
     current_rows["is_current_week"] = True
@@ -1066,9 +1087,11 @@ def _ensure_current_week_external(
     weekly_external: pd.DataFrame,
     raw_df: pd.DataFrame | None,
     *,
+    prepared_raw_df: pd.DataFrame | None = None,
     today: pd.Timestamp | str | None = None,
 ) -> pd.DataFrame:
-    if raw_df is None or raw_df.empty:
+    source_df = prepared_raw_df if prepared_raw_df is not None else raw_df
+    if source_df is None or source_df.empty:
         return _mark_current_week(weekly_external, WEEKLY_EXTERNAL_COLUMNS, today=today)
 
     today_ts = _resolve_today(today)
@@ -1077,17 +1100,17 @@ def _ensure_current_week_external(
     if not result.empty and result["week_start"].eq(current_week).any():
         return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
-    date_col = "Assigned Date" if "Assigned Date" in raw_df.columns else "Date" if "Date" in raw_df.columns else None
+    date_col = "Assigned Date" if "Assigned Date" in source_df.columns else "Date" if "Date" in source_df.columns else None
     if date_col is None:
         return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
-    current_source = raw_df.copy()
+    current_source = source_df.copy()
     current_source[date_col] = pd.to_datetime(current_source[date_col], errors="coerce").dt.normalize()
     current_source = current_source[current_source[date_col].between(current_week, today_ts)]
     if current_source.empty:
         return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
-    current_rows = _build_weekly_external_summary(current_source)
+    current_rows = _build_weekly_external_summary(current_source, prepared_raw_df=current_source)
     if current_rows.empty:
         return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
     current_rows["is_current_week"] = True
@@ -1127,14 +1150,20 @@ def build_weekly_summaries(
     raw_df: pd.DataFrame | None,
     *,
     acwr_dict: dict[str, pd.DataFrame] | None = None,
+    prepared_raw_df: pd.DataFrame | None = None,
     today: pd.Timestamp | str | None = None,
 ) -> dict[str, pd.DataFrame]:
     weekly_load = _build_weekly_load_summary(rpe_df, acwr_dict=acwr_dict)
     weekly_load = _ensure_current_week_load(weekly_load, rpe_df, acwr_dict=acwr_dict, today=today)
     weekly_wellness = _build_weekly_wellness_summary(wellness_df, weekly_load)
     weekly_wellness = _ensure_current_week_wellness(weekly_wellness, wellness_df, weekly_load, today=today)
-    weekly_external = _build_weekly_external_summary(raw_df)
-    weekly_external = _ensure_current_week_external(weekly_external, raw_df, today=today)
+    weekly_external = _build_weekly_external_summary(raw_df, prepared_raw_df=prepared_raw_df)
+    weekly_external = _ensure_current_week_external(
+        weekly_external,
+        raw_df,
+        prepared_raw_df=prepared_raw_df,
+        today=today,
+    )
     weekly_team = _build_weekly_team_summary(weekly_load, weekly_wellness)
     weekly_team = _ensure_current_week_team(weekly_team, weekly_load, weekly_wellness, today=today)
     return {

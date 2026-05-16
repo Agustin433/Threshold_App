@@ -7,8 +7,11 @@ import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pandas as pd
+from pandas.testing import assert_frame_equal
 
 TEST_TMP_ROOT = Path(__file__).resolve().parent / ".tmp_history"
 
@@ -43,6 +46,279 @@ def isolated_store():
 
 
 class Phase2HistoryTest(unittest.TestCase):
+    def test_ensure_prepared_raw_workouts_skips_rebuild_when_raw_version_is_unchanged(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        raw_df = pd.DataFrame(
+            [
+                {
+                    "Assigned Date": "2026-04-01",
+                    "Athlete": "Ana Lopez",
+                    "Exercise": "Back Squat",
+                    "Tags": "Dominante de Rodilla",
+                    "Result": 80,
+                    "Reps": 5,
+                    "Sets": 4,
+                }
+            ]
+        )
+        prepared_df = pd.DataFrame(
+            [
+                {
+                    "Assigned Date": pd.Timestamp("2026-04-01"),
+                    "Date": pd.Timestamp("2026-04-01"),
+                    "Athlete": "Ana Lopez",
+                    "Exercise": "Back Squat",
+                    "Category": "Dominante de Rodilla",
+                    "stimulus_category": "strength_loaded",
+                    "Volume_Load": 400.0,
+                    "Volume_Load_legacy": 400.0,
+                    "Volume_Load_kg": 400.0,
+                    "Contacts": 0.0,
+                    "Exposures": 4.0,
+                    "Distance_m": 0.0,
+                    "is_invalid": False,
+                    "is_untagged": False,
+                }
+            ]
+        )
+        fake_st = SimpleNamespace(session_state={"raw_df": raw_df})
+
+        with patch.object(page_state_module, "st", fake_st):
+            with patch.object(page_state_module, "current_raw_df_version", return_value=(("raw_df", True, 1, 10),)):
+                with patch.object(page_state_module, "prepare_raw_workouts_df", return_value=prepared_df) as mocked_prepare:
+                    first = page_state_module.ensure_prepared_raw_workouts(ensure_base_state=False)
+                    second = page_state_module.ensure_prepared_raw_workouts(ensure_base_state=False)
+
+        self.assertIs(first, prepared_df)
+        self.assertIs(second, prepared_df)
+        self.assertEqual(mocked_prepare.call_count, 1)
+        self.assertEqual(fake_st.session_state["prepared_raw_df_version"], (("raw_df", True, 1, 10),))
+
+    def test_ensure_prepared_raw_workouts_rebuilds_when_raw_version_changes(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        raw_df = pd.DataFrame(
+            [
+                {
+                    "Assigned Date": "2026-04-01",
+                    "Athlete": "Ana Lopez",
+                    "Exercise": "Back Squat",
+                    "Tags": "Dominante de Rodilla",
+                    "Result": 80,
+                    "Reps": 5,
+                    "Sets": 4,
+                }
+            ]
+        )
+        prepared_v1 = pd.DataFrame([{"Athlete": "Ana Lopez", "Category": "week_1"}])
+        prepared_v2 = pd.DataFrame([{"Athlete": "Ana Lopez", "Category": "week_2"}])
+        fake_st = SimpleNamespace(session_state={"raw_df": raw_df})
+
+        with patch.object(page_state_module, "st", fake_st):
+            with patch.object(
+                page_state_module,
+                "current_raw_df_version",
+                side_effect=[(("raw_df", True, 1, 10),), (("raw_df", True, 2, 10),)],
+            ):
+                with patch.object(page_state_module, "prepare_raw_workouts_df", side_effect=[prepared_v1, prepared_v2]) as mocked_prepare:
+                    first = page_state_module.ensure_prepared_raw_workouts(ensure_base_state=False)
+                    second = page_state_module.ensure_prepared_raw_workouts(ensure_base_state=False)
+
+        self.assertIs(first, prepared_v1)
+        self.assertIs(second, prepared_v2)
+        self.assertEqual(mocked_prepare.call_count, 2)
+        self.assertEqual(fake_st.session_state["prepared_raw_df_version"], (("raw_df", True, 2, 10),))
+
+    def test_ensure_load_state_skips_rebuild_when_load_version_is_unchanged(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        fake_st = SimpleNamespace(
+            session_state={
+                "rpe_df": pd.DataFrame([{"Athlete": "Ana Lopez", "Date": "2026-04-01", "sRPE": 210}]),
+                "wellness_df": None,
+                "raw_df": None,
+            }
+        )
+        weekly_stub = {
+            "weekly_load": pd.DataFrame(),
+            "weekly_wellness": pd.DataFrame(),
+            "weekly_external": pd.DataFrame(),
+            "weekly_team": pd.DataFrame(),
+        }
+
+        with patch.object(page_state_module, "st", fake_st):
+            with patch.object(page_state_module, "current_load_state_version", return_value=(("load", True, 1, 10),)):
+                with patch.object(page_state_module, "build_load_models", return_value=({"Ana Lopez": pd.DataFrame()}, {"Ana Lopez": pd.DataFrame()})) as mocked_build_load_models:
+                    with patch.object(page_state_module, "build_weekly_summaries", return_value=weekly_stub) as mocked_build_weekly_summaries:
+                        page_state_module.ensure_load_state(ensure_base_state=False)
+                        page_state_module.ensure_load_state(ensure_base_state=False)
+
+        self.assertEqual(mocked_build_load_models.call_count, 1)
+        self.assertEqual(mocked_build_weekly_summaries.call_count, 1)
+        self.assertEqual(fake_st.session_state["load_state_version"], (("load", True, 1, 10),))
+
+    def test_ensure_load_state_rebuilds_when_load_version_changes(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        fake_st = SimpleNamespace(
+            session_state={
+                "rpe_df": pd.DataFrame([{"Athlete": "Ana Lopez", "Date": "2026-04-01", "sRPE": 210}]),
+                "wellness_df": None,
+                "raw_df": None,
+            }
+        )
+        weekly_stub = {
+            "weekly_load": pd.DataFrame(),
+            "weekly_wellness": pd.DataFrame(),
+            "weekly_external": pd.DataFrame(),
+            "weekly_team": pd.DataFrame(),
+        }
+
+        with patch.object(page_state_module, "st", fake_st):
+            with patch.object(
+                page_state_module,
+                "current_load_state_version",
+                side_effect=[(("load", True, 1, 10),), (("load", True, 2, 10),)],
+            ):
+                with patch.object(page_state_module, "build_load_models", return_value=({"Ana Lopez": pd.DataFrame()}, {"Ana Lopez": pd.DataFrame()})) as mocked_build_load_models:
+                    with patch.object(page_state_module, "build_weekly_summaries", return_value=weekly_stub) as mocked_build_weekly_summaries:
+                        page_state_module.ensure_load_state(ensure_base_state=False)
+                        page_state_module.ensure_load_state(ensure_base_state=False)
+
+        self.assertEqual(mocked_build_load_models.call_count, 2)
+        self.assertEqual(mocked_build_weekly_summaries.call_count, 2)
+        self.assertEqual(fake_st.session_state["load_state_version"], (("load", True, 2, 10),))
+
+    def test_ensure_load_state_matches_direct_load_model_outputs(self):
+        import modules.page_state as page_state_module
+
+        with isolated_store() as (local_store, _tmp_root):
+            page_state_module = importlib.reload(page_state_module)
+            local_store.save_dataset(
+                "rpe_df",
+                pd.DataFrame(
+                    [
+                        {"Athlete": "Ana Lopez", "Date": "2026-04-01", "sRPE": 210, "RPE": 7.0, "Time": 30},
+                        {"Athlete": "Ana Lopez", "Date": "2026-04-03", "sRPE": 280, "RPE": 8.0, "Time": 35},
+                        {"Athlete": "Bruno Rey", "Date": "2026-04-02", "sRPE": 180, "RPE": 6.0, "Time": 30},
+                    ]
+                ),
+            )
+            local_store.save_dataset(
+                "wellness_df",
+                pd.DataFrame(
+                    [
+                        {"Athlete": "Ana Lopez", "Date": "2026-04-01", "Sueno_hs": 7, "Estres": 2, "Dolor": 1, "Wellness_Score": 18},
+                        {"Athlete": "Bruno Rey", "Date": "2026-04-02", "Sueno_hs": 6, "Estres": 3, "Dolor": 2, "Wellness_Score": 15},
+                    ]
+                ),
+            )
+            local_store.save_dataset(
+                "raw_df",
+                pd.DataFrame(
+                    [
+                        {"Athlete": "Ana Lopez", "Assigned Date": "2026-04-01", "Exercise Name": "CMJ", "Set Number": 1},
+                        {"Athlete": "Bruno Rey", "Assigned Date": "2026-04-02", "Exercise Name": "Sprint", "Set Number": 1},
+                    ]
+                ),
+            )
+
+            recent_state = local_store.load_recent_state(weeks=local_store.RECENT_WEEKS)
+            expected_acwr_dict, expected_mono_dict = local_store.build_load_models(recent_state["rpe_df"])
+            expected_weekly_summaries = local_store.build_weekly_summaries(
+                recent_state["rpe_df"],
+                recent_state["wellness_df"],
+                recent_state["raw_df"],
+                acwr_dict=expected_acwr_dict or {},
+            )
+            fake_st = SimpleNamespace(session_state=dict(recent_state))
+
+            with patch.object(page_state_module, "st", fake_st):
+                page_state_module.ensure_load_state(ensure_base_state=False)
+
+            self.assertEqual(sorted((fake_st.session_state.get("acwr_dict") or {}).keys()), sorted((expected_acwr_dict or {}).keys()))
+            self.assertEqual(sorted((fake_st.session_state.get("mono_dict") or {}).keys()), sorted((expected_mono_dict or {}).keys()))
+            for athlete, frame in (expected_acwr_dict or {}).items():
+                assert_frame_equal(
+                    fake_st.session_state["acwr_dict"][athlete].reset_index(drop=True),
+                    frame.reset_index(drop=True),
+                )
+            for athlete, frame in (expected_mono_dict or {}).items():
+                assert_frame_equal(
+                    fake_st.session_state["mono_dict"][athlete].reset_index(drop=True),
+                    frame.reset_index(drop=True),
+                )
+            for key in ["weekly_load", "weekly_wellness", "weekly_external", "weekly_team"]:
+                assert_frame_equal(
+                    fake_st.session_state["weekly_summaries"][key].reset_index(drop=True),
+                    expected_weekly_summaries[key].reset_index(drop=True),
+                    check_dtype=False,
+                )
+
+    def test_ensure_page_state_skips_rehydration_when_store_version_is_unchanged(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        fake_st = SimpleNamespace(session_state={})
+        stored_state = {key: None for key in page_state_module.DATASET_SESSION_KEYS}
+
+        with patch.object(page_state_module, "st", fake_st):
+            with patch.object(page_state_module, "current_local_store_version", return_value=(("store", True, 1, 10),)):
+                with patch.object(page_state_module, "load_recent_state", return_value=stored_state) as mocked_load_recent_state:
+                    page_state_module.ensure_page_state(load_models=False)
+                    page_state_module.ensure_page_state(load_models=False)
+
+        self.assertEqual(mocked_load_recent_state.call_count, 1)
+        self.assertTrue(fake_st.session_state["local_store_hydrated"])
+        self.assertEqual(fake_st.session_state["local_store_version"], (("store", True, 1, 10),))
+
+    def test_ensure_page_state_rehydrates_after_store_version_changes(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        fake_st = SimpleNamespace(session_state={})
+        stored_state = {key: None for key in page_state_module.DATASET_SESSION_KEYS}
+
+        with patch.object(page_state_module, "st", fake_st):
+            with patch.object(
+                page_state_module,
+                "current_local_store_version",
+                side_effect=[(("store", True, 1, 10),), (("store", True, 2, 10),)],
+            ):
+                with patch.object(page_state_module, "load_recent_state", return_value=stored_state) as mocked_load_recent_state:
+                    page_state_module.ensure_page_state(load_models=False)
+                    page_state_module.ensure_page_state(load_models=False)
+
+        self.assertEqual(mocked_load_recent_state.call_count, 2)
+        self.assertEqual(fake_st.session_state["local_store_version"], (("store", True, 2, 10),))
+
+    def test_ensure_full_history_state_reuses_cached_snapshot_until_version_changes(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        fake_st = SimpleNamespace(session_state={})
+        full_state = {"completion_df": pd.DataFrame([{"Athlete": "Ana Lopez", "Pct": 90}])}
+
+        with patch.object(page_state_module, "st", fake_st):
+            with patch.object(
+                page_state_module,
+                "current_local_store_version",
+                side_effect=[(("completion_df", True, 1, 10),), (("completion_df", True, 1, 10),), (("completion_df", True, 2, 10),)],
+            ):
+                with patch.object(page_state_module, "load_full_history_state", return_value=full_state) as mocked_load_full_history_state:
+                    first = page_state_module.ensure_full_history_state(keys=["completion_df"])
+                    second = page_state_module.ensure_full_history_state(keys=["completion_df"])
+                    third = page_state_module.ensure_full_history_state(keys=["completion_df"])
+
+        self.assertIs(first, second)
+        self.assertEqual(mocked_load_full_history_state.call_count, 2)
+        self.assertEqual(third["completion_df"].iloc[0]["Athlete"], "Ana Lopez")
+
     def test_filter_recent_window_uses_last_available_weeks_instead_of_calendar_cutoff(self):
         with isolated_store() as (local_store, _tmp_root):
             source_df = pd.DataFrame(

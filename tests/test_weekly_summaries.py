@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 import pandas as pd
+from pandas.testing import assert_frame_equal
 
 import local_store
 from charts.load_charts import (
@@ -11,6 +12,7 @@ from charts.load_charts import (
     chart_weekly_strain,
     chart_weekly_wellness,
 )
+from modules.data_loader import prepare_raw_workouts_df
 
 
 def _chart_theme() -> dict:
@@ -54,6 +56,80 @@ def _chart_theme() -> dict:
 
 
 class WeeklySummariesTest(unittest.TestCase):
+    def test_build_weekly_summaries_accepts_prepared_raw_df_without_changing_output(self):
+        rpe_df = pd.DataFrame(
+            [
+                {"Date": "2026-04-06", "Athlete": "Juan Perez", "RPE": 6, "Duration_min": 50, "sRPE": 300},
+                {"Date": "2026-04-08", "Athlete": "Juan Perez", "RPE": 8, "Duration_min": 50, "sRPE": 400},
+                {"Date": "2026-04-14", "Athlete": "Juan Perez", "RPE": 7, "Duration_min": 50, "sRPE": 350},
+            ]
+        )
+        wellness_df = pd.DataFrame(
+            [
+                {"Date": "2026-04-06", "Athlete": "Juan Perez", "Sueno_hs": 8, "Estres": 2, "Dolor": 1, "Wellness_Score": 11},
+                {"Date": "2026-04-08", "Athlete": "Juan Perez", "Sueno_hs": 7, "Estres": 3, "Dolor": 2, "Wellness_Score": 12},
+                {"Date": "2026-04-14", "Athlete": "Juan Perez", "Sueno_hs": 8, "Estres": 2, "Dolor": 2, "Wellness_Score": 12},
+            ]
+        )
+        raw_df = pd.DataFrame(
+            [
+                {
+                    "Assigned Date": "2026-04-06",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "Back Squat",
+                    "Exercise Name": "Back Squat",
+                    "Tags": "Dominante de Rodilla",
+                    "Result": 80,
+                    "Reps": 5,
+                    "Sets": 4,
+                },
+                {
+                    "Assigned Date": "2026-04-08",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "Box Jump",
+                    "Exercise Name": "Box Jump",
+                    "Tags": "Jump_Plyo",
+                    "Result": None,
+                    "Reps": 20,
+                    "Sets": 5,
+                },
+                {
+                    "Assigned Date": "2026-04-10",
+                    "Athlete": "Juan Perez",
+                    "Exercise": "10m + COD 90 + 5m",
+                    "Exercise Name": "10m + COD 90 + 5m",
+                    "Tags": "",
+                    "Result": 10,
+                    "Reps": 4,
+                    "Sets": 1,
+                },
+            ]
+        )
+
+        acwr_dict, _ = local_store.build_load_models(rpe_df)
+        baseline = local_store.build_weekly_summaries(
+            rpe_df,
+            wellness_df,
+            raw_df,
+            acwr_dict=acwr_dict,
+            today=pd.Timestamp("2026-04-18"),
+        )
+        with_prepared = local_store.build_weekly_summaries(
+            rpe_df,
+            wellness_df,
+            raw_df,
+            acwr_dict=acwr_dict,
+            prepared_raw_df=prepare_raw_workouts_df(raw_df),
+            today=pd.Timestamp("2026-04-18"),
+        )
+
+        for key in ["weekly_load", "weekly_wellness", "weekly_external", "weekly_team"]:
+            assert_frame_equal(
+                baseline[key].reset_index(drop=True),
+                with_prepared[key].reset_index(drop=True),
+                check_dtype=False,
+            )
+
     def test_current_week_monotony_uses_elapsed_calendar_days_without_artificial_strain(self):
         rpe_df = pd.DataFrame(
             [

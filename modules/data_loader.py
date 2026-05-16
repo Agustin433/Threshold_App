@@ -1483,9 +1483,42 @@ def _first_positive(series: pd.Series, fallback: pd.Series) -> pd.Series:
     return series.where(series.notna() & (series > 0), fallback)
 
 
+PREPARED_RAW_WORKOUT_FLAG = "threshold_prepared_raw_workouts"
+PREPARED_RAW_WORKOUT_COLUMNS = {
+    "Assigned Date",
+    "Date",
+    "Category",
+    "stimulus_category",
+    "Volume_Load",
+    "Volume_Load_legacy",
+    "Volume_Load_kg",
+    "Contacts",
+    "Exposures",
+    "Distance_m",
+    "is_invalid",
+    "is_untagged",
+}
+
+
+def is_prepared_raw_workouts_df(raw_df: pd.DataFrame | None) -> bool:
+    if raw_df is None:
+        return False
+    if bool(getattr(raw_df, "attrs", {}).get(PREPARED_RAW_WORKOUT_FLAG)):
+        return True
+    return PREPARED_RAW_WORKOUT_COLUMNS.issubset(raw_df.columns)
+
+
+def _mark_prepared_raw_workouts_df(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    if df is not None:
+        df.attrs[PREPARED_RAW_WORKOUT_FLAG] = True
+    return df
+
+
 def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     if raw_df is None:
         return None
+    if is_prepared_raw_workouts_df(raw_df):
+        return _mark_prepared_raw_workouts_df(raw_df.copy())
 
     df = raw_df.copy()
     column_aliases = {
@@ -1533,7 +1566,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
             df["is_invalid"] = df["is_invalid"].astype(bool)
         if "is_untagged" in df.columns:
             df["is_untagged"] = df["is_untagged"].astype(bool)
-        return df
+        return _mark_prepared_raw_workouts_df(df)
 
     if "Assigned Date" in df.columns:
         df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
@@ -1657,7 +1690,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
 
     df["is_invalid"] = df["is_invalid"].astype(bool)
     df["is_untagged"] = df["is_untagged"].astype(bool)
-    return df
+    return _mark_prepared_raw_workouts_df(df)
 
 
 def summarize_raw_workouts_quality(raw_df: pd.DataFrame | None) -> pd.DataFrame:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from local_store import DATASET_LABELS, DATASET_SPECS, build_dataset_summaries, load_full_history_state
+from local_store import DATASET_LABELS, DATASET_SPECS, build_dataset_summaries
 from modules.history_manager import (
     create_history_backup,
     filter_history_frame,
@@ -16,7 +16,7 @@ from modules.history_manager import (
     supabase_dataset_store_enabled,
     supabase_evaluations_enabled,
 )
-from modules.page_state import ensure_page_state
+from modules.page_state import ensure_full_history_state, ensure_page_state
 
 SUCCESS_FLASH_KEY = "history_success_flash"
 
@@ -54,7 +54,7 @@ if isinstance(flash_message, dict):
     if backup_notice:
         st.info(backup_notice)
 
-full_state = load_full_history_state()
+full_state = ensure_full_history_state()
 summary_rows = build_dataset_summaries(full_state, keys=list(DATASET_SPECS.keys()))
 if summary_rows:
     st.markdown("### Resumen de datasets guardados")
@@ -276,4 +276,8 @@ else:
 
 if st.button("Recargar estado desde el store local", key="reload_history_state"):
     refresh_session_state_from_store()
-    st.success("Se recargo el estado visible desde el historial local.")
+    st.session_state[SUCCESS_FLASH_KEY] = {
+        "message": "Se recargo el estado visible desde el historial local.",
+        "backup_notice": "",
+    }
+    st.rerun()

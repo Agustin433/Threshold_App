@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from modules.data_loader import prepare_raw_workouts_df
+from modules.data_loader import is_prepared_raw_workouts_df, prepare_raw_workouts_df
 
 
 def _theme_parts(theme: dict) -> tuple[dict, dict, str, str, dict]:
@@ -183,7 +183,7 @@ def chart_wellness(w_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figur
 
 def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, legend = _theme_parts(theme)
-    prepared = prepare_raw_workouts_df(raw_df)
+    prepared = raw_df if is_prepared_raw_workouts_df(raw_df) else prepare_raw_workouts_df(raw_df)
     required_cols = {"Assigned Date", "Category", "stimulus_category", "Volume_Load_kg", "Contacts", "Exposures"}
     if prepared is None or not required_cols.issubset(prepared.columns):
         fig = go.Figure()

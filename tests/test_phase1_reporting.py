@@ -65,7 +65,7 @@ class Phase1ReportingTest(unittest.TestCase):
         figure = object()
 
         with patch("plotly.io.to_image", side_effect=[RuntimeError("first try"), b"png-bytes"]) as mocked_to_image:
-            with patch("kaleido.get_chrome_sync", return_value="chrome.exe"):
+            with patch("modules.report_generator._get_kaleido_chrome_sync", return_value="chrome.exe"):
                 exported = export_plotly_figure_png(figure, width=640, height=360, scale=1)
 
         self.assertEqual(exported, b"png-bytes")

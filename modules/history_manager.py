@@ -13,10 +13,9 @@ from local_store import (
     DATASET_SPECS,
     RECENT_WEEKS,
     STORE_DIR,
-    build_load_models,
-    load_recent_state,
     overwrite_dataset,
 )
+from modules.page_state import ensure_page_state
 from modules.remote_store import (
     REMOTE_DATASET_KEYS,
     _supabase_dataset_store_config,
@@ -122,13 +121,7 @@ def filter_history_frame(
 
 
 def refresh_session_state_from_store(*, weeks: int = RECENT_WEEKS) -> None:
-    stored_state = load_recent_state(weeks=weeks)
-    for key in list(DATASET_SPECS.keys()):
-        st.session_state[key] = stored_state.get(key)
-
-    acwr_dict, mono_dict = build_load_models(st.session_state.get("rpe_df"))
-    st.session_state.acwr_dict = acwr_dict or None
-    st.session_state.mono_dict = mono_dict or None
+    ensure_page_state(load_models=True, force_reload=True, weeks=weeks)
 
 
 def replace_local_history(state_key: str, df: pd.DataFrame | None) -> pd.DataFrame:

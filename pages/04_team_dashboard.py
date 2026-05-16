@@ -4,10 +4,10 @@ import pandas as pd
 import streamlit as st
 
 from charts.load_charts import chart_completion
-from local_store import build_weekly_summaries, load_dataset_for_history_mode
+from local_store import load_dataset_for_history_mode
 from modules.history_mode import history_mode_caption, render_history_mode_selector
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
-from modules.page_state import ensure_page_state
+from modules.page_state import ensure_load_state, ensure_page_state
 from modules.report_generator import collect_report_athletes
 
 WEEKLY_SUMMARY_KEYS = {"weekly_load", "weekly_wellness", "weekly_external", "weekly_team"}
@@ -117,18 +117,11 @@ def _completion_detail_df(comp_df: pd.DataFrame | None, athlete: str = "Todos") 
 
 
 def _weekly_summaries_from_state(acwr_dict: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    del acwr_dict
+    # Centralized build_weekly_summaries(...) caching lives in ensure_load_state().
+    ensure_load_state(ensure_base_state=False)
     cached = st.session_state.get("weekly_summaries")
-    if isinstance(cached, dict) and WEEKLY_SUMMARY_KEYS.issubset(cached.keys()):
-        return cached
-
-    summaries = build_weekly_summaries(
-        st.session_state.rpe_df,
-        st.session_state.wellness_df,
-        st.session_state.raw_df,
-        acwr_dict=acwr_dict,
-    )
-    st.session_state.weekly_summaries = summaries
-    return summaries
+    return cached if isinstance(cached, dict) else {}
 
 
 def _normalize_weekly_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
@@ -166,6 +159,7 @@ visible_athletes = collect_report_athletes(dict(st.session_state))
 if visible_athletes:
     st.caption(f"{len(visible_athletes)} atleta(s) con datos visibles en la ventana actual.")
 
+ensure_load_state(ensure_base_state=False)
 acwr_dict = st.session_state.acwr_dict or {}
 mono_dict = st.session_state.mono_dict or {}
 jdf = st.session_state.jump_df

@@ -17,16 +17,15 @@ from charts.load_charts import (
 from local_store import (
     HISTORY_MODE_FULL,
     RECENT_WEEKS,
-    build_load_models,
-    build_weekly_summaries,
-    load_dataset_for_history_mode,
-    read_full_dataset,
 )
-from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
 from modules.history_mode import history_mode_caption, render_history_mode_selector
 from modules.load_monitoring import build_weekly_acwr_context
-from modules.page_state import collect_state_athletes, ensure_page_state
+from modules.page_state import (
+    collect_state_athletes,
+    ensure_history_mode_load_state,
+    ensure_page_state,
+)
 from modules.page_visuals import build_page_theme, render_insight_block
 from modules.report_generator import generate_module_insights
 
@@ -45,27 +44,16 @@ def _normalize_weekly_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
 
 
 def _weekly_summaries_from_state(
-    rpe_df: pd.DataFrame | None,
-    wellness_df: pd.DataFrame | None,
-    raw_df: pd.DataFrame | None,
-    acwr_dict: dict[str, pd.DataFrame],
+    load_state: dict[str, object],
 ) -> dict[str, pd.DataFrame]:
-    return build_weekly_summaries(rpe_df, wellness_df, raw_df, acwr_dict=acwr_dict)
+    # Centralized build_weekly_summaries(...) caching lives in ensure_history_mode_load_state().
+    return load_state.get("weekly_summaries") or {}
 
 
 def _full_history_weekly_load(rpe_df: pd.DataFrame | None) -> pd.DataFrame:
-    full_rpe = read_full_dataset("rpe_df")
-    if full_rpe is None or full_rpe.empty:
-        full_rpe = rpe_df
-    if full_rpe is None or full_rpe.empty:
-        return pd.DataFrame()
-    full_acwr_dict, _ = build_load_models(full_rpe, weeks=None)
-    summaries = build_weekly_summaries(
-        full_rpe,
-        None,
-        None,
-        acwr_dict=full_acwr_dict or {},
-    )
+    del rpe_df
+    full_load_state = ensure_history_mode_load_state(HISTORY_MODE_FULL)
+    summaries = full_load_state.get("weekly_summaries") or {}
     return _normalize_weekly_frame(summaries.get("weekly_load", pd.DataFrame()))
 
 
@@ -235,17 +223,14 @@ st.page_link("app.py", label="Abrir dashboard principal")
 history_mode = render_history_mode_selector(key="load_monitoring_page_history_mode")
 
 theme = build_page_theme()
-rdf = load_dataset_for_history_mode("rpe_df", history_mode)
-wdf = load_dataset_for_history_mode("wellness_df", history_mode)
-raw_df = load_dataset_for_history_mode("raw_df", history_mode)
-acwr_dict, mono_dict = build_load_models(
-    rdf,
-    weeks=None if history_mode == HISTORY_MODE_FULL else RECENT_WEEKS,
-)
-acwr_dict = acwr_dict or {}
-mono_dict = mono_dict or {}
-prepared_raw_df = prepare_raw_workouts_df(raw_df) if raw_df is not None else None
-weekly_summaries = _weekly_summaries_from_state(rdf, wdf, raw_df, acwr_dict)
+load_state = ensure_history_mode_load_state(history_mode)
+rdf = load_state.get("rpe_df")
+wdf = load_state.get("wellness_df")
+raw_df = load_state.get("raw_df")
+acwr_dict = load_state.get("acwr_dict") or {}
+mono_dict = load_state.get("mono_dict") or {}
+prepared_raw_df = load_state.get("prepared_raw_df")
+weekly_summaries = _weekly_summaries_from_state(load_state)
 weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
 weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
 weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))

@@ -88,6 +88,14 @@ from modules.data_loader import (
 )
 from modules.data_quality import compute_data_quality_report
 from modules.history_mode import history_mode_caption, render_history_mode_selector
+from modules.page_state import (
+    ensure_history_mode_load_state,
+    ensure_load_state,
+    ensure_prepared_raw_workouts,
+    invalidate_local_store_hydration,
+    local_store_needs_hydration,
+    mark_local_store_hydrated,
+)
 from modules.alerts import (
     build_alert_feed,
     select_executive_alerts,
@@ -3487,7 +3495,7 @@ find_latest_valid_radar_row = shared_find_latest_valid_radar_row
 def init_state():
     # Valores por defecto None
     none_keys = ["rpe_df", "wellness_df", "completion_df", "rep_load_df",
-                 "raw_df", "session_notes_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict"]
+                 "raw_df", "session_notes_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict", "prepared_raw_df"]
     for k in none_keys:
         if k not in st.session_state:
             st.session_state[k] = None
@@ -3523,6 +3531,16 @@ def init_state():
         st.session_state.processed_file_hashes = set()
     if "upload_file_hashes" not in st.session_state:
         st.session_state.upload_file_hashes = {}
+    if "local_store_hydrated" not in st.session_state:
+        st.session_state.local_store_hydrated = False
+    if "local_store_version" not in st.session_state:
+        st.session_state.local_store_version = None
+    if "last_hydration_ts" not in st.session_state:
+        st.session_state.last_hydration_ts = None
+    if "prepared_raw_df_version" not in st.session_state:
+        st.session_state.prepared_raw_df_version = None
+    if "prepared_raw_df_last_build_ts" not in st.session_state:
+        st.session_state.prepared_raw_df_last_build_ts = None
 
 
 init_state()
@@ -3548,6 +3566,7 @@ def _current_state_snapshot() -> dict[str, pd.DataFrame | None]:
         "completion_df": st.session_state.completion_df,
         "rep_load_df": st.session_state.rep_load_df,
         "raw_df": st.session_state.raw_df,
+        "prepared_raw_df": st.session_state.prepared_raw_df,
         "session_notes_df": st.session_state.session_notes_df,
         "maxes_df": st.session_state.maxes_df,
         "jump_df": st.session_state.jump_df,
@@ -3666,18 +3685,9 @@ def _normalize_weekly_frame(df: pd.DataFrame | None) -> pd.DataFrame:
 
 
 def _full_history_weekly_load(rpe_df: pd.DataFrame | None) -> pd.DataFrame:
-    full_rpe = read_full_dataset("rpe_df")
-    if full_rpe is None or full_rpe.empty:
-        full_rpe = rpe_df
-    if full_rpe is None or full_rpe.empty:
-        return pd.DataFrame()
-    full_acwr_dict, _ = build_load_models(full_rpe, weeks=None)
-    full_weekly = build_weekly_summaries(
-        full_rpe,
-        None,
-        None,
-        acwr_dict=full_acwr_dict or {},
-    )
+    del rpe_df
+    full_load_state = ensure_history_mode_load_state(HISTORY_MODE_FULL)
+    full_weekly = full_load_state.get("weekly_summaries") or {}
     return _normalize_weekly_frame(full_weekly.get("weekly_load", pd.DataFrame()))
 
 
@@ -3976,26 +3986,27 @@ def _run_questionnaire_raw_job(filename: str, loader, source_file=None) -> bool:
         return False
 
 
-def rebuild_load_state():
-    acwr_dict, mono_dict = build_load_models(st.session_state.rpe_df)
-    st.session_state.acwr_dict = acwr_dict or None
-    st.session_state.mono_dict = mono_dict or None
-    st.session_state.weekly_summaries = build_weekly_summaries(
-        st.session_state.rpe_df,
-        st.session_state.wellness_df,
-        st.session_state.raw_df,
-        acwr_dict=acwr_dict or {},
-    )
+def rebuild_load_state(force: bool = False):
+    ensure_load_state(force_reload=force, ensure_base_state=False)
 
 
-def hydrate_local_store(force: bool = True):
+def ensure_local_store_hydrated(force: bool = False) -> bool:
+    if force:
+        invalidate_local_store_hydration(clear_full_history=True, clear_load_state=False)
+    if not local_store_needs_hydration(force=False):
+        ensure_load_state(force_reload=False, ensure_base_state=False)
+        return False
+
     stored_state = load_recent_state(weeks=RECENT_WEEKS)
     for key, df in stored_state.items():
-        current = st.session_state.get(key)
-        should_replace = force or current is None or (hasattr(current, "empty") and current.empty)
-        if should_replace:
-            st.session_state[key] = df
-    rebuild_load_state()
+        st.session_state[key] = df
+    mark_local_store_hydrated()
+    rebuild_load_state(force=True)
+    return True
+
+
+def hydrate_local_store(force: bool = False) -> bool:
+    return ensure_local_store_hydrated(force=force)
 
 
 def hydrate_remote_datasets(force: bool = False, show_success: bool = False):
@@ -4044,10 +4055,12 @@ def hydrate_evaluations_from_store(force: bool = False, show_success: bool = Fal
     try:
         remote_df = load_evaluations()
         if not remote_df.empty:
+            invalidate_local_store_hydration(clear_full_history=True, clear_load_state=False)
             save_dataset("jump_df", remote_df)
             persist_athlete_names(remote_df["Athlete"].dropna().tolist())
             full_jump_df = read_full_dataset("jump_df")
             st.session_state.jump_df = full_jump_df if not full_jump_df.empty else None
+            mark_local_store_hydrated()
             if show_success:
                 st.session_state.eval_sync_notice = (
                     f"Historial de evaluaciones cargado desde Supabase "
@@ -4064,7 +4077,7 @@ def hydrate_evaluations_from_store(force: bool = False, show_success: bool = Fal
         st.session_state.evaluations_loaded_from_store = True
 
 
-hydrate_local_store()
+ensure_local_store_hydrated()
 hydrate_remote_datasets()
 hydrate_evaluations_from_store()
 
@@ -4801,7 +4814,8 @@ with st.sidebar:
                         st.session_state.sidebar_upload_expanded = True
                         _push_notice("error", f"Evaluaciones individuales: {exc}")
 
-                hydrate_local_store(force=True)
+                if processed_any:
+                    ensure_local_store_hydrated(force=True)
                 if not processed_any:
                     _push_notice("info", "No se detectaron archivos nuevos ni evaluaciones pendientes para procesar.")
 
@@ -4855,7 +4869,7 @@ with st.sidebar:
                             )
                         st.session_state.evaluations_loaded_from_store = False
 
-                    hydrate_local_store(force=True)
+                    ensure_local_store_hydrated(force=True)
                     hydrate_evaluations_from_store(force=True, show_success=False)
                     _push_notice(
                         "success",
@@ -5004,13 +5018,7 @@ def render_decision_panel():
         kicker="Modulo",
     )
 
-    st.session_state.weekly_summaries = build_weekly_summaries(
-        st.session_state.get("rpe_df"),
-        st.session_state.get("wellness_df"),
-        st.session_state.get("raw_df"),
-        acwr_dict=st.session_state.get("acwr_dict"),
-    )
-
+    ensure_load_state(ensure_base_state=False)
     weekly_summaries = st.session_state.weekly_summaries or {}
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
     weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
@@ -5018,7 +5026,9 @@ def render_decision_panel():
     weekly_team = _normalize_weekly_frame(weekly_summaries.get("weekly_team", pd.DataFrame()))
     jump_df = st.session_state.jump_df
     raw_df_state = st.session_state.raw_df
-    prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if raw_df_state is not None else pd.DataFrame()
+    prepared_raw_df = ensure_prepared_raw_workouts(ensure_base_state=False)
+    if prepared_raw_df is None:
+        prepared_raw_df = pd.DataFrame()
 
     week_candidates: list[pd.Timestamp] = []
     week_label_flags: dict[pd.Timestamp, bool] = {}
@@ -5581,20 +5591,42 @@ def render_decision_panel():
 
 render_brand_cover()
 
-tab_overview, tab_decision, tab_load, tab_eval, tab_profile, tab_team, tab_report = st.tabs([
+MAIN_SURFACE_OPTIONS = [
     "Overview",
-    "Panel de Decision",
-    "Load Monitoring",
-    "Evaluaciones",
-    "Perfil Atleta",
-    "Team Dashboard",
-    "Reporte",
-])
+    "Decision",
+    "Load",
+    "Evaluations",
+    "Profile",
+    "Team",
+    "Reports",
+]
+default_main_view = st.session_state.get("main_surface_view", MAIN_SURFACE_OPTIONS[0])
+if default_main_view not in MAIN_SURFACE_OPTIONS:
+    default_main_view = MAIN_SURFACE_OPTIONS[0]
+
+# This conditional navigation avoids having Streamlit execute every main surface on each rerun.
+if hasattr(st, "segmented_control"):
+    active_main_view = st.segmented_control(
+        "Vista principal",
+        MAIN_SURFACE_OPTIONS,
+        selection_mode="single",
+        default=default_main_view,
+        key="main_surface_view",
+    )
+else:
+    active_main_view = st.radio(
+        "Vista principal",
+        MAIN_SURFACE_OPTIONS,
+        index=MAIN_SURFACE_OPTIONS.index(default_main_view),
+        horizontal=True,
+        key="main_surface_view",
+    )
+active_main_view = active_main_view or default_main_view
 
 # ─────────────────────────────────────────────────────────────────────
 # TAB: OVERVIEW
 # ─────────────────────────────────────────────────────────────────────
-with tab_overview:
+if active_main_view == "Overview":
     render_module_header(
         "Overview Ejecutivo",
         "landing ejecutiva para readiness, señales semanales y proximo tab",
@@ -5611,7 +5643,7 @@ with tab_overview:
     state_snapshot = _current_state_snapshot()
     overview_athletes = known_athlete_names()
 
-    prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if _overview_loaded(raw_df_state) else None
+    prepared_raw_df = ensure_prepared_raw_workouts(ensure_base_state=False) if _overview_loaded(raw_df_state) else None
     quality_report = compute_data_quality_report(
         rdf,
         wdf,
@@ -5623,13 +5655,8 @@ with tab_overview:
         window_days=42,
     )
 
-    if not st.session_state.weekly_summaries:
-        st.session_state.weekly_summaries = build_weekly_summaries(
-            rdf,
-            wdf,
-            raw_df_state,
-            acwr_dict=st.session_state.get("acwr_dict") or {},
-        )
+    # weekly_summaries come from the centralized build_weekly_summaries(...) cache.
+    ensure_load_state(ensure_base_state=False)
     weekly_summaries = st.session_state.weekly_summaries or {}
     weekly_load_current = _overview_current_week_slice(weekly_summaries.get("weekly_load"))
     weekly_wellness_current = _overview_current_week_slice(weekly_summaries.get("weekly_wellness"))
@@ -5788,23 +5815,20 @@ with tab_overview:
 # ─────────────────────────────────────────────────────────────────────
 # TAB: LOAD MONITORING
 # ─────────────────────────────────────────────────────────────────────
-with tab_decision:
+elif active_main_view == "Decision":
     render_decision_panel()
 
-with tab_load:
+elif active_main_view == "Load":
     render_module_header("Monitoreo de Carga", "srpe · acwr · strain · monotonia", kicker="Modulo")
 
     history_mode = render_history_mode_selector(key="app_load_history_mode")
-    rdf = load_dataset_for_history_mode("rpe_df", history_mode)
-    wdf = load_dataset_for_history_mode("wellness_df", history_mode)
-    raw_df_state = load_dataset_for_history_mode("raw_df", history_mode)
-    acwr_dict, mono_dict = build_load_models(
-        rdf,
-        weeks=None if history_mode == HISTORY_MODE_FULL else RECENT_WEEKS,
-    )
-    acwr_dict = acwr_dict or {}
-    mono_dict = mono_dict or {}
-    prepared_raw_df = prepare_raw_workouts_df(raw_df_state) if raw_df_state is not None else None
+    load_state = ensure_history_mode_load_state(history_mode)
+    rdf = load_state.get("rpe_df")
+    wdf = load_state.get("wellness_df")
+    raw_df_state = load_state.get("raw_df")
+    prepared_raw_df = load_state.get("prepared_raw_df")
+    acwr_dict = load_state.get("acwr_dict") or {}
+    mono_dict = load_state.get("mono_dict") or {}
     athletes_list = known_athlete_names()
     quality_report = compute_data_quality_report(
         rdf,
@@ -5822,12 +5846,7 @@ with tab_load:
     athlete_summary = quality_report["athlete_summary"]
     alerts = quality_report["alerts"]
 
-    weekly_summaries = build_weekly_summaries(
-        rdf,
-        wdf,
-        raw_df_state,
-        acwr_dict=acwr_dict,
-    )
+    weekly_summaries = load_state.get("weekly_summaries") or {}
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
     weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
     weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))
@@ -6140,7 +6159,7 @@ with tab_load:
 # ─────────────────────────────────────────────────────────────────────
 # TAB: EVALUACIONES
 # ─────────────────────────────────────────────────────────────────────
-with tab_eval:
+elif active_main_view == "Evaluations":
     jdf = st.session_state.jump_df
 
     if jdf is None or jdf.empty:
@@ -6453,7 +6472,7 @@ with tab_eval:
                 hide_index=True,
             )
 
-with tab_profile:
+elif active_main_view == "Profile":
     render_module_header("Perfil del Atleta", "radar · cuadrantes · kpis individuales", kicker="Modulo")
 
     jdf  = st.session_state.jump_df
@@ -6583,7 +6602,7 @@ with tab_profile:
 # ─────────────────────────────────────────────────────────────────────
 # TAB: TEAM DASHBOARD
 # ─────────────────────────────────────────────────────────────────────
-with tab_team:
+elif active_main_view == "Team":
     render_module_header("Team Dashboard", "comparacion · clasificacion · ranking grupal", kicker="Modulo")
 
     jdf  = st.session_state.jump_df
@@ -6731,9 +6750,10 @@ with tab_team:
 # ─────────────────────────────────────────────────────────────────────
 # TAB: REPORTE DESCARGABLE
 # ─────────────────────────────────────────────────────────────────────
-with tab_report:
+elif active_main_view == "Reports":
     render_module_header("Reporte", "exportar datos para compartir con el cuerpo tecnico", kicker="Modulo")
 
+    ensure_load_state(ensure_base_state=False)
     report_state = dict(st.session_state)
     report_athlete = "Todos"
 

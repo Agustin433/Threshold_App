@@ -7,6 +7,7 @@ from io import BytesIO
 from pathlib import Path
 import textwrap
 import unicodedata
+import warnings
 
 import pandas as pd
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -626,6 +627,7 @@ def _report_weekly_summaries(state: dict[str, pd.DataFrame | None]) -> dict[str,
         state.get("wellness_df"),
         state.get("raw_df"),
         acwr_dict=state.get("acwr_dict"),
+        prepared_raw_df=state.get("prepared_raw_df"),
     )
 
 
@@ -635,7 +637,7 @@ def _report_quality_report(state: dict[str, pd.DataFrame | None]) -> dict[str, o
         state.get("rpe_df"),
         state.get("wellness_df"),
         state.get("completion_df"),
-        state.get("raw_df"),
+        state.get("prepared_raw_df") if state.get("prepared_raw_df") is not None else state.get("raw_df"),
         state.get("maxes_df"),
         state.get("jump_df"),
         athletes,
@@ -1236,7 +1238,9 @@ def _build_raw_external_volume_sheet(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
 ) -> pd.DataFrame:
-    prepared = prepare_raw_workouts_df(state.get("raw_df"))
+    prepared = state.get("prepared_raw_df")
+    if prepared is None:
+        prepared = prepare_raw_workouts_df(state.get("raw_df"))
     if prepared is None or prepared.empty:
         return pd.DataFrame()
 
@@ -3378,10 +3382,53 @@ def _build_trend_page(
 def report_plotly_export_ready() -> bool:
     try:
         import plotly.io as pio  # noqa: F401
-        import kaleido  # noqa: F401
     except Exception:
         return False
-    return True
+    return _import_kaleido_backend() is not None
+
+
+def _import_kaleido_backend():
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                module=r"kaleido\._sync_server",
+            )
+            import kaleido
+    except Exception:
+        return None
+    return kaleido
+
+
+def _get_kaleido_chrome_sync() -> str | None:
+    kaleido = _import_kaleido_backend()
+    if kaleido is None:
+        return None
+    try:
+        return kaleido.get_chrome_sync()
+    except Exception:
+        return None
+
+
+def _plotly_figure_to_png_bytes(
+    pio_module,
+    figure: object,
+    *,
+    width: int,
+    height: int,
+    scale: int,
+) -> bytes | None:
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                module=r"kaleido\._sync_server",
+            )
+            return pio_module.to_image(figure, format="png", width=width, height=height, scale=scale)
+    except Exception:
+        return None
 
 
 def _build_report_chart_theme() -> dict:
@@ -3623,17 +3670,24 @@ def export_plotly_figure_png(
         import plotly.io as pio
     except Exception:
         return None
-    try:
-        return pio.to_image(figure, format="png", width=width, height=height, scale=scale)
-    except Exception:
-        pass
-    try:
-        import kaleido
-        chrome_path = kaleido.get_chrome_sync()
-        if chrome_path:
-            return pio.to_image(figure, format="png", width=width, height=height, scale=scale)
-    except Exception:
-        pass
+    image_bytes = _plotly_figure_to_png_bytes(
+        pio,
+        figure,
+        width=width,
+        height=height,
+        scale=scale,
+    )
+    if image_bytes is not None:
+        return image_bytes
+    chrome_path = _get_kaleido_chrome_sync()
+    if chrome_path:
+        return _plotly_figure_to_png_bytes(
+            pio,
+            figure,
+            width=width,
+            height=height,
+            scale=scale,
+        )
     return None
 
 
@@ -4379,7 +4433,9 @@ def _build_professional_training_context(
     rows.append(("Evolución de carga", load_evolution))
 
     exercises_text = PDF_MISSING_TEXT
-    prepared = prepare_raw_workouts_df(state.get("raw_df"))
+    prepared = state.get("prepared_raw_df")
+    if prepared is None:
+        prepared = prepare_raw_workouts_df(state.get("raw_df"))
     if prepared is not None and not prepared.empty and "Athlete" in prepared.columns:
         athlete_df = prepared[_professional_athlete_mask(prepared["Athlete"], athlete)].copy()
         if not athlete_df.empty:
