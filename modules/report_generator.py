@@ -18,6 +18,11 @@ from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import (
     _prepare_jump_df,
+    build_composite_profile_metric_table,
+    build_composite_profile_snapshot,
+    build_jump_delta_display_table,
+    build_jump_feedback_lines,
+    build_jump_temporal_context,
     build_profile_radar_row,
     compute_baseline_delta,
     compute_swc_delta,
@@ -94,6 +99,11 @@ REPORT_AUDIENCE_OPTIONS = {
 REPORT_AUDIENCE_LABELS = {value: key for key, value in REPORT_AUDIENCE_OPTIONS.items()}
 EUR_RATIO_LABEL = "EUR (ratio)"
 PDF_MISSING_TEXT = "Faltan datos"
+PROFESSIONAL_COMPOSITE_PROFILE_NOTE = (
+    "Perfil compuesto: usa el Ãºltimo dato vÃ¡lido disponible por variable; no todas las "
+    "variables necesariamente provienen de la misma fecha."
+)
+PROFESSIONAL_FULL_REPORT_MIN_COMPOSITE_METRICS = 4
 PROFESSIONAL_INTERVAL_WARNING = (
     "Intervalo entre evaluaciones menor al recomendado de 6-8 semanas. "
     "Interpretar cambios con cautela y evitar atribuirlos de forma directa a adaptación."
@@ -216,6 +226,44 @@ PROFESSIONAL_TE_REFERENCES = {
     "EUR": {"value": 0.021, "unit": "ratio"},
     "IMTP_N": {"value": 30.0, "unit": "N"},
 }
+PROFESSIONAL_EXPOSURE_CATEGORY_SPECS = (
+    {
+        "title": "Fuerza con carga",
+        "categories": ("strength_loaded",),
+        "value_col": "Volume_Load_kg",
+        "unit": "kg x rep",
+    },
+    {
+        "title": "Pliometria y aterrizajes",
+        "categories": ("plyo_jump", "landing_mechanics"),
+        "value_col": "Contacts",
+        "unit": "contactos",
+    },
+    {
+        "title": "Derivados olimpicos",
+        "categories": ("olympic_derivatives",),
+        "value_col": "Exposures",
+        "unit": "exposiciones",
+    },
+    {
+        "title": "Isometricos y estabilidad",
+        "categories": ("iso", "core_stability"),
+        "value_col": "Exposures",
+        "unit": "exposiciones",
+    },
+    {
+        "title": "Movilidad y prehab",
+        "categories": ("mobility_prehab",),
+        "value_col": "Exposures",
+        "unit": "exposiciones",
+    },
+    {
+        "title": "Sprint / COD",
+        "categories": ("sprint_cod",),
+        "value_col": "Exposures",
+        "unit": "esfuerzos",
+    },
+)
 
 
 def _report_sample_suffix(
@@ -1872,6 +1920,199 @@ def _format_excel_sheet(worksheet, df: pd.DataFrame, sheet_name: str) -> None:
 
 def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
     """Export selected dataframes to a multi-sheet Excel workbook."""
+    def _append_full_executive_page(target: list[object]) -> None:
+        target.extend(
+            [
+                _p("Reporte profesional", "ProfMuted"),
+                _p(report_athlete, "ProfTitle"),
+                _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M}", "ProfMuted"),
+                _box(
+                    [
+                        _p("Reporte madre profesional orientado a toma de decisiones.", "ProfBody"),
+                        _p(
+                            "Prioriza perfil actual, cambios relevantes, contexto de carga y decisiÃ³n sugerida para el prÃ³ximo bloque.",
+                            "ProfMuted",
+                        ),
+                    ]
+                ),
+                Spacer(1, 6 * mm),
+                _p(executive_payload.get("title", "Resumen ejecutivo profesional"), "ProfSection"),
+                _executive_summary_table(executive_payload),
+                Spacer(1, 4 * mm),
+                _bullet_box("SeÃ±ales clave", executive_payload.get("signals", [])),
+                Spacer(1, 4 * mm),
+                _box(
+                    [
+                        _p("DecisiÃ³n sugerida", "ProfCardTitle"),
+                        _p(executive_payload.get("decision_suggested", PDF_MISSING_TEXT), "ProfBody"),
+                    ],
+                    padding=6,
+                ),
+            ]
+        )
+
+    def _append_full_composite_profile_page(target: list[object]) -> None:
+        target.append(_p(composite_profile.get("title", "Perfil actual compuesto"), "ProfSection"))
+        if composite_profile.get("state") == "missing":
+            target.append(_collapsed_box(str(composite_profile.get("message") or "Faltan datos para el perfil compuesto.")))
+            return
+        target.append(_box([_p(composite_profile.get("note", PROFESSIONAL_COMPOSITE_PROFILE_NOTE), "ProfMuted")], padding=5))
+        radar_image = _composite_radar_image(composite_profile)
+        if radar_image is not None:
+            target.append(Spacer(1, 3 * mm))
+            target.append(radar_image)
+        target.append(Spacer(1, 3 * mm))
+        target.append(_dataframe_table(composite_profile.get("metric_table"), col_widths_mm=[36, 32, 22, 84]))
+        feedback = composite_profile.get("feedback", {}) if isinstance(composite_profile.get("feedback"), dict) else {}
+        target.append(Spacer(1, 3 * mm))
+        target.append(
+            _bullet_box(
+                "Lectura del perfil",
+                [
+                    f"Variable dominante: {feedback.get('high', PDF_MISSING_TEXT)}",
+                    f"Variable rezagada: {feedback.get('low', PDF_MISSING_TEXT)}",
+                    f"Lectura fisiolÃ³gica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
+                    f"Lectura biomecÃ¡nica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
+                    f"Implicancia para prÃ³ximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
+                ],
+            )
+        )
+
+    def _append_full_change_page(target: list[object]) -> None:
+        target.append(_p(change_payload.get("title", "Cambios vs evaluaciÃ³n anterior"), "ProfSection"))
+        if change_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(change_payload.get("message") or PROFESSIONAL_NO_EVOLUTION_TEXT)))
+            return
+        target.append(_dataframe_table(change_payload.get("display_table"), col_widths_mm=[34, 18, 18, 18, 18, 32, 36]))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("SÃ­ntesis de cambios", change_payload.get("summary_lines", [])))
+        if not _professional_any_quadrant_ready(quadrant_sections):
+            target.append(Spacer(1, 3 * mm))
+            target.append(_box([_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicaciÃ³n Ãºtil en esta exportaciÃ³n.", "ProfMuted")], padding=5))
+
+    def _append_full_quadrants_page(target: list[object]) -> None:
+        target.append(_p("Relaciones de perfil / cuadrantes", "ProfSection"))
+        if not _professional_any_quadrant_ready(quadrant_sections):
+            target.append(_collapsed_box(PROFESSIONAL_NO_QUADRANTS_TEXT))
+            return
+        for section in quadrant_sections[:3]:
+            chart = _quadrant_chart(section)
+            if chart is None:
+                continue
+            target.append(_chart_explanation_panel(chart, str(section.get("title", "Cuadrante")), section))
+            target.append(Spacer(1, 4 * mm))
+
+    def _append_full_isometrics_page(target: list[object]) -> None:
+        target.append(_p(isometric_payload.get("title", "IsomÃ©tricos y force-time avanzado"), "ProfSection"))
+        if isometric_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isomÃ©tricos.")))
+            return
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "AsimetrÃ­a"}]
+        if imtp_priority:
+            target.append(_p("IMTP principal", "ProfCardTitle"))
+            target.append(_mini_cards_table(imtp_priority))
+        if isometric_payload.get("iso_available"):
+            target.append(Spacer(1, 3 * mm))
+            target.append(_p("ISO Push Hip-Hamstring Bilateral", "ProfCardTitle"))
+            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "AsimetrÃ­a"}]
+            if iso_priority:
+                target.append(_mini_cards_table(iso_priority))
+            if isometric_payload.get("iso_notes"):
+                target.append(Spacer(1, 2 * mm))
+                target.append(_bullet_box("Lectura prÃ¡ctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
+        if isometric_payload.get("force_time_available"):
+            target.append(Spacer(1, 3 * mm))
+            draw_force_time_test_block(
+                {
+                    "story": target,
+                    "p": _p,
+                    "box": _box,
+                    "Table": Table,
+                    "TableStyle": TableStyle,
+                    "Spacer": Spacer,
+                    "mm": mm,
+                    "palette": palette,
+                },
+                force_time_payload,
+                report_type="professional",
+            )
+
+    def _append_full_load_page(target: list[object]) -> None:
+        target.append(_p(load_tolerance_payload.get("title", "Carga interna y tolerancia"), "ProfSection"))
+        if load_tolerance_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(load_tolerance_payload.get("message") or "Faltan datos de carga interna.")))
+            return
+        target.append(_key_value_table(load_tolerance_payload.get("rows", [])))
+        target.append(Spacer(1, 3 * mm))
+        weekly_chart = _weekly_ema_chart(load_tolerance_payload.get("weekly_points", []), height_mm=48)
+        if weekly_chart is not None:
+            target.append(weekly_chart)
+            target.append(Spacer(1, 3 * mm))
+        target.append(_box([_p(load_tolerance_payload.get("risk_line", PDF_MISSING_TEXT), "ProfBody")], padding=6))
+
+    def _append_full_wellness_page(target: list[object]) -> None:
+        target.append(_p(wellness_availability_payload.get("title", "Wellness, disponibilidad y adherencia"), "ProfSection"))
+        if wellness_availability_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(wellness_availability_payload.get("message") or "Faltan datos de wellness.")))
+            return
+        target.append(_mini_cards_table(wellness_availability_payload.get("rows", [])))
+        chart_points = (
+            wellness_availability_payload.get("weekly_points", [])
+            if wellness_availability_payload.get("trend_allowed")
+            else wellness_availability_payload.get("daily_points", [])
+        )
+        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44)
+        if chart is not None:
+            target.append(Spacer(1, 3 * mm))
+            target.append(chart)
+        target.append(Spacer(1, 3 * mm))
+        note_lines = [str(wellness_availability_payload.get("compatibility") or "")]
+        if str(wellness_availability_payload.get("quality_note") or "").strip():
+            note_lines.append(str(wellness_availability_payload.get("quality_note")))
+        target.append(_bullet_box("Lectura de disponibilidad", note_lines, style_name="ProfMuted"))
+
+    def _append_full_exposure_page(target: list[object]) -> None:
+        target.append(_p(exposure_payload.get("title", "ExposiciÃ³n del bloque / contenido entrenado"), "ProfSection"))
+        if exposure_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposiciÃ³n.")))
+            return
+        chart_image = _exposure_chart_image()
+        if chart_image is not None:
+            target.append(chart_image)
+            target.append(Spacer(1, 3 * mm))
+        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[40, 32, 18, 84]))
+        target.append(Spacer(1, 3 * mm))
+        target.append(
+            _bullet_box(
+                "Lectura del bloque",
+                [
+                    str(exposure_payload.get("summary_line") or ""),
+                    str(exposure_payload.get("context_link") or ""),
+                    f"EstÃ­mulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}.",
+                ],
+                style_name="ProfMuted",
+            )
+        )
+
+    def _append_full_integrated_page(target: list[object]) -> None:
+        target.append(_p(integrated_decision_payload.get("title", "InterpretaciÃ³n integrada profesional"), "ProfSection"))
+        target.append(_bullet_box("QuÃ© sabemos con buena confianza", integrated_decision_payload.get("good_confidence", [])))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃ© parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃ© no podemos afirmar todavÃ­a", integrated_decision_payload.get("unknown", []), style_name="ProfMuted"))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("DecisiÃ³n prÃ¡ctica", integrated_decision_payload.get("decision_practical", [])))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃ© monitorear en el prÃ³ximo bloque", integrated_decision_payload.get("monitor", []), style_name="ProfMuted"))
+
+    def _append_full_action_plan_page(target: list[object]) -> None:
+        target.append(_p(action_plan_payload.get("title", "PrÃ³ximos pasos y limitaciones metodolÃ³gicas"), "ProfSection"))
+        for label in ["Mantener", "Ajustar", "Monitorear", "Medir"]:
+            target.append(_bullet_box(label, action_plan_payload.get("actions", {}).get(label, [])))
+            target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("Limitaciones metodolÃ³gicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
+
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         for sheet_name, df in _ordered_sheet_items(data_dict):
@@ -4984,6 +5225,789 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
     }
 
 
+def _professional_number_text(value: object, *, digits: int = 1, unit: str = "") -> str:
+    numeric = _coerce_float(value)
+    if numeric is None:
+        return PDF_MISSING_TEXT
+    rendered = f"{numeric:.{digits}f}"
+    if digits == 0:
+        rendered = rendered.split(".")[0]
+    return f"{rendered} {unit}".strip()
+
+
+def _professional_force_side_label(side: object) -> str:
+    clean = str(side or "").strip().lower()
+    if clean == "left":
+        return "izquierda"
+    if clean == "right":
+        return "derecha"
+    return PDF_MISSING_TEXT
+
+
+def _professional_feedback_map(lines: list[str]) -> dict[str, str]:
+    mapping = {
+        "alto": "high",
+        "bajo": "low",
+        "fisiologico": "physiological",
+        "biomecanico": "biomechanical",
+        "proximo bloque": "next_block",
+    }
+    result = {value: "" for value in mapping.values()}
+    extras: list[str] = []
+    for raw_line in lines:
+        text = str(raw_line or "").strip()
+        if not text:
+            continue
+        prefix, separator, detail = text.partition(":")
+        key = mapping.get(prefix.strip().casefold())
+        if key and separator:
+            result[key] = detail.strip()
+        else:
+            extras.append(text)
+    if extras:
+        result["extras"] = " ".join(extras)
+    return result
+
+
+def _professional_join_labels(values: list[str], *, fallback: str = PDF_MISSING_TEXT) -> str:
+    clean = [str(value).strip() for value in values if str(value or "").strip()]
+    if not clean:
+        return fallback
+    return ", ".join(dict.fromkeys(clean))
+
+
+def _professional_delta_signal_labels(delta_df: pd.DataFrame, signal: str) -> list[str]:
+    if delta_df is None or delta_df.empty or "Signal" not in delta_df.columns:
+        return []
+    mask = delta_df["Signal"].fillna("").astype(str).str.casefold().eq(signal.casefold())
+    if not mask.any():
+        return []
+    return (
+        delta_df.loc[mask, "Label"]
+        .dropna()
+        .astype(str)
+        .drop_duplicates()
+        .tolist()
+    )
+
+
+def _professional_composite_metric_count(metric_table: pd.DataFrame) -> int:
+    if metric_table is None or metric_table.empty or "Valor" not in metric_table.columns:
+        return 0
+    values = metric_table["Valor"].fillna("-").astype(str).str.strip()
+    return int(values.ne("-").sum())
+
+
+def _build_professional_composite_profile_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+) -> dict[str, object]:
+    history = _professional_jump_history(state, athlete)
+    if history.empty:
+        return {
+            "title": "Perfil actual compuesto",
+            "state": "missing",
+            "message": "Faltan evaluaciones suficientes para construir el perfil actual compuesto.",
+            "metric_table": pd.DataFrame(columns=["Variable", "Valor", "Z-score", "Origen / referencia"]),
+            "available_metric_count": 0,
+            "feedback": {},
+            "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
+        }
+
+    snapshot_row, source_df = build_composite_profile_snapshot(history)
+    if snapshot_row is None:
+        return {
+            "title": "Perfil actual compuesto",
+            "state": "missing",
+            "message": "Faltan datos suficientes para construir el perfil actual compuesto.",
+            "metric_table": pd.DataFrame(columns=["Variable", "Valor", "Z-score", "Origen / referencia"]),
+            "available_metric_count": 0,
+            "feedback": {},
+            "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
+        }
+
+    metric_table = build_composite_profile_metric_table(snapshot_row)
+    feedback = _professional_feedback_map(build_jump_feedback_lines(snapshot_row))
+    available_metric_count = _professional_composite_metric_count(metric_table)
+    state_label = "available" if available_metric_count >= PROFESSIONAL_FULL_REPORT_MIN_COMPOSITE_METRICS else "partial"
+    dominant_text = feedback.get("high") or "sin variables claramente por encima de la referencia."
+    lagging_text = feedback.get("low") or "sin una variable claramente rezagada."
+    summary_line = (
+        f"Predominan hoy {dominant_text} La variable mÃ¡s rezagada aparece en {lagging_text}"
+        if available_metric_count
+        else "No hay suficientes variables vÃ¡lidas para describir el perfil compuesto."
+    )
+    return {
+        "title": "Perfil actual compuesto",
+        "state": state_label,
+        "message": "" if available_metric_count else "Faltan datos suficientes para construir el perfil actual compuesto.",
+        "profile_row": snapshot_row,
+        "source_rows": source_df,
+        "metric_table": metric_table,
+        "available_metric_count": available_metric_count,
+        "feedback": feedback,
+        "summary_line": summary_line.strip(),
+        "latest_profile_date": _format_profile_source_date(history["Date"].max()),
+        "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
+    }
+
+
+def _build_professional_change_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+) -> dict[str, object]:
+    history = _professional_jump_history(state, athlete)
+    assessment_count = _professional_assessment_date_count(state, athlete)
+    empty_table = pd.DataFrame(columns=["Variable", "Actual", "Anterior", "Delta abs", "Delta %", "Threshold", "Senal"])
+    if history.empty or assessment_count < 2:
+        return {
+            "title": "Cambios vs evaluaciÃ³n anterior",
+            "state": "missing",
+            "message": PROFESSIONAL_NO_EVOLUTION_TEXT,
+            "delta_df": pd.DataFrame(),
+            "display_table": empty_table,
+            "summary_lines": [],
+            "row_count": 0,
+            "improvements": [],
+            "declines": [],
+            "no_change": [],
+            "no_previous": [],
+            "to_verify": [],
+        }
+
+    latest_date = pd.to_datetime(history["Date"], errors="coerce").dropna().max()
+    delta_df = compute_swc_delta(history, latest_date)
+    display_table = build_jump_delta_display_table(delta_df)
+    improvements = _professional_delta_signal_labels(delta_df, "mejora relevante")
+    declines = _professional_delta_signal_labels(delta_df, "caida relevante")
+    no_change = _professional_delta_signal_labels(delta_df, "sin cambio relevante")
+    no_previous = _professional_delta_signal_labels(delta_df, "sin dato anterior")
+    to_verify = []
+    if _professional_short_assessment_interval_warning(state, athlete):
+        to_verify.append("intervalo corto entre evaluaciones")
+    if no_previous:
+        to_verify.append(f"sin dato anterior en {_professional_join_labels(no_previous)}")
+
+    summary_lines = build_jump_temporal_context(delta_df)
+    if improvements:
+        summary_lines.append(f"Mejoras relevantes: {_professional_join_labels(improvements)}.")
+    if declines:
+        summary_lines.append(f"CaÃ­das relevantes: {_professional_join_labels(declines)}.")
+    if no_change:
+        summary_lines.append(f"Sin cambio relevante: {_professional_join_labels(no_change)}.")
+    if no_previous:
+        summary_lines.append(f"Sin dato anterior: {_professional_join_labels(no_previous)}.")
+    if to_verify:
+        summary_lines.append(f"Datos a verificar: {_professional_join_labels(to_verify)}.")
+
+    state_label = "available" if not display_table.empty else "partial"
+    return {
+        "title": "Cambios vs evaluaciÃ³n anterior",
+        "state": state_label,
+        "message": "" if not display_table.empty else PROFESSIONAL_NO_EVOLUTION_TEXT,
+        "delta_df": delta_df,
+        "display_table": display_table,
+        "summary_lines": list(dict.fromkeys(summary_lines)),
+        "row_count": int(len(display_table)),
+        "improvements": improvements,
+        "declines": declines,
+        "no_change": no_change,
+        "no_previous": no_previous,
+        "to_verify": to_verify,
+    }
+
+
+def _professional_full_report_ready(
+    composite_payload: dict[str, object],
+    change_payload: dict[str, object],
+    assessment_count: int,
+) -> bool:
+    if assessment_count < 2:
+        return False
+    if int(composite_payload.get("available_metric_count") or 0) < PROFESSIONAL_FULL_REPORT_MIN_COMPOSITE_METRICS:
+        return False
+    return int(change_payload.get("row_count") or 0) >= 3
+
+
+def _professional_latest_force_time_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    *,
+    test_id: str,
+) -> tuple[pd.Series | None, dict[str, object]]:
+    history = _professional_jump_history(state, athlete)
+    if not history.empty:
+        for _, row in history.sort_values("Date", ascending=False).iterrows():
+            payload = build_force_time_report_payload(row, test_id=test_id, report_type="professional")
+            summary = payload.get("summary", {})
+            if payload.get("has_valid_force_time") or _coerce_float(summary.get("peak_force_n")) is not None:
+                return row, payload
+        latest_row = history.sort_values("Date").iloc[-1]
+        return latest_row, build_force_time_report_payload(latest_row, test_id=test_id, report_type="professional")
+    fallback_row = _latest_jump_row(state, athlete)
+    return fallback_row, build_force_time_report_payload(
+        fallback_row if fallback_row is not None else {},
+        test_id=test_id,
+        report_type="professional",
+    )
+
+
+def _build_professional_isometric_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    cards: list[dict[str, object]],
+) -> dict[str, object]:
+    imtp_card = next((card for card in cards if card.get("title") == "IMTP"), {})
+    imtp_row, imtp_payload = _professional_latest_force_time_payload(state, athlete, test_id="imtp")
+    _, iso_payload = _professional_latest_force_time_payload(state, athlete, test_id="iso_push_hamstring")
+
+    imtp_summary = imtp_payload.get("summary", {}) if isinstance(imtp_payload.get("summary"), dict) else {}
+    imtp_asymmetry = imtp_payload.get("asymmetry", {}) if isinstance(imtp_payload.get("asymmetry"), dict) else {}
+    iso_summary = iso_payload.get("summary", {}) if isinstance(iso_payload.get("summary"), dict) else {}
+    iso_asymmetry = iso_payload.get("asymmetry", {}) if isinstance(iso_payload.get("asymmetry"), dict) else {}
+
+    imtp_rows = [
+        ("Peak Force", safe_value(imtp_card.get("value"))),
+        ("Cambio relevante", safe_value(imtp_card.get("delta"))),
+        (
+            "Fuerza relativa",
+            _professional_number_text(imtp_row.get("IMTP_relPF"), digits=2, unit="N/kg") if imtp_row is not None else PDF_MISSING_TEXT,
+        ),
+        ("Force Avg", _professional_number_text(imtp_summary.get("avg_force_n"), digits=0, unit="N")),
+        ("Time to Peak", _professional_number_text(imtp_summary.get("time_to_peak_s"), digits=2, unit="s")),
+        ("AsimetrÃ­a", _professional_number_text(imtp_summary.get("absolute_asymmetry_pct"), digits=1, unit="%")),
+        ("Lado dominante", _professional_force_side_label(imtp_asymmetry.get("stronger_side"))),
+    ]
+    imtp_rows = [(label, value) for label, value in imtp_rows if value != PDF_MISSING_TEXT]
+
+    iso_rows = [
+        ("Peak Force", _professional_number_text(iso_summary.get("peak_force_n"), digits=0, unit="N")),
+        ("Force Avg", _professional_number_text(iso_summary.get("avg_force_n"), digits=0, unit="N")),
+        ("Time to Peak", _professional_number_text(iso_summary.get("time_to_peak_s"), digits=2, unit="s")),
+        ("AsimetrÃ­a", _professional_number_text(iso_summary.get("absolute_asymmetry_pct"), digits=1, unit="%")),
+        ("Lado dominante", _professional_force_side_label(iso_asymmetry.get("stronger_side"))),
+    ]
+    iso_rows = [(label, value) for label, value in iso_rows if value != PDF_MISSING_TEXT]
+
+    imtp_notes = []
+    for key in ["peak_force_text", "force_time_text", "rfd_text", "decision_note"]:
+        text = safe_value((imtp_payload.get("interpretation") or {}).get(key) if isinstance(imtp_payload.get("interpretation"), dict) else None)
+        if text != PDF_MISSING_TEXT:
+            imtp_notes.append(text)
+    iso_notes = []
+    for key in ["peak_force_text", "force_time_text", "asymmetry_text", "decision_note"]:
+        text = safe_value((iso_payload.get("interpretation") or {}).get(key) if isinstance(iso_payload.get("interpretation"), dict) else None)
+        if text != PDF_MISSING_TEXT:
+            iso_notes.append(text)
+
+    has_isometric_data = bool(imtp_rows or iso_rows or imtp_payload.get("has_valid_force_time") or iso_payload.get("has_valid_force_time"))
+    return {
+        "title": "IsomÃ©tricos y force-time avanzado",
+        "state": "available" if has_isometric_data else "missing",
+        "message": "" if has_isometric_data else "Faltan datos isomÃ©tricos vÃ¡lidos para esta secciÃ³n.",
+        "imtp_rows": imtp_rows,
+        "iso_rows": iso_rows,
+        "imtp_notes": imtp_notes[:4],
+        "iso_notes": iso_notes[:4],
+        "imtp_payload": imtp_payload,
+        "iso_payload": iso_payload,
+        "force_time_available": bool(imtp_payload.get("has_valid_force_time")),
+        "iso_available": bool(iso_rows or iso_payload.get("has_valid_force_time")),
+    }
+
+
+def _build_professional_load_tolerance_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    internal_load: dict[str, object],
+) -> dict[str, object]:
+    acwr_row = _latest_acwr_row(state, athlete)
+    mono_row = _latest_mono_row(state, athlete)
+    acwr_value = _coerce_float(acwr_row.get("ACWR_EWMA")) if acwr_row is not None else None
+    acwr_zone = safe_value(acwr_row.get("Zona")) if acwr_row is not None else PDF_MISSING_TEXT
+    monotony_value = _coerce_float(mono_row.get("Monotonia")) if mono_row is not None else None
+    strain_value = _coerce_float(mono_row.get("Strain")) if mono_row is not None else None
+    weekly_total = _coerce_float(internal_load.get("last_week_total"))
+    weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
+    change_text = PDF_MISSING_TEXT
+    if str(internal_load.get("analysis_scope") or "") == "current_week_partial":
+        change_text = "Semana en curso incompleta"
+    elif weekly_change_pct is not None:
+        change_text = f"{weekly_change_pct:+.1f}%"
+    elif _coerce_float(internal_load.get("weekly_change")) is not None:
+        change_text = _professional_number_text(internal_load.get("weekly_change"), digits=0, unit="UA")
+
+    risk_line = "Faltan datos para valorar la tolerancia de carga."
+    if str(internal_load.get("analysis_scope") or "") == "current_week_partial":
+        risk_line = "La semana actual sigue abierta; usar el acumulado parcial solo como seÃ±al operativa."
+    elif acwr_value is not None and acwr_value > 1.5:
+        risk_line = "La carga reciente luce alta y con riesgo de acumulaciÃ³n; revisar densidad, calendario y tolerancia."
+    elif monotony_value is not None and monotony_value > 2.0:
+        risk_line = "La carga reciente parece homogÃ©nea y con riesgo de acumulaciÃ³n por monotonÃ­a."
+    elif acwr_value is not None and acwr_value < 0.8:
+        risk_line = "La carga reciente luce baja/subdosificada respecto a la carga crÃ³nica."
+    elif weekly_change_pct is not None and weekly_change_pct > 10:
+        risk_line = "La carga reciente estÃ¡ en ascenso y conviene corroborar su tolerancia con wellness y disponibilidad."
+    elif weekly_total is not None:
+        risk_line = "La carga reciente parece estable y compatible con seguimiento normal del bloque."
+
+    rows = [
+        ("Semana analizada", safe_value(internal_load.get("analysis_week_label"))),
+        ("sRPE semanal", _professional_number_text(weekly_total, digits=0, unit="UA")),
+        ("Cambio vs semana previa", change_text),
+        ("Sesiones registradas", safe_value(internal_load.get("sessions_registered"))),
+        ("ACWR EWMA", _professional_number_text(acwr_value, digits=2)),
+        ("Zona ACWR", acwr_zone),
+        ("MonotonÃ­a", _professional_number_text(monotony_value, digits=2)),
+        ("Strain", _professional_number_text(strain_value, digits=0)),
+    ]
+    available_rows = [(label, value) for label, value in rows if value != PDF_MISSING_TEXT]
+    state_label = "available" if available_rows else "missing"
+    if state_label == "available" and str(internal_load.get("analysis_scope") or "") == "current_week_partial":
+        state_label = "partial"
+    return {
+        "title": "Carga interna y tolerancia",
+        "state": state_label,
+        "message": "" if available_rows else "Faltan datos suficientes para consolidar la carga interna reciente.",
+        "rows": available_rows,
+        "risk_line": risk_line,
+        "weekly_points": internal_load.get("weekly_points", []),
+        "analysis_scope": internal_load.get("analysis_scope"),
+    }
+
+
+def _build_professional_wellness_availability_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    training_context: dict[str, object],
+    internal_load: dict[str, object],
+    wellness_context: dict[str, object],
+) -> dict[str, object]:
+    completion = _professional_completion_snapshot(state, athlete)
+    summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
+    scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
+
+    def _with_scale(value: object, key: str, *, digits: int = 1) -> str:
+        numeric = _coerce_float(value)
+        if numeric is None:
+            return PDF_MISSING_TEXT
+        scale = str(scales.get(key, ""))
+        if scale == "h":
+            return f"{numeric:.{digits}f} h"
+        if scale.startswith("/"):
+            return f"{numeric:.{digits}f}{scale}"
+        return f"{numeric:.{digits}f}"
+
+    score_value = _coerce_float(summary.get("score_mean"))
+    score_label = PDF_MISSING_TEXT
+    if score_value is not None:
+        score_meta = _report_wellness_score_label(score_value)
+        score_label = f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']})"
+    days_with_record = safe_value(summary.get("days"))
+
+    rows = [
+        ("Wellness score", score_label),
+        ("SueÃ±o", _with_scale(summary.get("sleep_mean"), "sleep")),
+        ("EstrÃ©s", _with_scale(summary.get("stress_mean"), "stress")),
+        ("Dolor", _with_scale(summary.get("pain_mean"), "pain")),
+        ("DÃ­as con registro", days_with_record),
+        ("Adherencia formal", safe_value(completion.get("value"))),
+    ]
+    available_rows = [(label, value) for label, value in rows if value != PDF_MISSING_TEXT]
+
+    weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
+    stress_mean = _coerce_float(summary.get("stress_mean"))
+    pain_mean = _coerce_float(summary.get("pain_mean"))
+    sleep_mean = _coerce_float(summary.get("sleep_mean"))
+    compatibility = "Faltan datos suficientes para cruzar wellness, disponibilidad y carga."
+    if wellness_context.get("state") == "partial":
+        compatibility = "Datos parciales de wellness/disponibilidad: usar la lectura como seÃ±al preliminar y no como tendencia cerrada."
+    elif weekly_change_pct is not None and weekly_change_pct > 10 and (
+        _professional_wellness_high(stress_mean, scales.get("stress"))
+        or _professional_wellness_high(pain_mean, scales.get("pain"))
+        or (sleep_mean is not None and sleep_mean < 6.5)
+    ):
+        compatibility = "Carga alta con wellness/disponibilidad menos favorables: conviene aumentar la vigilancia del prÃ³ximo microciclo."
+    elif wellness_context.get("state") == "available":
+        compatibility = "Carga estable + wellness/disponibilidad relativamente estables: lectura compatible con tolerancia del bloque."
+
+    quality_note = wellness_context.get("partial_message") if wellness_context.get("state") == "partial" else ""
+    return {
+        "title": "Wellness, disponibilidad y adherencia",
+        "state": "available" if available_rows else "missing",
+        "message": "" if available_rows else "Faltan datos de wellness/disponibilidad para este perÃ­odo.",
+        "rows": available_rows,
+        "compatibility": compatibility,
+        "quality_note": str(quality_note or ""),
+        "daily_points": wellness_context.get("daily_points", []),
+        "weekly_points": wellness_context.get("weekly_points", []),
+        "analysis_scope": wellness_context.get("analysis_scope"),
+        "trend_allowed": bool(wellness_context.get("trend_allowed")),
+    }
+
+
+def _build_professional_exposure_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    change_payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    prepared = state.get("prepared_raw_df")
+    if prepared is None:
+        prepared = prepare_raw_workouts_df(state.get("raw_df"))
+    if prepared is None or prepared.empty:
+        return {
+            "title": "ExposiciÃ³n del bloque / contenido entrenado",
+            "state": "missing",
+            "message": "Faltan raw workouts suficientes para resumir la exposiciÃ³n del bloque.",
+            "table": pd.DataFrame(columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"]),
+            "active_groups": [],
+            "dominant": [],
+            "secondary": [],
+            "low_or_absent": [],
+            "summary_line": "",
+            "context_link": "",
+        }
+
+    athlete_col = "Athlete" if "Athlete" in prepared.columns else "Name" if "Name" in prepared.columns else None
+    athlete_df = prepared[_professional_athlete_mask(prepared[athlete_col], athlete)].copy() if athlete_col is not None else prepared.copy()
+    if athlete_df.empty:
+        return {
+            "title": "ExposiciÃ³n del bloque / contenido entrenado",
+            "state": "missing",
+            "message": "No hay raw workouts visibles para este atleta.",
+            "table": pd.DataFrame(columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"]),
+            "active_groups": [],
+            "dominant": [],
+            "secondary": [],
+            "low_or_absent": [],
+            "summary_line": "",
+            "context_link": "",
+        }
+
+    invalid = athlete_df.get("is_invalid", pd.Series(False, index=athlete_df.index)).fillna(False)
+    untagged = athlete_df.get("is_untagged", pd.Series(False, index=athlete_df.index)).fillna(False)
+    athlete_df = athlete_df[~invalid & ~untagged].copy()
+    if athlete_df.empty:
+        return {
+            "title": "ExposiciÃ³n del bloque / contenido entrenado",
+            "state": "missing",
+            "message": "No hay raw workouts clasificados para resumir la exposiciÃ³n del bloque.",
+            "table": pd.DataFrame(columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"]),
+            "active_groups": [],
+            "dominant": [],
+            "secondary": [],
+            "low_or_absent": [],
+            "summary_line": "",
+            "context_link": "",
+        }
+
+    exercise_col = "Exercise" if "Exercise" in athlete_df.columns else "Exercise Name" if "Exercise Name" in athlete_df.columns else None
+    rows: list[dict[str, object]] = []
+    ranking_rows: list[dict[str, object]] = []
+    for spec in PROFESSIONAL_EXPOSURE_CATEGORY_SPECS:
+        subset = athlete_df[athlete_df["stimulus_category"].isin(spec["categories"])].copy()
+        sessions = 0
+        if not subset.empty and "Assigned Date" in subset.columns:
+            sessions = int(pd.to_datetime(subset["Assigned Date"], errors="coerce").dropna().dt.normalize().nunique())
+        value_col = str(spec["value_col"])
+        value_sum = None
+        if not subset.empty and value_col in subset.columns:
+            value_sum = _coerce_float(pd.to_numeric(subset[value_col], errors="coerce").sum(min_count=1))
+        top_exercises = []
+        if not subset.empty and exercise_col:
+            top_exercises = (
+                subset[exercise_col]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .replace("", pd.NA)
+                .dropna()
+                .value_counts()
+                .head(3)
+                .index
+                .tolist()
+            )
+        if sessions > 0 or value_sum is not None:
+            dose_text = _professional_number_text(value_sum, digits=0, unit=str(spec["unit"])) if value_sum is not None else PDF_MISSING_TEXT
+            rows.append(
+                {
+                    "EstÃ­mulo": str(spec["title"]),
+                    "Dosis": dose_text,
+                    "Sesiones": str(sessions) if sessions > 0 else PDF_MISSING_TEXT,
+                    "Ejercicios clave": _professional_join_labels(top_exercises),
+                }
+            )
+            ranking_rows.append(
+                {
+                    "title": str(spec["title"]),
+                    "sessions": sessions,
+                    "value": value_sum or 0.0,
+                }
+            )
+
+    active_titles = [row["title"] for row in sorted(ranking_rows, key=lambda item: (-int(item["sessions"]), -float(item["value"]), item["title"]))]
+    dominant = active_titles[:2]
+    secondary = active_titles[2:4]
+    low_or_absent = [
+        str(spec["title"])
+        for spec in PROFESSIONAL_EXPOSURE_CATEGORY_SPECS
+        if str(spec["title"]) not in active_titles
+    ]
+
+    change_payload = change_payload or {}
+    improved_labels = " ".join(change_payload.get("improvements", []))
+    context_link = "La exposiciÃ³n visible ayuda a contextualizar el perfil actual, pero no reemplaza la lectura de calidad del dato."
+    dominant_text = _professional_join_labels(dominant, fallback="")
+    if dominant_text and "Fuerza con carga" in dominant_text and any(token in improved_labels for token in ("CMJ", "SJ", "IMTP")):
+        context_link = "El bloque tuvo predominio de fuerza con carga y es compatible con la seÃ±al actual de fuerza/salida vertical."
+    elif dominant_text and "Pliometria y aterrizajes" in dominant_text and any(token in improved_labels for token in ("DRI", "RSI", "Contact")):
+        context_link = "El bloque tuvo predominio reactivo y es compatible con la seÃ±al actual de reactividad/contacto."
+    elif dominant_text and "Movilidad y prehab" in dominant_text:
+        context_link = "El bloque visible parece orientado a soporte/prehab; conviene no sobreinterpretar cambios como respuesta a un bloque principal de rendimiento."
+
+    summary_line = ""
+    if dominant:
+        summary_line = f"EstÃ­mulos dominantes: {_professional_join_labels(dominant)}."
+        if secondary:
+            summary_line = f"{summary_line} EstÃ­mulos secundarios: {_professional_join_labels(secondary)}."
+
+    table = pd.DataFrame(rows, columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"])
+    state_label = "available" if len(rows) >= 2 else "partial" if rows else "missing"
+    return {
+        "title": "ExposiciÃ³n del bloque / contenido entrenado",
+        "state": state_label,
+        "message": "" if rows else "Faltan raw workouts suficientes para resumir la exposiciÃ³n del bloque.",
+        "table": table,
+        "active_groups": active_titles,
+        "dominant": dominant,
+        "secondary": secondary,
+        "low_or_absent": low_or_absent,
+        "summary_line": summary_line,
+        "context_link": context_link,
+    }
+
+
+def _professional_data_confidence_label(
+    evaluation_state: str,
+    training_context: dict[str, object],
+    wellness_payload: dict[str, object],
+    assessment_interval_warning: str,
+) -> str:
+    if (
+        str(evaluation_state).strip().lower() == "available"
+        and training_context.get("state") == "available"
+        and wellness_payload.get("state") == "available"
+        and not assessment_interval_warning
+    ):
+        return "Alta"
+    if str(evaluation_state).strip().lower() in {"available", "partial"}:
+        return "Media"
+    return "Baja"
+
+
+def _build_professional_integrated_decision_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    *,
+    evaluation_state: str,
+    assessment_interval_warning: str,
+    composite_payload: dict[str, object],
+    change_payload: dict[str, object],
+    load_payload: dict[str, object],
+    wellness_payload: dict[str, object],
+    exposure_payload: dict[str, object],
+    training_context: dict[str, object],
+) -> dict[str, object]:
+    good_confidence: list[str] = []
+    probable: list[str] = []
+    unknown: list[str] = []
+    decision_practical: list[str] = []
+    monitor: list[str] = []
+
+    feedback = composite_payload.get("feedback", {}) if isinstance(composite_payload.get("feedback"), dict) else {}
+    if composite_payload.get("state") != "missing":
+        high_text = feedback.get("high") or "sin una cualidad claramente dominante"
+        low_text = feedback.get("low") or "sin un rezago dominante"
+        good_confidence.append(f"El perfil actual compuesto muestra {high_text}; la variable mÃ¡s rezagada aparece en {low_text}.")
+    if change_payload.get("improvements"):
+        good_confidence.append(f"Hay mejoras relevantes vs evaluaciÃ³n anterior en {_professional_join_labels(change_payload.get('improvements', []))}.")
+    if change_payload.get("declines"):
+        good_confidence.append(f"Hay caÃ­das relevantes vs evaluaciÃ³n anterior en {_professional_join_labels(change_payload.get('declines', []))}.")
+    if load_payload.get("state") != "missing":
+        good_confidence.append(str(load_payload.get("risk_line") or ""))
+    if wellness_payload.get("state") == "available":
+        good_confidence.append(str(wellness_payload.get("compatibility") or ""))
+
+    if exposure_payload.get("state") != "missing" and exposure_payload.get("summary_line"):
+        probable.append(str(exposure_payload.get("summary_line")))
+        probable.append(str(exposure_payload.get("context_link") or ""))
+    elif training_context.get("state") != "missing":
+        probable.append("La asistencia, la carga visible y el contenido del bloque ayudan a contextualizar la lectura actual, pero no explican por sÃ­ solos el cambio.")
+
+    if assessment_interval_warning:
+        unknown.append("El intervalo entre evaluaciones fue menor a 6-8 semanas; no conviene atribuir los cambios de forma directa a adaptaciÃ³n.")
+    if str(evaluation_state).strip().lower() == "partial":
+        unknown.append("La cobertura de evaluaciones es parcial; esta lectura sigue siendo Ãºtil, pero no cierra por completo el perfil.")
+    if wellness_payload.get("state") == "partial":
+        unknown.append("Wellness/disponibilidad parcial: la seÃ±al es preliminar y requiere seguimiento antes de tomar decisiones fuertes.")
+    if change_payload.get("no_previous"):
+        unknown.append(f"Sin dato anterior en {_professional_join_labels(change_payload.get('no_previous', []))}; esas variables requieren continuidad antes de interpretarse.")
+    if exposure_payload.get("state") == "missing":
+        unknown.append("Falta exposiciÃ³n por estÃ­mulos suficiente para relacionar mejor el contenido del bloque con el perfil actual.")
+
+    low_text = str(feedback.get("low") or "").casefold()
+    load_risk_text = str(load_payload.get("risk_line") or "").casefold()
+    wellness_risk_text = str(wellness_payload.get("compatibility") or "").casefold()
+    if "riesgo" in load_risk_text or "vigilancia" in wellness_risk_text or "menos favorables" in wellness_risk_text:
+        decision_practical.append("Ajustar densidad/volumen del prÃ³ximo microciclo y sostener solo el estÃ­mulo prioritario hasta confirmar tolerancia.")
+    elif "fuerza" in low_text:
+        decision_practical.append("Mantener la cualidad dominante y priorizar fuerza base/transferencia en el prÃ³ximo bloque.")
+    elif any(token in low_text for token in ("react", "dri", "contact")):
+        decision_practical.append("Sostener la base actual y priorizar la expresiÃ³n reactiva con progresiÃ³n controlada del contenido pliomÃ©trico.")
+    else:
+        decision_practical.append("Mantener la cualidad mejor expresada y ajustar solo la variable mÃ¡s rezagada, evitando abrir demasiados frentes a la vez.")
+
+    if change_payload.get("declines"):
+        decision_practical.append("Confirmar la seÃ±al en la siguiente ventana antes de atribuirla por completo a adaptaciÃ³n o fatiga.")
+    if exposure_payload.get("dominant"):
+        decision_practical.append(f"Usar como base del siguiente bloque los estÃ­mulos dominantes ya visibles: {_professional_join_labels(exposure_payload.get('dominant', []))}.")
+
+    monitor.append("Monitorear sueÃ±o, estrÃ©s, dolor, adherencia y calidad de sesiÃ³n durante el prÃ³ximo microciclo.")
+    if change_payload.get("declines"):
+        monitor.append(f"Monitorear de cerca {_professional_join_labels(change_payload.get('declines', []))} para confirmar si la seÃ±al persiste o se normaliza.")
+    if exposure_payload.get("low_or_absent"):
+        monitor.append(f"Monitorear si el bloque sigue con poca exposiciÃ³n en {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:2])}.")
+    monitor.append("Medir nuevamente el perfil fÃ­sico en 6-8 semanas o antes si el contexto competitivo obliga a verificar una seÃ±al puntual.")
+
+    return {
+        "title": "InterpretaciÃ³n integrada profesional",
+        "state": "available",
+        "good_confidence": list(dict.fromkeys([line for line in good_confidence if line.strip()]))[:4],
+        "probable": list(dict.fromkeys([line for line in probable if line.strip()]))[:3],
+        "unknown": list(dict.fromkeys([line for line in unknown if line.strip()]))[:4],
+        "decision_practical": list(dict.fromkeys([line for line in decision_practical if line.strip()]))[:3],
+        "monitor": list(dict.fromkeys([line for line in monitor if line.strip()]))[:4],
+    }
+
+
+def _build_professional_action_plan_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    *,
+    evaluation_state: str,
+    composite_payload: dict[str, object],
+    change_payload: dict[str, object],
+    integrated_payload: dict[str, object],
+) -> dict[str, object]:
+    feedback = composite_payload.get("feedback", {}) if isinstance(composite_payload.get("feedback"), dict) else {}
+    maintain = [
+        "Mantener la cualidad dominante actual sin perder calidad tÃ©cnica ni variabilidad del microciclo.",
+    ]
+    if feedback.get("next_block"):
+        maintain.append(f"Mantener como referencia del bloque: {feedback.get('next_block')}")
+
+    adjust = []
+    if feedback.get("low"):
+        adjust.append(f"Ajustar el prÃ³ximo bloque para priorizar {feedback.get('low')}.")
+    adjust.extend(integrated_payload.get("decision_practical", [])[:2])
+    if change_payload.get("declines"):
+        adjust.append(f"Ajustar carga y prioridades si persisten las caÃ­das en {_professional_join_labels(change_payload.get('declines', []))}.")
+
+    monitor = list(integrated_payload.get("monitor", [])[:3])
+    measure = [
+        "Medir nuevamente el perfil fÃ­sico en 6-8 semanas para comparar cambios de bloque.",
+        "Medir en la prÃ³xima ventana las variables clave del objetivo principal y completar datos faltantes si los hubiera.",
+    ]
+    if str(evaluation_state).strip().lower() == "partial":
+        measure.append("Medir y completar la baterÃ­a faltante antes de cerrar conclusiones mÃ¡s fuertes.")
+
+    limitations = [
+        "Las evaluaciones se interpretan como perfilado fÃ­sico cada 6-8 semanas, no como readiness semanal.",
+        "El sRPE es una estimaciÃ³n prÃ¡ctica de carga interna y debe cruzarse con contexto, wellness y criterio profesional.",
+        "Si el intervalo entre evaluaciones es corto o faltan registros, la lectura debe ser mÃ¡s conservadora.",
+        "El RSI se interpreta aquÃ­ como Ã­ndice reactivo y no como velocidad lineal.",
+    ]
+    return {
+        "title": "PrÃ³ximos pasos y limitaciones metodolÃ³gicas",
+        "actions": {
+            "Mantener": list(dict.fromkeys([line for line in maintain if line.strip()]))[:2],
+            "Ajustar": list(dict.fromkeys([line for line in adjust if line.strip()]))[:3],
+            "Monitorear": list(dict.fromkeys([line for line in monitor if line.strip()]))[:3],
+            "Medir": list(dict.fromkeys([line for line in measure if line.strip()]))[:3],
+        },
+        "limitations": limitations,
+    }
+
+
+def _build_professional_executive_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    *,
+    evaluation_state: str,
+    assessment_interval_warning: str,
+    composite_payload: dict[str, object],
+    change_payload: dict[str, object],
+    load_payload: dict[str, object],
+    wellness_payload: dict[str, object],
+    exposure_payload: dict[str, object],
+    training_context: dict[str, object],
+    integrated_payload: dict[str, object],
+) -> dict[str, object]:
+    quality_report = _report_quality_report(state)
+    athlete_quality = _quality_athlete_row(quality_report, athlete)
+    quality_detail = _quality_detail_text(athlete_quality)
+    coverage_parts = []
+    if athlete_quality is not None:
+        coverage_parts.append(f"Cobertura: {safe_value(athlete_quality.get('Semaforo'))}")
+    if quality_detail:
+        coverage_parts.append(quality_detail)
+    if not coverage_parts:
+        coverage_parts.append(f"Evaluaciones: {_professional_status_label(evaluation_state)}")
+        coverage_parts.append(f"Entrenamiento: {_professional_status_label(training_context.get('state'))}")
+        coverage_parts.append(f"Wellness: {_professional_status_label(wellness_payload.get('state'))}")
+
+    signals = []
+    for candidate in [
+        composite_payload.get("summary_line"),
+        (change_payload.get("summary_lines") or [None])[0],
+        load_payload.get("risk_line"),
+        wellness_payload.get("compatibility"),
+        exposure_payload.get("summary_line"),
+    ]:
+        text = str(candidate or "").strip()
+        if text and text not in signals:
+            signals.append(text)
+    confidence = _professional_data_confidence_label(
+        evaluation_state,
+        training_context,
+        wellness_payload,
+        assessment_interval_warning,
+    )
+    confidence_detail = "Sin seÃ±ales metodolÃ³gicas fuertes de cautela." if confidence == "Alta" else (
+        "Lectura Ãºtil, pero todavÃ­a condicionada por cobertura parcial o por el contexto de mediciÃ³n."
+        if confidence == "Media"
+        else "La lectura requiere mucha prudencia por cobertura parcial o falta de continuidad."
+    )
+    if assessment_interval_warning:
+        confidence_detail = assessment_interval_warning
+
+    decision_suggested = _professional_join_labels(
+        integrated_payload.get("decision_practical", [])[:1],
+        fallback="Completar datos y sostener decisiones conservadoras hasta confirmar la tendencia.",
+    )
+    return {
+        "title": "Resumen ejecutivo profesional",
+        "athlete": athlete,
+        "date": f"{datetime.now():%d/%m/%Y}",
+        "period": _professional_period_label(state, athlete),
+        "coverage": " | ".join(coverage_parts),
+        "confidence": confidence,
+        "confidence_detail": confidence_detail,
+        "signals": signals[:5],
+        "decision_suggested": decision_suggested,
+    }
+
+
 def _professional_period_label(state: dict[str, pd.DataFrame | None], athlete: str) -> str:
     dates: list[pd.Timestamp] = []
 
@@ -5849,12 +6873,84 @@ def _generate_professional_profile_pdf_reportlab(
             ),
         )
 
+    def _dataframe_table(
+        frame: pd.DataFrame,
+        *,
+        col_widths_mm: list[float] | None = None,
+        body_style: str = "ProfMuted",
+    ) -> Table:
+        result = frame.copy() if frame is not None else pd.DataFrame()
+        if result.empty:
+            return _collapsed_box("Faltan datos para construir esta tabla.")
+        result = result.fillna("-").astype(str)
+        headers = [_p(column, "ProfCardTitle") for column in result.columns.tolist()]
+        rows: list[list[object]] = [headers]
+        for _, row in result.iterrows():
+            rows.append([_p(value, body_style) for value in row.tolist()])
+        widths = col_widths_mm or [174 / max(1, len(result.columns))] * len(result.columns)
+        table = Table(rows, colWidths=[width * mm for width in widths], hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF3F7")),
+                    ("BACKGROUND", (0, 1), (-1, -1), palette["card"]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        return table
+
+    def _bullet_box(title: str, lines: list[str], *, style_name: str = "ProfBody") -> Table:
+        flowables: list[object] = [_p(title, "ProfCardTitle")]
+        cleaned = [str(line).strip() for line in lines if str(line or "").strip()]
+        if not cleaned:
+            cleaned = ["Faltan datos para generar una interpretaciÃ³n confiable."]
+        flowables.extend(_p(f"- {line}", style_name) for line in cleaned)
+        return _box(flowables, padding=6)
+
+    def _executive_summary_table(payload: dict[str, object]) -> Table:
+        rows = [
+            ("Atleta", payload.get("athlete", PDF_MISSING_TEXT)),
+            ("Fecha", payload.get("date", PDF_MISSING_TEXT)),
+            ("Ventana temporal", payload.get("period", PDF_MISSING_TEXT)),
+            ("Cobertura / calidad", payload.get("coverage", PDF_MISSING_TEXT)),
+            (
+                "Nivel de confianza",
+                f"{safe_value(payload.get('confidence'))} | {safe_value(payload.get('confidence_detail'))}",
+            ),
+        ]
+        return _key_value_table(rows)
+
+    def _composite_radar_image(payload: dict[str, object]) -> Image | None:
+        if payload.get("state") == "missing" or payload.get("profile_row") is None:
+            return None
+        try:
+            from charts.dashboard_charts import chart_composite_profile_radar
+        except Exception:
+            return None
+        figure = chart_composite_profile_radar(payload["profile_row"], report_athlete, theme=_build_report_chart_theme())
+        return _plotly_chart_image(figure, width_mm=174, height_mm=72, width_px=1100, height_px=760)
+
+    def _exposure_chart_image() -> Image | None:
+        try:
+            from charts.load_charts import chart_volume_by_tag
+        except Exception:
+            return None
+        prepared = state.get("prepared_raw_df")
+        if prepared is None:
+            prepared = prepare_raw_workouts_df(state.get("raw_df"))
+        if prepared is None or prepared.empty:
+            return None
+        figure = chart_volume_by_tag(prepared, report_athlete, theme=_build_report_chart_theme())
+        return _plotly_chart_image(figure, width_mm=174, height_mm=68, width_px=1200, height_px=680)
+
     cards = _build_professional_metric_cards(state, report_athlete)
-    force_time_payload = build_force_time_report_payload(
-        _latest_jump_row(state, report_athlete),
-        test_id="imtp",
-        report_type="professional",
-    )
     evolution_sections = _build_professional_evolution_sections(state, report_athlete)
     quadrant_sections = _build_professional_quadrant_sections(state, report_athlete)
     training_context = _build_professional_training_context(state, report_athlete)
@@ -5876,6 +6972,57 @@ def _generate_professional_profile_pdf_reportlab(
         assessment_interval_warning=assessment_interval_warning,
     )
     next_steps = _build_professional_next_steps(evaluation_state)
+    composite_profile = _build_professional_composite_profile_payload(state, report_athlete)
+    change_payload = _build_professional_change_payload(state, report_athlete)
+    full_report_ready = _professional_full_report_ready(
+        composite_profile,
+        change_payload,
+        _professional_assessment_date_count(state, report_athlete),
+    )
+    isometric_payload = _build_professional_isometric_payload(state, report_athlete, cards)
+    force_time_payload = isometric_payload.get("imtp_payload", {})
+    load_tolerance_payload = _build_professional_load_tolerance_payload(state, report_athlete, internal_load)
+    wellness_availability_payload = _build_professional_wellness_availability_payload(
+        state,
+        report_athlete,
+        training_context,
+        internal_load,
+        wellness_context,
+    )
+    exposure_payload = _build_professional_exposure_payload(state, report_athlete, change_payload=change_payload)
+    integrated_decision_payload = _build_professional_integrated_decision_payload(
+        state,
+        report_athlete,
+        evaluation_state=evaluation_state,
+        assessment_interval_warning=assessment_interval_warning,
+        composite_payload=composite_profile,
+        change_payload=change_payload,
+        load_payload=load_tolerance_payload,
+        wellness_payload=wellness_availability_payload,
+        exposure_payload=exposure_payload,
+        training_context=training_context,
+    )
+    action_plan_payload = _build_professional_action_plan_payload(
+        state,
+        report_athlete,
+        evaluation_state=evaluation_state,
+        composite_payload=composite_profile,
+        change_payload=change_payload,
+        integrated_payload=integrated_decision_payload,
+    )
+    executive_payload = _build_professional_executive_payload(
+        state,
+        report_athlete,
+        evaluation_state=evaluation_state,
+        assessment_interval_warning=assessment_interval_warning,
+        composite_payload=composite_profile,
+        change_payload=change_payload,
+        load_payload=load_tolerance_payload,
+        wellness_payload=wellness_availability_payload,
+        exposure_payload=exposure_payload,
+        training_context=training_context,
+        integrated_payload=integrated_decision_payload,
+    )
 
     def _append_metric_cards(target: list[object]) -> None:
         if not available_cards:
@@ -6431,6 +7578,35 @@ def _generate_professional_profile_pdf_reportlab(
         bottomMargin=14 * mm,
     )
     story: list[object] = []
+    if full_report_ready:
+        _append_full_executive_page(story)
+        story.append(PageBreak())
+        _append_full_composite_profile_page(story)
+        story.append(PageBreak())
+        _append_full_change_page(story)
+        if _professional_any_quadrant_ready(quadrant_sections):
+            story.append(PageBreak())
+            _append_full_quadrants_page(story)
+        if isometric_payload.get("state") != "missing":
+            story.append(PageBreak())
+            _append_full_isometrics_page(story)
+        story.append(PageBreak())
+        _append_full_load_page(story)
+        story.append(PageBreak())
+        _append_full_wellness_page(story)
+        if exposure_payload.get("state") != "missing":
+            story.append(PageBreak())
+            _append_full_exposure_page(story)
+        story.append(PageBreak())
+        _append_full_integrated_page(story)
+        story.append(PageBreak())
+        _append_full_action_plan_page(story)
+        try:
+            doc.build(story)
+        except Exception:
+            return None
+        return buffer.getvalue()
+
     story.extend(
         [
             _p("Reporte profesional", "ProfMuted"),
