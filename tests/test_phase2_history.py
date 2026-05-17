@@ -132,6 +132,80 @@ class Phase2HistoryTest(unittest.TestCase):
         self.assertEqual(mocked_prepare.call_count, 2)
         self.assertEqual(fake_st.session_state["prepared_raw_df_version"], (("raw_df", True, 2, 10),))
 
+    def test_report_preview_signature_changes_when_options_or_store_version_change(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        signature_a = page_state_module.build_report_preview_signature(
+            report_audience="profe",
+            report_athlete="Ana Lopez",
+            effective_report_athlete="Ana Lopez",
+            report_options={"include_technical_annex": False, "include_volume": True},
+            date_window="01/04/2026 a 30/04/2026",
+            store_version=(("rpe_df", True, 1, 10),),
+        )
+        signature_b = page_state_module.build_report_preview_signature(
+            report_audience="profe",
+            report_athlete="Ana Lopez",
+            effective_report_athlete="Ana Lopez",
+            report_options={"include_technical_annex": False, "include_volume": True},
+            date_window="01/04/2026 a 30/04/2026",
+            store_version=(("rpe_df", True, 1, 10),),
+        )
+        signature_c = page_state_module.build_report_preview_signature(
+            report_audience="profe",
+            report_athlete="Ana Lopez",
+            effective_report_athlete="Ana Lopez",
+            report_options={"include_technical_annex": True, "include_volume": True},
+            date_window="01/04/2026 a 30/04/2026",
+            store_version=(("rpe_df", True, 1, 10),),
+        )
+        signature_d = page_state_module.build_report_preview_signature(
+            report_audience="profe",
+            report_athlete="Ana Lopez",
+            effective_report_athlete="Ana Lopez",
+            report_options={"include_technical_annex": False, "include_volume": True},
+            date_window="01/04/2026 a 30/04/2026",
+            store_version=(("rpe_df", True, 2, 10),),
+        )
+
+        self.assertEqual(signature_a, signature_b)
+        self.assertNotEqual(signature_a, signature_c)
+        self.assertNotEqual(signature_a, signature_d)
+
+    def test_report_preview_cache_reuses_payload_until_signature_changes(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        fake_st = SimpleNamespace(session_state={})
+        payload = {"executive_df": pd.DataFrame([{"Bloque": "Semana actual"}])}
+        signature_a = ("report_preview", "profe", "Ana Lopez", "Ana Lopez", "window-a", (("include_volume", True),), (("rpe_df", True, 1, 10),))
+        signature_b = ("report_preview", "profe", "Ana Lopez", "Ana Lopez", "window-a", (("include_volume", True),), (("rpe_df", True, 2, 10),))
+
+        with patch.object(page_state_module, "st", fake_st):
+            self.assertTrue(page_state_module.report_preview_needs_refresh(signature=signature_a))
+            page_state_module.store_report_preview(payload=payload, signature=signature_a)
+            self.assertFalse(page_state_module.report_preview_needs_refresh(signature=signature_a))
+            self.assertTrue(page_state_module.report_preview_needs_refresh(signature=signature_b))
+            self.assertEqual(fake_st.session_state["report_preview_payload"], payload)
+            self.assertEqual(fake_st.session_state["report_preview_signature"], signature_a)
+
+    def test_performance_debug_helpers_initialize_missing_keys_safely(self):
+        import modules.page_state as page_state_module
+
+        page_state_module = importlib.reload(page_state_module)
+        fake_st = SimpleNamespace(session_state={})
+
+        with patch.object(page_state_module, "st", fake_st):
+            page_state_module.reset_performance_debug_cycle()
+            page_state_module.record_performance_debug_timing("ensure_load_state_s", 0.125, accumulate=False)
+            page_state_module.record_performance_debug_artifact("load_state", "reutilizado")
+
+        self.assertIn("performance_debug_timings", fake_st.session_state)
+        self.assertIn("performance_debug_artifacts", fake_st.session_state)
+        self.assertAlmostEqual(fake_st.session_state["performance_debug_timings"]["ensure_load_state_s"], 0.125, places=6)
+        self.assertEqual(fake_st.session_state["performance_debug_artifacts"]["load_state"], "reutilizado")
+
     def test_ensure_load_state_skips_rebuild_when_load_version_is_unchanged(self):
         import modules.page_state as page_state_module
 

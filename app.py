@@ -17,6 +17,7 @@ import hashlib
 import html
 import json
 import os
+import time
 import zipfile
 import xml.etree.ElementTree as ET
 import re
@@ -89,12 +90,19 @@ from modules.data_loader import (
 from modules.data_quality import compute_data_quality_report
 from modules.history_mode import history_mode_caption, render_history_mode_selector
 from modules.page_state import (
+    build_report_preview_signature,
+    current_report_state_version,
     ensure_history_mode_load_state,
     ensure_load_state,
     ensure_prepared_raw_workouts,
     invalidate_local_store_hydration,
     local_store_needs_hydration,
     mark_local_store_hydrated,
+    record_performance_debug_artifact,
+    record_performance_debug_timing,
+    report_preview_needs_refresh,
+    reset_performance_debug_cycle,
+    store_report_preview,
 )
 from modules.alerts import (
     build_alert_feed,
@@ -3487,6 +3495,8 @@ make_left_right_force_chart = _bind_chart(shared_make_left_right_force_chart)
 make_rfd_points_chart = _bind_chart(shared_make_rfd_points_chart)
 find_latest_valid_radar_row = shared_find_latest_valid_radar_row
 
+APP_RERUN_STARTED_AT = time.perf_counter()
+
 
 # ════════════════════════════════════════════════════════════════════
 # SESSION STATE — almacena datos entre tabs
@@ -3541,9 +3551,22 @@ def init_state():
         st.session_state.prepared_raw_df_version = None
     if "prepared_raw_df_last_build_ts" not in st.session_state:
         st.session_state.prepared_raw_df_last_build_ts = None
+    if "report_export_payload" not in st.session_state:
+        st.session_state.report_export_payload = None
+    if "report_export_signature" not in st.session_state:
+        st.session_state.report_export_signature = None
+    if "report_export_last_build_ts" not in st.session_state:
+        st.session_state.report_export_last_build_ts = None
+    if "performance_debug_enabled" not in st.session_state:
+        st.session_state.performance_debug_enabled = False
+    if "performance_debug_timings" not in st.session_state:
+        st.session_state.performance_debug_timings = {}
+    if "performance_debug_artifacts" not in st.session_state:
+        st.session_state.performance_debug_artifacts = {}
 
 
 init_state()
+reset_performance_debug_cycle()
 
 
 def known_athlete_names() -> list[str]:
@@ -3571,6 +3594,165 @@ def _current_state_snapshot() -> dict[str, pd.DataFrame | None]:
         "maxes_df": st.session_state.maxes_df,
         "jump_df": st.session_state.jump_df,
     }
+
+
+def _current_report_state_snapshot() -> dict[str, object]:
+    snapshot: dict[str, object] = dict(_current_state_snapshot())
+    snapshot["acwr_dict"] = st.session_state.acwr_dict or {}
+    snapshot["mono_dict"] = st.session_state.mono_dict or {}
+    snapshot["weekly_summaries"] = st.session_state.weekly_summaries or {}
+    return snapshot
+
+
+def _report_time_window_label(state: dict[str, object]) -> str:
+    date_sources = [
+        ("rpe_df", ["Date"]),
+        ("wellness_df", ["Date"]),
+        ("completion_df", ["Date"]),
+        ("rep_load_df", ["Date"]),
+        ("raw_df", ["Assigned Date", "Date"]),
+        ("session_notes_df", ["Assigned Date", "Date"]),
+        ("maxes_df", ["Added Date", "Date"]),
+        ("jump_df", ["Date"]),
+    ]
+    ranges: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+    for key, columns in date_sources:
+        frame = state.get(key)
+        if not isinstance(frame, pd.DataFrame) or frame.empty:
+            continue
+        source_col = next((column for column in columns if column in frame.columns), None)
+        if source_col is None:
+            continue
+        values = pd.to_datetime(frame[source_col], errors="coerce").dropna()
+        if values.empty:
+            continue
+        ranges.append((values.min(), values.max()))
+    if not ranges:
+        return "Sin rango temporal visible en la sesión."
+    start = min(item[0] for item in ranges)
+    end = max(item[1] for item in ranges)
+    return f"{start:%d/%m/%Y} a {end:%d/%m/%Y}"
+
+
+def _format_debug_timestamp(value: object) -> str:
+    if value in (None, "", "—"):
+        return "—"
+    try:
+        if isinstance(value, (int, float)):
+            return pd.to_datetime(float(value), unit="s").strftime("%Y-%m-%d %H:%M:%S")
+        parsed = pd.to_datetime(value, errors="coerce")
+        if pd.isna(parsed):
+            return str(value)
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(value)
+
+
+def _format_debug_value(value: object) -> str:
+    if value in (None, "", "—"):
+        return "—"
+    return str(value)
+
+
+def _format_debug_seconds(value: object) -> str:
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):.3f}s"
+    except Exception:
+        return str(value)
+
+
+def _current_report_debug_info(report_state: dict[str, object]) -> dict[str, object]:
+    audience_labels = list(REPORT_AUDIENCE_OPTIONS.keys())
+    default_audience_choice = audience_labels[1] if len(audience_labels) > 1 else audience_labels[0]
+    audience_choice = st.session_state.get("sel_report_audience", default_audience_choice)
+    if audience_choice not in REPORT_AUDIENCE_OPTIONS:
+        audience_choice = default_audience_choice
+
+    report_audience = normalize_report_audience(REPORT_AUDIENCE_OPTIONS[audience_choice])
+    individual_scope = report_requires_individual(report_audience)
+    athletes = collect_report_athletes(report_state)
+    scope_options = athletes if individual_scope else ["Todos"] + athletes
+    report_athlete = st.session_state.get("sel_report_ath")
+    if report_athlete not in scope_options:
+        report_athlete = scope_options[0] if scope_options else "Todos"
+
+    include_technical_annex = bool(st.session_state.get("chk_report_technical_annex", False) and report_audience == "profe")
+    report_options = {
+        "include_technical_annex": include_technical_annex,
+        "include_acwr": bool(st.session_state.get("include_acwr", True)) if include_technical_annex else False,
+        "include_mono": bool(st.session_state.get("include_mono", True)) if include_technical_annex else False,
+        "include_wellness": bool(st.session_state.get("include_wellness", True)) if include_technical_annex else False,
+        "include_jumps": bool(st.session_state.get("include_jumps", True)) if include_technical_annex else False,
+        "include_maxes": bool(st.session_state.get("include_maxes", True)) if include_technical_annex else False,
+        "include_volume": bool(st.session_state.get("include_volume", True)) if include_technical_annex else False,
+        "include_completion": bool(st.session_state.get("include_completion", True)) if include_technical_annex else False,
+    }
+    effective_report_athlete = resolve_report_scope(report_state, report_athlete, report_audience)
+    signature = build_report_preview_signature(
+        report_audience=report_audience,
+        report_athlete=report_athlete,
+        effective_report_athlete=effective_report_athlete,
+        report_options=report_options,
+        date_window=_report_time_window_label(report_state),
+        store_version=current_report_state_version(),
+    )
+    preview_payload = st.session_state.get("report_preview_payload")
+    preview_available = isinstance(preview_payload, dict)
+    preview_needs_refresh = report_preview_needs_refresh(signature=signature)
+    if not preview_available:
+        preview_state = "no generado"
+    elif preview_needs_refresh:
+        preview_state = "desactualizado"
+    else:
+        preview_state = "actualizado"
+    return {
+        "audience_choice": audience_choice,
+        "report_audience": report_audience,
+        "report_athlete": report_athlete,
+        "effective_report_athlete": effective_report_athlete,
+        "preview_signature": signature,
+        "preview_state": preview_state,
+        "preview_needs_refresh": preview_needs_refresh,
+    }
+
+
+def _render_performance_debug_panel(panel_placeholder, active_view: str) -> None:
+    if panel_placeholder is None or not bool(st.session_state.get("performance_debug_enabled", False)):
+        return
+
+    report_state = _current_report_state_snapshot()
+    report_debug = _current_report_debug_info(report_state)
+    timings = st.session_state.get("performance_debug_timings") or {}
+    artifacts = st.session_state.get("performance_debug_artifacts") or {}
+    state_rows = [
+        {"Item": "Vista activa", "Valor": active_view},
+        {"Item": "local_store_hydrated", "Valor": _format_debug_value(st.session_state.get("local_store_hydrated"))},
+        {"Item": "local_store_version", "Valor": _format_debug_value(st.session_state.get("local_store_version"))},
+        {"Item": "prepared_raw_df_version", "Valor": _format_debug_value(st.session_state.get("prepared_raw_df_version"))},
+        {"Item": "load_state_version", "Valor": _format_debug_value(st.session_state.get("load_state_version"))},
+        {"Item": "report_preview_signature", "Valor": _format_debug_value(st.session_state.get("report_preview_signature") or report_debug["preview_signature"])},
+        {"Item": "report_preview_state", "Valor": report_debug["preview_state"]},
+        {"Item": "last_hydration_ts", "Valor": _format_debug_timestamp(st.session_state.get("last_hydration_ts"))},
+        {"Item": "prepared_raw_df_last_build_ts", "Valor": _format_debug_timestamp(st.session_state.get("prepared_raw_df_last_build_ts"))},
+        {"Item": "load_state_last_build_ts", "Valor": _format_debug_timestamp(st.session_state.get("load_state_last_build_ts"))},
+        {"Item": "report_preview_last_build_ts", "Valor": _format_debug_timestamp(st.session_state.get("report_preview_last_build_ts"))},
+    ]
+    timing_rows = [
+        {"Evento": "Render vista activa", "Estado": "ejecutado", "Tiempo": _format_debug_seconds(timings.get("active_view_render_s"))},
+        {"Evento": "ensure_local_store_hydrated", "Estado": artifacts.get("local_store_hydration", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("ensure_local_store_hydrated_s"))},
+        {"Evento": "ensure_prepared_raw_workouts", "Estado": artifacts.get("prepared_raw_df", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("ensure_prepared_raw_workouts_s"))},
+        {"Evento": "ensure_load_state", "Estado": artifacts.get("load_state", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("ensure_load_state_s"))},
+        {"Evento": "Reports preview", "Estado": artifacts.get("report_preview", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("report_preview_build_s"))},
+        {"Evento": "Reports exportables", "Estado": artifacts.get("report_exportables", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("report_exportables_build_s"))},
+    ]
+
+    with panel_placeholder.container():
+        with st.expander("Diagnóstico de rendimiento", expanded=False):
+            st.caption("Observación pasiva: no fuerza recomputaciones ni genera reportes por sí sola.")
+            st.dataframe(pd.DataFrame(state_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(timing_rows), use_container_width=True, hide_index=True)
 
 
 def _active_dataset_rows(keys: list[str] | None = None) -> list[dict[str, object]]:
@@ -3991,18 +4173,24 @@ def rebuild_load_state(force: bool = False):
 
 
 def ensure_local_store_hydrated(force: bool = False) -> bool:
-    if force:
-        invalidate_local_store_hydration(clear_full_history=True, clear_load_state=False)
-    if not local_store_needs_hydration(force=False):
-        ensure_load_state(force_reload=False, ensure_base_state=False)
-        return False
+    started_at = time.perf_counter()
+    try:
+        if force:
+            invalidate_local_store_hydration(clear_full_history=True, clear_load_state=False)
+        if not local_store_needs_hydration(force=False):
+            record_performance_debug_artifact("local_store_hydration", "reutilizado")
+            ensure_load_state(force_reload=False, ensure_base_state=False)
+            return False
 
-    stored_state = load_recent_state(weeks=RECENT_WEEKS)
-    for key, df in stored_state.items():
-        st.session_state[key] = df
-    mark_local_store_hydrated()
-    rebuild_load_state(force=True)
-    return True
+        stored_state = load_recent_state(weeks=RECENT_WEEKS)
+        for key, df in stored_state.items():
+            st.session_state[key] = df
+        mark_local_store_hydrated()
+        record_performance_debug_artifact("local_store_hydration", "reconstruido")
+        rebuild_load_state(force=True)
+        return True
+    finally:
+        record_performance_debug_timing("ensure_local_store_hydrated_s", time.perf_counter() - started_at)
 
 
 def hydrate_local_store(force: bool = False) -> bool:
@@ -4290,6 +4478,8 @@ def _pending_evaluation_group_rows(pending_records: list[dict], history_df: pd.D
     ]
 
 
+performance_debug_panel_placeholder = None
+
 with st.sidebar:
     sidebar_wordmark = _brand_wordmark_markup("sidebar-brand-wordmark", "sidebar-wordmark-fallback")
     sidebar_icon = _brand_icon_markup(42)
@@ -4338,6 +4528,9 @@ with st.sidebar:
         else:
             st.info(dataset_notice)
         st.session_state.dataset_sync_notice = None
+
+    st.toggle("Mostrar diagnóstico de rendimiento", key="performance_debug_enabled")
+    performance_debug_panel_placeholder = st.empty()
 
     # ── Status compacto cuando hay datos cargados ──
     if _data_loaded():
@@ -5622,6 +5815,7 @@ else:
         key="main_surface_view",
     )
 active_main_view = active_main_view or default_main_view
+active_view_render_started_at = time.perf_counter()
 
 # ─────────────────────────────────────────────────────────────────────
 # TAB: OVERVIEW
@@ -6754,7 +6948,7 @@ elif active_main_view == "Reports":
     render_module_header("Reporte", "exportar datos para compartir con el cuerpo tecnico", kicker="Modulo")
 
     ensure_load_state(ensure_base_state=False)
-    report_state = dict(st.session_state)
+    report_state = _current_report_state_snapshot()
     report_athlete = "Todos"
 
     col_r1, col_r2 = st.columns(2)
@@ -6781,6 +6975,7 @@ elif active_main_view == "Reports":
             )
         elif individual_scope:
             _alert("No hay atletas disponibles para esta audiencia individual.", "y")
+        st.caption(f"Cobertura temporal visible: {_report_time_window_label(report_state)}")
 
     with col_r2:
         render_subsection_header("Contenido del reporte", "paquete curado y anexo tecnico opcional", kicker="Exportacion")
@@ -6792,13 +6987,13 @@ elif active_main_view == "Reports":
         )
         include_technical_annex = bool(include_technical_annex and report_audience == "profe")
         if include_technical_annex:
-            include_acwr = st.checkbox("ACWR EWMA + sRPE diario", value=True)
-            include_mono = st.checkbox("Monotonia + strain semanal", value=True)
-            include_wellness = st.checkbox("Wellness historico", value=True)
-            include_jumps = st.checkbox("Evaluaciones de saltos", value=True)
-            include_maxes = st.checkbox("Progresion de maximos", value=True)
-            include_volume = st.checkbox("Carga externa / volumen por estimulo", value=True)
-            include_completion = st.checkbox("Completion rate detallado", value=True)
+            include_acwr = st.checkbox("ACWR EWMA + sRPE diario", value=True, key="include_acwr")
+            include_mono = st.checkbox("Monotonia + strain semanal", value=True, key="include_mono")
+            include_wellness = st.checkbox("Wellness historico", value=True, key="include_wellness")
+            include_jumps = st.checkbox("Evaluaciones de saltos", value=True, key="include_jumps")
+            include_maxes = st.checkbox("Progresion de maximos", value=True, key="include_maxes")
+            include_volume = st.checkbox("Carga externa / volumen por estimulo", value=True, key="include_volume")
+            include_completion = st.checkbox("Completion rate detallado", value=True, key="include_completion")
         else:
             include_acwr = False
             include_mono = False
@@ -6813,38 +7008,126 @@ elif active_main_view == "Reports":
 
     effective_report_athlete = resolve_report_scope(report_state, report_athlete, report_audience)
     preview_athlete = effective_report_athlete or report_athlete
-    executive_df = build_report_executive_sheet(report_state, report_athlete, report_audience)
-    report_insights = generate_module_insights(report_state, preview_athlete, report_audience)
-    report_note = report_insights.get("report")
-    profile_note = report_insights.get("profile")
+    report_option_signature = {
+        "include_technical_annex": include_technical_annex,
+        "include_acwr": include_acwr,
+        "include_mono": include_mono,
+        "include_wellness": include_wellness,
+        "include_jumps": include_jumps,
+        "include_maxes": include_maxes,
+        "include_volume": include_volume,
+        "include_completion": include_completion,
+    }
+    report_preview_signature = build_report_preview_signature(
+        report_audience=report_audience,
+        report_athlete=report_athlete,
+        effective_report_athlete=effective_report_athlete,
+        report_options=report_option_signature,
+        date_window=_report_time_window_label(report_state),
+        store_version=current_report_state_version(),
+    )
+    cached_preview_payload = st.session_state.get("report_preview_payload")
+    preview_ready = isinstance(cached_preview_payload, dict) and not report_preview_needs_refresh(signature=report_preview_signature)
+    preview_stale = isinstance(cached_preview_payload, dict) and not preview_ready
+    cached_export_payload = st.session_state.get("report_export_payload")
+    export_ready = isinstance(cached_export_payload, dict) and st.session_state.get("report_export_signature") == report_preview_signature
+    export_stale = isinstance(cached_export_payload, dict) and not export_ready
+    if preview_ready:
+        record_performance_debug_artifact("report_preview", "reutilizado")
+    elif not isinstance(cached_preview_payload, dict):
+        record_performance_debug_artifact("report_preview", "no disponible")
+    if export_ready:
+        record_performance_debug_artifact("report_exportables", "reutilizado")
+    elif not isinstance(cached_export_payload, dict):
+        record_performance_debug_artifact("report_exportables", "no disponible")
 
     render_subsection_header("Vista previa exportable", "bloques listos para excel y salida visual", kicker="Preview")
-    if not executive_df.empty:
-        st.dataframe(executive_df, use_container_width=True, hide_index=True)
-    elif effective_report_athlete is None:
-        _alert("Elegir un atleta habilita el reporte individual para esta audiencia.", "y")
+    preview_action_col, preview_status_col = st.columns([1, 2])
+    with preview_action_col:
+        preview_requested = st.button("Actualizar preview", disabled=effective_report_athlete is None)
+    with preview_status_col:
+        if effective_report_athlete is None:
+            _alert("Elegir un atleta habilita el reporte individual para esta audiencia.", "y")
+        elif preview_ready:
+            _alert("Vista previa actualizada. Se reutiliza mientras no cambien los parámetros del reporte.", "g")
+        elif preview_stale:
+            _alert("La vista previa quedó desactualizada porque cambiaron los parámetros. Presioná Actualizar preview para refrescarla.", "y")
+        else:
+            _alert("La vista previa todavía no se generó. Presioná Actualizar preview para construirla.", "b")
 
-    preview_left, preview_right = st.columns(2)
-    with preview_left:
-        if report_note:
-            render_report_note(
-                report_note["title"],
-                report_note["summary"],
-                report_note.get("focuses"),
-                kicker="Reporte",
-            )
-    with preview_right:
-        if profile_note:
-            render_report_note(
-                profile_note["title"],
-                profile_note["summary"],
-                profile_note.get("focuses"),
-                kicker="Focos",
-            )
+    if preview_requested:
+        preview_started_at = time.perf_counter()
+        executive_df = build_report_executive_sheet(report_state, report_athlete, report_audience)
+        report_insights = generate_module_insights(report_state, preview_athlete, report_audience)
+        store_report_preview(
+            payload={
+                "executive_df": executive_df,
+                "report_insights": report_insights,
+                "effective_report_athlete": effective_report_athlete,
+                "report_athlete": report_athlete,
+                "report_audience": report_audience,
+            },
+            signature=report_preview_signature,
+        )
+        record_performance_debug_timing("report_preview_build_s", time.perf_counter() - preview_started_at, accumulate=False)
+        record_performance_debug_artifact("report_preview", "reconstruido")
+        cached_preview_payload = st.session_state.get("report_preview_payload")
+        preview_ready = True
+        preview_stale = False
+
+    if preview_ready and isinstance(cached_preview_payload, dict):
+        executive_df = cached_preview_payload.get("executive_df")
+        report_insights = cached_preview_payload.get("report_insights") or {}
+        report_note = report_insights.get("report")
+        profile_note = report_insights.get("profile")
+
+        if isinstance(executive_df, pd.DataFrame) and not executive_df.empty:
+            st.dataframe(executive_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("La vista previa no encontró bloques ejecutivos para la selección actual.")
+
+        preview_left, preview_right = st.columns(2)
+        with preview_left:
+            if report_note:
+                render_report_note(
+                    report_note["title"],
+                    report_note["summary"],
+                    report_note.get("focuses"),
+                    kicker="Reporte",
+                )
+        with preview_right:
+            if profile_note:
+                render_report_note(
+                    profile_note["title"],
+                    profile_note["summary"],
+                    profile_note.get("focuses"),
+                    kicker="Focos",
+                )
 
     st.markdown("---")
 
-    if st.button("Preparar exportables", disabled=effective_report_athlete is None):
+    render_subsection_header("Exportables", "excel curado y PDF visual solo bajo demanda", kicker="Generacion")
+    export_action_col, export_status_col = st.columns([1, 2])
+    with export_action_col:
+        export_requested = st.button("Preparar exportables", disabled=effective_report_athlete is None)
+    with export_status_col:
+        if effective_report_athlete is None:
+            _alert("Elegir un atleta habilita la generación individual para esta audiencia.", "y")
+        elif export_ready:
+            _alert("PDF generado y exportables listos para descargar con los parámetros actuales.", "g")
+        elif export_stale:
+            _alert("Los exportables quedaron desactualizados porque cambiaron los parámetros. Volvé a preparar exportables.", "y")
+        else:
+            st.caption("El Excel y el PDF se generan solo cuando presionás Preparar exportables.")
+
+    if export_requested:
+        st.session_state.report_export_payload = None
+        st.session_state.report_export_signature = None
+        st.session_state.report_export_last_build_ts = None
+        cached_export_payload = None
+        export_ready = False
+        export_stale = False
+        export_started_at = time.perf_counter()
         sheets = build_report_sheets(
             report_state,
             preview_athlete,
@@ -6861,6 +7144,8 @@ elif active_main_view == "Reports":
 
         if not sheets:
             _alert("No hay datos para exportar. Cargá archivos primero.", "y")
+            record_performance_debug_artifact("report_exportables", "no disponible")
+            record_performance_debug_timing("report_exportables_build_s", time.perf_counter() - export_started_at, accumulate=False)
         else:
             ordered_sheet_names = [name for name in REPORT_SHEET_ORDER if name in sheets]
             ordered_sheet_names.extend(name for name in sheets if name not in ordered_sheet_names)
@@ -6874,28 +7159,52 @@ elif active_main_view == "Reports":
                 }
                 for sheet_name in ordered_sheet_names
             ]
-            st.caption("Paquete exportable listo para descargar")
-            st.dataframe(pd.DataFrame(export_rows), use_container_width=True, hide_index=True)
             excel_bytes = export_excel(sheets)
             pdf_bytes = generate_visual_report_pdf(report_state, preview_athlete, report_audience)
             ath_label = preview_athlete.replace(" ", "_") if preview_athlete != "Todos" else "Equipo"
             audience_label = audience_choice.replace(" ", "_")
-            dl_1, dl_2 = st.columns(2)
-            with dl_1:
-                st.download_button(
-                    label="Descargar reporte Excel",
-                    data=excel_bytes,
-                    file_name=f"Threshold_SC_Reporte_{ath_label}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            with dl_2:
+            st.session_state.report_export_payload = {
+                "export_rows_df": pd.DataFrame(export_rows),
+                "excel_bytes": excel_bytes,
+                "pdf_bytes": pdf_bytes,
+                "ath_label": ath_label,
+                "audience_label": audience_label,
+                "audience_choice": audience_choice,
+                "sheet_count": len(sheets),
+            }
+            st.session_state.report_export_signature = report_preview_signature
+            st.session_state.report_export_last_build_ts = pd.Timestamp.utcnow().isoformat()
+            record_performance_debug_timing("report_exportables_build_s", time.perf_counter() - export_started_at, accumulate=False)
+            record_performance_debug_artifact("report_exportables", "reconstruido")
+            cached_export_payload = st.session_state.report_export_payload
+            export_ready = True
+            export_stale = False
+
+    if export_ready and isinstance(cached_export_payload, dict):
+        st.caption("Paquete exportable listo para descargar")
+        st.dataframe(cached_export_payload["export_rows_df"], use_container_width=True, hide_index=True)
+        dl_1, dl_2 = st.columns(2)
+        with dl_1:
+            st.download_button(
+                label="Descargar reporte Excel",
+                data=cached_export_payload["excel_bytes"],
+                file_name=f"Threshold_SC_Reporte_{cached_export_payload['ath_label']}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        with dl_2:
+            if cached_export_payload.get("pdf_bytes") is not None:
                 st.download_button(
                     label="Descargar reporte visual PDF",
-                    data=pdf_bytes,
-                    file_name=f"Threshold_SC_Reporte_{ath_label}_{audience_label}.pdf",
+                    data=cached_export_payload["pdf_bytes"],
+                    file_name=f"Threshold_SC_Reporte_{cached_export_payload['ath_label']}_{cached_export_payload['audience_label']}.pdf",
                     mime="application/pdf",
                 )
-            _alert(f"Reporte generado con {len(sheets)} hojas y un PDF para {audience_choice}.", "g")
+            else:
+                _alert("No se pudo generar el PDF visual para la configuración actual.", "y")
+        _alert(
+            f"Reporte generado con {cached_export_payload['sheet_count']} hojas y un PDF para {cached_export_payload['audience_choice']}.",
+            "g",
+        )
 
     # ── Qué falta para el reporte completo ──
     st.markdown("---")
@@ -6918,3 +7227,10 @@ elif active_main_view == "Reports":
         st.caption("Volumen disponible solo como fallback Rep/Load legacy; Raw Workouts sigue siendo la fuente oficial.")
     elif st.session_state.rep_load_df is not None:
         st.caption("Rep/Load (legacy opcional) disponible, no requerido si Raw Workouts esta cargado.")
+
+record_performance_debug_timing(
+    "active_view_render_s",
+    time.perf_counter() - active_view_render_started_at,
+    accumulate=False,
+)
+_render_performance_debug_panel(performance_debug_panel_placeholder, active_main_view)
