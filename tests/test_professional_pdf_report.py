@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 from datetime import datetime as real_datetime
 import re
 import unittest
@@ -414,7 +415,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         imtp_card = next(card for card in cards if card["title"] == "IMTP")
 
         self.assertEqual(imtp_card["signal"], "Verde")
-        self.assertIn("Señal favorable", imtp_card["interpretation"])
+        self.assertIn("Cambio favorable mayor al TE", imtp_card["interpretation"])
         self.assertNotEqual(imtp_card["signal"], "Referencia externa/grupal baja")
 
     def test_eur_keeps_context_note_while_using_te_semaphore(self):
@@ -450,6 +451,40 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertNotIn("m/s", rsi_card["value"])
         self.assertIn("unidades RSI", rsi_card["delta"])
         self.assertIn("unidades RSI", rsi_card["threshold"])
+        self.assertNotIn("m/s", rsi_card["te_caption"])
+
+    def test_eur_cards_keep_ratio_label(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "EUR": 1.10, "CMJ_cm": 33, "SJ_cm": 30},
+                    {"Athlete": "Ana Lopez", "Date": "2026-05-01", "EUR": 1.18, "CMJ_cm": 34, "SJ_cm": 29},
+                ]
+            )
+        }
+
+        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        eur_card = next(card for card in cards if card["title"] == "EUR")
+
+        self.assertEqual(eur_card["unit_label"], "Ratio")
+        self.assertIn("EUR debe interpretarse junto con CMJ y SJ", eur_card["interpretation"])
+
+    def test_contact_time_cards_keep_ms_units(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "DJ_tc_ms": 240},
+                    {"Athlete": "Ana Lopez", "Date": "2026-05-01", "DJ_tc_ms": 232},
+                ]
+            )
+        }
+
+        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        contact_card = next(card for card in cards if card["title"] == "Contact Time")
+
+        self.assertEqual(contact_card["unit_label"], "ms")
+        self.assertTrue(contact_card["value"].endswith(" ms"))
+        self.assertIn("ms", contact_card["threshold"])
 
     def test_large_individual_improvement_adds_protocol_warning(self):
         state = {
@@ -653,7 +688,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         joined = " ".join(_build_professional_integrated_interpretation(internal, wellness))
 
-        self.assertIn("La lectura del wellness es limitada por baja cantidad de registros.", joined)
+        self.assertIn("La lectura del wellness es limitada por baja cantidad de registros", joined)
         self.assertNotIn("Wellness parcial: solo 1 día con registro", joined)
 
     def test_integrated_interpretation_only_mentions_real_weekly_changes(self):
@@ -736,7 +771,95 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         self.assertTrue(any("Completar métricas faltantes" in step for step in steps))
         self.assertTrue(any("entrada en calor" in step for step in steps))
-        self.assertTrue(any("no para reemplazar el perfil físico" in step for step in steps))
+        self.assertTrue(any("no reemplazan el perfil físico" in step for step in steps))
+
+    def test_quadrant_sections_do_not_mix_missing_message_with_valid_location(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-04-01",
+                        "CMJ_cm": 32.0,
+                        "SJ_cm": 30.0,
+                        "DJ_cm": 24.0,
+                        "DJ_tc_ms": 220,
+                        "IMTP_N": 1900,
+                        "BW_kg": 70,
+                        "EUR": 1.08,
+                    },
+                    {
+                        "Athlete": "Bruno Rey",
+                        "Date": "2026-04-01",
+                        "CMJ_cm": 36.0,
+                        "SJ_cm": 28.0,
+                        "DJ_cm": 21.0,
+                        "DJ_tc_ms": 250,
+                        "IMTP_N": 2100,
+                        "BW_kg": 80,
+                        "EUR": 1.15,
+                    },
+                ]
+            )
+        }
+
+        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        ready_sections = [section for section in sections if section["selected"] is not None]
+
+        self.assertTrue(ready_sections)
+        for section in ready_sections:
+            self.assertEqual(section["message"], "")
+            self.assertNotEqual(section["location"], PDF_MISSING_TEXT)
+            self.assertNotIn("Faltan datos para ubicar al atleta", section["location"])
+
+    def test_professional_narrative_avoids_double_periods(self):
+        state = _weekly_state_without_evaluations()
+        state["jump_df"] = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Date": "2026-04-01", "CMJ_cm": 30.0, "SJ_cm": 28.0},
+                {"Athlete": "Ana Lopez", "Date": "2026-05-20", "CMJ_cm": 31.5, "SJ_cm": 29.0},
+            ]
+        )
+
+        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+            cards = _build_professional_metric_cards(state, "Ana Lopez")
+            training = _build_professional_training_context(state, "Ana Lopez")
+            internal = _build_professional_internal_load_context(state, "Ana Lopez")
+            overview = _build_professional_report_overview(state, "Ana Lopez", cards, training, internal)
+            wellness = _professional_wellness_context(state, "Ana Lopez")
+            lines = _build_professional_integrated_interpretation(
+                internal,
+                wellness,
+                evaluation_state="partial",
+                assessment_interval_warning=_professional_short_assessment_interval_warning(state, "Ana Lopez"),
+            )
+
+        text = " ".join([overview["reading"], overview["decision"], *lines])
+        self.assertNotIn("..", text)
+
+    def test_professional_pdf_calls_expected_section_builders(self):
+        state = _professional_state_with_force_time()
+
+        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+            with ExitStack() as stack:
+                mocks = {
+                    name: stack.enter_context(patch.object(report_generator, name, wraps=getattr(report_generator, name)))
+                    for name in [
+                        "_build_professional_metric_cards",
+                        "_build_professional_evolution_sections",
+                        "_build_professional_quadrant_sections",
+                        "_build_professional_training_context",
+                        "_build_professional_internal_load_context",
+                        "_professional_wellness_context",
+                        "_build_professional_integrated_interpretation",
+                        "_build_professional_next_steps",
+                    ]
+                }
+                pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
+
+        self.assertIsNotNone(pdf)
+        for name, mocked in mocks.items():
+            self.assertGreaterEqual(mocked.call_count, 1, name)
 
 
     def test_professional_pdf_with_imtp_force_time_generates_contextual_block(self):

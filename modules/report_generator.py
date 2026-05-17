@@ -96,15 +96,16 @@ EUR_RATIO_LABEL = "EUR (ratio)"
 PDF_MISSING_TEXT = "Faltan datos"
 PROFESSIONAL_INTERVAL_WARNING = (
     "Intervalo entre evaluaciones menor al recomendado de 6-8 semanas. "
-    "Interpretar cambios con cautela."
+    "Interpretar cambios con cautela y evitar atribuirlos de forma directa a adaptación."
 )
 PROFESSIONAL_LARGE_CHANGE_WARNING = (
     "Mejora individual marcada. Verificar consistencia del protocolo, familiarización, "
     "condiciones del test y calidad del dato antes de atribuir todo el cambio a adaptación física."
 )
 PROFESSIONAL_RSI_METHOD_NOTE = (
-    "RSI calculado como altura de salto dividida por tiempo de contacto. Aunque dimensionalmente "
-    "puede expresarse como m/s, se interpreta como índice de fuerza reactiva, no como velocidad lineal."
+    "RSI calculado como altura de salto dividida por tiempo de contacto. En este reporte se "
+    "interpreta como índice de fuerza reactiva y debe leerse junto con DJ/DRI y Contact Time, "
+    "no como velocidad lineal."
 )
 PROFESSIONAL_METRIC_DIRECTIONS = {
     "CMJ": "higher_is_better",
@@ -128,7 +129,7 @@ PROFESSIONAL_NO_EVOLUTION_TEXT = (
 )
 PROFESSIONAL_NO_QUADRANTS_TEXT = (
     "Faltan datos para construir los cuadrantes de perfil físico.\n"
-    "Para generar esta sección se necesitan combinaciones mínimas como IMTP + CMJ, RSI + Contact Time, y SJ + CMJ."
+    "Para generar esta sección se necesitan combinaciones mínimas como IMTP relativa + CMJ, SJ + DRI y EUR + CMJ."
 )
 PROFESSIONAL_PDF_METRICS = (
     {
@@ -352,7 +353,11 @@ def _professional_metric_te_caption(spec: dict[str, object], value_col: str) -> 
     reference = _professional_metric_te_reference(spec, value_col)
     if reference is None:
         return PDF_MISSING_TEXT
-    return f"TE de referencia: ± {reference['value']:g} {reference['unit']} (zona de ruido de medición)"
+    threshold_abs = _coerce_float(reference.get("value"))
+    threshold_text = _professional_threshold_text(threshold_abs, "", spec, value_col)
+    if threshold_text == PDF_MISSING_TEXT:
+        return PDF_MISSING_TEXT
+    return f"TE de referencia: {threshold_text}. Cambios dentro de este margen pueden deberse al error típico."
 
 IMTP_FORCE_TIME_EXPORT_COLUMNS = [
     "IMTP_force_50_N",
@@ -865,6 +870,20 @@ def _professional_name_key(value: object) -> str:
 def _professional_athlete_mask(series: pd.Series, athlete: str) -> pd.Series:
     target = _professional_name_key(athlete)
     return series.apply(_professional_name_key).eq(target)
+
+
+def _professional_quadrant_display_name(value: object, *, max_chars: int = 26) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return "Atleta"
+    if len(text) <= max_chars:
+        return text
+    parts = text.split()
+    if len(parts) >= 2:
+        simplified = f"{parts[0]} {parts[-1]}"
+        if len(simplified) <= max_chars:
+            return simplified
+    return textwrap.shorten(text, width=max_chars, placeholder="…")
 
 
 def _has_text(value: object) -> bool:
@@ -3777,12 +3796,15 @@ def _professional_metric_unit(spec: dict[str, object], value_col: str) -> str:
 
 def _professional_metric_display_unit(spec: dict[str, object], value_col: str) -> str:
     unit = _professional_metric_unit(spec, value_col)
+    title = str(spec.get("title", "")).strip()
     if unit == "rsi_index":
         return "Índice RSI"
     if unit == "mrsi_index":
         return "Índice mRSI"
     if unit == "ratio":
         return "Ratio"
+    if title == "IMTP" and value_col == "IMTP_relPF":
+        return "N/kg (fuerza relativa)"
     return unit or PDF_MISSING_TEXT
 
 
@@ -3964,23 +3986,31 @@ def _professional_metric_interpretation(
     if current_value is None or label in {PDF_MISSING_TEXT, "Sin dato"}:
         return "Faltan datos para generar una interpretación confiable."
     if basis == "fallback_no_te":
-        return "Sin TE de referencia; interpretar con cautela."
+        return "Sin TE de referencia; usar el dato como señal descriptiva y cruzarlo con el contexto."
     title = str((spec or {}).get("title", ""))
     base_message = ""
     if label == "Amarillo":
-        base_message = "Cambio no concluyente. Dentro del TE/error típico; no tomar decisiones fuertes con este dato aislado."
+        base_message = "Cambio dentro del TE/error típico; no tomar decisiones fuertes con este dato aislado."
     elif label == "Verde":
-        base_message = "Señal favorable. Cambio > TE en dirección favorable."
+        base_message = "Cambio favorable mayor al TE; interpretar junto con el contexto."
     elif label == "Rojo":
-        base_message = "Señal desfavorable. Cambio > TE en dirección desfavorable; revisar contexto antes de modificar carga."
-    if title == "EUR":
-        eur_note = (
+        base_message = "Cambio desfavorable mayor al TE; revisar contexto antes de modificar carga o prioridades."
+    contextual_notes = {
+        "EUR": (
             "EUR debe interpretarse junto con CMJ y SJ; un aumento puede reflejar mejor uso del "
             "contramovimiento o menor rendimiento relativo del SJ."
-        )
-        return f"{base_message}. {eur_note}" if base_message else eur_note
+        ),
+        "RSI": "RSI debe leerse junto con DJ/DRI y Contact Time; no usarlo como conclusión aislada.",
+        "Contact Time": "Contact Time debe leerse junto con DJ/DRI y RSI; un cambio aislado no define por sí solo el perfil reactivo.",
+        "mRSI": "mRSI aporta contexto reactivo y conviene leerlo junto con CMJ, DJ y el protocolo aplicado.",
+    }
+    note = contextual_notes.get(title, "")
+    if base_message and note:
+        return f"{base_message} {note}"
     if base_message:
         return base_message
+    if note:
+        return note
     return "Faltan datos para interpretar el cambio frente a la evaluación previa."
 
 
@@ -4994,6 +5024,7 @@ def _build_professional_report_overview(
 ) -> dict[str, object]:
     available_cards, _ = _professional_metric_display_groups(cards)
     wellness = _professional_wellness_context(state, athlete)
+    assessment_interval_warning = _professional_short_assessment_interval_warning(state, athlete)
     evaluation_state = "missing"
     if len(available_cards) == len(PROFESSIONAL_PDF_METRICS):
         evaluation_state = "available"
@@ -5002,16 +5033,18 @@ def _build_professional_report_overview(
 
     if evaluation_state == "available":
         reading = "Perfil físico disponible con batería de evaluación útil para orientar prioridades del bloque."
-        decision = "Usar las métricas, cuadrantes y carga interna para ajustar el siguiente bloque con criterio profesional."
+        decision = "Usar las métricas junto con carga interna, wellness y contexto deportivo para orientar el siguiente bloque."
     elif evaluation_state == "partial":
-        reading = "Perfil físico parcial: hay señales útiles, pero algunas métricas limitan la interpretación completa."
-        decision = "Tomar decisiones con las métricas disponibles y completar la batería faltante en la próxima evaluación."
+        reading = "Perfil físico parcial: hay señales útiles, pero la cobertura de evaluación todavía es incompleta."
+        decision = "Tomar esta lectura como preliminar, completar la batería faltante y evitar conclusiones fuertes con métricas aisladas."
     elif internal_load.get("state") != "missing" or training_context.get("state") != "missing":
         reading = "Sin perfil físico suficiente; el reporte se apoya en entrenamiento, carga interna y contexto del bloque."
-        decision = "Completar una batería de evaluación y usar la carga disponible para regular el corto plazo."
+        decision = "Completar una batería de evaluación y usar la carga disponible solo para regular decisiones de corto plazo."
     else:
         reading = "Información insuficiente para una lectura profesional completa."
         decision = "Cargar evaluaciones, entrenamiento y sRPE antes de tomar decisiones de bloque."
+    if assessment_interval_warning and evaluation_state != "missing":
+        reading = f"{reading} Intervalo corto entre evaluaciones: interpretar los cambios como señal preliminar."
 
     return {
         "athlete": athlete,
@@ -5038,8 +5071,24 @@ def _professional_trend_delta(points: list[dict[str, object]], key: str) -> floa
 def _build_professional_integrated_interpretation(
     internal_load: dict[str, object],
     wellness_context: dict[str, object],
+    *,
+    evaluation_state: str | None = None,
+    assessment_interval_warning: str = "",
 ) -> list[str]:
     lines: list[str] = []
+    clean_evaluation_state = str(evaluation_state or "").strip().lower()
+    if clean_evaluation_state == "partial":
+        lines.append(
+            "La cobertura de evaluaciones físicas es parcial; esta lectura debe entenderse como señal preliminar y no como cierre completo del perfil."
+        )
+    elif clean_evaluation_state == "missing":
+        lines.append(
+            "No hay batería física suficiente para integrar cambios neuromusculares; la lectura se apoya sobre todo en carga interna y wellness."
+        )
+    if assessment_interval_warning:
+        lines.append(
+            "El intervalo entre evaluaciones fue menor a 6-8 semanas; evitar atribuir cambios de forma directa a adaptación sin seguimiento adicional."
+        )
     load_scope = str(internal_load.get("analysis_scope") or "")
     weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
     weekly_change = _coerce_float(internal_load.get("weekly_change"))
@@ -5055,10 +5104,16 @@ def _build_professional_integrated_interpretation(
             lines.append("La semana actual está incompleta y faltan datos suficientes para interpretar la carga acumulada.")
     elif weekly_change_pct is not None:
         direction = "aumentó" if weekly_change_pct > 0 else "disminuyó" if weekly_change_pct < 0 else "se mantuvo estable"
-        lines.append(f"La carga interna semanal {direction} {weekly_change_pct:+.1f}% respecto a la semana previa.")
+        lines.append(
+            f"La carga interna semanal {direction} {weekly_change_pct:+.1f}% respecto a la semana previa; "
+            "es una señal de exposición reciente y no una conclusión aislada por sí sola."
+        )
     elif weekly_change is not None:
         direction = "aumentó" if weekly_change > 0 else "disminuyó" if weekly_change < 0 else "se mantuvo estable"
-        lines.append(f"La carga interna semanal {direction} {weekly_change:+.0f} UA respecto a la semana previa.")
+        lines.append(
+            f"La carga interna semanal {direction} {weekly_change:+.0f} UA respecto a la semana previa; "
+            "es una señal operativa y debe leerse con el resto del contexto."
+        )
     else:
         lines.append("Faltan datos para comparar la carga interna contra la semana previa.")
 
@@ -5075,22 +5130,32 @@ def _build_professional_integrated_interpretation(
 
     wellness_comments: list[str] = []
     if wellness_context.get("state") == "partial" and wellness_context.get("partial_message"):
-        wellness_comments.append("La lectura del wellness es limitada por baja cantidad de registros.")
+        wellness_comments.append("La lectura del wellness es limitada por baja cantidad de registros y requiere seguimiento.")
     if sleep_delta is not None and sleep_delta < -0.2:
-        wellness_comments.append(f"El sueño cambió {sleep_delta:+.1f} h respecto a la semana previa; si baja, reduce margen de recuperación.")
+        wellness_comments.append(
+            f"El sueño cambió {sleep_delta:+.1f} h respecto a la semana previa; si baja, puede reducir el margen de recuperación."
+        )
     if stress_delta is not None and stress_delta > 0.2:
-        wellness_comments.append(f"El estrés cambió {stress_delta:+.1f} respecto a la semana previa y puede sumar carga contextual al bloque.")
+        wellness_comments.append(
+            f"El estrés cambió {stress_delta:+.1f} respecto a la semana previa y es una señal compatible con mayor carga contextual del bloque."
+        )
     if pain_delta is not None and pain_delta > 0.2:
-        wellness_comments.append(f"El dolor cambió {pain_delta:+.1f} respecto a la semana previa; conviene controlar volumen, densidad y selección de ejercicios.")
+        wellness_comments.append(
+            f"El dolor cambió {pain_delta:+.1f} respecto a la semana previa; conviene controlar volumen, densidad y selección de ejercicios."
+        )
     score_label = "wellness score"
     if score_delta is not None:
         magnitude = abs(score_delta)
         if abs(score_delta) <= 0.5:
             wellness_comments.append(f"El {score_label} cambió {score_delta:+.1f} puntos respecto a la semana previa y se mantiene relativamente estable.")
         elif score_delta < -0.5:
-            wellness_comments.append(f"El {score_label} disminuyó {magnitude:.1f} puntos respecto a la semana previa.")
+            wellness_comments.append(
+                f"El {score_label} disminuyó {magnitude:.1f} puntos respecto a la semana previa; señal compatible con menor tolerancia o mayor carga contextual."
+            )
         else:
-            wellness_comments.append(f"El {score_label} aumentó {magnitude:.1f} puntos respecto a la semana previa, señal compatible con buena tolerancia si el contexto acompaña.")
+            wellness_comments.append(
+                f"El {score_label} aumentó {magnitude:.1f} puntos respecto a la semana previa, señal compatible con buena tolerancia si el contexto acompaña."
+            )
     if load_scope != "current_week_partial" and weekly_change_pct is not None and weekly_change_pct > 10 and _professional_wellness_high(stress_mean, scales.get("stress")):
         wellness_comments.append(
             f"El estrés promedio fue elevado ({stress_mean:.1f}{scales.get('stress', '')}), por lo que conviene progresar de manera conservadora y controlar volumen/densidad."
@@ -5123,7 +5188,7 @@ def _build_professional_integrated_interpretation(
     else:
         lines.extend(wellness_comments[:3])
     lines.append(
-        "La carga interna no debe interpretarse sola. Su utilidad aumenta cuando se cruza con sueño, estrés, dolor, adherencia, calendario deportivo y criterio profesional."
+        "Integrar siempre carga interna, sueño, estrés, dolor, adherencia, calendario deportivo y criterio profesional antes de modificar carga o prioridades."
     )
     return lines
 
@@ -5140,13 +5205,13 @@ def _build_professional_next_steps(evaluation_state: str) -> list[str]:
     if clean == "partial":
         return [
             "Completar métricas faltantes, especialmente mRSI o DRI si corresponde.",
-            "Repetir evaluación en 6-8 semanas.",
+            "Repetir evaluación en 6-8 semanas antes de cerrar conclusiones más fuertes.",
             "Mantener misma entrada en calor, protocolo y condiciones para comparar mejor.",
-            "Usar carga interna y wellness solo para regular el corto plazo, no para reemplazar el perfil físico.",
+            "Usar carga interna y wellness solo para regular el corto plazo; no reemplazan el perfil físico.",
         ]
     return [
-        "Usar perfil físico para orientar el próximo bloque.",
-        "Usar carga interna y wellness para regular el corto plazo.",
+        "Usar el perfil físico para orientar el próximo bloque junto con carga interna, wellness y contexto deportivo.",
+        "Usar carga interna y wellness para regular el corto plazo, no como sustituto de la evaluación física.",
         "Repetir evaluación en 6-8 semanas.",
     ]
 
@@ -5714,6 +5779,7 @@ def _generate_professional_profile_pdf_reportlab(
         if section.get("selected") is None:
             return None
         points = section.get("points", [])
+        athlete_label = _professional_quadrant_display_name(report_athlete)
         width = width_mm * mm
         height = height_mm * mm
         left = 25
@@ -5735,7 +5801,15 @@ def _generate_professional_profile_pdf_reportlab(
             y = _scale(y_value, min_v, max_v, bottom, plot_h)
             if point.get("selected"):
                 drawing.add(Circle(x, y, 4.2, fillColor=palette["navy"], strokeColor=colors.white, strokeWidth=0.8))
-                drawing.add(String(min(x + 5, left + plot_w - 45), min(y + 5, bottom + plot_h - 8), report_athlete[:22], fontSize=7, fillColor=palette["navy"]))
+                drawing.add(
+                    String(
+                        min(x + 5, left + plot_w - 48),
+                        min(y + 5, bottom + plot_h - 8),
+                        athlete_label,
+                        fontSize=6.4,
+                        fillColor=palette["navy"],
+                    )
+                )
             else:
                 drawing.add(Circle(x, y, 2.4, fillColor=colors.HexColor("#B8C2C9"), strokeColor=None))
         drawing.add(String(left, 4, str(section.get("x_label", "")), fontSize=6.5, fillColor=palette["gray"]))
@@ -5745,7 +5819,7 @@ def _generate_professional_profile_pdf_reportlab(
     def _explanation_lines(payload: dict[str, object]) -> list[object]:
         if payload.get("state") == "missing":
             return [_p("Faltan datos para generar una interpretación confiable.", "ProfMuted")]
-        if payload.get("location") is not None:
+        if payload.get("selected") is not None:
             return [
                 _p(f"Qué estoy viendo: {payload.get('what', PDF_MISSING_TEXT)}", "ProfMuted"),
                 _p(f"Dónde se ubica el atleta: {payload.get('location', PDF_MISSING_TEXT)}", "ProfMuted"),
@@ -5795,7 +5869,12 @@ def _generate_professional_profile_pdf_reportlab(
     )
     has_quadrant_charts = _professional_any_quadrant_ready(quadrant_sections)
     assessment_interval_warning = _professional_short_assessment_interval_warning(state, report_athlete)
-    integrated_lines = _build_professional_integrated_interpretation(internal_load, wellness_context)
+    integrated_lines = _build_professional_integrated_interpretation(
+        internal_load,
+        wellness_context,
+        evaluation_state=evaluation_state,
+        assessment_interval_warning=assessment_interval_warning,
+    )
     next_steps = _build_professional_next_steps(evaluation_state)
 
     def _append_metric_cards(target: list[object]) -> None:
@@ -6117,7 +6196,7 @@ def _generate_professional_profile_pdf_reportlab(
     def _append_acwr_section(target: list[object], *, compact: bool = False) -> None:
         target.append(_p("GESTIÓN DE RIESGO", "ProfMuted"))
         target.append(_p("Ratio Agudo:Crónico (ACWR EWMA)", "ProfSection"))
-        target.append(_p("¿La carga de esta semana es segura respecto a la carga acumulada?", "ProfMuted"))
+        target.append(_p("¿Cómo se ubica la carga reciente respecto a la carga acumulada habitual?", "ProfMuted"))
         acwr_frame = _build_acwr_ewma_frame_for_pdf()
         if acwr_frame.empty:
             target.append(_collapsed_box("Sin suficientes datos de carga para calcular ACWR (mínimo 7 días requeridos)."))
@@ -6130,7 +6209,7 @@ def _generate_professional_profile_pdf_reportlab(
         latest_acwr = _coerce_float(acwr_frame.dropna(subset=["ACWR_EWMA"]).tail(1).iloc[0].get("ACWR_EWMA")) if not acwr_frame.dropna(subset=["ACWR_EWMA"]).empty else None
         zone_label = _acwr_zone_label(latest_acwr)
         caption = (
-            "ACWR EWMA: zona óptima 0.80–1.30. Valores >1.50 indican incremento de riesgo "
+            "ACWR EWMA: rango operativo habitual 0.80–1.30. Valores >1.50 sugieren exposición aguda relativamente alta y requieren revisar contexto, calendario y tolerancia individual "
             "(Gabbett, 2016, BJSM; Hulin et al., 2016, BJSM). "
             f"Interpretación: zona actual = {zone_label}."
         )
@@ -6152,8 +6231,8 @@ def _generate_professional_profile_pdf_reportlab(
             _box(
                 [
                     _p(
-                        "Monotonía >2.0 indica distribución homogénea de la carga y menor variabilidad semanal. "
-                        "Strain alto sugiere acumulación de estrés sin suficiente descarga.",
+                        "Monotonía >2.0 sugiere distribución homogénea de la carga y menor variabilidad semanal. "
+                        "Strain alto sugiere acumulación de estrés semanal y conviene leerlo junto con volumen total, calendario y wellness.",
                         "ProfMuted",
                     )
                 ],
@@ -6316,13 +6395,7 @@ def _generate_professional_profile_pdf_reportlab(
 
     def _append_limitations(target: list[object], *, compact: bool = False) -> None:
         target.append(_p("Limitaciones del reporte", "ProfSection"))
-        extra_notes: list[str] = []
-        if assessment_interval_warning:
-            extra_notes.append(assessment_interval_warning)
-        if any(card.get("title") in {"RSI", "mRSI"} for card in available_cards):
-            extra_notes.append(PROFESSIONAL_RSI_METHOD_NOTE)
         if compact:
-            notes_text = " ".join(extra_notes)
             target.append(
                 _box(
                     [
@@ -6334,7 +6407,6 @@ def _generate_professional_profile_pdf_reportlab(
                             "Las decisiones deben considerar contexto deportivo, dolor, wellness y criterio profesional. Si una sección muestra \"Faltan datos\", no había información suficiente para generar esa parte del análisis.",
                             "ProfMuted",
                         ),
-                        *([_p(notes_text, "ProfMuted")] if notes_text else []),
                     ],
                     padding=5,
                 )
@@ -6347,7 +6419,6 @@ def _generate_professional_profile_pdf_reportlab(
             "- Las decisiones deben considerar contexto deportivo, dolor, wellness y criterio profesional.",
             "- Si una sección muestra \"Faltan datos\", no había información suficiente para generar esa parte del análisis.",
         ]
-        limitation_lines.extend(f"- {note}" for note in extra_notes)
         target.append(_box([_p(line, "ProfBody") for line in limitation_lines], padding=6))
 
     buffer = BytesIO()
