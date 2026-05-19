@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 from datetime import datetime as real_datetime
 import re
+import unicodedata
 import unittest
 from unittest.mock import patch
 
@@ -12,19 +13,28 @@ import modules.report_generator as report_generator
 from modules.report_generator import (
     PDF_MISSING_TEXT,
     PROFESSIONAL_NO_EVALUATION_TEXT,
+    _build_professional_action_plan_payload,
+    _build_professional_change_payload,
+    _build_professional_composite_profile_payload,
+    _build_professional_exposure_payload,
     _build_professional_evolution_sections,
     _build_professional_integrated_interpretation,
     _build_professional_internal_load_context,
+    _build_professional_load_tolerance_payload,
     _build_professional_metric_cards,
     _build_professional_next_steps,
     _build_professional_quadrant_sections,
     _build_professional_report_overview,
     _build_professional_training_context,
+    _build_professional_wellness_availability_payload,
+    _quality_detail_text,
     _professional_assessment_date_count,
+    _professional_join_labels,
     _professional_metric_display_groups,
     _professional_short_assessment_interval_warning,
     _professional_quadrants_ready,
     _professional_wellness_context,
+    _repair_mojibake_text,
     generate_visual_report_pdf,
     safe_value,
 )
@@ -39,10 +49,99 @@ def _pdf_text(pdf: bytes) -> str:
     return pdf.decode("latin-1", errors="ignore").lower()
 
 
+def _normalized_story_text(text: str) -> str:
+    repaired = report_generator._repair_mojibake_text(text)
+    return unicodedata.normalize("NFD", repaired).encode("ascii", "ignore").decode("ascii").lower()
+
+
+def _story_plain_text(flowable: object) -> list[str]:
+    if flowable is None:
+        return []
+    if isinstance(flowable, (list, tuple)):
+        lines: list[str] = []
+        for item in flowable:
+            lines.extend(_story_plain_text(item))
+        return lines
+    if hasattr(flowable, "getPlainText"):
+        try:
+            return [str(flowable.getPlainText())]
+        except Exception:
+            return []
+    if hasattr(flowable, "_cellvalues"):
+        lines = []
+        for row in getattr(flowable, "_cellvalues", []) or []:
+            lines.extend(_story_plain_text(row))
+        return lines
+    return []
+
+
+def _rendered_pdf_and_story_text(
+    state: dict[str, object],
+    athlete: str,
+    audience: str = "profe",
+    now_cls: type[real_datetime] | None = None,
+) -> tuple[bytes, str]:
+    from reportlab.platypus import SimpleDocTemplate
+
+    captured: dict[str, object] = {}
+    original_build = SimpleDocTemplate.build
+
+    def capture_build(self, flowables, *args, **kwargs):
+        captured["story"] = list(flowables)
+        return original_build(self, flowables, *args, **kwargs)
+
+    active_now_cls = now_cls or FixedProfessionalReportDate
+    with patch.object(report_generator, "datetime", active_now_cls):
+        with patch.object(SimpleDocTemplate, "build", capture_build):
+            pdf = generate_visual_report_pdf(state, athlete, audience)
+
+    assert pdf is not None
+    text = _normalized_story_text(" ".join(_story_plain_text(captured.get("story", []))))
+    return pdf, text
+
+
+def _rendered_story_text(state: dict[str, object], athlete: str, audience: str = "profe") -> str:
+    return _rendered_pdf_and_story_text(state, athlete, audience)[1]
+
+
+def _assert_professional_mother_structure(testcase: unittest.TestCase, text: str) -> None:
+    expected_terms = [
+        "perfil actual compuesto",
+        "cambios vs evaluacion anterior",
+        "exposicion del bloque",
+        "interpretacion integrada profesional",
+        "que sabemos",
+        "que parece probable",
+        "que no podemos afirmar",
+        "decision practica",
+        "mantener",
+        "ajustar",
+        "monitorear",
+        "medir",
+    ]
+    for term in expected_terms:
+        testcase.assertIn(term, text)
+
+
+def _assert_legacy_professional_sections_absent(testcase: unittest.TestCase, text: str) -> None:
+    legacy_terms = [
+        "tarjetas de evaluaci",
+        "paso recomendado",
+    ]
+    for term in legacy_terms:
+        testcase.assertNotIn(term, text)
+
+
 class FixedProfessionalReportDate(real_datetime):
     @classmethod
     def now(cls, tz=None):
         return cls(2026, 5, 5, 12, 0, tzinfo=tz)
+
+
+class LateProfessionalReportDate(real_datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 5, 19, 12, 0, tzinfo=tz)
 
 
 def _weekly_state_without_evaluations() -> dict[str, object]:
@@ -106,6 +205,48 @@ def _weekly_state_without_evaluations() -> dict[str, object]:
             "weekly_team": pd.DataFrame(),
         },
     }
+
+
+def _state_with_future_empty_week() -> dict[str, object]:
+    state = _weekly_state_without_evaluations()
+    state["rpe_df"] = pd.DataFrame(
+        [
+            {"Athlete": "Ana Lopez", "Date": "2026-04-28", "sRPE": 600},
+            {"Athlete": "Ana Lopez", "Date": "2026-04-30", "sRPE": 600},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-06", "sRPE": 300},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-09", "sRPE": 300},
+        ]
+    )
+    state["wellness_df"] = pd.DataFrame(
+        [
+            {"Athlete": "Ana Lopez", "Date": "2026-04-28", "Sueno_hs": 7.2, "Estres": 3, "Dolor": 2, "Wellness_Score": 8.0},
+            {"Athlete": "Ana Lopez", "Date": "2026-04-30", "Sueno_hs": 7.0, "Estres": 4, "Dolor": 2, "Wellness_Score": 7.8},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-01", "Sueno_hs": 6.8, "Estres": 4, "Dolor": 3, "Wellness_Score": 7.2},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-06", "Sueno_hs": 6.5, "Estres": 5, "Dolor": 3, "Wellness_Score": 7.0},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-09", "Sueno_hs": 6.4, "Estres": 5, "Dolor": 4, "Wellness_Score": 6.7},
+        ]
+    )
+    state["weekly_summaries"] = {
+        "weekly_load": pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "week_start": "2026-04-20", "weekly_sRPE": 1000, "sessions_count": 2},
+                {"Athlete": "Ana Lopez", "week_start": "2026-04-27", "weekly_sRPE": 1200, "sessions_count": 2},
+                {"Athlete": "Ana Lopez", "week_start": "2026-05-04", "weekly_sRPE": 600, "sessions_count": 2},
+                {"Athlete": "Ana Lopez", "week_start": "2026-05-18", "weekly_sRPE": 0, "sessions_count": 0},
+            ]
+        ),
+        "weekly_wellness": pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "week_start": "2026-04-20", "Sueno_mean": 7.3, "Estres_mean": 3.5, "Dolor_mean": 2.0, "wellness_days": 3},
+                {"Athlete": "Ana Lopez", "week_start": "2026-04-27", "Sueno_mean": 7.0, "Estres_mean": 3.7, "Dolor_mean": 2.3, "wellness_days": 3},
+                {"Athlete": "Ana Lopez", "week_start": "2026-05-04", "Sueno_mean": 6.5, "Estres_mean": 5.0, "Dolor_mean": 3.5, "wellness_days": 2},
+                {"Athlete": "Ana Lopez", "week_start": "2026-05-18", "Sueno_mean": None, "Estres_mean": None, "Dolor_mean": None, "wellness_days": 0},
+            ]
+        ),
+        "weekly_external": pd.DataFrame(),
+        "weekly_team": pd.DataFrame(),
+    }
+    return state
 
 
 def _professional_state_with_force_time() -> dict[str, object]:
@@ -723,16 +864,18 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("estrés promedio fue elevado (8.4/10)", joined)
         self.assertNotIn("-1.1 respecto", joined)
 
-    def test_professional_pdf_without_evaluations_stays_compact(self):
+    def test_professional_pdf_without_evaluations_uses_mother_structure(self):
         state = _weekly_state_without_evaluations()
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
-            pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 4)
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        _assert_professional_mother_structure(self, text)
+        _assert_legacy_professional_sections_absent(self, text)
+        self.assertIn("faltan datos", text)
 
-    def test_professional_pdf_with_partial_evaluations_stays_compact(self):
+    def test_professional_pdf_with_partial_evaluations_uses_mother_structure(self):
         state = _weekly_state_without_evaluations()
         state["jump_df"] = pd.DataFrame(
             [
@@ -740,13 +883,14 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             ]
         )
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
-            pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 7)
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        _assert_professional_mother_structure(self, text)
+        _assert_legacy_professional_sections_absent(self, text)
 
-    def test_professional_pdf_partial_evaluations_and_partial_wellness_stays_compact(self):
+    def test_professional_pdf_partial_evaluations_and_partial_wellness_uses_mother_structure(self):
         state = _weekly_state_without_evaluations()
         state["jump_df"] = pd.DataFrame(
             [
@@ -760,11 +904,38 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             ]
         )
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
-            pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 7)
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        _assert_professional_mother_structure(self, text)
+        _assert_legacy_professional_sections_absent(self, text)
+
+    def test_professional_pdf_missing_evolution_does_not_return_to_legacy_cards(self):
+        state = _weekly_state_without_evaluations()
+        state["jump_df"] = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Date": "2026-05-01", "CMJ_cm": 32.0, "SJ_cm": 28.0, "DJ_cm": 24.0},
+            ]
+        )
+
+        _, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
+
+        self.assertIn("cambios vs evaluacion anterior", text)
+        self.assertIn("faltan datos", text)
+        _assert_professional_mother_structure(self, text)
+        _assert_legacy_professional_sections_absent(self, text)
+
+    def test_client_and_athlete_pdfs_do_not_use_professional_mother_structure(self):
+        state = _weekly_state_without_evaluations()
+
+        for audience in ["cliente", "atleta"]:
+            with self.subTest(audience=audience):
+                _, text = _rendered_pdf_and_story_text(state, "Ana Lopez", audience)
+
+                self.assertNotIn("perfil actual compuesto", text)
+                self.assertNotIn("interpretacion integrada profesional", text)
+                self.assertNotIn("decision practica", text)
 
     def test_partial_next_steps_include_protocol_and_missing_metrics_guidance(self):
         steps = _build_professional_next_steps("partial")
@@ -901,6 +1072,192 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertNotIn("lesion probable", combined)
         self.assertNotIn("diagn", combined)
         self.assertNotIn("rfd 200", combined)
+
+    def test_professional_pdf_repairs_mojibake_text(self):
+        broken = "DecisiÃƒÂ³n sugerida con seÃƒÂ±ales del prÃƒÂ³ximo bloque"
+
+        repaired = _repair_mojibake_text(broken)
+
+        self.assertEqual(repaired, "Decisión sugerida con señales del próximo bloque")
+
+    def test_professional_pdf_bytes_do_not_expose_common_mojibake_tokens(self):
+        state = {
+            "completion_df": None,
+            "jump_df": None,
+            "rpe_df": None,
+            "wellness_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "rep_load_df": None,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+
+        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+            pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
+
+        text = _pdf_text(pdf)
+        for token in ["Ã", "Â", "â", "decisiÃ", "seÃ"]:
+            self.assertNotIn(token.lower(), text)
+
+    def test_internal_load_ignores_future_empty_week_after_report_window(self):
+        state = _state_with_future_empty_week()
+
+        with patch.object(report_generator, "datetime", LateProfessionalReportDate):
+            context = _build_professional_internal_load_context(state, "Ana Lopez")
+
+        self.assertEqual(context["analysis_scope"], "last_complete_week")
+        self.assertEqual(context["analysis_week_label"], "27/04/2026 - 03/05/2026")
+        self.assertNotIn("18/05/2026", context["analysis_week_label"])
+        self.assertEqual(context["sessions_registered"], 2)
+        self.assertAlmostEqual(context["last_week_total"], 1200.0)
+
+    def test_wellness_uses_valid_week_and_does_not_show_zero_days_when_records_exist(self):
+        state = _state_with_future_empty_week()
+
+        with patch.object(report_generator, "datetime", LateProfessionalReportDate):
+            internal = _build_professional_internal_load_context(state, "Ana Lopez")
+            wellness = _professional_wellness_context(state, "Ana Lopez")
+            payload = _build_professional_wellness_availability_payload(
+                state,
+                "Ana Lopez",
+                {"state": "available"},
+                internal,
+                wellness,
+            )
+
+        rows = dict(payload["rows"])
+        self.assertEqual(wellness["analysis_week_label"], "27/04/2026 - 03/05/2026")
+        self.assertEqual(rows["DÃ­as con registro"], "3")
+        self.assertNotEqual(rows["Wellness score"], PDF_MISSING_TEXT)
+
+    def test_quality_detail_caps_wellness_coverage_over_one_hundred(self):
+        detail = _quality_detail_text(pd.Series({"% cobertura sRPE": 88, "% cobertura Wellness": 105}))
+
+        self.assertIn("Wellness 100%", detail)
+        self.assertIn("registros adicionales", detail)
+        self.assertNotIn("105%", detail)
+
+    def test_load_tolerance_does_not_claim_missing_when_acwr_monotony_strain_exist(self):
+        state = {
+            "acwr_dict": {
+                "Ana Lopez": pd.DataFrame([{"sRPE_diario": 300, "ACWR_EWMA": 0.95, "Zona": "Óptimo"}])
+            },
+            "mono_dict": {
+                "Ana Lopez": pd.DataFrame([{"Monotonia": 1.40, "Strain": 2247}])
+            },
+        }
+        internal = {
+            "analysis_scope": "last_complete_week",
+            "analysis_week_label": "27/04/2026 - 03/05/2026",
+            "weekly_points": [],
+        }
+
+        payload = _build_professional_load_tolerance_payload(state, "Ana Lopez", internal)
+
+        self.assertNotIn("Faltan datos para valorar la tolerancia", payload["risk_line"])
+        self.assertIn("ACWR", payload["risk_line"])
+        rows = dict(payload["rows"])
+        self.assertEqual(rows["ACWR EWMA"], "0.95")
+        self.assertEqual(rows["Strain"], "2247")
+
+    def test_change_payload_interprets_reactive_pattern_and_hides_tc_inv(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "CMJ_cm": 30.0, "SJ_cm": 28.0, "DJ_cm": 24.0, "DJ_RSI": 1.60, "DJ_tc_ms": 220},
+                    {"Athlete": "Ana Lopez", "Date": "2026-05-01", "CMJ_cm": 32.0, "SJ_cm": 29.0, "DJ_cm": 25.0, "DJ_RSI": 1.45, "DJ_tc_ms": 240},
+                ]
+            )
+        }
+
+        payload = _build_professional_change_payload(state, "Ana Lopez")
+        visible_text = " ".join(
+            [
+                payload["display_table"].to_string(index=False),
+                " ".join(payload["summary_lines"]),
+            ]
+        )
+
+        self.assertIn("output vertical", visible_text)
+        self.assertIn("Eficiencia reactiva", visible_text)
+        self.assertIn("tiempo de contacto", visible_text.lower())
+        self.assertNotIn("TC inv", visible_text)
+
+    def test_composite_profile_hides_tc_inv_label(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "CMJ_cm": 30.0, "SJ_cm": 28.0, "DJ_cm": 24.0, "DJ_tc_ms": 260, "TC_inv_Z": -1.2},
+                    {"Athlete": "Ana Lopez", "Date": "2026-05-01", "CMJ_cm": 31.0, "SJ_cm": 29.0, "DJ_cm": 25.0, "DJ_tc_ms": 250, "TC_inv_Z": -1.0},
+                ]
+            )
+        }
+
+        payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+        visible_text = " ".join(
+            [
+                payload["metric_table"].to_string(index=False),
+                " ".join(str(value) for value in payload["feedback"].values()),
+            ]
+        )
+
+        self.assertIn("Tiempo de contacto", visible_text)
+        self.assertNotIn("TC inv", visible_text)
+
+    def test_exposure_payload_does_not_report_missing_low_stimuli_when_data_exists(self):
+        state = {
+            "prepared_raw_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Assigned Date": "2026-04-28",
+                        "Exercise": "Back Squat",
+                        "stimulus_category": "strength_loaded",
+                        "Volume_Load_kg": 2400,
+                        "Contacts": 0,
+                        "Exposures": 1,
+                        "is_invalid": False,
+                        "is_untagged": False,
+                    },
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Assigned Date": "2026-04-30",
+                        "Exercise": "Drop Jump",
+                        "stimulus_category": "plyo_jump",
+                        "Volume_Load_kg": 0,
+                        "Contacts": 45,
+                        "Exposures": 1,
+                        "is_invalid": False,
+                        "is_untagged": False,
+                    },
+                ]
+            )
+        }
+
+        payload = _build_professional_exposure_payload(state, "Ana Lopez")
+
+        self.assertNotEqual(payload["state"], "missing")
+        self.assertTrue(payload["dominant"])
+        self.assertNotIn("Faltan datos", payload["summary_line"])
+        self.assertNotIn("Faltan datos", _professional_join_labels(payload["low_or_absent"], fallback=""))
+
+    def test_action_plan_is_concrete_and_not_repetitive(self):
+        payload = _build_professional_action_plan_payload(
+            {},
+            "Ana Lopez",
+            evaluation_state="available",
+            composite_payload={"feedback": {"low": "TC inv (-1.20)", "next_block": "Mejorar calidad de contacto/reactividad."}},
+            change_payload={"declines": ["DJ RSI", "Tiempo de contacto"]},
+            integrated_payload={},
+        )
+        actions = payload["actions"]
+
+        self.assertTrue(any("calidad de contacto" in item for item in actions["Ajustar"]))
+        self.assertTrue(any("DJ RSI" in item and "tiempo de contacto" in item for item in actions["Monitorear"]))
+        self.assertTrue(any("6-8 semanas" in item for item in actions["Medir"]))
+        for section_actions in actions.values():
+            self.assertEqual(len(section_actions), len(set(section_actions)))
 
 
 if __name__ == "__main__":

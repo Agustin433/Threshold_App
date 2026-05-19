@@ -17,6 +17,7 @@ from local_store import build_weekly_summaries
 from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import (
+    _format_profile_source_date,
     _prepare_jump_df,
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
@@ -99,6 +100,56 @@ REPORT_AUDIENCE_OPTIONS = {
 REPORT_AUDIENCE_LABELS = {value: key for key, value in REPORT_AUDIENCE_OPTIONS.items()}
 EUR_RATIO_LABEL = "EUR (ratio)"
 PDF_MISSING_TEXT = "Faltan datos"
+MOJIBAKE_MARKERS = ("Ã", "Â", "â")
+
+
+def _repair_mojibake_text(value: object) -> str:
+    """Repair UTF-8 text that was accidentally decoded as Latin-1/Windows-1252."""
+    text = "" if value is None else str(value)
+    for _ in range(3):
+        if not any(marker in text for marker in MOJIBAKE_MARKERS):
+            break
+        previous = text
+        for encoding in ("cp1252", "latin-1"):
+            try:
+                repaired = text.encode(encoding).decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                continue
+            if repaired != text:
+                text = repaired
+                break
+        if text == previous:
+            break
+    manual_replacements = {
+        "EstÃmulos": "Estímulos",
+        "DÃas": "Días",
+        "MonotonÃa": "Monotonía",
+        "fisiolÃgica": "fisiológica",
+        "biomecÃnica": "biomecánica",
+        "evaluaciÃn": "evaluación",
+        "prÃximo": "próximo",
+        "seÃal": "señal",
+        "SeÃal": "Señal",
+    }
+    for broken, fixed in manual_replacements.items():
+        text = text.replace(broken, fixed)
+    return unicodedata.normalize("NFKC", text).replace("\u00a0", " ")
+
+
+def _professional_visible_metric_text(value: object) -> str:
+    text = _repair_mojibake_text(value)
+    if text.strip() == "TC":
+        return "Tiempo de contacto"
+    replacements = {
+        "TC inv": "Tiempo de contacto",
+        "DJ TC": "Tiempo de contacto",
+        "TC_inv_Z": "Tiempo de contacto (z-score invertido para análisis)",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    return text
+
+
 PROFESSIONAL_COMPOSITE_PROFILE_NOTE = (
     "Perfil compuesto: usa el Ãºltimo dato vÃ¡lido disponible por variable; no todas las "
     "variables necesariamente provienen de la misma fecha."
@@ -1140,10 +1191,18 @@ def _quality_detail_text(athlete_quality: pd.Series | None) -> str | None:
         return None
     srpe_cov = _coerce_float(athlete_quality.get("% cobertura sRPE"))
     wellness_cov = _coerce_float(athlete_quality.get("% cobertura Wellness"))
+
+    def coverage_text(label: str, value: float | None) -> str | None:
+        if value is None:
+            return None
+        display_value = min(float(value), 100.0)
+        suffix = " (registros adicionales)" if float(value) > 100.0 else ""
+        return f"{label} {_display_metric(display_value, digits=0, suffix='%')}{suffix}"
+
     parts = _compact_lines(
         [
-            f"sRPE {_display_metric(srpe_cov, digits=0, suffix='%')}" if srpe_cov is not None else None,
-            f"Wellness {_display_metric(wellness_cov, digits=0, suffix='%')}" if wellness_cov is not None else None,
+            coverage_text("sRPE", srpe_cov),
+            coverage_text("Wellness", wellness_cov),
         ]
     )
     return " | ".join(parts) if parts else None
@@ -2112,6 +2171,203 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
             target.append(_bullet_box(label, action_plan_payload.get("actions", {}).get(label, [])))
             target.append(Spacer(1, 3 * mm))
         target.append(_bullet_box("Limitaciones metodolÃ³gicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
+
+    def _append_full_executive_page(target: list[object]) -> None:
+        target.extend(
+            [
+                _p("Reporte profesional", "ProfMuted"),
+                _p(report_athlete, "ProfTitle"),
+                _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M}", "ProfMuted"),
+                _box(
+                    [
+                        _p("Reporte madre profesional orientado a toma de decisiones.", "ProfBody"),
+                        _p(
+                            "Prioriza perfil actual, cambios relevantes, contexto de carga y decisiÃƒÂ³n sugerida para el prÃƒÂ³ximo bloque.",
+                            "ProfMuted",
+                        ),
+                    ]
+                ),
+                Spacer(1, 6 * mm),
+                _p(executive_payload.get("title", "Resumen ejecutivo profesional"), "ProfSection"),
+                _executive_summary_table(executive_payload),
+                Spacer(1, 4 * mm),
+                _bullet_box("SeÃƒÂ±ales clave", executive_payload.get("signals", [])),
+                Spacer(1, 4 * mm),
+                _box(
+                    [
+                        _p("DecisiÃƒÂ³n sugerida", "ProfCardTitle"),
+                        _p(executive_payload.get("decision_suggested", PDF_MISSING_TEXT), "ProfBody"),
+                    ],
+                    padding=6,
+                ),
+            ]
+        )
+
+    def _append_full_composite_profile_page(target: list[object]) -> None:
+        target.append(_p(composite_profile.get("title", "Perfil actual compuesto"), "ProfSection"))
+        if composite_profile.get("state") == "missing":
+            target.append(_collapsed_box(str(composite_profile.get("message") or "Faltan datos para el perfil compuesto.")))
+            return
+        target.append(_box([_p(composite_profile.get("note", PROFESSIONAL_COMPOSITE_PROFILE_NOTE), "ProfMuted")], padding=5))
+        radar_image = _composite_radar_image(composite_profile)
+        if radar_image is not None:
+            target.append(Spacer(1, 3 * mm))
+            target.append(radar_image)
+        target.append(Spacer(1, 3 * mm))
+        target.append(_dataframe_table(composite_profile.get("metric_table"), col_widths_mm=[36, 32, 22, 84]))
+        feedback = composite_profile.get("feedback", {}) if isinstance(composite_profile.get("feedback"), dict) else {}
+        target.append(Spacer(1, 3 * mm))
+        target.append(
+            _bullet_box(
+                "Lectura del perfil",
+                [
+                    f"Variable dominante: {feedback.get('high', PDF_MISSING_TEXT)}",
+                    f"Variable rezagada: {feedback.get('low', PDF_MISSING_TEXT)}",
+                    f"Lectura fisiolÃƒÂ³gica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
+                    f"Lectura biomecÃƒÂ¡nica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
+                    f"Implicancia para prÃƒÂ³ximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
+                ],
+            )
+        )
+
+    def _append_full_change_page(target: list[object]) -> None:
+        target.append(_p(change_payload.get("title", "Cambios vs evaluaciÃƒÂ³n anterior"), "ProfSection"))
+        if change_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(change_payload.get("message") or PROFESSIONAL_NO_EVOLUTION_TEXT)))
+            return
+        target.append(_dataframe_table(change_payload.get("display_table"), col_widths_mm=[34, 18, 18, 18, 18, 32, 36]))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("SÃƒÂ­ntesis de cambios", change_payload.get("summary_lines", [])))
+        if not _professional_any_quadrant_ready(quadrant_sections):
+            target.append(Spacer(1, 3 * mm))
+            target.append(_box([_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicaciÃƒÂ³n ÃƒÂºtil en esta exportaciÃƒÂ³n.", "ProfMuted")], padding=5))
+
+    def _append_full_quadrants_page(target: list[object]) -> None:
+        target.append(_p("Relaciones de perfil / cuadrantes", "ProfSection"))
+        if not _professional_any_quadrant_ready(quadrant_sections):
+            target.append(_collapsed_box(PROFESSIONAL_NO_QUADRANTS_TEXT))
+            return
+        for section in quadrant_sections[:3]:
+            chart = _quadrant_chart(section)
+            if chart is None:
+                continue
+            target.append(_chart_explanation_panel(chart, str(section.get("title", "Cuadrante")), section))
+            target.append(Spacer(1, 4 * mm))
+
+    def _append_full_isometrics_page(target: list[object]) -> None:
+        target.append(_p(isometric_payload.get("title", "IsomÃƒÂ©tricos y force-time avanzado"), "ProfSection"))
+        if isometric_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isomÃƒÂ©tricos.")))
+            return
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "AsimetrÃƒÂ­a"}]
+        if imtp_priority:
+            target.append(_p("IMTP principal", "ProfCardTitle"))
+            target.append(_mini_cards_table(imtp_priority))
+        if isometric_payload.get("iso_available"):
+            target.append(Spacer(1, 3 * mm))
+            target.append(_p("ISO Push Hip-Hamstring Bilateral", "ProfCardTitle"))
+            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "AsimetrÃƒÂ­a"}]
+            if iso_priority:
+                target.append(_mini_cards_table(iso_priority))
+            if isometric_payload.get("iso_notes"):
+                target.append(Spacer(1, 2 * mm))
+                target.append(_bullet_box("Lectura prÃƒÂ¡ctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
+        if isometric_payload.get("force_time_available"):
+            target.append(Spacer(1, 3 * mm))
+            draw_force_time_test_block(
+                {
+                    "story": target,
+                    "p": _p,
+                    "box": _box,
+                    "Table": Table,
+                    "TableStyle": TableStyle,
+                    "Spacer": Spacer,
+                    "mm": mm,
+                    "palette": palette,
+                },
+                force_time_payload,
+                report_type="professional",
+            )
+
+    def _append_full_load_page(target: list[object]) -> None:
+        target.append(_p(load_tolerance_payload.get("title", "Carga interna y tolerancia"), "ProfSection"))
+        if load_tolerance_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(load_tolerance_payload.get("message") or "Faltan datos de carga interna.")))
+            return
+        target.append(_key_value_table(load_tolerance_payload.get("rows", [])))
+        target.append(Spacer(1, 3 * mm))
+        weekly_chart = _weekly_ema_chart(load_tolerance_payload.get("weekly_points", []), height_mm=48)
+        if weekly_chart is not None:
+            target.append(weekly_chart)
+            target.append(Spacer(1, 3 * mm))
+        target.append(_box([_p(load_tolerance_payload.get("risk_line", PDF_MISSING_TEXT), "ProfBody")], padding=6))
+
+    def _append_full_wellness_page(target: list[object]) -> None:
+        target.append(_p(wellness_availability_payload.get("title", "Wellness, disponibilidad y adherencia"), "ProfSection"))
+        if wellness_availability_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(wellness_availability_payload.get("message") or "Faltan datos de wellness.")))
+            return
+        target.append(_mini_cards_table(wellness_availability_payload.get("rows", [])))
+        chart_points = (
+            wellness_availability_payload.get("weekly_points", [])
+            if wellness_availability_payload.get("trend_allowed")
+            else wellness_availability_payload.get("daily_points", [])
+        )
+        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44)
+        if chart is not None:
+            target.append(Spacer(1, 3 * mm))
+            target.append(chart)
+        target.append(Spacer(1, 3 * mm))
+        note_lines = [str(wellness_availability_payload.get("compatibility") or "")]
+        if str(wellness_availability_payload.get("quality_note") or "").strip():
+            note_lines.append(str(wellness_availability_payload.get("quality_note")))
+        target.append(_bullet_box("Lectura de disponibilidad", note_lines, style_name="ProfMuted"))
+
+    def _append_full_exposure_page(target: list[object]) -> None:
+        target.append(_p(exposure_payload.get("title", "ExposiciÃƒÂ³n del bloque / contenido entrenado"), "ProfSection"))
+        if exposure_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposiciÃƒÂ³n.")))
+            return
+        chart_image = _exposure_chart_image()
+        if chart_image is not None:
+            target.append(chart_image)
+            target.append(Spacer(1, 3 * mm))
+        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[40, 32, 18, 84]))
+        target.append(Spacer(1, 3 * mm))
+        exposure_lines = [
+            str(exposure_payload.get("summary_line") or ""),
+            str(exposure_payload.get("context_link") or ""),
+        ]
+        if exposure_payload.get("low_or_absent"):
+            exposure_lines.append(
+                f"EstÃƒÂ­mulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}."
+            )
+        target.append(
+            _bullet_box(
+                "Lectura del bloque",
+                exposure_lines,
+                style_name="ProfMuted",
+            )
+        )
+
+    def _append_full_integrated_page(target: list[object]) -> None:
+        target.append(_p(integrated_decision_payload.get("title", "InterpretaciÃƒÂ³n integrada profesional"), "ProfSection"))
+        target.append(_bullet_box("QuÃƒÂ© sabemos con buena confianza", integrated_decision_payload.get("good_confidence", [])))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃƒÂ© parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃƒÂ© no podemos afirmar todavÃƒÂ­a", integrated_decision_payload.get("unknown", []), style_name="ProfMuted"))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("DecisiÃƒÂ³n prÃƒÂ¡ctica", integrated_decision_payload.get("decision_practical", [])))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃƒÂ© monitorear en el prÃƒÂ³ximo bloque", integrated_decision_payload.get("monitor", []), style_name="ProfMuted"))
+
+    def _append_full_action_plan_page(target: list[object]) -> None:
+        target.append(_p(action_plan_payload.get("title", "PrÃƒÂ³ximos pasos y limitaciones metodolÃƒÂ³gicas"), "ProfSection"))
+        for label in ["Mantener", "Ajustar", "Monitorear", "Medir"]:
+            target.append(_bullet_box(label, action_plan_payload.get("actions", {}).get(label, [])))
+            target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("Limitaciones metodolÃƒÂ³gicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
 
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -4607,6 +4863,69 @@ def _professional_week_label(week_start: pd.Timestamp) -> str:
     return f"{start:%d/%m/%Y} - {end:%d/%m/%Y}"
 
 
+def _professional_week_end(week_start: pd.Timestamp) -> pd.Timestamp:
+    return pd.Timestamp(week_start).normalize() + pd.Timedelta(days=6)
+
+
+def _professional_last_complete_week_start(reference_date: pd.Timestamp) -> pd.Timestamp:
+    reference = pd.Timestamp(reference_date).normalize()
+    week_start = _professional_week_start(reference)
+    if _professional_week_end(week_start) <= reference:
+        return week_start
+    return week_start - pd.Timedelta(days=7)
+
+
+def _professional_latest_data_date(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.Timestamp | None:
+    direct_dates: list[pd.Timestamp] = []
+    weekly_dates: list[pd.Timestamp] = []
+
+    def add_dates(frame: pd.DataFrame | None, date_candidates: tuple[str, ...], *, athlete_col: str = "Athlete") -> None:
+        if frame is None or frame.empty:
+            return
+        result = frame.copy()
+        if athlete_col in result.columns:
+            result = result[_professional_athlete_mask(result[athlete_col], athlete)]
+        for column in date_candidates:
+            if column not in result.columns:
+                continue
+            parsed = pd.to_datetime(result[column], errors="coerce").dropna()
+            direct_dates.extend(pd.Timestamp(value).normalize() for value in parsed.tolist())
+            break
+
+    add_dates(state.get("jump_df"), ("Date",))
+    add_dates(state.get("rpe_df"), ("Date",))
+    add_dates(state.get("wellness_df"), ("Date",))
+    add_dates(state.get("completion_df"), ("Date",))
+    add_dates(state.get("raw_df"), ("Assigned Date", "Date"))
+    add_dates(state.get("prepared_raw_df"), ("Assigned Date", "Date"))
+
+    weekly_summaries = state.get("weekly_summaries")
+    if isinstance(weekly_summaries, dict):
+        for key, value_columns in {
+            "weekly_load": ("weekly_sRPE", "sessions_count"),
+            "weekly_wellness": ("wellness_days", "Wellness_mean", "Sueno_mean", "Estres_mean", "Dolor_mean"),
+        }.items():
+            frame = _normalize_weekly_frame(weekly_summaries.get(key))
+            if frame.empty or "week_start" not in frame.columns:
+                continue
+            if "Athlete" in frame.columns:
+                frame = frame[_professional_athlete_mask(frame["Athlete"], athlete)].copy()
+            valid = pd.Series(False, index=frame.index)
+            for column in value_columns:
+                if column in frame.columns:
+                    valid = valid | pd.to_numeric(frame[column], errors="coerce").fillna(0).gt(0)
+            frame = frame[valid]
+            if frame.empty:
+                continue
+            starts = pd.to_datetime(frame["week_start"], errors="coerce").dropna()
+            weekly_dates.extend(_professional_week_end(pd.Timestamp(value)) for value in starts.tolist())
+
+    dates = direct_dates or weekly_dates
+    if not dates:
+        return None
+    return max(dates)
+
+
 def _professional_week_points_from_daily(
     frame: pd.DataFrame,
     week_start: pd.Timestamp,
@@ -4745,52 +5064,77 @@ def _build_professional_internal_load_context(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
 ) -> dict[str, object]:
-    today = _professional_report_today()
-    current_week_start = _professional_week_start(today)
-    complete_week_start = current_week_start - pd.Timedelta(days=7)
+    reference_date = _professional_latest_data_date(state, athlete) or _professional_report_today()
+    reference_date = pd.Timestamp(reference_date).normalize()
+    reference_week_start = _professional_week_start(reference_date)
     rpe_df = state.get("rpe_df")
+    rpe_data = pd.DataFrame()
     daily_points: list[dict[str, object]] = []
     current_week_points: list[dict[str, object]] = []
     current_week_sessions = 0
     current_week_days = 0
     if rpe_df is not None and not rpe_df.empty and {"Athlete", "Date", "sRPE"}.issubset(rpe_df.columns):
-        data = rpe_df.copy()
-        data["Date"] = pd.to_datetime(data["Date"], errors="coerce").dt.normalize()
-        data["sRPE"] = pd.to_numeric(data["sRPE"], errors="coerce")
-        data = data.dropna(subset=["Athlete", "Date", "sRPE"])
-        data = data[_professional_athlete_mask(data["Athlete"], athlete)]
-        data = data[data["sRPE"] > 0].sort_values("Date")
-        if not data.empty:
-            daily_points, sessions_registered, days_with_data = _professional_week_points_from_daily(data, complete_week_start, "sRPE")
-            current_week_points, current_week_sessions, current_week_days = _professional_week_points_from_daily(data, current_week_start, "sRPE", end_date=today)
-        else:
-            sessions_registered = 0
-            days_with_data = 0
-    else:
-        sessions_registered = 0
-        days_with_data = 0
+        rpe_data = rpe_df.copy()
+        rpe_data["Date"] = pd.to_datetime(rpe_data["Date"], errors="coerce").dt.normalize()
+        rpe_data["sRPE"] = pd.to_numeric(rpe_data["sRPE"], errors="coerce")
+        rpe_data = rpe_data.dropna(subset=["Athlete", "Date", "sRPE"])
+        rpe_data = rpe_data[_professional_athlete_mask(rpe_data["Athlete"], athlete)]
+        rpe_data = rpe_data[(rpe_data["sRPE"] > 0) & (rpe_data["Date"] <= reference_date)].sort_values("Date")
+        if not rpe_data.empty:
+            rpe_data["week_start"] = rpe_data["Date"] - pd.to_timedelta(rpe_data["Date"].dt.weekday, unit="D")
 
     weekly_summaries = _report_weekly_summaries(state)
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load"))
     weekly_points: list[dict[str, object]] = []
-    current_week_weekly_value = None
-    complete_week_weekly_value = None
-    complete_week_sessions = None
+    weekly_valid = pd.DataFrame()
     if not weekly_load.empty and {"Athlete", "week_start", "weekly_sRPE"}.issubset(weekly_load.columns):
         weekly_load = weekly_load[_professional_athlete_mask(weekly_load["Athlete"], athlete)].copy()
         weekly_load["week_start"] = pd.to_datetime(weekly_load["week_start"], errors="coerce").dt.normalize()
         weekly_load["weekly_sRPE"] = pd.to_numeric(weekly_load["weekly_sRPE"], errors="coerce")
-        complete_week_rows = weekly_load[weekly_load["week_start"].eq(complete_week_start)].dropna(subset=["weekly_sRPE"])
-        if not complete_week_rows.empty:
-            complete_week_weekly_value = _coerce_float(complete_week_rows.iloc[-1].get("weekly_sRPE"))
-            complete_week_sessions = _coerce_float(complete_week_rows.iloc[-1].get("sessions_count"))
-        current_week_rows = weekly_load[weekly_load["week_start"].eq(current_week_start)].dropna(subset=["weekly_sRPE"])
-        if not current_week_rows.empty:
-            current_week_weekly_value = _coerce_float(current_week_rows.iloc[-1].get("weekly_sRPE"))
-        weekly_load = weekly_load[weekly_load["week_start"] < current_week_start]
-        weekly_load = weekly_load.dropna(subset=["week_start", "weekly_sRPE"]).sort_values("week_start").tail(16)
-        if not weekly_load.empty:
-            weekly_load["EMA6"] = weekly_load["weekly_sRPE"].ewm(span=6, adjust=False).mean()
+        weekly_load = weekly_load.dropna(subset=["week_start", "weekly_sRPE"])
+        valid_mask = weekly_load["weekly_sRPE"].fillna(0).gt(0)
+        if "sessions_count" in weekly_load.columns:
+            valid_mask = valid_mask | pd.to_numeric(weekly_load["sessions_count"], errors="coerce").fillna(0).gt(0)
+        weekly_valid = weekly_load[valid_mask & (weekly_load["week_start"] <= reference_week_start)].copy()
+
+    daily_weeks = set(pd.to_datetime(rpe_data.get("week_start", pd.Series(dtype="datetime64[ns]")), errors="coerce").dropna().tolist()) if not rpe_data.empty else set()
+    weekly_weeks = set(pd.to_datetime(weekly_valid.get("week_start", pd.Series(dtype="datetime64[ns]")), errors="coerce").dropna().tolist()) if not weekly_valid.empty else set()
+    complete_candidates = {
+        pd.Timestamp(week).normalize()
+        for week in [*daily_weeks, *weekly_weeks]
+        if _professional_week_end(pd.Timestamp(week)) <= reference_date
+    }
+    partial_candidates = {
+        pd.Timestamp(week).normalize()
+        for week in [*daily_weeks, *weekly_weeks]
+        if pd.Timestamp(week).normalize() <= reference_date
+    }
+    if complete_candidates:
+        analysis_week_start = max(complete_candidates)
+        analysis_scope = "last_complete_week"
+    elif partial_candidates:
+        analysis_week_start = max(partial_candidates)
+        analysis_scope = "current_week_partial"
+    else:
+        analysis_week_start = _professional_last_complete_week_start(reference_date)
+        analysis_scope = "missing"
+
+    sessions_registered = 0
+    days_with_data = 0
+    analysis_week_weekly_value = None
+    analysis_week_sessions = None
+    current_week_weekly_value = None
+    if not weekly_valid.empty:
+        analysis_week_rows = weekly_valid[weekly_valid["week_start"].eq(analysis_week_start)].dropna(subset=["weekly_sRPE"])
+        if not analysis_week_rows.empty:
+            analysis_week_weekly_value = _coerce_float(analysis_week_rows.iloc[-1].get("weekly_sRPE"))
+            analysis_week_sessions = _coerce_float(analysis_week_rows.iloc[-1].get("sessions_count"))
+        reference_week_rows = weekly_valid[weekly_valid["week_start"].eq(reference_week_start)].dropna(subset=["weekly_sRPE"])
+        if not reference_week_rows.empty:
+            current_week_weekly_value = _coerce_float(reference_week_rows.iloc[-1].get("weekly_sRPE"))
+        weekly_chart_source = weekly_valid[weekly_valid["week_start"] <= analysis_week_start].sort_values("week_start").tail(16)
+        if not weekly_chart_source.empty:
+            weekly_chart_source["EMA6"] = weekly_chart_source["weekly_sRPE"].ewm(span=6, adjust=False).mean()
             eval_weeks = set()
             jump_history = _professional_jump_history(state, athlete)
             if not jump_history.empty and "Date" in jump_history.columns:
@@ -4808,18 +5152,41 @@ def _build_professional_internal_load_context(
                     "sessions": _coerce_float(row.get("sessions_count")),
                     "evaluation": pd.Timestamp(row["week_start"]).normalize() in eval_weeks,
                 }
-                for _, row in weekly_load.iterrows()
+                for _, row in weekly_chart_source.iterrows()
             ]
 
-    has_daily = len(daily_points) > 0
+    if analysis_scope != "missing" and not rpe_data.empty:
+        daily_points, sessions_registered, days_with_data = _professional_week_points_from_daily(
+            rpe_data,
+            analysis_week_start,
+            "sRPE",
+            end_date=reference_date if analysis_scope == "current_week_partial" else None,
+        )
+    if analysis_scope == "last_complete_week" and reference_week_start > analysis_week_start and not rpe_data.empty:
+        current_week_points, current_week_sessions, current_week_days = _professional_week_points_from_daily(
+            rpe_data,
+            reference_week_start,
+            "sRPE",
+            end_date=reference_date,
+        )
+    elif analysis_scope == "current_week_partial":
+        current_week_points = daily_points
+        current_week_sessions = sessions_registered
+        current_week_days = days_with_data
+
+    has_daily = len(daily_points) > 0 and analysis_scope == "last_complete_week"
     has_weekly = len(weekly_points) >= 2
-    total_last_week = sum(float(point.get("value") or 0) for point in daily_points) if daily_points else complete_week_weekly_value
-    if sessions_registered == 0 and complete_week_sessions is not None:
-        sessions_registered = int(complete_week_sessions)
-    current_week_total = sum(float(point.get("value") or 0) for point in current_week_points) if current_week_points else current_week_weekly_value
+    analysis_total = sum(float(point.get("value") or 0) for point in daily_points) if daily_points else analysis_week_weekly_value
+    total_last_week = analysis_total if analysis_scope == "last_complete_week" else None
+    if sessions_registered == 0 and analysis_week_sessions is not None:
+        sessions_registered = int(analysis_week_sessions)
+    current_week_total = (
+        sum(float(point.get("value") or 0) for point in current_week_points)
+        if current_week_points
+        else (analysis_total if analysis_scope == "current_week_partial" else current_week_weekly_value)
+    )
     last_week_daily_mean = (total_last_week / days_with_data) if total_last_week is not None and days_with_data > 0 else None
     current_week_daily_mean = (current_week_total / current_week_days) if current_week_total is not None and current_week_days > 0 else None
-    analysis_scope = "last_complete_week" if total_last_week is not None else "current_week_partial" if current_week_total is not None else "missing"
     weekly_change = None
     weekly_change_pct = None
     if analysis_scope == "last_complete_week" and len(weekly_points) >= 2:
@@ -4841,7 +5208,7 @@ def _build_professional_internal_load_context(
         "state": state_label,
         "analysis_scope": analysis_scope,
         "analysis_title": "Carga interna - última semana completa" if analysis_scope == "last_complete_week" else "Carga interna - semana en curso",
-        "analysis_week_label": _professional_week_label(complete_week_start if analysis_scope == "last_complete_week" else current_week_start),
+        "analysis_week_label": _professional_week_label(analysis_week_start),
         "daily_points": daily_points,
         "current_week_points": current_week_points,
         "weekly_points": weekly_points,
@@ -4855,7 +5222,7 @@ def _build_professional_internal_load_context(
         "current_week_sessions": current_week_sessions,
         "current_week_days": current_week_days,
         "current_week_partial_message": (
-            f"La semana actual está incompleta. El total acumulado hasta el momento es {current_week_total:.0f} UA "
+            f"La semana analizada está incompleta. El total acumulado hasta el momento es {current_week_total:.0f} UA "
             f"con {current_week_sessions} sesión(es) registrada(s) y no debe compararse directamente con una semana completa."
             if current_week_total is not None
             else ""
@@ -5007,9 +5374,10 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
     current_week_points: list[dict[str, object]] = []
     last_week_summary: dict[str, object] = {}
     current_week_summary: dict[str, object] = {}
-    today = _professional_report_today()
-    current_week_start = _professional_week_start(today)
-    complete_week_start = current_week_start - pd.Timedelta(days=7)
+    reference_date = _professional_latest_data_date(state, athlete) or _professional_report_today()
+    reference_date = pd.Timestamp(reference_date).normalize()
+    current_week_start = _professional_week_start(reference_date)
+    complete_week_start = _professional_last_complete_week_start(reference_date)
 
     def build_week_snapshot(
         week_start: pd.Timestamp,
@@ -5060,13 +5428,13 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
 
     if "Date" in result.columns and result["Date"].notna().any():
         daily_points, last_week_summary = build_week_snapshot(complete_week_start)
-        current_week_points, current_week_summary = build_week_snapshot(current_week_start, end_date=today)
+        current_week_points, current_week_summary = build_week_snapshot(current_week_start, end_date=reference_date)
 
     weekly_points: list[dict[str, object]] = []
     if "Date" in result.columns and result["Date"].notna().any():
         weekly_source = result.dropna(subset=["Date"]).copy()
         weekly_source["week_start"] = weekly_source["Date"] - pd.to_timedelta(weekly_source["Date"].dt.weekday, unit="D")
-        weekly_source = weekly_source[weekly_source["week_start"] < current_week_start]
+        weekly_source = weekly_source[weekly_source["week_start"] <= complete_week_start]
         weekly_point_map: dict[pd.Timestamp, dict[str, object]] = {}
         if not weekly_source.empty:
             aggregation_kwargs: dict[str, tuple[str, str | object]] = {
@@ -5113,7 +5481,7 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
         if not weekly_summary_source.empty and "week_start" in weekly_summary_source.columns:
             weekly_summary_source = weekly_summary_source.sort_values("week_start")
             weekly_summary_source = weekly_summary_source[
-                pd.to_datetime(weekly_summary_source["week_start"], errors="coerce").dt.normalize() < current_week_start
+                pd.to_datetime(weekly_summary_source["week_start"], errors="coerce").dt.normalize() <= complete_week_start
             ].tail(16)
             summary_points: list[dict[str, object]] = []
             for _, row in weekly_summary_source.iterrows():
@@ -5166,6 +5534,38 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
         if not column or column not in result.columns or not result[column].notna().any()
     ]
     last_week_days = int(_coerce_float(last_week_summary.get("days")) or 0)
+    if last_week_days == 0 and weekly_points:
+        completed_points = [
+            point
+            for point in weekly_points
+            if point.get("week_start") is not None
+            and _professional_week_end(pd.Timestamp(point["week_start"])) <= reference_date
+            and int(_coerce_float(point.get("days")) or 0) > 0
+        ]
+        if completed_points:
+            selected_week = pd.Timestamp(completed_points[-1]["week_start"]).normalize()
+            selected_points, selected_summary = build_week_snapshot(selected_week)
+            selected_days = int(_coerce_float(selected_summary.get("days")) or 0)
+            if selected_days > 0:
+                complete_week_start = selected_week
+                daily_points = selected_points
+                last_week_summary = selected_summary
+                last_week_days = selected_days
+            else:
+                point = completed_points[-1]
+                complete_week_start = selected_week
+                last_week_summary = {
+                    "sleep_mean": point.get("sleep"),
+                    "sleep_n": point.get("sleep_n"),
+                    "stress_mean": point.get("stress"),
+                    "stress_n": point.get("stress_n"),
+                    "pain_mean": point.get("pain"),
+                    "pain_n": point.get("pain_n"),
+                    "score_mean": point.get("score"),
+                    "score_n": point.get("score_n"),
+                    "days": int(_coerce_float(point.get("days")) or 0),
+                }
+                last_week_days = int(_coerce_float(last_week_summary.get("days")) or 0)
     current_week_days = int(_coerce_float(current_week_summary.get("days")) or 0)
     if last_week_days > 0:
         analysis_scope = "last_complete_week"
@@ -5255,7 +5655,7 @@ def _professional_feedback_map(lines: list[str]) -> dict[str, str]:
     result = {value: "" for value in mapping.values()}
     extras: list[str] = []
     for raw_line in lines:
-        text = str(raw_line or "").strip()
+        text = _professional_visible_metric_text(raw_line).strip()
         if not text:
             continue
         prefix, separator, detail = text.partition(":")
@@ -5270,7 +5670,7 @@ def _professional_feedback_map(lines: list[str]) -> dict[str, str]:
 
 
 def _professional_join_labels(values: list[str], *, fallback: str = PDF_MISSING_TEXT) -> str:
-    clean = [str(value).strip() for value in values if str(value or "").strip()]
+    clean = [_professional_visible_metric_text(value).strip() for value in values if str(value or "").strip()]
     if not clean:
         return fallback
     return ", ".join(dict.fromkeys(clean))
@@ -5286,9 +5686,67 @@ def _professional_delta_signal_labels(delta_df: pd.DataFrame, signal: str) -> li
         delta_df.loc[mask, "Label"]
         .dropna()
         .astype(str)
+        .map(_professional_visible_metric_text)
         .drop_duplicates()
         .tolist()
     )
+
+
+def _professional_change_pattern_lines(delta_df: pd.DataFrame, assessment_interval_warning: str = "") -> list[str]:
+    if delta_df is None or delta_df.empty or "Variable" not in delta_df.columns:
+        return []
+    frame = delta_df.copy()
+    frame["Variable"] = frame["Variable"].astype(str)
+    frame["Signal"] = frame.get("Signal", pd.Series("", index=frame.index)).fillna("").astype(str)
+
+    def signal_for(variable: str) -> str:
+        rows = frame[frame["Variable"].eq(variable)]
+        return str(rows.iloc[-1].get("Signal", "")) if not rows.empty else ""
+
+    vertical_vars = ["CMJ_cm", "SJ_cm", "DJ_cm"]
+    vertical_improved = [
+        _professional_visible_metric_text(row.get("Label", row.get("Variable")))
+        for _, row in frame[frame["Variable"].isin(vertical_vars) & frame["Signal"].eq("mejora relevante")].iterrows()
+    ]
+    vertical_declined = [
+        _professional_visible_metric_text(row.get("Label", row.get("Variable")))
+        for _, row in frame[frame["Variable"].isin(vertical_vars) & frame["Signal"].eq("caida relevante")].iterrows()
+    ]
+    lines: list[str] = []
+    if vertical_improved:
+        lines.append(
+            f"Patrón integrado: el output vertical mejoró en {_professional_join_labels(vertical_improved)}."
+        )
+    elif vertical_declined:
+        lines.append(
+            f"Patrón integrado: el output vertical cayó en {_professional_join_labels(vertical_declined)}; revisar protocolo, fatiga y contexto de carga."
+        )
+
+    rsi_signal = signal_for("DJ_RSI")
+    tc_signal = signal_for("DJ_tc_ms")
+    if rsi_signal == "caida relevante" and tc_signal == "caida relevante":
+        lines.append(
+            "Eficiencia reactiva: DJ RSI cayó y el tiempo de contacto aumentó; sugiere una estrategia más lenta o mayor costo de contacto, no necesariamente mejor reactividad rápida."
+        )
+    elif rsi_signal == "caida relevante" or tc_signal == "caida relevante":
+        lines.append(
+            "Eficiencia reactiva: aparece una señal desfavorable en DJ RSI/tiempo de contacto; verificar protocolo, familiarización, fatiga y exposición pliométrica antes de concluir adaptación."
+        )
+    elif rsi_signal == "mejora relevante" or tc_signal == "mejora relevante":
+        lines.append(
+            "Eficiencia reactiva: la señal de DJ RSI/tiempo de contacto es favorable, pero debe leerse junto con DJ, DRI y calidad técnica."
+        )
+
+    isometric_improved = signal_for("IMTP_N") == "mejora relevante" or signal_for("IMTP_relPF") == "mejora relevante"
+    isometric_declined = signal_for("IMTP_N") == "caida relevante" or signal_for("IMTP_relPF") == "caida relevante"
+    if isometric_improved:
+        lines.append("Fuerza isométrica: mejora relevante en IMTP/fuerza relativa; interpretarla junto con masa corporal, ángulo y consistencia del protocolo.")
+    elif isometric_declined:
+        lines.append("Fuerza isométrica: caída relevante en IMTP/fuerza relativa; confirmar calidad del test y estado de fatiga antes de ajustar prioridades.")
+
+    if assessment_interval_warning:
+        lines.append("Cautela temporal: intervalo corto entre evaluaciones; evitar atribuir el patrón completo a adaptación sin seguimiento.")
+    return lines
 
 
 def _professional_composite_metric_count(metric_table: pd.DataFrame) -> int:
@@ -5327,7 +5785,12 @@ def _build_professional_composite_profile_payload(
         }
 
     metric_table = build_composite_profile_metric_table(snapshot_row)
-    feedback = _professional_feedback_map(build_jump_feedback_lines(snapshot_row))
+    if not metric_table.empty:
+        metric_table = metric_table.apply(lambda column: column.map(_professional_visible_metric_text))
+    feedback = {
+        key: _professional_visible_metric_text(value)
+        for key, value in _professional_feedback_map(build_jump_feedback_lines(snapshot_row)).items()
+    }
     available_metric_count = _professional_composite_metric_count(metric_table)
     state_label = "available" if available_metric_count >= PROFESSIONAL_FULL_REPORT_MIN_COMPOSITE_METRICS else "partial"
     dominant_text = feedback.get("high") or "sin variables claramente por encima de la referencia."
@@ -5378,17 +5841,21 @@ def _build_professional_change_payload(
     latest_date = pd.to_datetime(history["Date"], errors="coerce").dropna().max()
     delta_df = compute_swc_delta(history, latest_date)
     display_table = build_jump_delta_display_table(delta_df)
+    if not display_table.empty:
+        display_table = display_table.apply(lambda column: column.map(_professional_visible_metric_text))
     improvements = _professional_delta_signal_labels(delta_df, "mejora relevante")
     declines = _professional_delta_signal_labels(delta_df, "caida relevante")
     no_change = _professional_delta_signal_labels(delta_df, "sin cambio relevante")
     no_previous = _professional_delta_signal_labels(delta_df, "sin dato anterior")
     to_verify = []
-    if _professional_short_assessment_interval_warning(state, athlete):
+    interval_warning = _professional_short_assessment_interval_warning(state, athlete)
+    if interval_warning:
         to_verify.append("intervalo corto entre evaluaciones")
     if no_previous:
         to_verify.append(f"sin dato anterior en {_professional_join_labels(no_previous)}")
 
-    summary_lines = build_jump_temporal_context(delta_df)
+    summary_lines = [_professional_visible_metric_text(line) for line in build_jump_temporal_context(delta_df)]
+    summary_lines.extend(_professional_change_pattern_lines(delta_df, interval_warning))
     if improvements:
         summary_lines.append(f"Mejoras relevantes: {_professional_join_labels(improvements)}.")
     if declines:
@@ -5548,6 +6015,8 @@ def _build_professional_load_tolerance_payload(
         risk_line = "La carga reciente luce baja/subdosificada respecto a la carga crÃ³nica."
     elif weekly_change_pct is not None and weekly_change_pct > 10:
         risk_line = "La carga reciente estÃ¡ en ascenso y conviene corroborar su tolerancia con wellness y disponibilidad."
+    elif any(value is not None for value in (acwr_value, monotony_value, strain_value)):
+        risk_line = "ACWR, monotonía y strain disponibles: lectura conservadora compatible con control de carga si el wellness y la calidad de sesión acompañan."
     elif weekly_total is not None:
         risk_line = "La carga reciente parece estable y compatible con seguimiento normal del bloque."
 
@@ -5603,7 +6072,15 @@ def _build_professional_wellness_availability_payload(
     if score_value is not None:
         score_meta = _report_wellness_score_label(score_value)
         score_label = f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']})"
-    days_with_record = safe_value(summary.get("days"))
+    day_candidates = [
+        _coerce_float(summary.get("days")),
+        _coerce_float(summary.get("score_n")),
+        _coerce_float(summary.get("sleep_n")),
+        _coerce_float(summary.get("stress_n")),
+        _coerce_float(summary.get("pain_n")),
+    ]
+    days_count = max([int(value) for value in day_candidates if value is not None] or [0])
+    days_with_record = safe_value(days_count if days_count > 0 else None)
 
     rows = [
         ("Wellness score", score_label),
@@ -5772,6 +6249,8 @@ def _build_professional_exposure_payload(
             summary_line = f"{summary_line} EstÃ­mulos secundarios: {_professional_join_labels(secondary)}."
 
     table = pd.DataFrame(rows, columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"])
+    if not table.empty:
+        table = table.apply(lambda column: column.map(_professional_visible_metric_text))
     state_label = "available" if len(rows) >= 2 else "partial" if rows else "missing"
     return {
         "title": "ExposiciÃ³n del bloque / contenido entrenado",
@@ -5900,6 +6379,52 @@ def _build_professional_action_plan_payload(
     integrated_payload: dict[str, object],
 ) -> dict[str, object]:
     feedback = composite_payload.get("feedback", {}) if isinstance(composite_payload.get("feedback"), dict) else {}
+    low_text = _professional_visible_metric_text(feedback.get("low", "")).casefold()
+    decline_text = _professional_join_labels(change_payload.get("declines", []), fallback="").casefold()
+    maintain = ["Mantener la capacidad dominante actual sin perder calidad técnica ni variabilidad del microciclo."]
+    if feedback.get("next_block"):
+        maintain.append(f"Usar como referencia del bloque: {_professional_visible_metric_text(feedback.get('next_block'))}")
+
+    adjust: list[str] = []
+    if any(token in f"{low_text} {decline_text}" for token in ("tiempo de contacto", "rsi", "react", "dri")):
+        adjust.append("Ajustar la progresión reactiva y la calidad de contacto si el tiempo de contacto subió o DJ RSI cayó.")
+    elif feedback.get("low"):
+        adjust.append(f"Ajustar el próximo bloque para mejorar {_professional_visible_metric_text(feedback.get('low'))}.")
+    if change_payload.get("declines"):
+        adjust.append(f"Revisar carga, protocolo y prioridades si persisten caídas en {_professional_join_labels(change_payload.get('declines', []))}.")
+    if not adjust:
+        adjust.append("Ajustar solo una prioridad principal del bloque para evitar dispersar el estímulo.")
+
+    monitor = [
+        "Monitorear DJ RSI, tiempo de contacto, EUR y DSI/DRI si están disponibles en la próxima evaluación.",
+        "Cruzar calidad de sesión, dolor, sueño, estrés y adherencia antes de subir volumen o densidad.",
+    ]
+    if change_payload.get("declines"):
+        monitor.append(f"Confirmar si la señal desfavorable en {_professional_join_labels(change_payload.get('declines', []))} persiste o se normaliza.")
+
+    measure = [
+        "Medir nuevamente en 6-8 semanas o antes si el calendario competitivo exige verificar una señal puntual.",
+        "Medir las variables clave del objetivo principal y completar datos faltantes si los hubiera.",
+    ]
+    if str(evaluation_state).strip().lower() == "partial":
+        measure.append("Completar la batería faltante antes de cerrar conclusiones más fuertes.")
+
+    limitations = [
+        "Las evaluaciones se interpretan como perfilado físico cada 6-8 semanas, no como readiness semanal.",
+        "El sRPE es una estimación práctica de carga interna y debe cruzarse con contexto, wellness y criterio profesional.",
+        "Si el intervalo entre evaluaciones es corto o faltan registros, la lectura debe ser más conservadora.",
+        "El RSI se interpreta aquí como índice reactivo y no como velocidad lineal.",
+    ]
+    return {
+        "title": "Próximos pasos y limitaciones metodológicas",
+        "actions": {
+            "Mantener": list(dict.fromkeys([line for line in maintain if line.strip()]))[:2],
+            "Ajustar": list(dict.fromkeys([line for line in adjust if line.strip()]))[:3],
+            "Monitorear": list(dict.fromkeys([line for line in monitor if line.strip()]))[:3],
+            "Medir": list(dict.fromkeys([line for line in measure if line.strip()]))[:3],
+        },
+        "limitations": limitations,
+    }
     maintain = [
         "Mantener la cualidad dominante actual sin perder calidad tÃ©cnica ni variabilidad del microciclo.",
     ]
@@ -6379,8 +6904,11 @@ def _generate_professional_profile_pdf_reportlab(
     )
 
     def _p(text: object, style_name: str = "ProfBody") -> Paragraph:
-        safe = escape(safe_value(text, fallback="")).replace("\n", "<br/>")
+        safe = escape(_repair_mojibake_text(safe_value(text, fallback=""))).replace("\n", "<br/>")
         return Paragraph(safe, styles[style_name])
+
+    def _pdf_label(text: object, fallback: str = "") -> str:
+        return _repair_mojibake_text(safe_value(text, fallback=fallback))
 
     def _box(flowables: list[object], *, background=None, padding: int = 8) -> Table:
         table = Table([[flowables]], colWidths=[174 * mm], hAlign="LEFT")
@@ -6521,8 +7049,8 @@ def _generate_professional_profile_pdf_reportlab(
             x = left + (plot_w * idx / max(1, len(valid_points) - 1))
             y = _scale(value, min_v, max_v, bottom, plot_h)
             drawing.add(Circle(x, y, 2.2, fillColor=color, strokeColor=colors.white, strokeWidth=0.4))
-        drawing.add(String(left, 4, safe_value(valid_points[0].get("label"), ""), fontSize=6.5, fillColor=palette["gray"]))
-        drawing.add(String(left + plot_w - 20, 4, safe_value(valid_points[-1].get("label"), ""), fontSize=6.5, fillColor=palette["gray"]))
+        drawing.add(String(left, 4, _pdf_label(valid_points[0].get("label")), fontSize=6.5, fillColor=palette["gray"]))
+        drawing.add(String(left + plot_w - 20, 4, _pdf_label(valid_points[-1].get("label")), fontSize=6.5, fillColor=palette["gray"]))
         drawing.add(String(left + 2, bottom + plot_h + 3, f"{max_v:.1f}", fontSize=6.5, fillColor=palette["muted"]))
         return drawing
 
@@ -6552,9 +7080,9 @@ def _generate_professional_profile_pdf_reportlab(
         drawing.add(Line(left, bottom, left + plot_w, bottom, strokeColor=palette["line"], strokeWidth=0.7))
         drawing.add(Line(left, bottom, left, bottom + plot_h, strokeColor=palette["line"], strokeWidth=0.7))
         if title:
-            drawing.add(String(left, height - 9, title, fontSize=7.5, fillColor=palette["navy"]))
+            drawing.add(String(left, height - 9, _pdf_label(title), fontSize=7.5, fillColor=palette["navy"]))
         if y_unit:
-            drawing.add(String(4, bottom + plot_h - 2, y_unit, fontSize=6.5, fillColor=palette["muted"]))
+            drawing.add(String(4, bottom + plot_h - 2, _pdf_label(y_unit), fontSize=6.5, fillColor=palette["muted"]))
         bar_gap = 3
         bar_w = max(4, (plot_w - (bar_gap * max(0, len(points) - 1))) / max(1, len(points)))
         for idx, point in enumerate(points):
@@ -6566,7 +7094,7 @@ def _generate_professional_profile_pdf_reportlab(
             drawing.add(Rect(x, bottom, bar_w, bar_h, fillColor=palette["steel"], strokeColor=None))
             if show_values and value > 0:
                 drawing.add(String(x, bottom + bar_h + 2, f"{value:.0f}", fontSize=5.5, fillColor=palette["gray"]))
-            drawing.add(String(x, 4, safe_value(point.get("label"), ""), fontSize=6, fillColor=palette["gray"]))
+            drawing.add(String(x, 4, _pdf_label(point.get("label")), fontSize=6, fillColor=palette["gray"]))
         drawing.add(String(left + 2, bottom + plot_h + 3, f"{max_v:.0f}", fontSize=6.5, fillColor=palette["muted"]))
         return drawing
 
@@ -6614,7 +7142,7 @@ def _generate_professional_profile_pdf_reportlab(
         for idx, point in enumerate(points):
             if idx in {0, len(points) - 1}:
                 x = left + idx * (bar_w + bar_gap)
-                drawing.add(String(x, 4, safe_value(point.get("label"), ""), fontSize=6.5, fillColor=palette["gray"]))
+                drawing.add(String(x, 4, _pdf_label(point.get("label")), fontSize=6.5, fillColor=palette["gray"]))
             if point.get("evaluation"):
                 x = left + idx * (bar_w + bar_gap) + (bar_w / 2)
                 drawing.add(Line(x, bottom, x, bottom + plot_h, strokeColor=palette["orange"], strokeWidth=0.8))
@@ -6661,8 +7189,8 @@ def _generate_professional_profile_pdf_reportlab(
             x = left + (plot_w * idx / max(1, len(valid_points) - 1))
             y = _scale(value, min_v, max_v, bottom, plot_h)
             drawing.add(Circle(x, y, 2.2, fillColor=palette["green"], strokeColor=colors.white, strokeWidth=0.4))
-        drawing.add(String(left, 4, safe_value(valid_points[0].get("label"), ""), fontSize=6.5, fillColor=palette["gray"]))
-        drawing.add(String(left + plot_w - 20, 4, safe_value(valid_points[-1].get("label"), ""), fontSize=6.5, fillColor=palette["gray"]))
+        drawing.add(String(left, 4, _pdf_label(valid_points[0].get("label")), fontSize=6.5, fillColor=palette["gray"]))
+        drawing.add(String(left + plot_w - 20, 4, _pdf_label(valid_points[-1].get("label")), fontSize=6.5, fillColor=palette["gray"]))
         drawing.add(String(left + 2, bottom + plot_h + 3, f"{max_v:.1f}", fontSize=6.5, fillColor=palette["muted"]))
         drawing.add(String(left + plot_w - 62, bottom + plot_h + 3, "Wellness score", fontSize=6.5, fillColor=palette["gray"]))
         return drawing
@@ -6829,15 +7357,15 @@ def _generate_professional_profile_pdf_reportlab(
                     String(
                         min(x + 5, left + plot_w - 48),
                         min(y + 5, bottom + plot_h - 8),
-                        athlete_label,
+                        _pdf_label(athlete_label),
                         fontSize=6.4,
                         fillColor=palette["navy"],
                     )
                 )
             else:
                 drawing.add(Circle(x, y, 2.4, fillColor=colors.HexColor("#B8C2C9"), strokeColor=None))
-        drawing.add(String(left, 4, str(section.get("x_label", "")), fontSize=6.5, fillColor=palette["gray"]))
-        drawing.add(String(2, bottom + plot_h - 5, str(section.get("y_label", ""))[:18], fontSize=6.5, fillColor=palette["gray"]))
+        drawing.add(String(left, 4, _pdf_label(section.get("x_label", "")), fontSize=6.5, fillColor=palette["gray"]))
+        drawing.add(String(2, bottom + plot_h - 5, _pdf_label(section.get("y_label", ""))[:18], fontSize=6.5, fillColor=palette["gray"]))
         return drawing
 
     def _explanation_lines(payload: dict[str, object]) -> list[object]:
@@ -6974,11 +7502,6 @@ def _generate_professional_profile_pdf_reportlab(
     next_steps = _build_professional_next_steps(evaluation_state)
     composite_profile = _build_professional_composite_profile_payload(state, report_athlete)
     change_payload = _build_professional_change_payload(state, report_athlete)
-    full_report_ready = _professional_full_report_ready(
-        composite_profile,
-        change_payload,
-        _professional_assessment_date_count(state, report_athlete),
-    )
     isometric_payload = _build_professional_isometric_payload(state, report_athlete, cards)
     force_time_payload = isometric_payload.get("imtp_payload", {})
     load_tolerance_payload = _build_professional_load_tolerance_payload(state, report_athlete, internal_load)
@@ -7568,105 +8091,111 @@ def _generate_professional_profile_pdf_reportlab(
         ]
         target.append(_box([_p(line, "ProfBody") for line in limitation_lines], padding=6))
 
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=18 * mm,
-        rightMargin=18 * mm,
-        topMargin=18 * mm,
-        bottomMargin=14 * mm,
-    )
-    story: list[object] = []
-    if full_report_ready:
-        _append_full_executive_page(story)
-        story.append(PageBreak())
-        _append_full_composite_profile_page(story)
-        story.append(PageBreak())
-        _append_full_change_page(story)
-        if _professional_any_quadrant_ready(quadrant_sections):
-            story.append(PageBreak())
-            _append_full_quadrants_page(story)
-        if isometric_payload.get("state") != "missing":
-            story.append(PageBreak())
-            _append_full_isometrics_page(story)
-        story.append(PageBreak())
-        _append_full_load_page(story)
-        story.append(PageBreak())
-        _append_full_wellness_page(story)
-        if exposure_payload.get("state") != "missing":
-            story.append(PageBreak())
-            _append_full_exposure_page(story)
-        story.append(PageBreak())
-        _append_full_integrated_page(story)
-        story.append(PageBreak())
-        _append_full_action_plan_page(story)
-        try:
-            doc.build(story)
-        except Exception:
-            return None
-        return buffer.getvalue()
+    def _append_full_executive_page(target: list[object]) -> None:
+        target.extend(
+            [
+                _p("Reporte profesional", "ProfMuted"),
+                _p(report_athlete, "ProfTitle"),
+                _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M}", "ProfMuted"),
+                _box(
+                    [
+                        _p("Reporte madre profesional orientado a toma de decisiones.", "ProfBody"),
+                        _p(
+                            "Prioriza perfil actual, cambios relevantes, contexto de carga y decisiÃƒÂ³n sugerida para el prÃƒÂ³ximo bloque.",
+                            "ProfMuted",
+                        ),
+                    ]
+                ),
+                Spacer(1, 6 * mm),
+                _p(executive_payload.get("title", "Resumen ejecutivo profesional"), "ProfSection"),
+                _executive_summary_table(executive_payload),
+                Spacer(1, 4 * mm),
+                _bullet_box("SeÃƒÂ±ales clave", executive_payload.get("signals", [])),
+                Spacer(1, 4 * mm),
+                _box(
+                    [
+                        _p("DecisiÃƒÂ³n sugerida", "ProfCardTitle"),
+                        _p(executive_payload.get("decision_suggested", PDF_MISSING_TEXT), "ProfBody"),
+                    ],
+                    padding=6,
+                ),
+            ]
+        )
 
-    story.extend(
-        [
-            _p("Reporte profesional", "ProfMuted"),
-            _p(report_athlete, "ProfTitle"),
-            _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M}", "ProfMuted"),
-            _box(
+    def _append_full_composite_profile_page(target: list[object]) -> None:
+        target.append(_p(composite_profile.get("title", "Perfil actual compuesto"), "ProfSection"))
+        if composite_profile.get("state") == "missing":
+            target.append(_collapsed_box(str(composite_profile.get("message") or "Faltan datos para el perfil compuesto.")))
+            return
+        target.append(_box([_p(composite_profile.get("note", PROFESSIONAL_COMPOSITE_PROFILE_NOTE), "ProfMuted")], padding=5))
+        radar_image = _composite_radar_image(composite_profile)
+        if radar_image is not None:
+            target.append(Spacer(1, 3 * mm))
+            target.append(radar_image)
+        target.append(Spacer(1, 3 * mm))
+        target.append(_dataframe_table(composite_profile.get("metric_table"), col_widths_mm=[36, 32, 22, 84]))
+        feedback = composite_profile.get("feedback", {}) if isinstance(composite_profile.get("feedback"), dict) else {}
+        target.append(Spacer(1, 3 * mm))
+        target.append(
+            _bullet_box(
+                "Lectura del perfil",
                 [
-                    _p("Informe de perfil físico y toma de decisiones para profesional.", "ProfBody"),
-                    _p(
-                        "Las evaluaciones se tratan como perfilado físico cada 6-8 semanas; la carga interna y el contexto de entrenamiento ayudan a decidir el siguiente bloque.",
-                        "ProfMuted",
-                    ),
-                ]
-            ),
-            Spacer(1, 6 * mm),
-            _p("Resumen ejecutivo", "ProfSection"),
-            _overview_table(overview),
-            Spacer(1, 6 * mm),
-        ]
-    )
+                    f"Variable dominante: {feedback.get('high', PDF_MISSING_TEXT)}",
+                    f"Variable rezagada: {feedback.get('low', PDF_MISSING_TEXT)}",
+                    f"Lectura fisiolÃƒÂ³gica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
+                    f"Lectura biomecÃƒÂ¡nica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
+                    f"Implicancia para prÃƒÂ³ximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
+                ],
+            )
+        )
 
-    _append_metric_cards(story)
+    def _append_full_change_page(target: list[object]) -> None:
+        target.append(_p(change_payload.get("title", "Cambios vs evaluaciÃƒÂ³n anterior"), "ProfSection"))
+        if change_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(change_payload.get("message") or PROFESSIONAL_NO_EVOLUTION_TEXT)))
+            return
+        target.append(_dataframe_table(change_payload.get("display_table"), col_widths_mm=[34, 18, 18, 18, 18, 32, 36]))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("SÃƒÂ­ntesis de cambios", change_payload.get("summary_lines", [])))
+        if not _professional_any_quadrant_ready(quadrant_sections):
+            target.append(Spacer(1, 3 * mm))
+            target.append(_box([_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicaciÃƒÂ³n ÃƒÂºtil en esta exportaciÃƒÂ³n.", "ProfMuted")], padding=5))
 
-    if not has_evaluations:
-        story.append(PageBreak())
-        _append_internal_last_week(story, compact=True)
-        story.append(Spacer(1, 3 * mm))
-        _append_wellness_last_week(story, compact=True)
-        story.append(Spacer(1, 3 * mm))
-        _append_acute_interpretation(story)
-        story.append(PageBreak())
-        _append_internal_16_weeks(story, compact=True)
-        story.append(Spacer(1, 3 * mm))
-        _append_acwr_section(story, compact=True)
-        story.append(Spacer(1, 3 * mm))
-        _append_monotony_section(story, compact=True)
-        story.append(Spacer(1, 3 * mm))
-        _append_wellness_16_weeks(story, compact=True)
-        story.append(Spacer(1, 3 * mm))
-        _append_integrated_interpretation(story, compact=True)
-        _append_next_steps(story, compact=True)
-        _append_limitations(story, compact=True)
-    else:
-        compact_evaluation_report = evaluation_state == "partial"
-        section_gap = 3 * mm if compact_evaluation_report else 5 * mm
-        if has_evolution_charts:
-            story.append(PageBreak())
-        else:
-            story.append(Spacer(1, section_gap))
-        _append_evolution_section(story)
-        if has_quadrant_charts:
-            story.append(PageBreak())
-        else:
-            story.append(Spacer(1, section_gap))
-        _append_quadrants_section(story)
-        if force_time_payload.get("has_valid_force_time"):
-            story.append(PageBreak())
+    def _append_full_quadrants_page(target: list[object]) -> None:
+        target.append(_p("Relaciones de perfil / cuadrantes", "ProfSection"))
+        if not _professional_any_quadrant_ready(quadrant_sections):
+            target.append(_collapsed_box(PROFESSIONAL_NO_QUADRANTS_TEXT))
+            return
+        for section in quadrant_sections[:3]:
+            chart = _quadrant_chart(section)
+            if chart is None:
+                continue
+            target.append(_chart_explanation_panel(chart, str(section.get("title", "Cuadrante")), section))
+            target.append(Spacer(1, 4 * mm))
+
+    def _append_full_isometrics_page(target: list[object]) -> None:
+        target.append(_p(isometric_payload.get("title", "IsomÃƒÂ©tricos y force-time avanzado"), "ProfSection"))
+        if isometric_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isomÃƒÂ©tricos.")))
+            return
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "AsimetrÃƒÂ­a"}]
+        if imtp_priority:
+            target.append(_p("IMTP principal", "ProfCardTitle"))
+            target.append(_mini_cards_table(imtp_priority))
+        if isometric_payload.get("iso_available"):
+            target.append(Spacer(1, 3 * mm))
+            target.append(_p("ISO Push Hip-Hamstring Bilateral", "ProfCardTitle"))
+            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "AsimetrÃƒÂ­a"}]
+            if iso_priority:
+                target.append(_mini_cards_table(iso_priority))
+            if isometric_payload.get("iso_notes"):
+                target.append(Spacer(1, 2 * mm))
+                target.append(_bullet_box("Lectura prÃƒÂ¡ctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
+        if isometric_payload.get("force_time_available"):
+            target.append(Spacer(1, 3 * mm))
             draw_force_time_test_block(
                 {
-                    "story": story,
+                    "story": target,
                     "p": _p,
                     "box": _box,
                     "Table": Table,
@@ -7678,31 +8207,120 @@ def _generate_professional_profile_pdf_reportlab(
                 force_time_payload,
                 report_type="professional",
             )
-        story.append(PageBreak())
-        _append_training_section(story)
-        story.append(Spacer(1, section_gap))
-        _append_internal_last_week(story, compact=compact_evaluation_report)
-        story.append(Spacer(1, section_gap))
-        _append_wellness_last_week(story, compact=compact_evaluation_report)
-        story.append(PageBreak())
-        _append_internal_16_weeks(story, compact=compact_evaluation_report)
-        story.append(Spacer(1, section_gap))
-        _append_acwr_section(story, compact=compact_evaluation_report)
-        story.append(Spacer(1, section_gap))
-        _append_monotony_section(story, compact=compact_evaluation_report)
-        story.append(Spacer(1, section_gap))
-        _append_wellness_16_weeks(story, compact=compact_evaluation_report)
-        story.append(Spacer(1, section_gap))
-        _append_integrated_interpretation(story, compact=compact_evaluation_report)
-        _append_next_steps(story, compact=compact_evaluation_report)
-        _append_limitations(story, compact=compact_evaluation_report)
 
+    def _append_full_load_page(target: list[object]) -> None:
+        target.append(_p(load_tolerance_payload.get("title", "Carga interna y tolerancia"), "ProfSection"))
+        if load_tolerance_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(load_tolerance_payload.get("message") or "Faltan datos de carga interna.")))
+            return
+        target.append(_key_value_table(load_tolerance_payload.get("rows", [])))
+        target.append(Spacer(1, 3 * mm))
+        weekly_chart = _weekly_ema_chart(load_tolerance_payload.get("weekly_points", []), height_mm=48)
+        if weekly_chart is not None:
+            target.append(weekly_chart)
+            target.append(Spacer(1, 3 * mm))
+        target.append(_box([_p(load_tolerance_payload.get("risk_line", PDF_MISSING_TEXT), "ProfBody")], padding=6))
+
+    def _append_full_wellness_page(target: list[object]) -> None:
+        target.append(_p(wellness_availability_payload.get("title", "Wellness, disponibilidad y adherencia"), "ProfSection"))
+        if wellness_availability_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(wellness_availability_payload.get("message") or "Faltan datos de wellness.")))
+            return
+        target.append(_mini_cards_table(wellness_availability_payload.get("rows", [])))
+        chart_points = (
+            wellness_availability_payload.get("weekly_points", [])
+            if wellness_availability_payload.get("trend_allowed")
+            else wellness_availability_payload.get("daily_points", [])
+        )
+        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44)
+        if chart is not None:
+            target.append(Spacer(1, 3 * mm))
+            target.append(chart)
+        target.append(Spacer(1, 3 * mm))
+        note_lines = [str(wellness_availability_payload.get("compatibility") or "")]
+        if str(wellness_availability_payload.get("quality_note") or "").strip():
+            note_lines.append(str(wellness_availability_payload.get("quality_note")))
+        target.append(_bullet_box("Lectura de disponibilidad", note_lines, style_name="ProfMuted"))
+
+    def _append_full_exposure_page(target: list[object]) -> None:
+        target.append(_p(exposure_payload.get("title", "ExposiciÃƒÂ³n del bloque / contenido entrenado"), "ProfSection"))
+        if exposure_payload.get("state") == "missing":
+            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposiciÃƒÂ³n.")))
+            return
+        chart_image = _exposure_chart_image()
+        if chart_image is not None:
+            target.append(chart_image)
+            target.append(Spacer(1, 3 * mm))
+        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[40, 32, 18, 84]))
+        target.append(Spacer(1, 3 * mm))
+        target.append(
+            _bullet_box(
+                "Lectura del bloque",
+                [
+                    str(exposure_payload.get("summary_line") or ""),
+                    str(exposure_payload.get("context_link") or ""),
+                    f"EstÃƒÂ­mulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}.",
+                ],
+                style_name="ProfMuted",
+            )
+        )
+
+    def _append_full_integrated_page(target: list[object]) -> None:
+        target.append(_p(integrated_decision_payload.get("title", "InterpretaciÃƒÂ³n integrada profesional"), "ProfSection"))
+        target.append(_bullet_box("QuÃƒÂ© sabemos con buena confianza", integrated_decision_payload.get("good_confidence", [])))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃƒÂ© parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃƒÂ© no podemos afirmar todavÃƒÂ­a", integrated_decision_payload.get("unknown", []), style_name="ProfMuted"))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("DecisiÃƒÂ³n prÃƒÂ¡ctica", integrated_decision_payload.get("decision_practical", [])))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("QuÃƒÂ© monitorear en el prÃƒÂ³ximo bloque", integrated_decision_payload.get("monitor", []), style_name="ProfMuted"))
+
+    def _append_full_action_plan_page(target: list[object]) -> None:
+        target.append(_p(action_plan_payload.get("title", "PrÃƒÂ³ximos pasos y limitaciones metodolÃƒÂ³gicas"), "ProfSection"))
+        for label in ["Mantener", "Ajustar", "Monitorear", "Medir"]:
+            target.append(_bullet_box(label, action_plan_payload.get("actions", {}).get(label, [])))
+            target.append(Spacer(1, 3 * mm))
+        target.append(_bullet_box("Limitaciones metodolÃƒÂ³gicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=14 * mm,
+    )
+    story: list[object] = []
+    # The professional report always uses the mother-report structure; missing data is handled inside each section.
+    _append_full_executive_page(story)
+    story.append(PageBreak())
+    _append_full_composite_profile_page(story)
+    story.append(PageBreak())
+    _append_full_change_page(story)
+    if _professional_any_quadrant_ready(quadrant_sections):
+        story.append(PageBreak())
+        _append_full_quadrants_page(story)
+    if isometric_payload.get("state") != "missing":
+        story.append(PageBreak())
+        _append_full_isometrics_page(story)
+    story.append(PageBreak())
+    _append_full_load_page(story)
+    story.append(PageBreak())
+    _append_full_wellness_page(story)
+    story.append(PageBreak())
+    _append_full_exposure_page(story)
+    story.append(PageBreak())
+    _append_full_integrated_page(story)
+    story.append(PageBreak())
+    _append_full_action_plan_page(story)
     try:
         doc.build(story)
     except Exception:
         return None
     return buffer.getvalue()
-
 
 def _generate_visual_report_pdf_reportlab(
     state: dict[str, pd.DataFrame | None],
