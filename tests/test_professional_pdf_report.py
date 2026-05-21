@@ -1034,12 +1034,17 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
 
     def test_professional_pdf_with_imtp_force_time_generates_contextual_block(self):
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with patch.object(report_generator, "_draw_compact_professional_force_time_block", wraps=report_generator._draw_compact_professional_force_time_block) as mocked_compact:
             with patch.object(report_generator, "draw_force_time_test_block", wraps=report_generator.draw_force_time_test_block) as mocked_draw:
-                pdf = generate_visual_report_pdf(_professional_state_with_force_time(), "Ana Lopez", "profe")
+                pdf, text = _rendered_pdf_and_story_text(_professional_state_with_force_time(), "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertEqual(mocked_draw.call_count, 1)
+        self.assertEqual(mocked_compact.call_count, 1)
+        self.assertEqual(mocked_draw.call_count, 0)
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertIn("detalle tecnico compacto", text)
+        self.assertIn("force@50", text)
+        self.assertIn("rfd exportada descriptiva", text)
 
     def test_professional_pdf_without_imtp_force_time_generates_without_optional_block(self):
         state = _weekly_state_without_evaluations()
@@ -1205,6 +1210,73 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("Tiempo de contacto", visible_text)
         self.assertNotIn("TC inv", visible_text)
 
+    def test_composite_profile_handles_absent_lagging_variable_professionally(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-05-01",
+                        "CMJ_cm": 31.0,
+                        "SJ_cm": 29.0,
+                        "DJ_cm": 25.0,
+                        "DJ_tc_ms": 240,
+                        "DRI": 1.45,
+                        "EUR": 1.07,
+                    },
+                ]
+            )
+        }
+
+        feedback_lines = [
+            "Alto: sin variables > 0.5.",
+            "Bajo: sin variables < -0.5.",
+            "Fisiologico: Perfil equilibrado en todos los indices evaluados.",
+            "Biomecanico: Sin deficits marcados en los tests disponibles.",
+            "Proximo bloque: Continuar progresion planificada.",
+        ]
+        with patch.object(report_generator, "build_jump_feedback_lines", return_value=feedback_lines):
+            composite = _build_professional_composite_profile_payload(state, "Ana Lopez")
+        action_plan = _build_professional_action_plan_payload(
+            state,
+            "Ana Lopez",
+            evaluation_state="partial",
+            composite_payload=composite,
+            change_payload={"declines": []},
+            integrated_payload={},
+        )
+        visible_text = _normalized_story_text(
+            " ".join(
+                [
+                    str(composite.get("summary_line", "")),
+                    " ".join(str(value) for value in composite.get("feedback", {}).values()),
+                    " ".join(item for items in action_plan["actions"].values() for item in items),
+                ]
+            )
+        )
+
+        self.assertIn("no aparece una variable claramente rezagada", visible_text)
+        self.assertIn("mantener el perfil actual", visible_text)
+        self.assertIn("monitorear si alguna variable empieza a separarse", visible_text)
+        self.assertNotIn("sin variables < -0.5", visible_text)
+        self.assertNotIn("mejorar sin variables", visible_text)
+
+    def test_composite_profile_z_score_cells_are_explicit_when_missing(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-05-01", "CMJ_cm": 31.0, "SJ_cm": 29.0},
+                ]
+            )
+        }
+
+        payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+        table = payload["metric_table"]
+
+        self.assertIn("Z-score", table.columns)
+        self.assertTrue(table["Z-score"].astype(str).str.strip().ne("").all())
+        self.assertIn("—", set(table["Z-score"].astype(str)))
+
     def test_exposure_payload_does_not_report_missing_low_stimuli_when_data_exists(self):
         state = {
             "prepared_raw_df": pd.DataFrame(
@@ -1241,6 +1313,32 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertTrue(payload["dominant"])
         self.assertNotIn("Faltan datos", payload["summary_line"])
         self.assertNotIn("Faltan datos", _professional_join_labels(payload["low_or_absent"], fallback=""))
+        self.assertNotIn("Pliometria", payload["table"].to_string(index=False))
+        self.assertIn("Sesiones", payload["table"].columns)
+
+    def test_professional_pdf_exposure_omits_missing_low_stimuli_line_when_undetermined(self):
+        state = {
+            "prepared_raw_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Assigned Date": "2026-04-28",
+                        "Exercise": "Back Squat",
+                        "stimulus_category": "strength_loaded",
+                        "Volume_Load_kg": 2400,
+                        "Contacts": 0,
+                        "Exposures": 1,
+                        "is_invalid": False,
+                        "is_untagged": False,
+                    },
+                ]
+            )
+        }
+
+        text = _rendered_story_text(state, "Ana Lopez", "profe")
+
+        self.assertNotIn("estimulos bajos o ausentes: faltan datos", text)
+        self.assertNotIn("sesione s", text)
 
     def test_action_plan_is_concrete_and_not_repetitive(self):
         payload = _build_professional_action_plan_payload(

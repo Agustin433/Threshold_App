@@ -6,9 +6,9 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from modules.jump_analysis import (
-    COMPOSITE_PROFILE_METRICS,
     _prepare_jump_df,
     _available_radar_axes,
+    build_composite_profile_metric_rows,
     choose_secondary_quadrant_x_spec,
     compute_baseline_delta,
 )
@@ -195,17 +195,19 @@ def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme
     values: list[float] = []
     customdata: list[list[object]] = []
     available_metric_count = 0
-    for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
+    for metric in build_composite_profile_metric_rows(row):
+        label = str(metric.get("Variable", ""))
+        value_col = str(metric.get("value_col", ""))
+        unit = str(metric.get("Unidad", ""))
         raw_value = _numeric_value(row.get(value_col))
-        z_value = _numeric_value(row.get(z_col))
+        z_value = _numeric_value(metric.get("Z-score"))
         if raw_value is not None:
             available_metric_count += 1
         categories.append(label)
         values.append(z_value if z_value is not None else missing_point_r)
-        formatted_raw = "-" if raw_value is None else f"{raw_value:.{digits}f}"
-        formatted_value = formatted_raw if raw_value is None or unit in {"", "ratio"} else f"{formatted_raw} {unit}"
+        formatted_value = str(metric.get("Valor", "-") or "-")
         formatted_z = "-" if z_value is None else f"{z_value:.2f}"
-        source_date = row.get(f"{value_col}__source_date", "-") or "-"
+        source_date = metric.get("Origen / referencia", "-") or "-"
         customdata.append([formatted_value, formatted_z, source_date])
 
     fig = go.Figure()

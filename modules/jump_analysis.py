@@ -38,8 +38,8 @@ METRIC_LABELS = {
     "CMJ_cm": "CMJ",
     "DJ_cm": "DJ height",
     "DJ_RSI": "DJ RSI",
-    "DJ_tc_ms": "DJ TC",
-    "TC_inv_Z": "TC inv",
+    "DJ_tc_ms": "Tiempo de contacto",
+    "TC_inv_Z": "Tiempo de contacto",
     "IMTP_relPF": "IMTP relPF",
     "IMTP_N": "IMTP",
     "EUR": "EUR",
@@ -81,7 +81,7 @@ VARIABLE_META: dict[str, dict[str, object]] = {
         "enabled_default": True,
     },
     "DJ_tc_ms": {
-        "label": "DJ TC",
+        "label": "Tiempo de contacto",
         "higher_is_better": False,
         "fallback_pct": 2.0,
         "fmt": "{:.0f}",
@@ -181,7 +181,7 @@ RADAR_FULL_AXES = (
     ("CMJ", "CMJ_cm", "cm", "CMJ_Z"),
     ("DJ height", "DJ_cm", "cm", "DJ_height_Z"),
     ("DJ RSI", "DJ_RSI", "m/s", "DJ_RSI_Z"),
-    ("TC inv", "DJ_tc_ms", "ms", "TC_inv_Z"),
+    ("Tiempo de contacto", "DJ_tc_ms", "ms", "TC_inv_Z"),
     ("IMTP relPF", "IMTP_relPF", "N/kg", "IMTP_relPF_Z"),
 )
 
@@ -204,9 +204,25 @@ COMPOSITE_PROFILE_METRICS = (
     ("CMJ", "CMJ_cm", "cm", "CMJ_Z", 1),
     ("DJ", "DJ_cm", "cm", "DJ_height_Z", 1),
     ("DRI", "DRI", "m/s", "DRI_Z", 3),
-    ("TC", "DJ_tc_ms", "ms", "TC_inv_Z", 0),
+    ("Tiempo de contacto", "DJ_tc_ms", "ms", "TC_inv_Z", 0),
     ("EUR", "EUR", "ratio", "EUR_Z", 3),
     ("IMTP", "IMTP_relPF", "N/kg", "IMTP_relPF_Z", 2),
+)
+
+COMPOSITE_PROFILE_DIRECTIONS = {
+    "SJ_cm": "higher_is_better",
+    "CMJ_cm": "higher_is_better",
+    "DJ_cm": "higher_is_better",
+    "DRI": "higher_is_better",
+    "DJ_tc_ms": "lower_is_better_inverted_z",
+    "EUR": "context_dependent",
+    "IMTP_relPF": "higher_is_better",
+}
+
+ZSCORE_ALIAS_GROUPS = (
+    ("DJ_RSI_Z", "DRI_Z"),
+    ("TC_inv_Z", "DJtc_Z"),
+    ("IMTP_relPF_Z", "IMTP_Z"),
 )
 
 COMPOSITE_PROFILE_SUPPORT_FIELDS = (
@@ -230,6 +246,33 @@ def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame.columns:
         return pd.Series(np.nan, index=frame.index, dtype=float)
     return pd.to_numeric(frame[column], errors="coerce")
+
+
+def _coalesced_numeric_value(row: pd.Series | dict[str, object], *columns: str) -> float | None:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row)
+    for column in columns:
+        value = pd.to_numeric(pd.Series([row_series.get(column)]), errors="coerce").iloc[0]
+        if pd.notna(value):
+            return float(value)
+    return None
+
+
+def _coalesced_numeric_series(frame: pd.DataFrame, *columns: str) -> pd.Series:
+    result = pd.Series(np.nan, index=frame.index, dtype=float)
+    for column in columns:
+        if column not in frame.columns:
+            continue
+        result = result.combine_first(pd.to_numeric(frame[column], errors="coerce"))
+    return result.astype(float)
+
+
+def _zscore_aliases(z_col: str) -> tuple[str, ...]:
+    aliases = [z_col]
+    for group in ZSCORE_ALIAS_GROUPS:
+        if z_col in group:
+            aliases.extend(column for column in group if column != z_col)
+            break
+    return tuple(dict.fromkeys(aliases))
 
 
 def _normalize_eur_series_to_ratio(series: pd.Series) -> pd.Series:
@@ -415,24 +458,30 @@ def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     for metric_col, z_col, benchmark_key, invert in zscore_specs:
-        df[z_col] = _resolve_zscore(
+        computed_z = _resolve_zscore(
             df,
             metric_col,
             benchmark_key=benchmark_key,
             invert=invert,
-        ).round(2)
+        )
+        df[z_col] = computed_z.combine_first(_coalesced_numeric_series(df, z_col)).round(2)
 
-    df["CMJ_rel_impulse_Z"] = _resolve_zscore(
+    computed_rel_impulse_z = _resolve_zscore(
         df,
         "CMJ_rel_impulse",
         internal_min_count=3,
         allow_dataset_fallback=False,
+    )
+    df["CMJ_rel_impulse_Z"] = computed_rel_impulse_z.combine_first(
+        _coalesced_numeric_series(df, "CMJ_rel_impulse_Z")
     ).round(2)
 
     # Backward-compatible aliases used elsewhere in the app/reporting.
-    df["DJtc_Z"] = df["TC_inv_Z"]
-    df["DRI_Z"] = df["DJ_RSI_Z"]
-    df["IMTP_Z"] = df["IMTP_relPF_Z"]
+    for primary_col, alias_col in ZSCORE_ALIAS_GROUPS:
+        primary = _coalesced_numeric_series(df, primary_col, alias_col).round(2)
+        alias = _coalesced_numeric_series(df, alias_col, primary_col).round(2)
+        df[primary_col] = primary
+        df[alias_col] = alias
     return df
 
 
@@ -1105,15 +1154,21 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
 
         source_date = _format_profile_source_date(source_row.get("Date"))
         snapshot[value_col] = source_row.get(value_col)
-        snapshot[z_col] = source_row.get(z_col)
+        snapshot[z_col] = _coalesced_numeric_value(source_row, z_col)
         snapshot[f"{value_col}__source_date"] = source_date
         if value_col == "DRI":
             snapshot["DJ_RSI"] = source_row.get("DJ_RSI", source_row.get("DRI"))
-            snapshot["DJ_RSI_Z"] = source_row.get("DJ_RSI_Z", source_row.get("DRI_Z"))
+            dri_z = _coalesced_numeric_value(source_row, "DRI_Z", "DJ_RSI_Z")
+            snapshot["DRI_Z"] = dri_z
+            snapshot["DJ_RSI_Z"] = dri_z
         if value_col == "DJ_tc_ms":
-            snapshot["TC_inv_Z"] = source_row.get("TC_inv_Z")
+            tc_z = _coalesced_numeric_value(source_row, "TC_inv_Z", "DJtc_Z")
+            snapshot["TC_inv_Z"] = tc_z
+            snapshot["DJtc_Z"] = tc_z
         if value_col == "IMTP_relPF":
-            snapshot["IMTP_Z"] = source_row.get("IMTP_Z", source_row.get("IMTP_relPF_Z"))
+            imtp_z = _coalesced_numeric_value(source_row, "IMTP_relPF_Z", "IMTP_Z")
+            snapshot["IMTP_relPF_Z"] = imtp_z
+            snapshot["IMTP_Z"] = imtp_z
             snapshot["IMTP_N"] = source_row.get("IMTP_N")
 
         source_rows.append(
@@ -1167,23 +1222,33 @@ def build_profile_radar_row(jump_df: pd.DataFrame) -> pd.Series | None:
     return latest_row
 
 
-def build_composite_profile_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:
+def build_composite_profile_metric_rows(row: pd.Series | dict[str, object]) -> list[dict[str, object]]:
     row_series = row if isinstance(row, pd.Series) else pd.Series(row)
     rows: list[dict[str, object]] = []
 
     for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
         value = pd.to_numeric(pd.Series([row_series.get(value_col)]), errors="coerce").iloc[0]
-        z_value = pd.to_numeric(pd.Series([row_series.get(z_col)]), errors="coerce").iloc[0]
+        z_value = _coalesced_numeric_value(row_series, *_zscore_aliases(z_col))
         rounded_value = round(float(value), digits) if pd.notna(value) else None
         rows.append(
             {
                 "Variable": label,
                 "Valor": _format_composite_metric_value(rounded_value, unit, digits),
-                "Z-score": round(float(z_value), 2) if pd.notna(z_value) else "-",
+                "Unidad": unit,
+                "Z-score": round(float(z_value), 2) if pd.notna(z_value) else "—",
                 "Origen / referencia": row_series.get(f"{value_col}__source_date", "-") or "-",
+                "Etiqueta visible profesional": label,
+                "Direccion": COMPOSITE_PROFILE_DIRECTIONS.get(value_col, "higher_is_better"),
+                "value_col": value_col,
+                "z_col": z_col,
             }
         )
 
+    return rows
+
+
+def build_composite_profile_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:
+    rows = build_composite_profile_metric_rows(row)
     return pd.DataFrame(rows, columns=["Variable", "Valor", "Z-score", "Origen / referencia"])
 
 

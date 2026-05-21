@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
+import re
 import textwrap
 import unicodedata
 import warnings
@@ -100,6 +101,13 @@ REPORT_AUDIENCE_OPTIONS = {
 REPORT_AUDIENCE_LABELS = {value: key for key, value in REPORT_AUDIENCE_OPTIONS.items()}
 EUR_RATIO_LABEL = "EUR (ratio)"
 PDF_MISSING_TEXT = "Faltan datos"
+PROFESSIONAL_NO_CLEAR_LAGGING_TEXT = "No aparece una variable claramente rezagada según el umbral actual."
+PROFESSIONAL_NO_CLEAR_LAGGING_NEXT_BLOCK = (
+    "Mantener el perfil actual y priorizar consistencia técnica, sin abrir nuevos focos innecesarios."
+)
+PROFESSIONAL_NO_CLEAR_LAGGING_MONITOR = (
+    "Monitorear si alguna variable empieza a separarse del perfil en próximas evaluaciones."
+)
 MOJIBAKE_MARKERS = ("Ã", "Â", "â")
 
 
@@ -147,6 +155,37 @@ def _professional_visible_metric_text(value: object) -> str:
     }
     for source, target in replacements.items():
         text = text.replace(source, target)
+    accent_replacements = {
+        "Pliometria": "Pliometría",
+        "Isometricos": "Isométricos",
+        "olimpicos": "olímpicos",
+        "proximo": "próximo",
+        "mas": "más",
+        "evaluacion": "evaluación",
+        "adquisicion": "adquisición",
+        "produccion": "producción",
+        "contraccion": "contracción",
+        "familiarizacion": "familiarización",
+        "tecnica": "técnica",
+        "fisico": "físico",
+        "fisiologico": "fisiológico",
+        "biomecanico": "biomecánico",
+        "indices": "índices",
+        "deficits": "déficits",
+        "mecanica": "mecánica",
+        "expresion": "expresión",
+        "progresion": "progresión",
+        "concentrica": "concéntrica",
+        "isometrica": "isométrica",
+        "util": "útil",
+        "limitacion": "limitación",
+    }
+    for source, target in accent_replacements.items():
+        def _replace(match: re.Match[str], fixed: str = target) -> str:
+            word = match.group(0)
+            return fixed[:1].upper() + fixed[1:] if word[:1].isupper() else fixed
+
+        text = re.sub(rf"\b{re.escape(source)}\b", _replace, text, flags=re.IGNORECASE)
     return text
 
 
@@ -285,19 +324,19 @@ PROFESSIONAL_EXPOSURE_CATEGORY_SPECS = (
         "unit": "kg x rep",
     },
     {
-        "title": "Pliometria y aterrizajes",
+        "title": "Pliometría y aterrizajes",
         "categories": ("plyo_jump", "landing_mechanics"),
         "value_col": "Contacts",
         "unit": "contactos",
     },
     {
-        "title": "Derivados olimpicos",
+        "title": "Derivados olímpicos",
         "categories": ("olympic_derivatives",),
         "value_col": "Exposures",
         "unit": "exposiciones",
     },
     {
-        "title": "Isometricos y estabilidad",
+        "title": "Isométricos y estabilidad",
         "categories": ("iso", "core_stability"),
         "value_col": "Exposures",
         "unit": "exposiciones",
@@ -2139,7 +2178,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         if chart_image is not None:
             target.append(chart_image)
             target.append(Spacer(1, 3 * mm))
-        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[40, 32, 18, 84]))
+        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[38, 30, 26, 80]))
         target.append(Spacer(1, 3 * mm))
         target.append(
             _bullet_box(
@@ -2332,7 +2371,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         if chart_image is not None:
             target.append(chart_image)
             target.append(Spacer(1, 3 * mm))
-        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[40, 32, 18, 84]))
+        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[38, 30, 26, 80]))
         target.append(Spacer(1, 3 * mm))
         exposure_lines = [
             str(exposure_payload.get("summary_line") or ""),
@@ -5676,6 +5715,53 @@ def _professional_join_labels(values: list[str], *, fallback: str = PDF_MISSING_
     return ", ".join(dict.fromkeys(clean))
 
 
+def _professional_normalized_text(value: object) -> str:
+    repaired = _professional_visible_metric_text(value)
+    normalized = unicodedata.normalize("NFD", repaired).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", normalized).strip().casefold()
+
+
+def _professional_strip_terminal_period(value: object) -> str:
+    return _professional_visible_metric_text(value).strip().rstrip(".")
+
+
+def _professional_is_no_clear_lagging_text(value: object) -> bool:
+    normalized = _professional_normalized_text(value)
+    if not normalized or normalized in {"-", "sin dato", "faltan datos"}:
+        return True
+    no_lagging_markers = (
+        "sin variables < -0.5",
+        "sin una variable claramente rezagada",
+        "sin un rezago dominante",
+        "no aparece una variable claramente rezagada",
+    )
+    return any(marker in normalized for marker in no_lagging_markers)
+
+
+def _professional_has_clear_lagging_variable(feedback: dict[str, object]) -> bool:
+    return not _professional_is_no_clear_lagging_text(feedback.get("low", ""))
+
+
+def _professional_sanitize_profile_feedback(feedback: dict[str, object]) -> dict[str, str]:
+    cleaned = {
+        str(key): _professional_visible_metric_text(value).strip()
+        for key, value in feedback.items()
+        if str(value or "").strip()
+    }
+    has_clear_lagging = _professional_has_clear_lagging_variable(cleaned)
+    next_block_normalized = _professional_normalized_text(cleaned.get("next_block", ""))
+    if not has_clear_lagging:
+        cleaned["low"] = PROFESSIONAL_NO_CLEAR_LAGGING_TEXT
+        cleaned["next_block"] = PROFESSIONAL_NO_CLEAR_LAGGING_NEXT_BLOCK
+        if not cleaned.get("physiological"):
+            cleaned["physiological"] = "Perfil equilibrado en los índices disponibles."
+        if not cleaned.get("biomechanical"):
+            cleaned["biomechanical"] = "Sin déficits biomecánicos marcados en los tests disponibles."
+    elif "variable mas rezagada" in next_block_normalized:
+        cleaned["next_block"] = "Sostener la cualidad dominante y ajustar el limitante principal en el próximo bloque."
+    return cleaned
+
+
 def _professional_delta_signal_labels(delta_df: pd.DataFrame, signal: str) -> list[str]:
     if delta_df is None or delta_df.empty or "Signal" not in delta_df.columns:
         return []
@@ -5787,19 +5873,29 @@ def _build_professional_composite_profile_payload(
     metric_table = build_composite_profile_metric_table(snapshot_row)
     if not metric_table.empty:
         metric_table = metric_table.apply(lambda column: column.map(_professional_visible_metric_text))
-    feedback = {
+        if "Z-score" in metric_table.columns:
+            metric_table["Z-score"] = metric_table["Z-score"].map(
+                lambda value: "—"
+                if str(value or "").strip() in {"", "-", "—", PDF_MISSING_TEXT, "Sin dato"}
+                else value
+            )
+    feedback = _professional_sanitize_profile_feedback({
         key: _professional_visible_metric_text(value)
         for key, value in _professional_feedback_map(build_jump_feedback_lines(snapshot_row)).items()
-    }
+    })
     available_metric_count = _professional_composite_metric_count(metric_table)
     state_label = "available" if available_metric_count >= PROFESSIONAL_FULL_REPORT_MIN_COMPOSITE_METRICS else "partial"
-    dominant_text = feedback.get("high") or "sin variables claramente por encima de la referencia."
-    lagging_text = feedback.get("low") or "sin una variable claramente rezagada."
-    summary_line = (
-        f"Predominan hoy {dominant_text} La variable mÃ¡s rezagada aparece en {lagging_text}"
-        if available_metric_count
-        else "No hay suficientes variables vÃ¡lidas para describir el perfil compuesto."
+    dominant_text = _professional_strip_terminal_period(
+        feedback.get("high") or "sin variables claramente por encima de la referencia"
     )
+    has_clear_lagging = _professional_has_clear_lagging_variable(feedback)
+    lagging_text = _professional_strip_terminal_period(feedback.get("low") or PROFESSIONAL_NO_CLEAR_LAGGING_TEXT)
+    if available_metric_count and has_clear_lagging:
+        summary_line = f"Predominan hoy {dominant_text}. El limitante principal aparece en {lagging_text}."
+    elif available_metric_count:
+        summary_line = f"Predominan hoy {dominant_text}. {PROFESSIONAL_NO_CLEAR_LAGGING_TEXT}"
+    else:
+        summary_line = "No hay suficientes variables válidas para describir el perfil compuesto."
     return {
         "title": "Perfil actual compuesto",
         "state": state_label,
@@ -5809,6 +5905,7 @@ def _build_professional_composite_profile_payload(
         "metric_table": metric_table,
         "available_metric_count": available_metric_count,
         "feedback": feedback,
+        "has_clear_lagging": has_clear_lagging,
         "summary_line": summary_line.strip(),
         "latest_profile_date": _format_profile_source_date(history["Date"].max()),
         "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
@@ -5981,6 +6078,74 @@ def _build_professional_isometric_payload(
         "force_time_available": bool(imtp_payload.get("has_valid_force_time")),
         "iso_available": bool(iso_rows or iso_payload.get("has_valid_force_time")),
     }
+
+
+def _draw_compact_professional_force_time_block(pdf: dict[str, object], payload: dict[str, object] | None, *_, **__) -> None:
+    if not payload or not payload.get("has_valid_force_time"):
+        return
+    story = pdf.get("story")
+    p = pdf.get("p")
+    box = pdf.get("box")
+    TableClass = pdf.get("Table")
+    TableStyleClass = pdf.get("TableStyle")
+    SpacerClass = pdf.get("Spacer")
+    mm_unit = pdf.get("mm")
+    palette = pdf.get("palette", {})
+    if not isinstance(story, list) or p is None or box is None or TableClass is None or TableStyleClass is None or SpacerClass is None or mm_unit is None:
+        return
+
+    force_points = list(payload.get("force_time_points", []))
+    rfd_points = list(payload.get("rfd_points", []))
+    force_rows = [
+        (f"Force@{str(point.get('label') or '').replace(' ms', '')}", _professional_number_text(point.get("value_n"), digits=0, unit="N"))
+        for point in force_points
+        if _coerce_float(point.get("value_n")) is not None
+    ]
+    rfd_rows = [
+        (str(point.get("label") or ""), _professional_number_text(point.get("value_n_s"), digits=0, unit="N/s"))
+        for point in rfd_points
+        if _coerce_float(point.get("value_n_s")) is not None
+    ]
+    story.append(
+        box(
+            [
+                p("Lectura práctica", "ProfCardTitle"),
+                p(
+                    "Peak Force y fuerza relativa resumen la capacidad máxima; los puntos force-time ayudan a monitorear cómo se expresa la fuerza en ventanas tempranas e intermedias.",
+                    "ProfMuted",
+                ),
+                p("RFD exportada descriptiva; interpretar con cautela si no hay TE propio.", "ProfMuted"),
+            ],
+            padding=5,
+        )
+    )
+    if not force_rows and not rfd_rows:
+        return
+
+    rows = [[p("Fuerza", "ProfCardTitle"), p("Valor", "ProfCardTitle"), p("RFD", "ProfCardTitle"), p("Valor RFD", "ProfCardTitle")]]
+    for idx in range(max(len(force_rows), len(rfd_rows))):
+        force_label, force_value = force_rows[idx] if idx < len(force_rows) else ("", "")
+        rfd_label, rfd_value = rfd_rows[idx] if idx < len(rfd_rows) else ("", "")
+        rows.append([p(force_label, "ProfMuted"), p(force_value, "ProfMuted"), p(rfd_label, "ProfMuted"), p(rfd_value, "ProfMuted")])
+    table = TableClass(rows, colWidths=[34 * mm_unit, 42 * mm_unit, 34 * mm_unit, 64 * mm_unit], hAlign="LEFT")
+    table.setStyle(
+        TableStyleClass(
+            [
+                ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
+                ("BACKGROUND", (0, 0), (-1, 0), palette["card"]),
+                ("BACKGROUND", (0, 1), (-1, -1), palette["card"]),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    story.append(SpacerClass(1, 2 * mm_unit))
+    story.append(p("Detalle técnico compacto", "ProfCardTitle"))
+    story.append(table)
 
 
 def _build_professional_load_tolerance_payload(
@@ -6225,11 +6390,10 @@ def _build_professional_exposure_payload(
     active_titles = [row["title"] for row in sorted(ranking_rows, key=lambda item: (-int(item["sessions"]), -float(item["value"]), item["title"]))]
     dominant = active_titles[:2]
     secondary = active_titles[2:4]
-    low_or_absent = [
-        str(spec["title"])
-        for spec in PROFESSIONAL_EXPOSURE_CATEGORY_SPECS
-        if str(spec["title"]) not in active_titles
-    ]
+    low_or_absent: list[str] = []
+    if len(ranking_rows) >= 2:
+        lowest_row = sorted(ranking_rows, key=lambda item: (int(item["sessions"]), float(item["value"]), item["title"]))[0]
+        low_or_absent = [str(lowest_row["title"])]
 
     change_payload = change_payload or {}
     improved_labels = " ".join(change_payload.get("improvements", []))
@@ -6237,7 +6401,7 @@ def _build_professional_exposure_payload(
     dominant_text = _professional_join_labels(dominant, fallback="")
     if dominant_text and "Fuerza con carga" in dominant_text and any(token in improved_labels for token in ("CMJ", "SJ", "IMTP")):
         context_link = "El bloque tuvo predominio de fuerza con carga y es compatible con la seÃ±al actual de fuerza/salida vertical."
-    elif dominant_text and "Pliometria y aterrizajes" in dominant_text and any(token in improved_labels for token in ("DRI", "RSI", "Contact")):
+    elif dominant_text and "Pliometría y aterrizajes" in dominant_text and any(token in improved_labels for token in ("DRI", "RSI", "Contact")):
         context_link = "El bloque tuvo predominio reactivo y es compatible con la seÃ±al actual de reactividad/contacto."
     elif dominant_text and "Movilidad y prehab" in dominant_text:
         context_link = "El bloque visible parece orientado a soporte/prehab; conviene no sobreinterpretar cambios como respuesta a un bloque principal de rendimiento."
@@ -6304,10 +6468,14 @@ def _build_professional_integrated_decision_payload(
     monitor: list[str] = []
 
     feedback = composite_payload.get("feedback", {}) if isinstance(composite_payload.get("feedback"), dict) else {}
-    if composite_payload.get("state") != "missing":
+    has_clear_lagging = _professional_has_clear_lagging_variable(feedback)
+    if composite_payload.get("state") != "missing" and has_clear_lagging:
         high_text = feedback.get("high") or "sin una cualidad claramente dominante"
         low_text = feedback.get("low") or "sin un rezago dominante"
         good_confidence.append(f"El perfil actual compuesto muestra {high_text}; la variable mÃ¡s rezagada aparece en {low_text}.")
+    elif composite_payload.get("state") != "missing":
+        high_text = _professional_strip_terminal_period(feedback.get("high") or "sin una cualidad claramente dominante")
+        good_confidence.append(f"El perfil actual compuesto muestra {high_text}; {PROFESSIONAL_NO_CLEAR_LAGGING_TEXT}")
     if change_payload.get("improvements"):
         good_confidence.append(f"Hay mejoras relevantes vs evaluaciÃ³n anterior en {_professional_join_labels(change_payload.get('improvements', []))}.")
     if change_payload.get("declines"):
@@ -6334,26 +6502,36 @@ def _build_professional_integrated_decision_payload(
     if exposure_payload.get("state") == "missing":
         unknown.append("Falta exposiciÃ³n por estÃ­mulos suficiente para relacionar mejor el contenido del bloque con el perfil actual.")
 
-    low_text = str(feedback.get("low") or "").casefold()
+    low_text = _professional_normalized_text(feedback.get("low", ""))
     load_risk_text = str(load_payload.get("risk_line") or "").casefold()
     wellness_risk_text = str(wellness_payload.get("compatibility") or "").casefold()
     if "riesgo" in load_risk_text or "vigilancia" in wellness_risk_text or "menos favorables" in wellness_risk_text:
         decision_practical.append("Ajustar densidad/volumen del prÃ³ximo microciclo y sostener solo el estÃ­mulo prioritario hasta confirmar tolerancia.")
-    elif "fuerza" in low_text:
+    elif has_clear_lagging and "fuerza" in low_text:
         decision_practical.append("Mantener la cualidad dominante y priorizar fuerza base/transferencia en el prÃ³ximo bloque.")
-    elif any(token in low_text for token in ("react", "dri", "contact")):
+    elif has_clear_lagging and any(token in low_text for token in ("react", "dri", "contact")):
         decision_practical.append("Sostener la base actual y priorizar la expresiÃ³n reactiva con progresiÃ³n controlada del contenido pliomÃ©trico.")
     else:
         decision_practical.append("Mantener la cualidad mejor expresada y ajustar solo la variable mÃ¡s rezagada, evitando abrir demasiados frentes a la vez.")
 
     if change_payload.get("declines"):
         decision_practical.append("Confirmar la seÃ±al en la siguiente ventana antes de atribuirla por completo a adaptaciÃ³n o fatiga.")
+    if not has_clear_lagging:
+        decision_practical = [
+            line
+            for line in decision_practical
+            if "variable mas rezagada" not in _professional_normalized_text(line)
+        ]
+        decision_practical.append("Sostener el perfil actual, consolidar calidad técnica y monitorear evolución sin abrir nuevos focos innecesarios.")
+
     if exposure_payload.get("dominant"):
         decision_practical.append(f"Usar como base del siguiente bloque los estÃ­mulos dominantes ya visibles: {_professional_join_labels(exposure_payload.get('dominant', []))}.")
 
     monitor.append("Monitorear sueÃ±o, estrÃ©s, dolor, adherencia y calidad de sesiÃ³n durante el prÃ³ximo microciclo.")
     if change_payload.get("declines"):
         monitor.append(f"Monitorear de cerca {_professional_join_labels(change_payload.get('declines', []))} para confirmar si la seÃ±al persiste o se normaliza.")
+    if not has_clear_lagging:
+        monitor.append(PROFESSIONAL_NO_CLEAR_LAGGING_MONITOR)
     if exposure_payload.get("low_or_absent"):
         monitor.append(f"Monitorear si el bloque sigue con poca exposiciÃ³n en {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:2])}.")
     monitor.append("Medir nuevamente el perfil fÃ­sico en 6-8 semanas o antes si el contexto competitivo obliga a verificar una seÃ±al puntual.")
@@ -6379,21 +6557,25 @@ def _build_professional_action_plan_payload(
     integrated_payload: dict[str, object],
 ) -> dict[str, object]:
     feedback = composite_payload.get("feedback", {}) if isinstance(composite_payload.get("feedback"), dict) else {}
-    low_text = _professional_visible_metric_text(feedback.get("low", "")).casefold()
+    has_clear_lagging = _professional_has_clear_lagging_variable(feedback)
+    low_text = _professional_normalized_text(feedback.get("low", ""))
     decline_text = _professional_join_labels(change_payload.get("declines", []), fallback="").casefold()
     maintain = ["Mantener la capacidad dominante actual sin perder calidad técnica ni variabilidad del microciclo."]
     if feedback.get("next_block"):
         maintain.append(f"Usar como referencia del bloque: {_professional_visible_metric_text(feedback.get('next_block'))}")
 
     adjust: list[str] = []
-    if any(token in f"{low_text} {decline_text}" for token in ("tiempo de contacto", "rsi", "react", "dri")):
+    if has_clear_lagging and any(token in f"{low_text} {decline_text}" for token in ("tiempo de contacto", "rsi", "react", "dri")):
         adjust.append("Ajustar la progresión reactiva y la calidad de contacto si el tiempo de contacto subió o DJ RSI cayó.")
-    elif feedback.get("low"):
+    elif has_clear_lagging and feedback.get("low"):
         adjust.append(f"Ajustar el próximo bloque para mejorar {_professional_visible_metric_text(feedback.get('low'))}.")
     if change_payload.get("declines"):
         adjust.append(f"Revisar carga, protocolo y prioridades si persisten caídas en {_professional_join_labels(change_payload.get('declines', []))}.")
-    if not adjust:
+    if not adjust and has_clear_lagging:
         adjust.append("Ajustar solo una prioridad principal del bloque para evitar dispersar el estímulo.")
+
+    elif not adjust:
+        adjust.append("Sostener el perfil actual, consolidar calidad técnica y reforzar la base solo si el contexto de carga o wellness lo pide.")
 
     monitor = [
         "Monitorear DJ RSI, tiempo de contacto, EUR y DSI/DRI si están disponibles en la próxima evaluación.",
@@ -6401,6 +6583,9 @@ def _build_professional_action_plan_payload(
     ]
     if change_payload.get("declines"):
         monitor.append(f"Confirmar si la señal desfavorable en {_professional_join_labels(change_payload.get('declines', []))} persiste o se normaliza.")
+
+    if not has_clear_lagging:
+        monitor.append(PROFESSIONAL_NO_CLEAR_LAGGING_MONITOR)
 
     measure = [
         "Medir nuevamente en 6-8 semanas o antes si el calendario competitivo exige verificar una señal puntual.",
@@ -7436,7 +7621,18 @@ def _generate_professional_profile_pdf_reportlab(
 
     def _bullet_box(title: str, lines: list[str], *, style_name: str = "ProfBody") -> Table:
         flowables: list[object] = [_p(title, "ProfCardTitle")]
-        cleaned = [str(line).strip() for line in lines if str(line or "").strip()]
+        cleaned = []
+        for line in lines:
+            text = str(line or "").strip()
+            if not text:
+                continue
+            normalized = _professional_normalized_text(text)
+            if normalized == "estimulos bajos o ausentes: faltan datos.":
+                continue
+            if normalized.startswith("estimulos bajos o ausentes:"):
+                _, _, detail = text.partition(":")
+                text = f"Menor exposición relativa:{detail}"
+            cleaned.append(text)
         if not cleaned:
             cleaned = ["Faltan datos para generar una interpretaciÃ³n confiable."]
         flowables.extend(_p(f"- {line}", style_name) for line in cleaned)
@@ -8178,7 +8374,11 @@ def _generate_professional_profile_pdf_reportlab(
         if isometric_payload.get("state") == "missing":
             target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isomÃƒÂ©tricos.")))
             return
-        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "AsimetrÃƒÂ­a"}]
+        imtp_priority = [
+            row
+            for row in isometric_payload.get("imtp_rows", [])
+            if _professional_normalized_text(row[0]) in {"peak force", "fuerza relativa", "force avg", "time to peak", "asimetria", "lado dominante"}
+        ]
         if imtp_priority:
             target.append(_p("IMTP principal", "ProfCardTitle"))
             target.append(_mini_cards_table(imtp_priority))
@@ -8193,7 +8393,7 @@ def _generate_professional_profile_pdf_reportlab(
                 target.append(_bullet_box("Lectura prÃƒÂ¡ctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
         if isometric_payload.get("force_time_available"):
             target.append(Spacer(1, 3 * mm))
-            draw_force_time_test_block(
+            _draw_compact_professional_force_time_block(
                 {
                     "story": target,
                     "p": _p,
@@ -8251,7 +8451,7 @@ def _generate_professional_profile_pdf_reportlab(
         if chart_image is not None:
             target.append(chart_image)
             target.append(Spacer(1, 3 * mm))
-        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[40, 32, 18, 84]))
+        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[38, 30, 26, 80]))
         target.append(Spacer(1, 3 * mm))
         target.append(
             _bullet_box(
@@ -8298,7 +8498,10 @@ def _generate_professional_profile_pdf_reportlab(
     _append_full_executive_page(story)
     story.append(PageBreak())
     _append_full_composite_profile_page(story)
-    story.append(PageBreak())
+    if change_payload.get("state") != "missing":
+        story.append(PageBreak())
+    else:
+        story.append(Spacer(1, 4 * mm))
     _append_full_change_page(story)
     if _professional_any_quadrant_ready(quadrant_sections):
         story.append(PageBreak())

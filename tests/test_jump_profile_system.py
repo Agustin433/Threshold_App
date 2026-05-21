@@ -14,6 +14,7 @@ from modules.jump_analysis import (
     _prepare_jump_df,
     _records_to_jump_df,
     build_composite_profile_metric_table,
+    build_composite_profile_metric_rows,
     build_composite_profile_snapshot,
     build_profile_radar_row,
     build_jump_baseline_display_table,
@@ -293,7 +294,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         axis_order = list(figure.data[-1].theta)[:-1]
         self.assertEqual(
             axis_order,
-            ["SJ", "CMJ", "DJ height", "DJ RSI", "TC inv", "IMTP relPF"],
+            ["SJ", "CMJ", "DJ height", "DJ RSI", "Tiempo de contacto", "IMTP relPF"],
         )
 
     def test_composite_profile_snapshot_uses_latest_valid_value_per_metric(self):
@@ -315,7 +316,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(source_dates["CMJ"], "15/04/2026")
         self.assertEqual(source_dates["DJ"], "22/04/2026")
         self.assertEqual(source_dates["DRI"], "22/04/2026")
-        self.assertEqual(source_dates["TC"], "22/04/2026")
+        self.assertEqual(source_dates["Tiempo de contacto"], "22/04/2026")
         self.assertEqual(source_dates["EUR"], "15/04/2026")
         self.assertEqual(source_dates["IMTP"], "22/04/2026")
 
@@ -326,12 +327,12 @@ class JumpProfileSystemTest(unittest.TestCase):
         figure = chart_composite_profile_radar(composite_row, "Atleta Compuesto", theme=_chart_theme())
         axis_order = list(figure.data[-1].theta)[:-1]
 
-        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
+        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "Tiempo de contacto", "EUR", "IMTP"])
 
         metric_table = build_composite_profile_metric_table(composite_row)
         self.assertEqual(
             metric_table["Variable"].tolist(),
-            ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"],
+            ["SJ", "CMJ", "DJ", "DRI", "Tiempo de contacto", "EUR", "IMTP"],
         )
         self.assertEqual(
             metric_table.columns.tolist(),
@@ -348,13 +349,58 @@ class JumpProfileSystemTest(unittest.TestCase):
         metric_table = build_composite_profile_metric_table(composite_row)
         zscores = dict(zip(metric_table["Variable"], metric_table["Z-score"]))
 
-        self.assertNotEqual(zscores["SJ"], "-")
-        self.assertNotEqual(zscores["CMJ"], "-")
-        self.assertNotEqual(zscores["DJ"], "-")
-        self.assertNotEqual(zscores["DRI"], "-")
-        self.assertNotEqual(zscores["TC"], "-")
-        self.assertNotEqual(zscores["EUR"], "-")
-        self.assertNotEqual(zscores["IMTP"], "-")
+        self.assertNotEqual(zscores["SJ"], "—")
+        self.assertNotEqual(zscores["CMJ"], "—")
+        self.assertNotEqual(zscores["DJ"], "—")
+        self.assertNotEqual(zscores["DRI"], "—")
+        self.assertNotEqual(zscores["Tiempo de contacto"], "—")
+        self.assertNotEqual(zscores["EUR"], "—")
+        self.assertNotEqual(zscores["IMTP"], "—")
+
+    def test_composite_profile_uses_zscore_aliases_shared_by_dashboard_and_quadrants(self):
+        jump_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Atleta Alias",
+                    "Date": "2026-05-01",
+                    "SJ_cm": 31,
+                    "CMJ_cm": 35,
+                    "DJ_tc_ms": 210,
+                    "DRI": 1.29,
+                    "EUR": 1.129,
+                    "IMTP_relPF": 39.5,
+                    "SJ_Z": -0.20,
+                    "CMJ_Z": 0.30,
+                    "DJ_height_Z": 0.10,
+                    "DJ_RSI_Z": 0.45,
+                    "DJtc_Z": 0.80,
+                    "EUR_Z": 0.25,
+                    "IMTP_Z": 0.60,
+                }
+            ]
+        )
+
+        composite_row, _ = build_composite_profile_snapshot(jump_df)
+        metric_table = build_composite_profile_metric_table(composite_row)
+        rows = build_composite_profile_metric_rows(composite_row)
+        zscores = dict(zip(metric_table["Variable"], metric_table["Z-score"]))
+
+        self.assertEqual(zscores["DRI"], 0.45)
+        self.assertEqual(zscores["Tiempo de contacto"], 0.80)
+        self.assertNotEqual(zscores["IMTP"], "—")
+        self.assertEqual(composite_row["DRI_Z"], composite_row["DJ_RSI_Z"])
+        self.assertEqual(composite_row["TC_inv_Z"], composite_row["DJtc_Z"])
+        self.assertEqual(composite_row["IMTP_relPF_Z"], composite_row["IMTP_Z"])
+        self.assertEqual(
+            next(row for row in rows if row["Variable"] == "Tiempo de contacto")["Direccion"],
+            "lower_is_better_inverted_z",
+        )
+
+        figure = chart_composite_profile_radar(composite_row, "Atleta Alias", theme=_chart_theme())
+        axis_order = list(figure.data[-1].theta)[:-1]
+        radial_values = list(figure.data[-1].r)[:-1]
+        self.assertEqual(axis_order[4], "Tiempo de contacto")
+        self.assertEqual(radial_values[4], 0.80)
 
     def test_composite_profile_chart_renders_without_imtp(self):
         jump_df = _prepare_jump_df(
@@ -373,7 +419,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         radial_values = list(figure.data[-1].r)[:-1]
         radar_center = figure.layout.polar.radialaxis.range[0]
 
-        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
+        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "Tiempo de contacto", "EUR", "IMTP"])
         self.assertEqual(radial_values[-1], radar_center)
 
     def test_composite_profile_chart_keeps_missing_internal_axis_fixed_at_center(self):
@@ -393,13 +439,13 @@ class JumpProfileSystemTest(unittest.TestCase):
         radial_values = list(figure.data[-1].r)[:-1]
         radar_center = figure.layout.polar.radialaxis.range[0]
 
-        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
+        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "Tiempo de contacto", "EUR", "IMTP"])
         self.assertEqual(radial_values[1], radar_center)
 
         metric_table = build_composite_profile_metric_table(composite_row)
         cmj_row = metric_table[metric_table["Variable"] == "CMJ"].iloc[0]
         self.assertEqual(cmj_row["Valor"], "-")
-        self.assertEqual(cmj_row["Z-score"], "-")
+        self.assertEqual(cmj_row["Z-score"], "—")
         self.assertEqual(cmj_row["Origen / referencia"], "-")
 
     def test_composite_profile_metric_table_keeps_internal_zscores_missing_when_history_is_insufficient(self):
@@ -424,13 +470,13 @@ class JumpProfileSystemTest(unittest.TestCase):
         metric_table = build_composite_profile_metric_table(composite_row)
         zscores = dict(zip(metric_table["Variable"], metric_table["Z-score"]))
 
-        self.assertEqual(zscores["SJ"], "-")
-        self.assertNotEqual(zscores["CMJ"], "-")
-        self.assertEqual(zscores["DJ"], "-")
-        self.assertNotEqual(zscores["DRI"], "-")
-        self.assertEqual(zscores["TC"], "-")
-        self.assertEqual(zscores["EUR"], "-")
-        self.assertNotEqual(zscores["IMTP"], "-")
+        self.assertEqual(zscores["SJ"], "—")
+        self.assertNotEqual(zscores["CMJ"], "—")
+        self.assertEqual(zscores["DJ"], "—")
+        self.assertNotEqual(zscores["DRI"], "—")
+        self.assertEqual(zscores["Tiempo de contacto"], "—")
+        self.assertEqual(zscores["EUR"], "—")
+        self.assertNotEqual(zscores["IMTP"], "—")
 
     def test_metric_trend_chart_uses_chronological_eval_dates(self):
         jump_df = _temporal_jump_df()
@@ -529,7 +575,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertAlmostEqual(float(radar_row["IMTP_relPF"]), 37.5, places=2)
         self.assertEqual(
             list(figure.data[-1].theta)[:-1],
-            ["SJ", "CMJ", "DJ height", "DJ RSI", "TC inv", "IMTP relPF"],
+            ["SJ", "CMJ", "DJ height", "DJ RSI", "Tiempo de contacto", "IMTP relPF"],
         )
 
     def test_records_to_jump_df_keeps_positive_body_weight_when_zero_arrives_later_same_day(self):
@@ -750,7 +796,7 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertEqual(list(base_radar.data[-1].theta), list(enriched_radar.data[-1].theta))
         self.assertEqual(choose_secondary_quadrant_x_spec(base_df), choose_secondary_quadrant_x_spec(enriched_df))
-        self.assertEqual(metric_table["Variable"].tolist(), ["SJ", "CMJ", "DJ", "DRI", "TC", "EUR", "IMTP"])
+        self.assertEqual(metric_table["Variable"].tolist(), ["SJ", "CMJ", "DJ", "DRI", "Tiempo de contacto", "EUR", "IMTP"])
         self.assertNotIn("ISO_HAM_rfd_200_N_s", enriched_df.columns)
 
     def test_primary_profile_row_ignores_newer_iso_only_row(self):
@@ -948,7 +994,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         display_df = build_jump_delta_display_table(fourth_delta)
 
         self.assertTrue(any("mejora relevante en" in line and "CMJ" in line for line in temporal_lines))
-        self.assertTrue(any("caida relevante en" in line and "DJ TC" in line for line in temporal_lines))
+        self.assertTrue(any("caida relevante en" in line and "Tiempo de contacto" in line for line in temporal_lines))
         self.assertIn("↑ mejora relevante", display_df["Senal"].tolist())
         self.assertIn("↓ caida relevante", display_df["Senal"].tolist())
 
