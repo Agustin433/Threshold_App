@@ -1230,12 +1230,13 @@ def build_composite_profile_metric_rows(row: pd.Series | dict[str, object]) -> l
         value = pd.to_numeric(pd.Series([row_series.get(value_col)]), errors="coerce").iloc[0]
         z_value = _coalesced_numeric_value(row_series, *_zscore_aliases(z_col))
         rounded_value = round(float(value), digits) if pd.notna(value) else None
+        z_score_display = round(float(z_value), 2) if pd.notna(z_value) else "\u2014"
         rows.append(
             {
                 "Variable": label,
                 "Valor": _format_composite_metric_value(rounded_value, unit, digits),
                 "Unidad": unit,
-                "Z-score": round(float(z_value), 2) if pd.notna(z_value) else "—",
+                "Z-score": z_score_display,
                 "Origen / referencia": row_series.get(f"{value_col}__source_date", "-") or "-",
                 "Etiqueta visible profesional": label,
                 "Direccion": COMPOSITE_PROFILE_DIRECTIONS.get(value_col, "higher_is_better"),

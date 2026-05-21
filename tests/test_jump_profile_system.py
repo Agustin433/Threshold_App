@@ -402,6 +402,23 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(axis_order[4], "Tiempo de contacto")
         self.assertEqual(radial_values[4], 0.80)
 
+    def test_contact_time_composite_zscore_keeps_lower_is_better_semantics(self):
+        jump_df = pd.DataFrame(
+            [
+                {"Athlete": "Atleta TC", "Date": "2026-04-01", "DJ_cm": 24.0, "DJ_tc_ms": 260.0},
+                {"Athlete": "Atleta TC", "Date": "2026-04-08", "DJ_cm": 24.0, "DJ_tc_ms": 250.0},
+                {"Athlete": "Atleta TC", "Date": "2026-04-15", "DJ_cm": 24.0, "DJ_tc_ms": 240.0},
+                {"Athlete": "Atleta TC", "Date": "2026-04-22", "DJ_cm": 24.0, "DJ_tc_ms": 220.0},
+            ]
+        )
+
+        composite_row, _ = build_composite_profile_snapshot(jump_df)
+        rows = build_composite_profile_metric_rows(composite_row)
+        contact_row = next(row for row in rows if row["Variable"] == "Tiempo de contacto")
+
+        self.assertEqual(contact_row["Direccion"], "lower_is_better_inverted_z")
+        self.assertGreater(float(contact_row["Z-score"]), 0)
+
     def test_composite_profile_chart_renders_without_imtp(self):
         jump_df = _prepare_jump_df(
             pd.DataFrame(

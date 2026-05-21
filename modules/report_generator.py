@@ -108,7 +108,7 @@ PROFESSIONAL_NO_CLEAR_LAGGING_NEXT_BLOCK = (
 PROFESSIONAL_NO_CLEAR_LAGGING_MONITOR = (
     "Monitorear si alguna variable empieza a separarse del perfil en próximas evaluaciones."
 )
-MOJIBAKE_MARKERS = ("Ã", "Â", "â")
+MOJIBAKE_MARKERS = tuple(chr(code) for code in (195, 194, 226))
 
 
 def _repair_mojibake_text(value: object) -> str:
@@ -139,6 +139,52 @@ def _repair_mojibake_text(value: object) -> str:
         "seÃal": "señal",
         "SeÃal": "Señal",
     }
+    manual_replacements.update(
+        {
+            "Est\u00c3mulos": "Est\u00edmulos",
+            "Est\u00c3\u0192mulos": "Est\u00edmulos",
+            "Est\u00c3\u0192\u00c2mulos": "Est\u00edmulos",
+            "D\u00c3as": "D\u00edas",
+            "Monoton\u00c3a": "Monoton\u00eda",
+            "fisiol\u00c3gica": "fisiol\u00f3gica",
+            "fisiol\u00c33gica": "fisiol\u00f3gica",
+            "fisiol\u00c3\u0192\u00c23gica": "fisiol\u00f3gica",
+            "biomec\u00c3nica": "biomec\u00e1nica",
+            "biomec\u00c3\u0192\u00c2\u00a1nica": "biomec\u00e1nica",
+            "evaluaci\u00c3n": "evaluaci\u00f3n",
+            "pr\u00c3ximo": "pr\u00f3ximo",
+            "pr\u00c33ximo": "pr\u00f3ximo",
+            "pr\u00c3\u0192\u00c23ximo": "pr\u00f3ximo",
+            "exposici\u00c33n": "exposici\u00f3n",
+            "exposici\u00c3\u0192\u00c23n": "exposici\u00f3n",
+            "se\u00c3al": "se\u00f1al",
+            "Se\u00c3al": "Se\u00f1al",
+        }
+    )
+    sequence_replacements = {
+        "\u00c3\u00a1": "\u00e1",
+        "\u00c3\u00a9": "\u00e9",
+        "\u00c3\u00ad": "\u00ed",
+        "\u00c3\u00b3": "\u00f3",
+        "\u00c3\u00ba": "\u00fa",
+        "\u00c3\u00b1": "\u00f1",
+        "\u00c3\u0081": "\u00c1",
+        "\u00c3\u0089": "\u00c9",
+        "\u00c3\u008d": "\u00cd",
+        "\u00c3\u0093": "\u00d3",
+        "\u00c3\u009a": "\u00da",
+        "\u00c3\u0091": "\u00d1",
+        "\u00c2\u00b7": "\u00b7",
+        "\u00c3\u0192\u00c2\u00a1": "\u00e1",
+        "\u00c3\u0192\u00c2\u00a9": "\u00e9",
+        "\u00c3\u0192\u00c2\u00ad": "\u00ed",
+        "\u00c3\u0192\u00c2\u00b3": "\u00f3",
+        "\u00c3\u0192\u00c2\u00ba": "\u00fa",
+        "\u00c3\u0192\u00c2\u00b1": "\u00f1",
+        "\u00c33": "\u00f3",
+    }
+    for broken, fixed in sequence_replacements.items():
+        text = text.replace(broken, fixed)
     for broken, fixed in manual_replacements.items():
         text = text.replace(broken, fixed)
     return unicodedata.normalize("NFKC", text).replace("\u00a0", " ")
@@ -186,7 +232,7 @@ def _professional_visible_metric_text(value: object) -> str:
             return fixed[:1].upper() + fixed[1:] if word[:1].isupper() else fixed
 
         text = re.sub(rf"\b{re.escape(source)}\b", _replace, text, flags=re.IGNORECASE)
-    return text
+    return _repair_mojibake_text(text)
 
 
 PROFESSIONAL_COMPOSITE_PROFILE_NOTE = (
@@ -4836,6 +4882,7 @@ def _build_professional_quadrant_sections(
             "decision": "Orientar el próximo bloque según si el limitante principal parece estar en fuerza concéntrica, DRI/reactividad o integración entre ambas.",
             "missing_message": "Faltan datos para construir el cuadrante SJ vs DRI.",
             "meaning_type": "dri_sj",
+            "required_value_cols": ("DRI",),
         },
         {
             "title": "Cuadrante eficiencia SSC lenta vs CMJ",
@@ -4851,7 +4898,16 @@ def _build_professional_quadrant_sections(
     ]
     sections: list[dict[str, object]] = []
     for spec in specs:
-        x_col = next((col for col in spec["x_cols"] if col in data.columns), "")
+        required_value_cols = tuple(spec.get("required_value_cols", ()))
+        required_values_ready = all(
+            column in data.columns and pd.to_numeric(data[column], errors="coerce").notna().any()
+            for column in required_value_cols
+        )
+        x_col = (
+            next((col for col in spec["x_cols"] if col in data.columns), "")
+            if not required_value_cols or required_values_ready
+            else ""
+        )
         y_col = str(spec["y_col"])
         points: list[dict[str, object]] = []
         selected = None
@@ -5875,8 +5931,9 @@ def _build_professional_composite_profile_payload(
         metric_table = metric_table.apply(lambda column: column.map(_professional_visible_metric_text))
         if "Z-score" in metric_table.columns:
             metric_table["Z-score"] = metric_table["Z-score"].map(
-                lambda value: "—"
-                if str(value or "").strip() in {"", "-", "—", PDF_MISSING_TEXT, "Sin dato"}
+                lambda value: "\u2014"
+                if _professional_visible_metric_text(value).strip()
+                in {"", "-", "\u2014", PDF_MISSING_TEXT, "Sin dato"}
                 else value
             )
     feedback = _professional_sanitize_profile_feedback({
@@ -6388,12 +6445,14 @@ def _build_professional_exposure_payload(
             )
 
     active_titles = [row["title"] for row in sorted(ranking_rows, key=lambda item: (-int(item["sessions"]), -float(item["value"]), item["title"]))]
+    active_titles = [_professional_visible_metric_text(title) for title in active_titles]
     dominant = active_titles[:2]
     secondary = active_titles[2:4]
     low_or_absent: list[str] = []
     if len(ranking_rows) >= 2:
         lowest_row = sorted(ranking_rows, key=lambda item: (int(item["sessions"]), float(item["value"]), item["title"]))[0]
         low_or_absent = [str(lowest_row["title"])]
+    low_or_absent = [_professional_visible_metric_text(title) for title in low_or_absent]
 
     change_payload = change_payload or {}
     improved_labels = " ".join(change_payload.get("improvements", []))
@@ -6415,6 +6474,10 @@ def _build_professional_exposure_payload(
     table = pd.DataFrame(rows, columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"])
     if not table.empty:
         table = table.apply(lambda column: column.map(_professional_visible_metric_text))
+    if not table.empty:
+        table.columns = [_professional_visible_metric_text(column) for column in table.columns]
+    summary_line = _professional_visible_metric_text(summary_line)
+    context_link = _professional_visible_metric_text(context_link)
     state_label = "available" if len(rows) >= 2 else "partial" if rows else "missing"
     return {
         "title": "ExposiciÃ³n del bloque / contenido entrenado",
@@ -7630,8 +7693,12 @@ def _generate_professional_profile_pdf_reportlab(
             if normalized == "estimulos bajos o ausentes: faltan datos.":
                 continue
             if normalized.startswith("estimulos bajos o ausentes:"):
-                _, _, detail = text.partition(":")
-                text = f"Menor exposición relativa:{detail}"
+                detail = _professional_visible_metric_text(text.partition(":")[2]).strip()
+                if detail:
+                    detail = detail[:1].lower() + detail[1:]
+                    text = f"Menor exposición relativa: {detail}"
+                else:
+                    text = "Menor exposición relativa"
             cleaned.append(text)
         if not cleaned:
             cleaned = ["Faltan datos para generar una interpretaciÃ³n confiable."]

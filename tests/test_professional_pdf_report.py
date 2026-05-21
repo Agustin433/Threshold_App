@@ -10,6 +10,10 @@ from unittest.mock import patch
 import pandas as pd
 
 import modules.report_generator as report_generator
+from modules.jump_analysis import (
+    build_composite_profile_metric_table,
+    build_composite_profile_snapshot,
+)
 from modules.report_generator import (
     PDF_MISSING_TEXT,
     PROFESSIONAL_NO_EVALUATION_TEXT,
@@ -102,6 +106,31 @@ def _rendered_pdf_and_story_text(
 
 def _rendered_story_text(state: dict[str, object], athlete: str, audience: str = "profe") -> str:
     return _rendered_pdf_and_story_text(state, athlete, audience)[1]
+
+
+def _rendered_pdf_and_raw_story_text(
+    state: dict[str, object],
+    athlete: str,
+    audience: str = "profe",
+    now_cls: type[real_datetime] | None = None,
+) -> tuple[bytes, str]:
+    from reportlab.platypus import SimpleDocTemplate
+
+    captured: dict[str, object] = {}
+    original_build = SimpleDocTemplate.build
+
+    def capture_build(self, flowables, *args, **kwargs):
+        captured["story"] = list(flowables)
+        return original_build(self, flowables, *args, **kwargs)
+
+    active_now_cls = now_cls or FixedProfessionalReportDate
+    with patch.object(report_generator, "datetime", active_now_cls):
+        with patch.object(SimpleDocTemplate, "build", capture_build):
+            pdf = generate_visual_report_pdf(state, athlete, audience)
+
+    assert pdf is not None
+    raw_text = " ".join(_story_plain_text(captured.get("story", [])))
+    return pdf, raw_text
 
 
 def _assert_professional_mother_structure(testcase: unittest.TestCase, text: str) -> None:
@@ -1105,6 +1134,26 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         for token in ["Ã", "Â", "â", "decisiÃ", "seÃ"]:
             self.assertNotIn(token.lower(), text)
 
+    def test_professional_pdf_visible_story_repairs_dynamic_mojibake(self):
+        _, raw_text = _rendered_pdf_and_raw_story_text(_professional_state_with_force_time(), "Ana Lopez", "profe")
+
+        broken_c = chr(195)
+        broken_a = chr(194)
+        for token in [
+            broken_c,
+            broken_a,
+            f"Est{broken_c}",
+            f"fisiol{broken_c}",
+            f"biomec{broken_c}",
+            f"pr{broken_c}",
+            f"exposici{broken_c}",
+        ]:
+            self.assertNotIn(token, raw_text)
+        self.assertIn("Lectura fisiol\u00f3gica", raw_text)
+        self.assertIn("Lectura biomec\u00e1nica", raw_text)
+        self.assertIn("pr\u00f3ximo", raw_text)
+        self.assertIn("exposici\u00f3n", raw_text)
+
     def test_internal_load_ignores_future_empty_week_after_report_window(self):
         state = _state_with_future_empty_week()
 
@@ -1210,6 +1259,42 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("Tiempo de contacto", visible_text)
         self.assertNotIn("TC inv", visible_text)
 
+    def test_professional_pdf_uses_dashboard_composite_zscore_source(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-05-01",
+                        "SJ_cm": 31.0,
+                        "CMJ_cm": 35.0,
+                        "DJ_tc_ms": 210.0,
+                        "DRI": 1.29,
+                        "EUR": 1.129,
+                        "IMTP_relPF": 39.5,
+                        "SJ_Z": -0.20,
+                        "CMJ_Z": 0.30,
+                        "DJ_RSI_Z": 0.45,
+                        "DJtc_Z": 0.80,
+                        "EUR_Z": 0.25,
+                        "IMTP_Z": 0.60,
+                    }
+                ]
+            )
+        }
+
+        dashboard_row, _ = build_composite_profile_snapshot(state["jump_df"])
+        dashboard_table = build_composite_profile_metric_table(dashboard_row).set_index("Variable")
+        pdf_table = _build_professional_composite_profile_payload(state, "Ana Lopez")["metric_table"].set_index("Variable")
+        dashboard_z = pd.to_numeric(dashboard_table["Z-score"], errors="coerce")
+        pdf_z = pd.to_numeric(pdf_table["Z-score"], errors="coerce")
+
+        self.assertAlmostEqual(pdf_z["DRI"], dashboard_z["DRI"])
+        self.assertAlmostEqual(pdf_z["Tiempo de contacto"], dashboard_z["Tiempo de contacto"])
+        self.assertFalse(pd.isna(pdf_z["IMTP"]))
+        self.assertIn("Tiempo de contacto", pdf_table.index)
+        self.assertNotIn("TC inv", " ".join(pdf_table.index.astype(str)))
+
     def test_composite_profile_handles_absent_lagging_variable_professionally(self):
         state = {
             "jump_df": pd.DataFrame(
@@ -1275,7 +1360,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         self.assertIn("Z-score", table.columns)
         self.assertTrue(table["Z-score"].astype(str).str.strip().ne("").all())
-        self.assertIn("—", set(table["Z-score"].astype(str)))
+        self.assertIn("\u2014", set(table["Z-score"].astype(str)))
 
     def test_exposure_payload_does_not_report_missing_low_stimuli_when_data_exists(self):
         state = {
@@ -1339,6 +1424,41 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         self.assertNotIn("estimulos bajos o ausentes: faltan datos", text)
         self.assertNotIn("sesione s", text)
+
+    def test_professional_pdf_exposure_uses_relative_lowest_phrase_for_positive_dose(self):
+        state = {
+            "prepared_raw_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Assigned Date": "2026-04-28",
+                        "Exercise": "Back Squat",
+                        "stimulus_category": "strength_loaded",
+                        "Volume_Load_kg": 2400,
+                        "Contacts": 0,
+                        "Exposures": 1,
+                        "is_invalid": False,
+                        "is_untagged": False,
+                    },
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Assigned Date": "2026-04-30",
+                        "Exercise": "Hang Power Clean",
+                        "stimulus_category": "olympic_derivatives",
+                        "Volume_Load_kg": 0,
+                        "Contacts": 0,
+                        "Exposures": 1,
+                        "is_invalid": False,
+                        "is_untagged": False,
+                    },
+                ]
+            )
+        }
+
+        text = _rendered_story_text(state, "Ana Lopez", "profe")
+
+        self.assertIn("menor exposicion relativa: derivados olimpicos", text)
+        self.assertNotIn("estimulos bajos o ausentes", text)
 
     def test_action_plan_is_concrete_and_not_repetitive(self):
         payload = _build_professional_action_plan_payload(
