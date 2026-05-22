@@ -6462,18 +6462,27 @@ elif active_main_view == "Evaluations":
         )
         metric_cols = st.columns(6)
         metric_config = [
-            ("CMJ", "CMJ_cm", "cm", ".1f"),
-            ("SJ", "SJ_cm", "cm", ".1f"),
-            ("DJ", "DJ_cm", "cm", ".1f"),
-            ("DJ RSI", "DJ_RSI", "m/s", ".2f"),
-            ("IMTP relPF", "IMTP_relPF", "N/kg", ".2f"),
-            ("EUR (ratio)", "EUR", "", ".3f"),
+            ("CMJ", (("CMJ_cm", "cm", ".1f"),)),
+            ("SJ", (("SJ_cm", "cm", ".1f"),)),
+            ("DJ", (("DJ_cm", "cm", ".1f"),)),
+            ("DJ RSI", (("DJ_RSI", "m/s", ".2f"),)),
+            ("IMTP", (("IMTP_relPF", "N/kg", ".2f"), ("IMTP_N", "N", ".0f"))),
+            ("EUR (ratio)", (("EUR", "", ".3f"),)),
         ]
-        for col, (label, key, unit, fmt) in zip(metric_cols, metric_config):
-            value = selected_row.get(key)
-            if pd.notna(value):
-                suffix = f" {unit}".rstrip()
-                col.metric(label, f"{value:{fmt}}{suffix}")
+        for col, (label, candidates) in zip(metric_cols, metric_config):
+            display_value = None
+            display_unit = ""
+            display_fmt = ""
+            for key, unit, fmt in candidates:
+                value = selected_row.get(key)
+                if pd.notna(value):
+                    display_value = value
+                    display_unit = unit
+                    display_fmt = fmt
+                    break
+            if display_value is not None:
+                suffix = f" {display_unit}".rstrip()
+                col.metric(label, f"{display_value:{display_fmt}}{suffix}")
             else:
                 col.metric(label, "—")
         st.caption(

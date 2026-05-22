@@ -556,7 +556,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertTrue(len(figure.data) >= 2)
         self.assertEqual(list(figure.data[-1].theta), ["CMJ", "CMJ"])
 
-    def test_profile_radar_row_recovers_missing_imtp_axis_from_latest_valid_snapshot(self):
+    def test_profile_radar_row_does_not_fabricate_relpf_from_previous_body_weight(self):
         jump_df = _prepare_jump_df(
             pd.DataFrame(
                 [
@@ -588,11 +588,11 @@ class JumpProfileSystemTest(unittest.TestCase):
         figure = chart_radar(radar_row, "Atleta Radar", None, theme=_chart_theme())
 
         self.assertIsNotNone(radar_row)
-        self.assertTrue(bool(radar_row.get("Profile_Composed")))
-        self.assertAlmostEqual(float(radar_row["IMTP_relPF"]), 37.5, places=2)
+        self.assertFalse(bool(radar_row.get("Profile_Composed", False)))
+        self.assertTrue(pd.isna(radar_row.get("IMTP_relPF")))
         self.assertEqual(
             list(figure.data[-1].theta)[:-1],
-            ["SJ", "CMJ", "DJ height", "DJ RSI", "Tiempo de contacto", "IMTP relPF"],
+            ["SJ", "CMJ", "DJ height", "DJ RSI"],
         )
 
     def test_records_to_jump_df_keeps_positive_body_weight_when_zero_arrives_later_same_day(self):
@@ -621,6 +621,72 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(len(jump_df), 1)
         self.assertAlmostEqual(float(jump_df.iloc[0]["BW_kg"]), 88.0, places=2)
         self.assertAlmostEqual(float(jump_df.iloc[0]["IMTP_relPF"]), 47.62, places=2)
+
+    def test_prepare_jump_df_does_not_reuse_previous_body_weight_for_new_imtp_only_day(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Historico",
+                        "Date": "2026-04-01",
+                        "CMJ_cm": 41.3,
+                        "SJ_cm": 29.1,
+                        "DJ_cm": 37.3,
+                        "DJ_tc_ms": 189,
+                        "BW_kg": 88,
+                        "IMTP_N": 3902,
+                    },
+                    {
+                        "Athlete": "Atleta Historico",
+                        "Date": "2026-05-07",
+                        "IMTP_N": 4191,
+                        "BW_kg": 0,
+                    },
+                ]
+            )
+        )
+
+        latest_row = jump_df.sort_values("Date").iloc[-1]
+        composite_row, source_table = build_composite_profile_snapshot(jump_df)
+        metric_table = build_composite_profile_metric_table(composite_row)
+        imtp_row = metric_table[metric_table["Variable"] == "IMTP"].iloc[0]
+
+        self.assertAlmostEqual(float(latest_row["BW_kg"]), 0.0, places=2)
+        self.assertTrue(pd.isna(latest_row.get("IMTP_relPF")))
+        self.assertTrue(pd.isna(composite_row.get("IMTP_relPF")))
+        self.assertEqual(dict(zip(source_table["Variable"], source_table["Fecha origen"]))["IMTP"], "07/05/2026")
+        self.assertEqual(imtp_row["Valor"], "4191 N")
+
+    def test_composite_profile_uses_raw_imtp_when_body_weight_is_unavailable(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Nuevo",
+                        "Date": "2026-05-07",
+                        "CMJ_cm": 50.0,
+                        "SJ_cm": 40.0,
+                        "DJ_cm": 44.7,
+                        "DJ_tc_ms": 226,
+                        "BW_kg": 0,
+                        "IMTP_N": 3385,
+                    }
+                ]
+            )
+        )
+
+        composite_row, source_table = build_composite_profile_snapshot(jump_df)
+        metric_table = build_composite_profile_metric_table(composite_row)
+        metric_rows = build_composite_profile_metric_rows(composite_row)
+        imtp_row = metric_table[metric_table["Variable"] == "IMTP"].iloc[0]
+        imtp_metric = next(row for row in metric_rows if row["Variable"] == "IMTP")
+
+        self.assertTrue(pd.isna(composite_row.get("IMTP_relPF")))
+        self.assertEqual(imtp_row["Valor"], "3385 N")
+        self.assertAlmostEqual(float(imtp_row["Z-score"]), 0.21, places=2)
+        self.assertEqual(dict(zip(source_table["Variable"], source_table["Fecha origen"]))["IMTP"], "07/05/2026")
+        self.assertEqual(imtp_metric["value_col"], "IMTP_N")
+        self.assertEqual(imtp_metric["z_col"], "IMTP_N_Z")
 
     def test_prepare_jump_df_normalizes_legacy_imtp_rfd_aliases_when_new_missing(self):
         jump_df = _prepare_jump_df(

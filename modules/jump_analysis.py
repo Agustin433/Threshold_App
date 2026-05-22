@@ -217,6 +217,7 @@ COMPOSITE_PROFILE_DIRECTIONS = {
     "DJ_tc_ms": "lower_is_better_inverted_z",
     "EUR": "context_dependent",
     "IMTP_relPF": "higher_is_better",
+    "IMTP_N": "higher_is_better",
 }
 
 ZSCORE_ALIAS_GROUPS = (
@@ -1092,6 +1093,27 @@ def _latest_valid_numeric_row(df: pd.DataFrame, column: str) -> pd.Series | None
     return valid.iloc[0]
 
 
+def _latest_valid_numeric_source_row(
+    df: pd.DataFrame,
+    columns: tuple[str, ...],
+) -> tuple[pd.Series, str] | None:
+    best: tuple[pd.Series, str] | None = None
+    best_key: tuple[int, int] | None = None
+
+    for priority, column in enumerate(columns):
+        row = _latest_valid_numeric_row(df, column)
+        if row is None:
+            continue
+        parsed_date = pd.to_datetime(row.get("Date"), errors="coerce")
+        date_key = int(parsed_date.value) if pd.notna(parsed_date) else -1
+        candidate_key = (date_key, -priority)
+        if best_key is None or candidate_key > best_key:
+            best = (row, column)
+            best_key = candidate_key
+
+    return best
+
+
 def row_has_primary_profile_data(row: pd.Series | dict[str, object]) -> bool:
     row_series = row if isinstance(row, pd.Series) else pd.Series(row)
     for column in PRIMARY_PROFILE_SOURCE_COLUMNS:
@@ -1146,16 +1168,23 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
     source_rows: list[dict[str, object]] = []
 
     for label, value_col, _, z_col, _ in COMPOSITE_PROFILE_METRICS:
-        source_row = _latest_valid_numeric_row(data, value_col)
-        if source_row is None:
+        source = (
+            _latest_valid_numeric_source_row(data, ("IMTP_relPF", "IMTP_N"))
+            if value_col == "IMTP_relPF"
+            else _latest_valid_numeric_source_row(data, (value_col,))
+        )
+        if source is None:
             snapshot[f"{value_col}__source_date"] = "-"
             source_rows.append({"Variable": label, "Fecha origen": "-"})
             continue
 
+        source_row, source_value_col = source
         source_date = _format_profile_source_date(source_row.get("Date"))
-        snapshot[value_col] = source_row.get(value_col)
-        snapshot[z_col] = _coalesced_numeric_value(source_row, z_col)
+        source_z_col = "IMTP_N_Z" if source_value_col == "IMTP_N" else z_col
+        snapshot[source_value_col] = source_row.get(source_value_col)
+        snapshot[source_z_col] = _coalesced_numeric_value(source_row, source_z_col)
         snapshot[f"{value_col}__source_date"] = source_date
+        snapshot[f"{source_value_col}__source_date"] = source_date
         if value_col == "DRI":
             snapshot["DJ_RSI"] = source_row.get("DJ_RSI", source_row.get("DRI"))
             dri_z = _coalesced_numeric_value(source_row, "DRI_Z", "DJ_RSI_Z")
@@ -1166,10 +1195,13 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
             snapshot["TC_inv_Z"] = tc_z
             snapshot["DJtc_Z"] = tc_z
         if value_col == "IMTP_relPF":
-            imtp_z = _coalesced_numeric_value(source_row, "IMTP_relPF_Z", "IMTP_Z")
-            snapshot["IMTP_relPF_Z"] = imtp_z
-            snapshot["IMTP_Z"] = imtp_z
             snapshot["IMTP_N"] = source_row.get("IMTP_N")
+            if source_value_col == "IMTP_relPF":
+                imtp_z = _coalesced_numeric_value(source_row, "IMTP_relPF_Z", "IMTP_Z")
+                snapshot["IMTP_relPF_Z"] = imtp_z
+                snapshot["IMTP_Z"] = imtp_z
+            else:
+                snapshot["IMTP_N_Z"] = _coalesced_numeric_value(source_row, "IMTP_N_Z")
 
         source_rows.append(
             {
@@ -1227,21 +1259,38 @@ def build_composite_profile_metric_rows(row: pd.Series | dict[str, object]) -> l
     rows: list[dict[str, object]] = []
 
     for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
-        value = pd.to_numeric(pd.Series([row_series.get(value_col)]), errors="coerce").iloc[0]
-        z_value = _coalesced_numeric_value(row_series, *_zscore_aliases(z_col))
-        rounded_value = round(float(value), digits) if pd.notna(value) else None
+        display_value_col = value_col
+        display_unit = unit
+        display_z_col = z_col
+        display_digits = digits
+        if value_col == "IMTP_relPF":
+            relpf_value = pd.to_numeric(pd.Series([row_series.get("IMTP_relPF")]), errors="coerce").iloc[0]
+            imtp_value = pd.to_numeric(pd.Series([row_series.get("IMTP_N")]), errors="coerce").iloc[0]
+            if pd.isna(relpf_value) and pd.notna(imtp_value):
+                display_value_col = "IMTP_N"
+                display_unit = "N"
+                display_z_col = "IMTP_N_Z"
+                display_digits = 0
+
+        value = pd.to_numeric(pd.Series([row_series.get(display_value_col)]), errors="coerce").iloc[0]
+        z_value = _coalesced_numeric_value(row_series, *_zscore_aliases(display_z_col))
+        rounded_value = round(float(value), display_digits) if pd.notna(value) else None
         z_score_display = round(float(z_value), 2) if pd.notna(z_value) else "\u2014"
         rows.append(
             {
                 "Variable": label,
-                "Valor": _format_composite_metric_value(rounded_value, unit, digits),
-                "Unidad": unit,
+                "Valor": _format_composite_metric_value(rounded_value, display_unit, display_digits),
+                "Unidad": display_unit,
                 "Z-score": z_score_display,
-                "Origen / referencia": row_series.get(f"{value_col}__source_date", "-") or "-",
+                "Origen / referencia": (
+                    row_series.get(f"{display_value_col}__source_date", None)
+                    or row_series.get(f"{value_col}__source_date", "-")
+                    or "-"
+                ),
                 "Etiqueta visible profesional": label,
-                "Direccion": COMPOSITE_PROFILE_DIRECTIONS.get(value_col, "higher_is_better"),
-                "value_col": value_col,
-                "z_col": z_col,
+                "Direccion": COMPOSITE_PROFILE_DIRECTIONS.get(display_value_col, "higher_is_better"),
+                "value_col": display_value_col,
+                "z_col": display_z_col,
             }
         )
 
