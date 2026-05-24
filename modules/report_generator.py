@@ -210,6 +210,8 @@ def _professional_visible_metric_text(value: object) -> str:
         "evaluacion": "evaluación",
         "adquisicion": "adquisición",
         "produccion": "producción",
+        "maxima": "máxima",
+        "maximo": "máximo",
         "contraccion": "contracción",
         "familiarizacion": "familiarización",
         "tecnica": "técnica",
@@ -225,6 +227,8 @@ def _professional_visible_metric_text(value: object) -> str:
         "isometrica": "isométrica",
         "util": "útil",
         "limitacion": "limitación",
+        "posicion": "posición",
+        "medicion": "medición",
     }
     for source, target in accent_replacements.items():
         def _replace(match: re.Match[str], fixed: str = target) -> str:
@@ -238,6 +242,9 @@ def _professional_visible_metric_text(value: object) -> str:
 PROFESSIONAL_COMPOSITE_PROFILE_NOTE = (
     "Perfil compuesto: usa el Ãºltimo dato vÃ¡lido disponible por variable; no todas las "
     "variables necesariamente provienen de la misma fecha."
+)
+PROFESSIONAL_CURRENT_PROFILE_SCOPE_NOTE = (
+    "La lectura describe el perfil actual y conviene repetir la evaluación para confirmar si el patrón persiste."
 )
 PROFESSIONAL_FULL_REPORT_MIN_COMPOSITE_METRICS = 4
 PROFESSIONAL_INTERVAL_WARNING = (
@@ -5781,6 +5788,121 @@ def _professional_strip_terminal_period(value: object) -> str:
     return _professional_visible_metric_text(value).strip().rstrip(".")
 
 
+def _professional_strip_scope_note(value: object) -> str:
+    text = _professional_visible_metric_text(value).strip()
+    note = PROFESSIONAL_CURRENT_PROFILE_SCOPE_NOTE
+    if note and note in text:
+        text = text.replace(note, "").strip()
+    return re.sub(r"\s{2,}", " ", text).strip().rstrip(".")
+
+
+def _professional_contact_time_dominant_text(value: object) -> str:
+    text = _professional_visible_metric_text(value)
+    for pattern in (
+        r"Tiempo de contacto\s*\(([-+]\d+(?:\.\d+)?)\)",
+        r"Contact Time\s*\(([-+]\d+(?:\.\d+)?)\)",
+    ):
+        text = re.sub(
+            pattern,
+            lambda match: f"Tiempo de contacto en zona favorable según escala invertida ({match.group(1)})",
+            text,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def _professional_snapshot_metric(row: pd.Series | dict[str, object], *columns: str) -> float | None:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row)
+    for column in columns:
+        numeric = pd.to_numeric(pd.Series([row_series.get(column)]), errors="coerce").iloc[0]
+        if pd.notna(numeric):
+            return float(numeric)
+    return None
+
+
+def _professional_force_time_note_text(value: object) -> str:
+    text = _professional_visible_metric_text(value).strip()
+    targeted_replacements = {
+        "produccion maxima": "producción máxima",
+        "fuerza isometrica": "fuerza isométrica",
+        "en esta medicion": "En esta medición",
+        "en esta Medicion": "En esta medición",
+        "posicion de imtp": "posición de IMTP",
+        "describe como expresa": "describe cómo se expresa",
+        "capacidad maxima": "capacidad máxima",
+        "como apoyo descriptivo": "como apoyo descriptivo",
+    }
+    for source, target in targeted_replacements.items():
+        def _replace(match: re.Match[str], fixed: str = target) -> str:
+            word = match.group(0)
+            return fixed[:1].upper() + fixed[1:] if word[:1].isupper() else fixed
+
+        text = re.sub(rf"\b{re.escape(source)}\b", _replace, text, flags=re.IGNORECASE)
+    return text
+
+
+def _professional_build_profile_feedback_fallback(
+    snapshot_row: pd.Series | dict[str, object],
+    *,
+    assessment_count: int,
+    has_clear_lagging: bool,
+) -> dict[str, str]:
+    row_series = snapshot_row if isinstance(snapshot_row, pd.Series) else pd.Series(snapshot_row)
+    sj_z = _professional_snapshot_metric(row_series, "SJ_Z")
+    cmj_z = _professional_snapshot_metric(row_series, "CMJ_Z")
+    dj_z = _professional_snapshot_metric(row_series, "DJ_height_Z", "DJ_Z")
+    dri_z = _professional_snapshot_metric(row_series, "DRI_Z", "DJ_RSI_Z")
+    contact_z = _professional_snapshot_metric(row_series, "TC_inv_Z", "DJtc_Z")
+    eur_z = _professional_snapshot_metric(row_series, "EUR_Z")
+    imtp_z = _professional_snapshot_metric(row_series, "IMTP_relPF_Z", "IMTP_Z", "IMTP_N_Z")
+
+    vertical_high = any(value is not None and value >= 0.5 for value in (sj_z, cmj_z))
+    imtp_high = imtp_z is not None and imtp_z >= 0.5
+    dj_low = dj_z is not None and dj_z <= -0.5
+    reactive_high = any(value is not None and value >= 0.5 for value in (dri_z, contact_z))
+
+    physiological = "La lectura disponible describe el perfil actual del atleta, sin evidenciar todavía una adaptación cerrada del bloque."
+    if vertical_high and imtp_high:
+        physiological = "El perfil actual muestra buena salida vertical con una base de fuerza relativa que puede sostener esa expresión."
+    elif vertical_high:
+        physiological = "El perfil actual sugiere buena salida vertical y una expresión concéntrica/vertical favorable en los saltos disponibles."
+    elif imtp_high:
+        physiological = "La fuerza relativa disponible aporta una base útil para sostener la producción de fuerza del perfil actual."
+    elif reactive_high:
+        physiological = "El perfil actual muestra una señal reactiva favorable, pero debe leerse junto con DJ/DRI y tiempo de contacto."
+    elif eur_z is not None:
+        physiological = "El perfil actual permite una lectura conservadora de la relación entre cualidades verticales, aunque todavía requiere continuidad para cerrar conclusiones más firmes."
+
+    biomechanical = "La mecánica disponible no muestra un déficit único y conviene leerla junto con el contexto del test."
+    if dj_low:
+        biomechanical = "La expresión en DJ aparece por debajo de otras cualidades y conviene verificar técnica, contacto, familiarización y contexto antes de sacar una conclusión fuerte."
+    elif contact_z is not None and contact_z >= 0.5:
+        biomechanical = "El tiempo de contacto aparece en zona favorable según escala invertida, pero debe interpretarse junto con DJ/DRI y RSI."
+    elif reactive_high:
+        biomechanical = "La lectura reactiva es utilizable, aunque debe confirmarse con la consistencia entre DJ, RSI y tiempo de contacto."
+    elif vertical_high:
+        biomechanical = "La lectura biomecánica se apoya más en la salida vertical actual que en un patrón reactivo completamente definido."
+
+    next_block = "Sostener salida vertical y fuerza base."
+    if dj_low:
+        next_block = (
+            "Priorizar calidad de contacto y progresión reactiva si la expresión en DJ sigue baja, "
+            "sin aumentar el volumen pliométrico de forma brusca."
+        )
+    elif has_clear_lagging and any(value is not None and value <= -0.5 for value in (dri_z, contact_z)):
+        next_block = (
+            "Priorizar calidad de contacto y progresión reactiva, verificando tolerancia antes de aumentar la densidad pliométrica."
+        )
+    elif not has_clear_lagging and (vertical_high or imtp_high):
+        next_block = "Sostener salida vertical y fuerza base."
+
+    return {
+        "physiological": physiological.strip(),
+        "biomechanical": biomechanical.strip(),
+        "next_block": next_block.strip(),
+    }
+
+
 def _professional_is_no_clear_lagging_text(value: object) -> bool:
     normalized = _professional_normalized_text(value)
     if not normalized or normalized in {"-", "sin dato", "faltan datos"}:
@@ -5798,12 +5920,21 @@ def _professional_has_clear_lagging_variable(feedback: dict[str, object]) -> boo
     return not _professional_is_no_clear_lagging_text(feedback.get("low", ""))
 
 
-def _professional_sanitize_profile_feedback(feedback: dict[str, object]) -> dict[str, str]:
+def _professional_sanitize_profile_feedback(
+    feedback: dict[str, object],
+    snapshot_row: pd.Series | dict[str, object] | None = None,
+    *,
+    assessment_count: int = 0,
+) -> dict[str, str]:
     cleaned = {
         str(key): _professional_visible_metric_text(value).strip()
         for key, value in feedback.items()
         if str(value or "").strip()
     }
+    for key in ("physiological", "biomechanical", "next_block"):
+        if key in cleaned:
+            cleaned[key] = _professional_strip_scope_note(cleaned.get(key, ""))
+    cleaned["high"] = _professional_contact_time_dominant_text(cleaned.get("high", ""))
     has_clear_lagging = _professional_has_clear_lagging_variable(cleaned)
     next_block_normalized = _professional_normalized_text(cleaned.get("next_block", ""))
     if not has_clear_lagging:
@@ -5815,6 +5946,22 @@ def _professional_sanitize_profile_feedback(feedback: dict[str, object]) -> dict
             cleaned["biomechanical"] = "Sin déficits biomecánicos marcados en los tests disponibles."
     elif "variable mas rezagada" in next_block_normalized:
         cleaned["next_block"] = "Sostener la cualidad dominante y ajustar el limitante principal en el próximo bloque."
+    if snapshot_row is not None:
+        fallback = _professional_build_profile_feedback_fallback(
+            snapshot_row,
+            assessment_count=assessment_count,
+            has_clear_lagging=has_clear_lagging,
+        )
+        for key, value in fallback.items():
+            normalized = _professional_normalized_text(cleaned.get(key, ""))
+            if (
+                not cleaned.get(key)
+                or "faltan datos" in normalized
+                or (key == "next_block" and "variable mas rezagada" in normalized)
+            ):
+                cleaned[key] = value
+        if has_clear_lagging and any(token in _professional_normalized_text(cleaned.get("low", "")) for token in ("dj height", "dj")):
+            cleaned["next_block"] = fallback["next_block"]
     return cleaned
 
 
@@ -5903,6 +6050,7 @@ def _build_professional_composite_profile_payload(
     athlete: str,
 ) -> dict[str, object]:
     history = _professional_jump_history(state, athlete)
+    assessment_count = _professional_assessment_date_count(state, athlete)
     if history.empty:
         return {
             "title": "Perfil actual compuesto",
@@ -5936,10 +6084,14 @@ def _build_professional_composite_profile_payload(
                 in {"", "-", "\u2014", PDF_MISSING_TEXT, "Sin dato"}
                 else value
             )
-    feedback = _professional_sanitize_profile_feedback({
-        key: _professional_visible_metric_text(value)
-        for key, value in _professional_feedback_map(build_jump_feedback_lines(snapshot_row)).items()
-    })
+    feedback = _professional_sanitize_profile_feedback(
+        {
+            key: _professional_visible_metric_text(value)
+            for key, value in _professional_feedback_map(build_jump_feedback_lines(snapshot_row)).items()
+        },
+        snapshot_row,
+        assessment_count=assessment_count,
+    )
     available_metric_count = _professional_composite_metric_count(metric_table)
     state_label = "available" if available_metric_count >= PROFESSIONAL_FULL_REPORT_MIN_COMPOSITE_METRICS else "partial"
     dominant_text = _professional_strip_terminal_period(
@@ -5953,6 +6105,7 @@ def _build_professional_composite_profile_payload(
         summary_line = f"Predominan hoy {dominant_text}. {PROFESSIONAL_NO_CLEAR_LAGGING_TEXT}"
     else:
         summary_line = "No hay suficientes variables válidas para describir el perfil compuesto."
+    scope_note = PROFESSIONAL_CURRENT_PROFILE_SCOPE_NOTE if assessment_count < 2 and available_metric_count else ""
     return {
         "title": "Perfil actual compuesto",
         "state": state_label,
@@ -5966,6 +6119,7 @@ def _build_professional_composite_profile_payload(
         "summary_line": summary_line.strip(),
         "latest_profile_date": _format_profile_source_date(history["Date"].max()),
         "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
+        "scope_note": scope_note,
     }
 
 
@@ -6114,12 +6268,12 @@ def _build_professional_isometric_payload(
     for key in ["peak_force_text", "force_time_text", "rfd_text", "decision_note"]:
         text = safe_value((imtp_payload.get("interpretation") or {}).get(key) if isinstance(imtp_payload.get("interpretation"), dict) else None)
         if text != PDF_MISSING_TEXT:
-            imtp_notes.append(text)
+            imtp_notes.append(_professional_force_time_note_text(text))
     iso_notes = []
     for key in ["peak_force_text", "force_time_text", "asymmetry_text", "decision_note"]:
         text = safe_value((iso_payload.get("interpretation") or {}).get(key) if isinstance(iso_payload.get("interpretation"), dict) else None)
         if text != PDF_MISSING_TEXT:
-            iso_notes.append(text)
+            iso_notes.append(_professional_force_time_note_text(text))
 
     has_isometric_data = bool(imtp_rows or iso_rows or imtp_payload.get("has_valid_force_time") or iso_payload.get("has_valid_force_time"))
     return {
@@ -6166,36 +6320,40 @@ def _draw_compact_professional_force_time_block(pdf: dict[str, object], payload:
     story.append(
         box(
             [
-                p("Lectura práctica", "ProfCardTitle"),
+                p("Force-time descriptivo", "ProfCardTitle"),
                 p(
-                    "Peak Force y fuerza relativa resumen la capacidad máxima; los puntos force-time ayudan a monitorear cómo se expresa la fuerza en ventanas tempranas e intermedias.",
+                    "Puntos force-time para contextualizar cómo se expresa la fuerza en ventanas tempranas e intermedias antes del pico.",
                     "ProfMuted",
                 ),
                 p("RFD exportada descriptiva; interpretar con cautela si no hay TE propio.", "ProfMuted"),
             ],
+            background=palette.get("panel"),
+            border_color=palette.get("line_dark"),
             padding=5,
+            accent_color=palette.get("steel"),
         )
     )
     if not force_rows and not rfd_rows:
         return
 
-    rows = [[p("Fuerza", "ProfCardTitle"), p("Valor", "ProfCardTitle"), p("RFD", "ProfCardTitle"), p("Valor RFD", "ProfCardTitle")]]
+    rows = [[p("Fuerza", "ProfTableHeader"), p("Valor", "ProfTableHeader"), p("RFD", "ProfTableHeader"), p("Valor RFD", "ProfTableHeader")]]
     for idx in range(max(len(force_rows), len(rfd_rows))):
         force_label, force_value = force_rows[idx] if idx < len(force_rows) else ("", "")
         rfd_label, rfd_value = rfd_rows[idx] if idx < len(rfd_rows) else ("", "")
-        rows.append([p(force_label, "ProfMuted"), p(force_value, "ProfMuted"), p(rfd_label, "ProfMuted"), p(rfd_value, "ProfMuted")])
+        rows.append([p(force_label, "ProfTableCell"), p(force_value, "ProfTableCell"), p(rfd_label, "ProfTableCell"), p(rfd_value, "ProfTableCell")])
     table = TableClass(rows, colWidths=[34 * mm_unit, 42 * mm_unit, 34 * mm_unit, 64 * mm_unit], hAlign="LEFT")
     table.setStyle(
         TableStyleClass(
             [
-                ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                ("BOX", (0, 0), (-1, -1), 0.8, palette["line_dark"]),
                 ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
-                ("BACKGROUND", (0, 0), (-1, 0), palette["card"]),
-                ("BACKGROUND", (0, 1), (-1, -1), palette["card"]),
-                ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("BACKGROUND", (0, 0), (-1, 0), palette["navy"]),
+                ("TEXTCOLOR", (0, 0), (-1, 0), palette.get("card")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [palette["card"], palette.get("panel", palette["card"])]),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]
         )
@@ -6315,12 +6473,15 @@ def _build_professional_wellness_availability_payload(
     available_rows = [(label, value) for label, value in rows if value != PDF_MISSING_TEXT]
 
     weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
+    load_state = str(internal_load.get("state") or "").strip().lower()
     stress_mean = _coerce_float(summary.get("stress_mean"))
     pain_mean = _coerce_float(summary.get("pain_mean"))
     sleep_mean = _coerce_float(summary.get("sleep_mean"))
     compatibility = "Faltan datos suficientes para cruzar wellness, disponibilidad y carga."
     if wellness_context.get("state") == "partial":
         compatibility = "Datos parciales de wellness/disponibilidad: usar la lectura como seÃ±al preliminar y no como tendencia cerrada."
+    elif wellness_context.get("state") == "available" and load_state == "missing":
+        compatibility = "Wellness/disponibilidad disponible, pero sin carga interna reciente conviene usarlo solo como contexto parcial."
     elif weekly_change_pct is not None and weekly_change_pct > 10 and (
         _professional_wellness_high(stress_mean, scales.get("stress"))
         or _professional_wellness_high(pain_mean, scales.get("pain"))
@@ -6546,18 +6707,33 @@ def _build_professional_integrated_decision_payload(
     if load_payload.get("state") != "missing":
         good_confidence.append(str(load_payload.get("risk_line") or ""))
     if wellness_payload.get("state") == "available":
-        good_confidence.append(str(wellness_payload.get("compatibility") or ""))
+        wellness_compatibility = str(wellness_payload.get("compatibility") or "")
+        wellness_compatibility_normalized = _professional_normalized_text(wellness_compatibility)
+        if any(
+            token in wellness_compatibility_normalized
+            for token in ("sin carga interna reciente", "contexto parcial", "faltan datos suficientes")
+        ):
+            unknown.append(wellness_compatibility)
+        else:
+            good_confidence.append(wellness_compatibility)
 
     if exposure_payload.get("state") != "missing" and exposure_payload.get("summary_line"):
         probable.append(str(exposure_payload.get("summary_line")))
         probable.append(str(exposure_payload.get("context_link") or ""))
     elif training_context.get("state") != "missing":
-        probable.append("La asistencia, la carga visible y el contenido del bloque ayudan a contextualizar la lectura actual, pero no explican por sÃ­ solos el cambio.")
+        if exposure_payload.get("state") == "missing":
+            probable.append("La asistencia y la carga visible ayudan a contextualizar la lectura actual, pero no reemplazan la exposiciÃ³n por estÃ­mulos.")
+        else:
+            probable.append("La asistencia, la carga visible y el contenido del bloque ayudan a contextualizar la lectura actual, pero no explican por sÃ­ solos el cambio.")
 
     if assessment_interval_warning:
         unknown.append("El intervalo entre evaluaciones fue menor a 6-8 semanas; no conviene atribuir los cambios de forma directa a adaptaciÃ³n.")
     if str(evaluation_state).strip().lower() == "partial":
         unknown.append("La cobertura de evaluaciones es parcial; esta lectura sigue siendo Ãºtil, pero no cierra por completo el perfil.")
+    if load_payload.get("state") == "missing":
+        unknown.append("Falta carga interna reciente para contextualizar la tolerancia del bloque con mayor confianza.")
+    if wellness_payload.get("state") == "missing":
+        unknown.append("Falta wellness/disponibilidad reciente; evitar conclusiones fuertes sobre tolerancia del bloque.")
     if wellness_payload.get("state") == "partial":
         unknown.append("Wellness/disponibilidad parcial: la seÃ±al es preliminar y requiere seguimiento antes de tomar decisiones fuertes.")
     if change_payload.get("no_previous"):
@@ -6572,10 +6748,10 @@ def _build_professional_integrated_decision_payload(
         decision_practical.append("Ajustar densidad/volumen del prÃ³ximo microciclo y sostener solo el estÃ­mulo prioritario hasta confirmar tolerancia.")
     elif has_clear_lagging and "fuerza" in low_text:
         decision_practical.append("Mantener la cualidad dominante y priorizar fuerza base/transferencia en el prÃ³ximo bloque.")
-    elif has_clear_lagging and any(token in low_text for token in ("react", "dri", "contact")):
-        decision_practical.append("Sostener la base actual y priorizar la expresiÃ³n reactiva con progresiÃ³n controlada del contenido pliomÃ©trico.")
+    elif has_clear_lagging and any(token in low_text for token in ("dj height", "dj", "react", "dri", "contact")):
+        decision_practical.append("Sostener la base actual y priorizar la progresión reactiva para mejorar la expresión en DJ, con foco en calidad de contacto, stiffness y tolerancia progresiva.")
     else:
-        decision_practical.append("Mantener la cualidad mejor expresada y ajustar solo la variable mÃ¡s rezagada, evitando abrir demasiados frentes a la vez.")
+        decision_practical.append("Sostener la cualidad mejor expresada y traducir la variable rezagada a una prioridad concreta de entrenamiento, sin abrir demasiados frentes a la vez.")
 
     if change_payload.get("declines"):
         decision_practical.append("Confirmar la seÃ±al en la siguiente ventana antes de atribuirla por completo a adaptaciÃ³n o fatiga.")
@@ -6628,10 +6804,10 @@ def _build_professional_action_plan_payload(
         maintain.append(f"Usar como referencia del bloque: {_professional_visible_metric_text(feedback.get('next_block'))}")
 
     adjust: list[str] = []
-    if has_clear_lagging and any(token in f"{low_text} {decline_text}" for token in ("tiempo de contacto", "rsi", "react", "dri")):
-        adjust.append("Ajustar la progresión reactiva y la calidad de contacto si el tiempo de contacto subió o DJ RSI cayó.")
+    if has_clear_lagging and any(token in f"{low_text} {decline_text}" for token in ("dj height", "dj", "tiempo de contacto", "rsi", "react", "dri")):
+        adjust.append("Ajustar la progresión reactiva para mejorar la expresión en DJ, priorizando calidad de contacto, stiffness y tolerancia progresiva.")
     elif has_clear_lagging and feedback.get("low"):
-        adjust.append(f"Ajustar el próximo bloque para mejorar {_professional_visible_metric_text(feedback.get('low'))}.")
+        adjust.append("Ajustar solo una prioridad principal del bloque y traducirla a una tarea concreta de entrenamiento, sin perseguir la métrica de forma aislada.")
     if change_payload.get("declines"):
         adjust.append(f"Revisar carga, protocolo y prioridades si persisten caídas en {_professional_join_labels(change_payload.get('declines', []))}.")
     if not adjust and has_clear_lagging:
@@ -7050,6 +7226,7 @@ def _generate_professional_profile_pdf_reportlab(
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
         from reportlab.graphics.shapes import Circle, Drawing, Line, PolyLine, Rect, String
         from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
         from xml.sax.saxutils import escape
@@ -7057,14 +7234,17 @@ def _generate_professional_profile_pdf_reportlab(
         return None
 
     palette = {
-        "bg": colors.HexColor("#F4F6F8"),
-        "card": colors.HexColor("#FEFEFE"),
-        "navy": colors.HexColor("#0D3C5E"),
-        "steel": colors.HexColor("#134263"),
-        "ink": colors.HexColor("#221F20"),
-        "muted": colors.HexColor("#708C9F"),
-        "gray": colors.HexColor("#5A595B"),
-        "line": colors.HexColor("#D8DEE4"),
+        "bg": colors.HexColor("#F3F5F7"),
+        "card": colors.HexColor("#FFFFFF"),
+        "panel": colors.HexColor("#F7FAFC"),
+        "panel_alt": colors.HexColor("#EEF3F8"),
+        "navy": colors.HexColor("#102C44"),
+        "steel": colors.HexColor("#29485F"),
+        "ink": colors.HexColor("#161A1D"),
+        "muted": colors.HexColor("#617383"),
+        "gray": colors.HexColor("#4E5B67"),
+        "line": colors.HexColor("#D6DEE5"),
+        "line_dark": colors.HexColor("#BCC9D3"),
         "green": colors.HexColor("#2F6B52"),
         "yellow": colors.HexColor("#C4A464"),
         "orange": colors.HexColor("#B87445"),
@@ -7078,9 +7258,42 @@ def _generate_professional_profile_pdf_reportlab(
             parent=styles["Heading1"],
             fontName="Helvetica-Bold",
             fontSize=24,
-            leading=29,
+            leading=28,
             textColor=palette["navy"],
-            spaceAfter=8,
+            spaceAfter=6,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfHeroTitle",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=24,
+            leading=29,
+            textColor=colors.white,
+            spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfHeroMeta",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=12,
+            textColor=colors.HexColor("#DCE7F0"),
+            spaceAfter=3,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfEyebrow",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=8,
+            leading=10,
+            textColor=palette["muted"],
+            spaceAfter=2,
         )
     )
     styles.add(
@@ -7088,11 +7301,22 @@ def _generate_professional_profile_pdf_reportlab(
             name="ProfSection",
             parent=styles["Heading2"],
             fontName="Helvetica-Bold",
-            fontSize=16,
-            leading=20,
+            fontSize=18,
+            leading=22,
             textColor=palette["navy"],
-            spaceBefore=5,
-            spaceAfter=8,
+            spaceBefore=0,
+            spaceAfter=3,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfSectionSubtitle",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=12,
+            textColor=palette["muted"],
+            spaceAfter=3,
         )
     )
     styles.add(
@@ -7100,10 +7324,10 @@ def _generate_professional_profile_pdf_reportlab(
             name="ProfBody",
             parent=styles["BodyText"],
             fontName="Helvetica",
-            fontSize=9.5,
-            leading=13,
+            fontSize=9.2,
+            leading=12.6,
             textColor=palette["ink"],
-            spaceAfter=5,
+            spaceAfter=4,
         )
     )
     styles.add(
@@ -7111,8 +7335,8 @@ def _generate_professional_profile_pdf_reportlab(
             name="ProfMuted",
             parent=styles["BodyText"],
             fontName="Helvetica",
-            fontSize=8.5,
-            leading=11.5,
+            fontSize=8.4,
+            leading=11.2,
             textColor=palette["gray"],
             spaceAfter=4,
         )
@@ -7133,10 +7357,10 @@ def _generate_professional_profile_pdf_reportlab(
             name="ProfCardTitle",
             parent=styles["BodyText"],
             fontName="Helvetica-Bold",
-            fontSize=10.5,
-            leading=13,
+            fontSize=9.6,
+            leading=12,
             textColor=palette["navy"],
-            spaceAfter=4,
+            spaceAfter=3,
         )
     )
     styles.add(
@@ -7144,10 +7368,65 @@ def _generate_professional_profile_pdf_reportlab(
             name="ProfCardValue",
             parent=styles["BodyText"],
             fontName="Helvetica-Bold",
-            fontSize=15,
-            leading=18,
+            fontSize=14.2,
+            leading=17,
             textColor=palette["ink"],
-            spaceAfter=5,
+            spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfDecisionTitle",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=9.5,
+            leading=12,
+            textColor=colors.white,
+            spaceAfter=3,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfBodyWhite",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9.3,
+            leading=12.8,
+            textColor=colors.white,
+            spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfMutedWhite",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=8.3,
+            leading=11.2,
+            textColor=colors.HexColor("#DCE7F0"),
+            spaceAfter=3,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfTableHeader",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=8.5,
+            leading=10.5,
+            textColor=colors.white,
+            spaceAfter=0,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="ProfTableCell",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=8.5,
+            leading=11.2,
+            textColor=palette["ink"],
+            spaceAfter=0,
         )
     )
 
@@ -7158,22 +7437,143 @@ def _generate_professional_profile_pdf_reportlab(
     def _pdf_label(text: object, fallback: str = "") -> str:
         return _repair_mojibake_text(safe_value(text, fallback=fallback))
 
-    def _box(flowables: list[object], *, background=None, padding: int = 8) -> Table:
-        table = Table([[flowables]], colWidths=[174 * mm], hAlign="LEFT")
+    def _fit_image(path: Path, max_width_mm: float, max_height_mm: float) -> Image | None:
+        try:
+            reader = ImageReader(str(path))
+            width, height = reader.getSize()
+        except Exception:
+            return None
+        max_width = max_width_mm * mm
+        max_height = max_height_mm * mm
+        scale = min(max_width / width, max_height / height)
+        return Image(str(path), width=width * scale, height=height * scale)
+
+    def _box(
+        flowables: list[object],
+        *,
+        background=None,
+        padding: int = 8,
+        width_mm: float = 174,
+        border_color=None,
+        accent_color=None,
+    ) -> Table:
+        style_commands = [
+            ("BOX", (0, 0), (-1, -1), 0.8, border_color or palette["line"]),
+            ("BACKGROUND", (0, 0), (-1, -1), background or palette["card"]),
+            ("LEFTPADDING", (0, 0), (-1, -1), padding),
+            ("RIGHTPADDING", (0, 0), (-1, -1), padding),
+            ("TOPPADDING", (0, 0), (-1, -1), padding),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), padding),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]
+        if accent_color is not None:
+            style_commands.append(("LINEABOVE", (0, 0), (-1, 0), 2.2, accent_color))
+        table = Table([[flowables]], colWidths=[width_mm * mm], hAlign="LEFT")
+        table.setStyle(TableStyle(style_commands))
+        return table
+
+    def _page_header(title: str, subtitle: str = "", *, eyebrow: str = "Threshold S&C") -> Table:
+        flowables: list[object] = []
+        if eyebrow:
+            flowables.append(_p(eyebrow.upper(), "ProfEyebrow"))
+        flowables.append(_p(title, "ProfSection"))
+        if subtitle:
+            flowables.append(_p(subtitle, "ProfSectionSubtitle"))
+        return _box(
+            flowables,
+            background=palette["panel"],
+            padding=7,
+            border_color=palette["line_dark"],
+            accent_color=palette["navy"],
+        )
+
+    def _decision_box(
+        title: str,
+        text: object,
+        *,
+        width_mm: float = 174,
+        note: str = "",
+        inverted: bool = True,
+    ) -> Table:
+        title_style = "ProfDecisionTitle" if inverted else "ProfCardTitle"
+        body_style = "ProfBodyWhite" if inverted else "ProfBody"
+        note_style = "ProfMutedWhite" if inverted else "ProfMuted"
+        return _box(
+            [_p(title, title_style), _p(text, body_style)] + ([_p(note, note_style)] if note else []),
+            background=palette["navy"] if inverted else palette["panel_alt"],
+            border_color=palette["navy"] if inverted else palette["line_dark"],
+            padding=7,
+            width_mm=width_mm,
+            accent_color=None if inverted else palette["navy"],
+        )
+
+    def _two_column(
+        left: object,
+        right: object,
+        *,
+        left_width_mm: float = 86,
+        right_width_mm: float = 88,
+        gap_mm: float = 4,
+        padding: int = 0,
+    ) -> Table:
+        table = Table(
+            [[left or "", right or ""]],
+            colWidths=[left_width_mm * mm, right_width_mm * mm],
+            spaceBefore=0,
+            spaceAfter=0,
+            hAlign="LEFT",
+        )
         table.setStyle(
             TableStyle(
                 [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
-                    ("BACKGROUND", (0, 0), (-1, -1), background or palette["card"]),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("LEFTPADDING", (0, 0), (-1, -1), padding),
                     ("RIGHTPADDING", (0, 0), (-1, -1), padding),
-                    ("TOPPADDING", (0, 0), (-1, -1), padding),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), padding),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (0, 0), gap_mm * mm / 2),
+                    ("LEFTPADDING", (1, 0), (1, 0), gap_mm * mm / 2),
                 ]
             )
         )
         return table
+
+    def _chart_panel(chart_flowable: object, *, title: str = "", note: str = "", width_mm: float = 174) -> Table:
+        flowables: list[object] = []
+        if title:
+            flowables.append(_p(title, "ProfCardTitle"))
+        flowables.append(chart_flowable)
+        if note:
+            flowables.append(_p(note, "ProfMuted"))
+        return _box(
+            flowables,
+            background=palette["panel"],
+            border_color=palette["line_dark"],
+            padding=6,
+            width_mm=width_mm,
+            accent_color=palette["steel"],
+        )
+
+    def _brand_lockup() -> object | None:
+        wordmark = _resolve_brand_asset_path("wordmark")
+        icon = _resolve_brand_asset_path("icon")
+        wordmark_logo = _fit_image(wordmark, 140, 18) if wordmark is not None else None
+        icon_logo = _fit_image(icon, 14, 14) if icon is not None else None
+        if icon_logo is not None and wordmark_logo is not None:
+            return Table(
+                [[icon_logo, wordmark_logo]],
+                colWidths=[18 * mm, 128 * mm],
+                style=TableStyle(
+                    [
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ]
+                ),
+            )
+        return wordmark_logo or icon_logo
 
     def _missing_box(message: str) -> Table:
         return _box([_p(message, "ProfBody"), _p("Faltan datos para generar una interpretación confiable.", "ProfMuted")])
@@ -7453,7 +7853,14 @@ def _generate_professional_profile_pdf_reportlab(
         label, value = row
         return str(label), safe_value(value, fallback=PDF_MISSING_TEXT), ""
 
-    def _key_value_table(rows: list[dict[str, object] | tuple[str, str]]) -> Table:
+    def _key_value_table(
+        rows: list[dict[str, object] | tuple[str, str]],
+        *,
+        label_width_mm: float = 54,
+        value_width_mm: float = 120,
+    ) -> Table:
+        if not rows:
+            return _collapsed_box("Faltan datos para construir esta tabla.")
         data = []
         for raw_row in rows:
             label, value, note = _unpack_metric_row(raw_row)
@@ -7461,53 +7868,74 @@ def _generate_professional_profile_pdf_reportlab(
             if note:
                 value_flow.append(_p(note, "ProfMutedItalic"))
             data.append([_p(label, "ProfCardTitle"), value_flow])
-        table = Table(data, colWidths=[56 * mm, 118 * mm], hAlign="LEFT")
+        table = Table(data, colWidths=[label_width_mm * mm, value_width_mm * mm], hAlign="LEFT")
         table.setStyle(
             TableStyle(
                 [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("BOX", (0, 0), (-1, -1), 0.8, palette["line_dark"]),
                     ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
-                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("BACKGROUND", (0, 0), (0, -1), palette["panel_alt"]),
+                    ("ROWBACKGROUNDS", (1, 0), (-1, -1), [palette["card"], palette["panel"]]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ]
             )
         )
         return table
 
-    def _mini_cards_table(rows: list[dict[str, object] | tuple[str, str]]) -> Table:
+    def _mini_cards_table(
+        rows: list[dict[str, object] | tuple[str, str]],
+        *,
+        columns: int = 2,
+        width_mm: float = 174,
+    ) -> Table:
+        if not rows:
+            return _collapsed_box("Faltan datos para construir estos indicadores.")
+        columns = max(1, min(columns, len(rows)))
+        cell_width_mm = (width_mm - (max(0, columns - 1) * 3)) / columns
         cells: list[object] = []
         for raw_row in rows:
             label, value, note = _unpack_metric_row(raw_row)
-            flowables: list[object] = [_p(label, "ProfCardTitle"), _p(value, "ProfBody")]
+            flowables: list[object] = [_p(label, "ProfCardTitle"), _p(value, "ProfCardValue")]
             if note:
                 flowables.append(_p(note, "ProfMutedItalic"))
             card = Table(
                 [[flowables]],
-                colWidths=[84 * mm],
+                colWidths=[cell_width_mm * mm],
             )
             card.setStyle(
                 TableStyle(
                     [
-                        ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                        ("BOX", (0, 0), (-1, -1), 0.8, palette["line_dark"]),
+                        ("LINEABOVE", (0, 0), (-1, 0), 2.2, palette["steel"]),
                         ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
                         ("LEFTPADDING", (0, 0), (-1, -1), 6),
                         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                        ("TOPPADDING", (0, 0), (-1, -1), 5),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                        ("TOPPADDING", (0, 0), (-1, -1), 7),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
                         ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ]
                 )
             )
             cells.append(card)
-        table_rows = [cells[idx:idx + 2] for idx in range(0, len(cells), 2)]
-        if table_rows and len(table_rows[-1]) == 1:
-            table_rows[-1].append("")
-        table = Table(table_rows, colWidths=[87 * mm, 87 * mm], hAlign="LEFT")
-        table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        table_rows = [cells[idx:idx + columns] for idx in range(0, len(cells), columns)]
+        if table_rows and len(table_rows[-1]) < columns:
+            table_rows[-1].extend([""] * (columns - len(table_rows[-1])))
+        table = Table(table_rows, colWidths=[cell_width_mm * mm] * columns, hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
         return table
 
     def _load_summary_rows(payload: dict[str, object]) -> list[dict[str, object]]:
@@ -7633,33 +8061,86 @@ def _generate_professional_profile_pdf_reportlab(
         ]
 
     def _chart_explanation_panel(chart: Drawing, title: str, payload: dict[str, object]) -> Table:
+        text_flow: list[object] = [_p(title, "ProfCardTitle")]
+        if payload.get("selected") is not None:
+            text_flow.extend(
+                [
+                    _p(f"Qué estoy viendo: {payload.get('what', PDF_MISSING_TEXT)}", "ProfMuted"),
+                    _p(f"Dónde se ubica el atleta: {payload.get('location', PDF_MISSING_TEXT)}", "ProfMuted"),
+                    _p(
+                        f"Qué significa para este atleta: {payload.get('athlete_meaning', payload.get('meaning', PDF_MISSING_TEXT))}",
+                        "ProfBody",
+                    ),
+                ]
+            )
+        else:
+            text_flow.extend(
+                [
+                    _p(f"Qué estoy viendo: {payload.get('what', PDF_MISSING_TEXT)}", "ProfMuted"),
+                    _p(f"Qué significa: {payload.get('meaning', PDF_MISSING_TEXT)}", "ProfBody"),
+                ]
+            )
+        decision = str(payload.get("decision") or "").strip()
+        if decision:
+            text_flow.append(Spacer(1, 1.5 * mm))
+            text_flow.append(
+                _decision_box(
+                    "Decisión sugerida",
+                    decision,
+                    width_mm=86,
+                    note="Traducir la ubicación del cuadrante a una prioridad operativa.",
+                    inverted=False,
+                )
+            )
         return Table(
-            [[chart, [_p(title, "ProfCardTitle")] + _explanation_lines(payload)]],
-            colWidths=[86 * mm, 88 * mm],
+            [[_chart_panel(chart, width_mm=84), text_flow]],
+            colWidths=[84 * mm, 90 * mm],
             style=TableStyle(
                 [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("BOX", (0, 0), (-1, -1), 0.8, palette["line_dark"]),
                     ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 7),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ]
             ),
+        )
+
+    def _quadrant_compact_panel(section: dict[str, object], *, width_mm: float = 84) -> Table | None:
+        chart = _quadrant_chart(section, width_mm=max(62, width_mm - 16), height_mm=36)
+        if chart is None:
+            return None
+        flowables: list[object] = [
+            _p(str(section.get("title", "Cuadrante")), "ProfCardTitle"),
+            chart,
+            _p(f"Ubicación: {section.get('location', PDF_MISSING_TEXT)}", "ProfMuted"),
+            _p(f"Lectura: {section.get('athlete_meaning', section.get('meaning', PDF_MISSING_TEXT))}", "ProfBody"),
+        ]
+        decision = str(section.get("decision") or "").strip()
+        if decision:
+            flowables.extend([_p("Decisión sugerida", "ProfCardTitle"), _p(decision, "ProfMuted")])
+        return _box(
+            flowables,
+            width_mm=width_mm,
+            background=palette["card"],
+            border_color=palette["line_dark"],
+            padding=5,
+            accent_color=palette["steel"],
         )
 
     def _dataframe_table(
         frame: pd.DataFrame,
         *,
         col_widths_mm: list[float] | None = None,
-        body_style: str = "ProfMuted",
+        body_style: str = "ProfTableCell",
     ) -> Table:
         result = frame.copy() if frame is not None else pd.DataFrame()
         if result.empty:
             return _collapsed_box("Faltan datos para construir esta tabla.")
         result = result.fillna("-").astype(str)
-        headers = [_p(column, "ProfCardTitle") for column in result.columns.tolist()]
+        headers = [_p(column, "ProfTableHeader") for column in result.columns.tolist()]
         rows: list[list[object]] = [headers]
         for _, row in result.iterrows():
             rows.append([_p(value, body_style) for value in row.tolist()])
@@ -7668,22 +8149,33 @@ def _generate_professional_profile_pdf_reportlab(
         table.setStyle(
             TableStyle(
                 [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
+                    ("BOX", (0, 0), (-1, -1), 0.8, palette["line_dark"]),
                     ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF3F7")),
-                    ("BACKGROUND", (0, 1), (-1, -1), palette["card"]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                    ("TOPPADDING", (0, 0), (-1, -1), 4),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("BACKGROUND", (0, 0), (-1, 0), palette["navy"]),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [palette["card"], palette["panel"]]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ]
             )
         )
         return table
 
-    def _bullet_box(title: str, lines: list[str], *, style_name: str = "ProfBody") -> Table:
-        flowables: list[object] = [_p(title, "ProfCardTitle")]
+    def _bullet_box(
+        title: str,
+        lines: list[str],
+        *,
+        style_name: str = "ProfBody",
+        width_mm: float = 174,
+        background=None,
+        border_color=None,
+        accent_color=None,
+        title_style: str = "ProfCardTitle",
+    ) -> Table:
+        flowables: list[object] = [_p(title, title_style)]
         cleaned = []
         for line in lines:
             text = str(line or "").strip()
@@ -7701,24 +8193,32 @@ def _generate_professional_profile_pdf_reportlab(
                     text = "Menor exposición relativa"
             cleaned.append(text)
         if not cleaned:
-            cleaned = ["Faltan datos para generar una interpretaciÃ³n confiable."]
+            cleaned = ["Faltan datos para generar una interpretación confiable."]
         flowables.extend(_p(f"- {line}", style_name) for line in cleaned)
-        return _box(flowables, padding=6)
+        return _box(
+            flowables,
+            padding=6,
+            width_mm=width_mm,
+            background=background,
+            border_color=border_color,
+            accent_color=accent_color,
+        )
 
     def _executive_summary_table(payload: dict[str, object]) -> Table:
-        rows = [
-            ("Atleta", payload.get("athlete", PDF_MISSING_TEXT)),
-            ("Fecha", payload.get("date", PDF_MISSING_TEXT)),
-            ("Ventana temporal", payload.get("period", PDF_MISSING_TEXT)),
-            ("Cobertura / calidad", payload.get("coverage", PDF_MISSING_TEXT)),
-            (
-                "Nivel de confianza",
-                f"{safe_value(payload.get('confidence'))} | {safe_value(payload.get('confidence_detail'))}",
-            ),
+        rows: list[dict[str, object]] = [
+            {"label": "Atleta", "value": payload.get("athlete", PDF_MISSING_TEXT)},
+            {"label": "Fecha", "value": payload.get("date", PDF_MISSING_TEXT)},
+            {"label": "Ventana temporal", "value": payload.get("period", PDF_MISSING_TEXT)},
+            {"label": "Cobertura / calidad", "value": payload.get("coverage", PDF_MISSING_TEXT)},
+            {
+                "label": "Nivel de confianza",
+                "value": safe_value(payload.get("confidence")),
+                "note": safe_value(payload.get("confidence_detail")),
+            },
         ]
-        return _key_value_table(rows)
+        return _mini_cards_table(rows, columns=2)
 
-    def _composite_radar_image(payload: dict[str, object]) -> Image | None:
+    def _composite_radar_image(payload: dict[str, object], *, width_mm: float = 174, height_mm: float = 72) -> Image | None:
         if payload.get("state") == "missing" or payload.get("profile_row") is None:
             return None
         try:
@@ -7726,9 +8226,9 @@ def _generate_professional_profile_pdf_reportlab(
         except Exception:
             return None
         figure = chart_composite_profile_radar(payload["profile_row"], report_athlete, theme=_build_report_chart_theme())
-        return _plotly_chart_image(figure, width_mm=174, height_mm=72, width_px=1100, height_px=760)
+        return _plotly_chart_image(figure, width_mm=width_mm, height_mm=height_mm, width_px=1100, height_px=760)
 
-    def _exposure_chart_image() -> Image | None:
+    def _exposure_chart_image(*, width_mm: float = 174, height_mm: float = 68) -> Image | None:
         try:
             from charts.load_charts import chart_volume_by_tag
         except Exception:
@@ -7739,7 +8239,7 @@ def _generate_professional_profile_pdf_reportlab(
         if prepared is None or prepared.empty:
             return None
         figure = chart_volume_by_tag(prepared, report_athlete, theme=_build_report_chart_theme())
-        return _plotly_chart_image(figure, width_mm=174, height_mm=68, width_px=1200, height_px=680)
+        return _plotly_chart_image(figure, width_mm=width_mm, height_mm=height_mm, width_px=1200, height_px=680)
 
     cards = _build_professional_metric_cards(state, report_athlete)
     evolution_sections = _build_professional_evolution_sections(state, report_athlete)
@@ -8355,109 +8855,284 @@ def _generate_professional_profile_pdf_reportlab(
         target.append(_box([_p(line, "ProfBody") for line in limitation_lines], padding=6))
 
     def _append_full_executive_page(target: list[object]) -> None:
-        target.extend(
-            [
-                _p("Reporte profesional", "ProfMuted"),
-                _p(report_athlete, "ProfTitle"),
-                _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M}", "ProfMuted"),
-                _box(
-                    [
-                        _p("Reporte madre profesional orientado a toma de decisiones.", "ProfBody"),
-                        _p(
-                            "Prioriza perfil actual, cambios relevantes, contexto de carga y decisiÃƒÂ³n sugerida para el prÃƒÂ³ximo bloque.",
-                            "ProfMuted",
-                        ),
-                    ]
+        brand = _brand_lockup()
+        if brand is not None:
+            target.append(brand)
+            target.append(Spacer(1, 4 * mm))
+        target.append(
+            _box(
+                [
+                    _p("REPORTE PROFESIONAL", "ProfEyebrow"),
+                    _p(report_athlete, "ProfHeroTitle"),
+                    _p(
+                        f"Generado el {datetime.now():%d/%m/%Y %H:%M} · Ventana {executive_payload.get('period', PDF_MISSING_TEXT)}",
+                        "ProfHeroMeta",
+                    ),
+                    _p(
+                        "Reporte madre profesional orientado a toma de decisiones para Threshold S&C.",
+                        "ProfBodyWhite",
+                    ),
+                ],
+                background=palette["navy"],
+                border_color=palette["navy"],
+                padding=9,
+            )
+        )
+        target.append(Spacer(1, 5 * mm))
+        target.append(
+            _page_header(
+                executive_payload.get("title", "Resumen ejecutivo profesional"),
+                "Prioriza lectura principal, cobertura, señales clave y decisión operativa del próximo bloque.",
+                eyebrow="Resumen ejecutivo",
+            )
+        )
+        target.append(Spacer(1, 3 * mm))
+        target.append(_executive_summary_table(executive_payload))
+        target.append(Spacer(1, 4 * mm))
+        target.append(
+            _two_column(
+                _bullet_box(
+                    "Señales clave",
+                    executive_payload.get("signals", []),
+                    width_mm=104,
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["steel"],
                 ),
-                Spacer(1, 6 * mm),
-                _p(executive_payload.get("title", "Resumen ejecutivo profesional"), "ProfSection"),
-                _executive_summary_table(executive_payload),
-                Spacer(1, 4 * mm),
-                _bullet_box("SeÃƒÂ±ales clave", executive_payload.get("signals", [])),
-                Spacer(1, 4 * mm),
-                _box(
-                    [
-                        _p("DecisiÃƒÂ³n sugerida", "ProfCardTitle"),
-                        _p(executive_payload.get("decision_suggested", PDF_MISSING_TEXT), "ProfBody"),
-                    ],
-                    padding=6,
+                _decision_box(
+                    "Decisión sugerida",
+                    executive_payload.get("decision_suggested", PDF_MISSING_TEXT),
+                    width_mm=66,
+                    note=f"Confianza: {safe_value(executive_payload.get('confidence'), fallback=PDF_MISSING_TEXT)}",
                 ),
-            ]
+                left_width_mm=106,
+                right_width_mm=68,
+            )
         )
 
     def _append_full_composite_profile_page(target: list[object]) -> None:
-        target.append(_p(composite_profile.get("title", "Perfil actual compuesto"), "ProfSection"))
-        if composite_profile.get("state") == "missing":
-            target.append(_collapsed_box(str(composite_profile.get("message") or "Faltan datos para el perfil compuesto.")))
-            return
-        target.append(_box([_p(composite_profile.get("note", PROFESSIONAL_COMPOSITE_PROFILE_NOTE), "ProfMuted")], padding=5))
-        radar_image = _composite_radar_image(composite_profile)
-        if radar_image is not None:
-            target.append(Spacer(1, 3 * mm))
-            target.append(radar_image)
-        target.append(Spacer(1, 3 * mm))
-        target.append(_dataframe_table(composite_profile.get("metric_table"), col_widths_mm=[36, 32, 22, 84]))
-        feedback = composite_profile.get("feedback", {}) if isinstance(composite_profile.get("feedback"), dict) else {}
-        target.append(Spacer(1, 3 * mm))
         target.append(
-            _bullet_box(
-                "Lectura del perfil",
-                [
-                    f"Variable dominante: {feedback.get('high', PDF_MISSING_TEXT)}",
-                    f"Variable rezagada: {feedback.get('low', PDF_MISSING_TEXT)}",
-                    f"Lectura fisiolÃƒÂ³gica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
-                    f"Lectura biomecÃƒÂ¡nica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
-                    f"Implicancia para prÃƒÂ³ximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
-                ],
+            _page_header(
+                composite_profile.get("title", "Perfil actual compuesto"),
+                "Lectura de perfil actual compuesta desde la misma fuente que el dashboard, sin inferir adaptación cerrada del bloque.",
+                eyebrow="Perfil físico",
+            )
+        )
+        if composite_profile.get("state") == "missing":
+            target.append(Spacer(1, 3 * mm))
+            missing_flowables: list[object] = [_p(str(composite_profile.get("message") or "Faltan datos para el perfil compuesto."), "ProfBody")]
+            if change_payload.get("state") == "missing":
+                missing_flowables.append(
+                    _p(
+                        f"Cambios vs evaluación anterior: {change_payload.get('message') or PROFESSIONAL_NO_EVOLUTION_TEXT}",
+                        "ProfMuted",
+                    )
+                )
+            target.append(
+                _box(
+                    missing_flowables,
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    padding=6,
+                    accent_color=palette["line_dark"],
+                )
+            )
+            return
+        target.append(Spacer(1, 3 * mm))
+        radar_image = _composite_radar_image(composite_profile, width_mm=102, height_mm=66)
+        methodological_notes: list[str] = [str(composite_profile.get("note") or PROFESSIONAL_COMPOSITE_PROFILE_NOTE)]
+        if str(composite_profile.get("scope_note") or "").strip():
+            methodological_notes.append(str(composite_profile.get("scope_note")))
+        if change_payload.get("state") == "missing":
+            methodological_notes.append(
+                f"Cambios vs evaluación anterior: {change_payload.get('message') or PROFESSIONAL_NO_EVOLUTION_TEXT}"
+            )
+        note_title = "Notas metodológicas" if len(methodological_notes) > 1 else "Nota metodológica"
+        profile_summary_flow: list[object] = [
+            _decision_box(
+                "Lectura principal del perfil",
+                composite_profile.get("summary_line", PDF_MISSING_TEXT),
+                width_mm=68,
+                inverted=False,
+                note=f"Última evaluación incluida: {safe_value(composite_profile.get('latest_profile_date'), fallback=PDF_MISSING_TEXT)}",
+            ),
+            Spacer(1, 2.5 * mm),
+            _box(
+                [_p(note_title, "ProfCardTitle")] + [_p(note, "ProfMuted") for note in methodological_notes],
+                background=palette["panel"],
+                border_color=palette["line_dark"],
+                width_mm=68,
+                padding=6,
+                accent_color=palette["steel"],
+            ),
+        ]
+        radar_panel = (
+            _chart_panel(
+                radar_image,
+                title="Radar del perfil compuesto",
+                note="El radar resume la expresión actual; la tabla conserva el detalle métrico y sus z-scores visibles.",
+                width_mm=102,
+            )
+            if radar_image is not None
+            else _box(
+                [_p("Radar del perfil compuesto no disponible para esta exportación.", "ProfMuted")],
+                width_mm=102,
+                background=palette["panel"],
+                border_color=palette["line_dark"],
+                padding=6,
+                accent_color=palette["steel"],
+            )
+        )
+        target.append(_two_column(radar_panel, profile_summary_flow, left_width_mm=104, right_width_mm=70))
+        target.append(Spacer(1, 4 * mm))
+        target.append(_dataframe_table(composite_profile.get("metric_table"), col_widths_mm=[35, 31, 21, 87]))
+        feedback = composite_profile.get("feedback", {}) if isinstance(composite_profile.get("feedback"), dict) else {}
+        target.append(Spacer(1, 4 * mm))
+        target.append(
+            _two_column(
+                _bullet_box(
+                    "Lectura fisiológica y biomecánica",
+                    [
+                        f"Lectura fisiológica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
+                        f"Lectura biomecánica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
+                    ],
+                    width_mm=84,
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["steel"],
+                ),
+                _bullet_box(
+                    "Decisión para el próximo bloque",
+                    [
+                        f"Variable dominante: {feedback.get('high', PDF_MISSING_TEXT)}",
+                        f"Variable rezagada: {feedback.get('low', PDF_MISSING_TEXT)}",
+                        f"Implicancia para próximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
+                    ],
+                    width_mm=86,
+                    background=palette["panel_alt"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["navy"],
+                ),
             )
         )
 
     def _append_full_change_page(target: list[object]) -> None:
-        target.append(_p(change_payload.get("title", "Cambios vs evaluaciÃƒÂ³n anterior"), "ProfSection"))
+        target.append(
+            _page_header(
+                change_payload.get("title", "Cambios vs evaluación anterior"),
+                "Comparación contra la evaluación inmediatamente anterior, sin leerla como readiness semanal.",
+                eyebrow="Evolución",
+            )
+        )
         if change_payload.get("state") == "missing":
+            target.append(Spacer(1, 3 * mm))
             target.append(_collapsed_box(str(change_payload.get("message") or PROFESSIONAL_NO_EVOLUTION_TEXT)))
             return
+        target.append(Spacer(1, 3 * mm))
         target.append(_dataframe_table(change_payload.get("display_table"), col_widths_mm=[34, 18, 18, 18, 18, 32, 36]))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("SÃƒÂ­ntesis de cambios", change_payload.get("summary_lines", [])))
+        target.append(
+            _bullet_box(
+                "Síntesis de cambios",
+                change_payload.get("summary_lines", []),
+                background=palette["panel"],
+                border_color=palette["line_dark"],
+                accent_color=palette["steel"],
+            )
+        )
         if not _professional_any_quadrant_ready(quadrant_sections):
             target.append(Spacer(1, 3 * mm))
-            target.append(_box([_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicaciÃƒÂ³n ÃƒÂºtil en esta exportaciÃƒÂ³n.", "ProfMuted")], padding=5))
+            target.append(
+                _box(
+                    [_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicación útil en esta exportación.", "ProfMuted")],
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    padding=5,
+                    accent_color=palette["steel"],
+                )
+            )
 
     def _append_full_quadrants_page(target: list[object]) -> None:
-        target.append(_p("Relaciones de perfil / cuadrantes", "ProfSection"))
+        target.append(
+            _page_header(
+                "Relaciones de perfil / cuadrantes",
+                "Cada relación se usa como apoyo técnico para priorizar decisiones, no como diagnóstico aislado.",
+                eyebrow="Relaciones de perfil",
+            )
+        )
         if not _professional_any_quadrant_ready(quadrant_sections):
+            target.append(Spacer(1, 3 * mm))
             target.append(_collapsed_box(PROFESSIONAL_NO_QUADRANTS_TEXT))
             return
-        for section in quadrant_sections[:3]:
-            chart = _quadrant_chart(section)
-            if chart is None:
-                continue
-            target.append(_chart_explanation_panel(chart, str(section.get("title", "Cuadrante")), section))
-            target.append(Spacer(1, 4 * mm))
+        target.append(Spacer(1, 3 * mm))
+        panels = [panel for panel in (_quadrant_compact_panel(section, width_mm=84) for section in quadrant_sections[:3]) if panel is not None]
+        if not panels:
+            target.append(_collapsed_box(PROFESSIONAL_NO_QUADRANTS_TEXT))
+            return
+        if len(panels) == 1:
+            target.append(panels[0])
+            return
+        target.append(_two_column(panels[0], panels[1], left_width_mm=84, right_width_mm=90))
+        if len(panels) > 2:
+            target.append(Spacer(1, 3 * mm))
+            target.append(_two_column(panels[2], "", left_width_mm=84, right_width_mm=90))
 
     def _append_full_isometrics_page(target: list[object]) -> None:
-        target.append(_p(isometric_payload.get("title", "IsomÃƒÂ©tricos y force-time avanzado"), "ProfSection"))
+        target.append(
+            _page_header(
+                isometric_payload.get("title", "Isométricos y force-time avanzado"),
+                "Anexo técnico compacto para IMTP, fuerza relativa, asimetrías y lectura descriptiva de la curva force-time.",
+                eyebrow="Anexo técnico",
+            )
+        )
         if isometric_payload.get("state") == "missing":
-            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isomÃƒÂ©tricos.")))
+            target.append(Spacer(1, 3 * mm))
+            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isométricos.")))
             return
+        target.append(Spacer(1, 3 * mm))
         imtp_priority = [
             row
             for row in isometric_payload.get("imtp_rows", [])
             if _professional_normalized_text(row[0]) in {"peak force", "fuerza relativa", "force avg", "time to peak", "asimetria", "lado dominante"}
         ]
         if imtp_priority:
-            target.append(_p("IMTP principal", "ProfCardTitle"))
-            target.append(_mini_cards_table(imtp_priority))
+            practical_notes = [
+                note
+                for note in isometric_payload.get("imtp_notes", [])
+                if all(
+                    marker not in _professional_normalized_text(note)
+                    for marker in (
+                        "rfd exportada descriptiva",
+                        "perfil de fuerza por puntos exportados",
+                    )
+                )
+            ][:2]
+            target.append(
+                _bullet_box(
+                    "Lectura práctica",
+                    practical_notes
+                    or ["Usar el bloque isométrico para leer capacidad máxima, apoyo de fuerza relativa y consistencia de la expresión temprana."],
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["steel"],
+                )
+            )
+            target.append(Spacer(1, 3 * mm))
+            target.append(_mini_cards_table(imtp_priority, columns=3))
         if isometric_payload.get("iso_available"):
             target.append(Spacer(1, 3 * mm))
-            target.append(_p("ISO Push Hip-Hamstring Bilateral", "ProfCardTitle"))
-            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "AsimetrÃƒÂ­a"}]
-            if iso_priority:
-                target.append(_mini_cards_table(iso_priority))
-            if isometric_payload.get("iso_notes"):
-                target.append(Spacer(1, 2 * mm))
-                target.append(_bullet_box("Lectura prÃƒÂ¡ctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
+            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "Asimetría"}]
+            iso_block = _mini_cards_table(iso_priority, columns=2, width_mm=84) if iso_priority else ""
+            iso_notes = _bullet_box(
+                "ISO Push Hip-Hamstring Bilateral",
+                isometric_payload.get("iso_notes", [])[:3] or ["Usar este test como complemento del IMTP para seguimiento descriptivo."],
+                width_mm=86,
+                style_name="ProfMuted",
+                background=palette["panel_alt"],
+                border_color=palette["line_dark"],
+                accent_color=palette["steel"],
+            )
+            target.append(_two_column(iso_block, iso_notes, left_width_mm=84, right_width_mm=90))
         if isometric_payload.get("force_time_available"):
             target.append(Spacer(1, 3 * mm))
             _draw_compact_professional_force_time_block(
@@ -8476,24 +9151,68 @@ def _generate_professional_profile_pdf_reportlab(
             )
 
     def _append_full_load_page(target: list[object]) -> None:
-        target.append(_p(load_tolerance_payload.get("title", "Carga interna y tolerancia"), "ProfSection"))
+        target.append(
+            _page_header(
+                load_tolerance_payload.get("title", "Carga interna y tolerancia"),
+                "Responder rápido si la carga reciente luce tolerable, baja, alta o potencialmente riesgosa.",
+                eyebrow="Tolerancia de carga",
+            )
+        )
         if load_tolerance_payload.get("state") == "missing":
+            target.append(Spacer(1, 3 * mm))
             target.append(_collapsed_box(str(load_tolerance_payload.get("message") or "Faltan datos de carga interna.")))
             return
-        target.append(_key_value_table(load_tolerance_payload.get("rows", [])))
+        target.append(Spacer(1, 3 * mm))
+        rows = load_tolerance_payload.get("rows", [])
+        primary_labels = {
+            "srpe semanal",
+            "cambio vs semana previa",
+            "sesiones registradas",
+            "acwr ewma",
+            "zona acwr",
+            "monotonia",
+            "strain",
+        }
+        primary_rows = [row for row in rows if _professional_normalized_text(row[0]) in primary_labels]
+        secondary_rows = [row for row in rows if _professional_normalized_text(row[0]) not in primary_labels]
+        if primary_rows:
+            target.append(_mini_cards_table(primary_rows, columns=3))
+        if secondary_rows:
+            target.append(Spacer(1, 3 * mm))
+            target.append(_key_value_table(secondary_rows, label_width_mm=46, value_width_mm=128))
         target.append(Spacer(1, 3 * mm))
         weekly_chart = _weekly_ema_chart(load_tolerance_payload.get("weekly_points", []), height_mm=48)
         if weekly_chart is not None:
-            target.append(weekly_chart)
+            target.append(
+                _chart_panel(
+                    weekly_chart,
+                    note="La curva semanal se lee junto con ACWR, monotonía y strain para contextualizar tolerancia reciente.",
+                )
+            )
             target.append(Spacer(1, 3 * mm))
-        target.append(_box([_p(load_tolerance_payload.get("risk_line", PDF_MISSING_TEXT), "ProfBody")], padding=6))
+        target.append(
+            _decision_box(
+                "Lectura final",
+                load_tolerance_payload.get("risk_line", PDF_MISSING_TEXT),
+                width_mm=174,
+                inverted=False,
+            )
+        )
 
     def _append_full_wellness_page(target: list[object]) -> None:
-        target.append(_p(wellness_availability_payload.get("title", "Wellness, disponibilidad y adherencia"), "ProfSection"))
+        target.append(
+            _page_header(
+                wellness_availability_payload.get("title", "Wellness, disponibilidad y adherencia"),
+                "Usar wellness como contexto de disponibilidad y tolerancia, no como lectura aislada del rendimiento.",
+                eyebrow="Disponibilidad",
+            )
+        )
         if wellness_availability_payload.get("state") == "missing":
+            target.append(Spacer(1, 3 * mm))
             target.append(_collapsed_box(str(wellness_availability_payload.get("message") or "Faltan datos de wellness.")))
             return
-        target.append(_mini_cards_table(wellness_availability_payload.get("rows", [])))
+        target.append(Spacer(1, 3 * mm))
+        target.append(_mini_cards_table(wellness_availability_payload.get("rows", []), columns=3))
         chart_points = (
             wellness_availability_payload.get("weekly_points", [])
             if wellness_availability_payload.get("trend_allowed")
@@ -8502,54 +9221,210 @@ def _generate_professional_profile_pdf_reportlab(
         chart = _wellness_chart(chart_points, width_mm=174, height_mm=44)
         if chart is not None:
             target.append(Spacer(1, 3 * mm))
-            target.append(chart)
+            target.append(
+                _chart_panel(
+                    chart,
+                    note="La tendencia disponible ayuda a poner en contexto sueño, estrés, dolor y consistencia de registros.",
+                )
+            )
         target.append(Spacer(1, 3 * mm))
         note_lines = [str(wellness_availability_payload.get("compatibility") or "")]
         if str(wellness_availability_payload.get("quality_note") or "").strip():
             note_lines.append(str(wellness_availability_payload.get("quality_note")))
-        target.append(_bullet_box("Lectura de disponibilidad", note_lines, style_name="ProfMuted"))
-
-    def _append_full_exposure_page(target: list[object]) -> None:
-        target.append(_p(exposure_payload.get("title", "ExposiciÃƒÂ³n del bloque / contenido entrenado"), "ProfSection"))
-        if exposure_payload.get("state") == "missing":
-            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposiciÃƒÂ³n.")))
-            return
-        chart_image = _exposure_chart_image()
-        if chart_image is not None:
-            target.append(chart_image)
-            target.append(Spacer(1, 3 * mm))
-        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[38, 30, 26, 80]))
-        target.append(Spacer(1, 3 * mm))
         target.append(
             _bullet_box(
-                "Lectura del bloque",
-                [
-                    str(exposure_payload.get("summary_line") or ""),
-                    str(exposure_payload.get("context_link") or ""),
-                    f"EstÃƒÂ­mulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}.",
-                ],
+                "Lectura de disponibilidad",
+                note_lines,
                 style_name="ProfMuted",
+                background=palette["panel"],
+                border_color=palette["line_dark"],
+                accent_color=palette["green"],
             )
         )
 
+    def _append_full_exposure_page(target: list[object]) -> None:
+        target.append(
+            _page_header(
+                exposure_payload.get("title", "Exposición del bloque / contenido entrenado"),
+                "Resume qué se entrenó, cómo se distribuyó el bloque y dónde aparece la menor exposición relativa.",
+                eyebrow="Contenido entrenado",
+            )
+        )
+        if exposure_payload.get("state") == "missing":
+            target.append(Spacer(1, 3 * mm))
+            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposición.")))
+            return
+        target.append(Spacer(1, 3 * mm))
+        chart_image = _exposure_chart_image(width_mm=104, height_mm=56)
+        summary_width = 66 if chart_image is not None else 174
+        summary_box = _bullet_box(
+            "Lectura del bloque",
+            [
+                str(exposure_payload.get("summary_line") or ""),
+                str(exposure_payload.get("context_link") or ""),
+                f"Estímulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}.",
+            ],
+            width_mm=summary_width,
+            style_name="ProfMuted",
+            background=palette["panel_alt"],
+            border_color=palette["line_dark"],
+            accent_color=palette["navy"],
+        )
+        if chart_image is not None:
+            target.append(
+                _two_column(
+                    _chart_panel(
+                        chart_image,
+                        title="Distribución visual del bloque",
+                        note="El gráfico acompaña la tabla para localizar rápido el peso relativo de cada estímulo.",
+                        width_mm=104,
+                    ),
+                    summary_box,
+                    left_width_mm=106,
+                    right_width_mm=68,
+                )
+            )
+            target.append(Spacer(1, 4 * mm))
+        else:
+            target.append(summary_box)
+            target.append(Spacer(1, 4 * mm))
+        target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[40, 28, 24, 82]))
+
     def _append_full_integrated_page(target: list[object]) -> None:
-        target.append(_p(integrated_decision_payload.get("title", "InterpretaciÃƒÂ³n integrada profesional"), "ProfSection"))
-        target.append(_bullet_box("QuÃƒÂ© sabemos con buena confianza", integrated_decision_payload.get("good_confidence", [])))
+        target.append(
+            _page_header(
+                integrated_decision_payload.get("title", "Interpretación integrada profesional"),
+                "Integra evaluación física, carga, wellness y exposición para sostener una decisión práctica única.",
+                eyebrow="Síntesis profesional",
+            )
+        )
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃƒÂ© parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
-        target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃƒÂ© no podemos afirmar todavÃƒÂ­a", integrated_decision_payload.get("unknown", []), style_name="ProfMuted"))
-        target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("DecisiÃƒÂ³n prÃƒÂ¡ctica", integrated_decision_payload.get("decision_practical", [])))
-        target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃƒÂ© monitorear en el prÃƒÂ³ximo bloque", integrated_decision_payload.get("monitor", []), style_name="ProfMuted"))
+        target.append(
+            _two_column(
+                [
+                    _bullet_box(
+                        "Qué sabemos con buena confianza",
+                        integrated_decision_payload.get("good_confidence", []),
+                        width_mm=84,
+                        background=palette["panel_alt"],
+                        border_color=palette["line_dark"],
+                        accent_color=palette["navy"],
+                    ),
+                    Spacer(1, 3 * mm),
+                    _bullet_box(
+                        "Qué parece probable",
+                        integrated_decision_payload.get("probable", []),
+                        width_mm=84,
+                        style_name="ProfMuted",
+                        background=palette["panel"],
+                        border_color=palette["line_dark"],
+                        accent_color=palette["steel"],
+                    ),
+                ],
+                [
+                    _bullet_box(
+                        "Qué no podemos afirmar todavía",
+                        integrated_decision_payload.get("unknown", []),
+                        width_mm=86,
+                        style_name="ProfMuted",
+                        background=palette["panel"],
+                        border_color=palette["line_dark"],
+                        accent_color=palette["line_dark"],
+                    ),
+                    Spacer(1, 3 * mm),
+                    _bullet_box(
+                        "Qué monitorear en el próximo bloque",
+                        integrated_decision_payload.get("monitor", []),
+                        width_mm=86,
+                        style_name="ProfMuted",
+                        background=palette["card"],
+                        border_color=palette["line_dark"],
+                        accent_color=palette["steel"],
+                    ),
+                ],
+                left_width_mm=84,
+                right_width_mm=90,
+            )
+        )
+        target.append(Spacer(1, 4 * mm))
+        target.append(
+            _bullet_box(
+                "Decisión práctica",
+                integrated_decision_payload.get("decision_practical", []),
+                style_name="ProfBodyWhite",
+                background=palette["navy"],
+                border_color=palette["navy"],
+                title_style="ProfDecisionTitle",
+            )
+        )
 
     def _append_full_action_plan_page(target: list[object]) -> None:
-        target.append(_p(action_plan_payload.get("title", "PrÃƒÂ³ximos pasos y limitaciones metodolÃƒÂ³gicas"), "ProfSection"))
-        for label in ["Mantener", "Ajustar", "Monitorear", "Medir"]:
-            target.append(_bullet_box(label, action_plan_payload.get("actions", {}).get(label, [])))
-            target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("Limitaciones metodolÃƒÂ³gicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
+        target.append(
+            _page_header(
+                action_plan_payload.get("title", "Próximos pasos y limitaciones metodológicas"),
+                "Traducir la lectura a acciones simples de mantener, ajustar, monitorear y medir.",
+                eyebrow="Plan de acción",
+            )
+        )
+        target.append(Spacer(1, 3 * mm))
+        actions = action_plan_payload.get("actions", {})
+        target.append(
+            _two_column(
+                _bullet_box(
+                    "Mantener",
+                    actions.get("Mantener", []),
+                    width_mm=84,
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["steel"],
+                ),
+                _bullet_box(
+                    "Ajustar",
+                    actions.get("Ajustar", []),
+                    width_mm=86,
+                    style_name="ProfBodyWhite",
+                    title_style="ProfDecisionTitle",
+                    background=palette["navy"],
+                    border_color=palette["navy"],
+                ),
+                left_width_mm=84,
+                right_width_mm=90,
+            )
+        )
+        target.append(Spacer(1, 3 * mm))
+        target.append(
+            _two_column(
+                _bullet_box(
+                    "Monitorear",
+                    actions.get("Monitorear", []),
+                    width_mm=84,
+                    background=palette["card"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["steel"],
+                ),
+                _bullet_box(
+                    "Medir",
+                    actions.get("Medir", []),
+                    width_mm=86,
+                    background=palette["card"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["steel"],
+                ),
+                left_width_mm=84,
+                right_width_mm=90,
+            )
+        )
+        target.append(Spacer(1, 4 * mm))
+        target.append(
+            _bullet_box(
+                "Limitaciones metodológicas",
+                action_plan_payload.get("limitations", []),
+                style_name="ProfMuted",
+                background=palette["panel"],
+                border_color=palette["line_dark"],
+                accent_color=palette["line_dark"],
+            )
+        )
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -8560,6 +9435,18 @@ def _generate_professional_profile_pdf_reportlab(
         topMargin=18 * mm,
         bottomMargin=14 * mm,
     )
+    def _draw_professional_footer(canvas_obj, doc_obj) -> None:
+        canvas_obj.saveState()
+        footer_y = 8 * mm
+        page_width = float(doc_obj.pagesize[0])
+        canvas_obj.setStrokeColor(palette["line_dark"])
+        canvas_obj.setLineWidth(0.45)
+        canvas_obj.line(doc_obj.leftMargin, footer_y + (3.2 * mm), page_width - doc_obj.rightMargin, footer_y + (3.2 * mm))
+        canvas_obj.setFillColor(palette["muted"])
+        canvas_obj.setFont("Helvetica", 7.5)
+        canvas_obj.drawString(doc_obj.leftMargin, footer_y, "Threshold S&C")
+        canvas_obj.drawRightString(page_width - doc_obj.rightMargin, footer_y, f"Página {doc_obj.page}")
+        canvas_obj.restoreState()
     story: list[object] = []
     # The professional report always uses the mother-report structure; missing data is handled inside each section.
     _append_full_executive_page(story)
@@ -8567,9 +9454,7 @@ def _generate_professional_profile_pdf_reportlab(
     _append_full_composite_profile_page(story)
     if change_payload.get("state") != "missing":
         story.append(PageBreak())
-    else:
-        story.append(Spacer(1, 4 * mm))
-    _append_full_change_page(story)
+        _append_full_change_page(story)
     if _professional_any_quadrant_ready(quadrant_sections):
         story.append(PageBreak())
         _append_full_quadrants_page(story)
@@ -8587,7 +9472,7 @@ def _generate_professional_profile_pdf_reportlab(
     story.append(PageBreak())
     _append_full_action_plan_page(story)
     try:
-        doc.build(story)
+        doc.build(story, onFirstPage=_draw_professional_footer, onLaterPages=_draw_professional_footer)
     except Exception:
         return None
     return buffer.getvalue()

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from datetime import datetime as real_datetime
+from io import BytesIO
 import re
 import unicodedata
 import unittest
 from unittest.mock import patch
 
 import pandas as pd
+from pypdf import PdfReader
 
 import modules.report_generator as report_generator
 from modules.jump_analysis import (
@@ -51,6 +53,15 @@ def _pdf_page_count(pdf: bytes) -> int:
 
 def _pdf_text(pdf: bytes) -> str:
     return pdf.decode("latin-1", errors="ignore").lower()
+
+
+def _pdf_extracted_text_pages(pdf: bytes) -> list[str]:
+    reader = PdfReader(BytesIO(pdf))
+    return [(page.extract_text() or "") for page in reader.pages]
+
+
+def _normalized_pdf_pages(pdf: bytes) -> list[str]:
+    return [_normalized_story_text(page) for page in _pdf_extracted_text_pages(pdf)]
 
 
 def _normalized_story_text(text: str) -> str:
@@ -324,6 +335,50 @@ def _professional_state_with_force_time() -> dict[str, object]:
             },
         ]
     )
+    return state
+
+
+def _professional_state_with_force_time_and_exposure() -> dict[str, object]:
+    state = _professional_state_with_force_time()
+    exposure_df = pd.DataFrame(
+        [
+            {
+                "Athlete": "Ana Lopez",
+                "Assigned Date": "2026-04-28",
+                "Exercise": "Back Squat producción",
+                "stimulus_category": "strength_loaded",
+                "Volume_Load_kg": 3200,
+                "Contacts": 0,
+                "Exposures": 1,
+                "is_invalid": False,
+                "is_untagged": False,
+            },
+            {
+                "Athlete": "Ana Lopez",
+                "Assigned Date": "2026-04-29",
+                "Exercise": "Pliometría evaluación",
+                "stimulus_category": "plyo_jump",
+                "Volume_Load_kg": 0,
+                "Contacts": 48,
+                "Exposures": 1,
+                "is_invalid": False,
+                "is_untagged": False,
+            },
+            {
+                "Athlete": "Ana Lopez",
+                "Assigned Date": "2026-05-01",
+                "Exercise": "Hang Power Clean contracción",
+                "stimulus_category": "olympic_derivatives",
+                "Volume_Load_kg": 0,
+                "Contacts": 0,
+                "Exposures": 1,
+                "is_invalid": False,
+                "is_untagged": False,
+            },
+        ]
+    )
+    state["prepared_raw_df"] = exposure_df
+    state["raw_df"] = exposure_df.copy()
     return state
 
 
@@ -948,12 +1003,63 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             ]
         )
 
-        _, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
         self.assertIn("cambios vs evaluacion anterior", text)
         self.assertIn("faltan datos", text)
+        self.assertLessEqual(_pdf_page_count(pdf), 9)
         _assert_professional_mother_structure(self, text)
         _assert_legacy_professional_sections_absent(self, text)
+
+    def test_missing_evolution_note_stays_compact_inside_composite_page(self):
+        state = _weekly_state_without_evaluations()
+        state["jump_df"] = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-05-01",
+                    "SJ_cm": 31.0,
+                    "CMJ_cm": 34.0,
+                    "DJ_cm": 22.0,
+                    "DJ_tc_ms": 210.0,
+                    "DRI": 1.42,
+                    "IMTP_relPF": 39.5,
+                    "SJ_Z": 0.8,
+                    "CMJ_Z": 0.7,
+                    "DJ_height_Z": -1.0,
+                    "DJ_RSI_Z": 0.2,
+                    "TC_inv_Z": 0.9,
+                    "IMTP_relPF_Z": 0.6,
+                },
+                {
+                    "Athlete": "Bruno Rey",
+                    "Date": "2026-05-01",
+                    "SJ_cm": 29.0,
+                    "CMJ_cm": 33.0,
+                    "DJ_cm": 23.0,
+                    "DJ_tc_ms": 225.0,
+                    "DRI": 1.18,
+                    "IMTP_relPF": 35.0,
+                    "SJ_Z": 0.2,
+                    "CMJ_Z": 0.1,
+                    "DJ_height_Z": 0.1,
+                    "DJ_RSI_Z": 0.0,
+                    "TC_inv_Z": -0.2,
+                    "IMTP_relPF_Z": 0.1,
+                },
+            ]
+        )
+
+        pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
+        pages = _normalized_pdf_pages(pdf)
+        pages_with_change_note = [page for page in pages if "cambios vs evaluacion anterior" in page]
+
+        self.assertLessEqual(len(pages), 9)
+        self.assertEqual(len(pages_with_change_note), 1)
+        self.assertIn("perfil actual compuesto", pages_with_change_note[0])
+        self.assertIn("notas metodologicas", pages_with_change_note[0])
+        self.assertIn("cambios vs evaluacion anterior: faltan datos", pages_with_change_note[0])
+        self.assertIn("mostrar evolucion entre evaluaciones", pages_with_change_note[0])
 
     def test_client_and_athlete_pdfs_do_not_use_professional_mother_structure(self):
         state = _weekly_state_without_evaluations()
@@ -1075,6 +1181,74 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("force@50", text)
         self.assertIn("rfd exportada descriptiva", text)
 
+    def test_professional_pdf_full_advanced_case_with_exposure_stays_within_ten_pages(self):
+        state = _professional_state_with_force_time_and_exposure()
+
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
+        _, raw_text = _rendered_pdf_and_raw_story_text(state, "Ana Lopez", "profe")
+        fixed_lower = _repair_mojibake_text(raw_text).lower()
+
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertIn("relaciones de perfil / cuadrantes", text)
+        self.assertIn("isometricos y force-time avanzado", text)
+        self.assertIn("carga interna y tolerancia", text)
+        self.assertIn("wellness, disponibilidad y adherencia", text)
+        self.assertIn("exposicion del bloque / contenido entrenado", text)
+        self.assertIn("estimulos dominantes", text)
+        self.assertIn("force@50", text)
+        self.assertIn("interpretacion integrada profesional", text)
+        self.assertIn("proximos pasos y limitaciones metodologicas", text)
+        self.assertNotIn("tc inv", text)
+        self.assertIn("back squat producción", fixed_lower)
+        self.assertIn("pliometría evaluación", fixed_lower)
+        self.assertIn("hang power clean contracción", fixed_lower)
+
+    def test_professional_force_time_uses_single_lectura_practica_and_repairs_accents(self):
+        _, normalized_text = _rendered_pdf_and_story_text(_professional_state_with_force_time(), "Ana Lopez", "profe")
+        _, raw_text = _rendered_pdf_and_raw_story_text(_professional_state_with_force_time(), "Ana Lopez", "profe")
+        fixed_text = report_generator._repair_mojibake_text(raw_text)
+        fixed_lower = fixed_text.lower()
+
+        self.assertEqual(normalized_text.count("lectura practica"), 1)
+        self.assertIn("producción máxima", fixed_text)
+        self.assertIn("fuerza isométrica", fixed_text)
+        self.assertIn("posición de IMTP", fixed_text)
+        self.assertEqual(fixed_lower.count("rfd exportada descriptiva"), 1)
+        self.assertNotIn("produccion maxima", fixed_lower)
+        self.assertNotIn("fuerza isometrica", fixed_lower)
+        self.assertNotIn("posicion de imtp", fixed_lower)
+
+    def test_exposure_does_not_promise_chart_when_chart_is_unavailable(self):
+        state = _weekly_state_without_evaluations()
+
+        _, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
+
+        self.assertNotIn("distribucion visual del bloque", text)
+        self.assertNotIn("el grafico acompana la tabla", text)
+
+    def test_professional_action_plan_order_is_maintain_adjust_monitor_measure(self):
+        text = _rendered_story_text(_professional_state_with_force_time(), "Ana Lopez", "profe")
+        action_section = text[text.index("proximos pasos y limitaciones metodologicas"):]
+
+        maintain_idx = action_section.index("mantener")
+        adjust_idx = action_section.index("ajustar")
+        monitor_idx = action_section.index("monitorear")
+        measure_idx = action_section.index("medir")
+
+        self.assertLess(maintain_idx, adjust_idx)
+        self.assertLess(adjust_idx, monitor_idx)
+        self.assertLess(monitor_idx, measure_idx)
+
+    def test_professional_pdf_footer_contains_threshold_and_page_number(self):
+        pdf = generate_visual_report_pdf(_professional_state_with_force_time(), "Ana Lopez", "profe")
+        extracted_pages = [_normalized_story_text(page) for page in _pdf_extracted_text_pages(pdf)]
+
+        self.assertTrue(extracted_pages)
+        self.assertIn("threshold s&c", extracted_pages[0])
+        self.assertIn("pagina 1", extracted_pages[0])
+        self.assertIn("threshold s&c", extracted_pages[-1])
+        self.assertIn(f"pagina {len(extracted_pages)}", extracted_pages[-1])
+
     def test_professional_pdf_without_imtp_force_time_generates_without_optional_block(self):
         state = _weekly_state_without_evaluations()
         state["jump_df"] = pd.DataFrame(
@@ -1089,6 +1263,43 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         self.assertIsNotNone(pdf)
         self.assertEqual(mocked_draw.call_count, 0)
+
+    def test_professional_pdf_without_force_time_keeps_imtp_basic_without_technical_table(self):
+        state = _weekly_state_without_evaluations()
+        state["jump_df"] = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-01",
+                    "CMJ_cm": 31.0,
+                    "SJ_cm": 27.0,
+                    "DJ_cm": 20.0,
+                    "DJ_tc_ms": 212.0,
+                    "DRI": 1.24,
+                    "IMTP_N": 2380,
+                },
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-05-01",
+                    "CMJ_cm": 32.0,
+                    "SJ_cm": 28.0,
+                    "DJ_cm": 21.0,
+                    "DJ_tc_ms": 205.0,
+                    "DRI": 1.31,
+                    "IMTP_N": 2450,
+                },
+            ]
+        )
+
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
+
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertIn("isometricos y force-time avanzado", text)
+        self.assertIn("peak force", text)
+        self.assertIn("2450 n", text)
+        self.assertIn("faltan puntos suficientes del perfil de fuerza exportado", text)
+        self.assertNotIn("detalle tecnico compacto", text)
+        self.assertNotIn("force@50", text)
 
     def test_force_time_payload_for_professional_stays_descriptive(self):
         payload = build_force_time_report_payload(
@@ -1215,6 +1426,38 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertEqual(rows["ACWR EWMA"], "0.95")
         self.assertEqual(rows["Strain"], "2247")
 
+    def test_professional_pdf_without_load_uses_conservative_wellness_and_integrated_language(self):
+        state = _professional_state_with_force_time()
+        state["rpe_df"] = None
+        state["weekly_summaries"]["weekly_load"] = pd.DataFrame()
+
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
+
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertIn("carga interna y tolerancia", text)
+        self.assertIn("faltan datos para valorar la tolerancia de carga", text)
+        self.assertIn("sin carga interna reciente conviene usarlo solo como contexto parcial", text)
+        self.assertNotIn("carga estable + wellness/disponibilidad relativamente estables", text)
+        self.assertNotIn("acwr ewma", text)
+        self.assertNotIn("zona acwr", text)
+        self.assertNotIn("monotonia", text)
+        self.assertNotIn("strain", text)
+
+    def test_professional_pdf_without_wellness_uses_missing_block_and_conservative_integrated_language(self):
+        state = _professional_state_with_force_time()
+        state["wellness_df"] = None
+        state["weekly_summaries"]["weekly_wellness"] = pd.DataFrame()
+
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
+
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertIn("wellness, disponibilidad y adherencia", text)
+        self.assertIn("faltan datos de wellness/disponibilidad para este periodo", text)
+        self.assertIn("falta wellness/disponibilidad reciente; evitar conclusiones fuertes sobre tolerancia del bloque", text)
+        self.assertNotIn("wellness/disponibilidad relativamente estables", text)
+        self.assertNotIn("dias con registro", text)
+        self.assertNotIn("wellness score", text)
+
     def test_change_payload_interprets_reactive_pattern_and_hides_tc_inv(self):
         state = {
             "jump_df": pd.DataFrame(
@@ -1258,6 +1501,84 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         self.assertIn("Tiempo de contacto", visible_text)
         self.assertNotIn("TC inv", visible_text)
+
+    def test_composite_profile_clarifies_contact_time_when_dominant(self):
+        feedback = report_generator._professional_sanitize_profile_feedback({"high": "Tiempo de contacto (+1.00)"})
+        visible_text = _normalized_story_text(feedback["high"])
+
+        self.assertIn("tiempo de contacto", visible_text)
+        self.assertIn("zona favorable", visible_text)
+        self.assertNotIn("tc inv", visible_text)
+        self.assertNotEqual(visible_text, "tiempo de contacto (+1.00)")
+
+    def test_composite_profile_avoids_missing_readings_when_profile_variables_exist(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-05-01",
+                        "SJ_cm": 31.0,
+                        "CMJ_cm": 34.0,
+                        "DJ_cm": 22.0,
+                        "DJ_tc_ms": 210.0,
+                        "DRI": 1.42,
+                        "IMTP_relPF": 39.5,
+                        "SJ_Z": 0.8,
+                        "CMJ_Z": 0.7,
+                        "DJ_height_Z": -1.0,
+                        "DJ_RSI_Z": 0.2,
+                        "TC_inv_Z": 0.9,
+                        "IMTP_relPF_Z": 0.6,
+                    }
+                ]
+            )
+        }
+
+        payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+        feedback = payload["feedback"]
+        combined = _normalized_story_text(" ".join(feedback.values()))
+
+        self.assertNotIn("faltan datos", combined)
+        self.assertIn("perfil actual", combined)
+        self.assertIn("zona favorable", combined)
+        self.assertIn("progresion reactiva", combined)
+
+    def test_dj_height_lagging_translates_to_training_language(self):
+        composite_payload = {
+            "feedback": {
+                "low": "DJ height (-1.00)",
+                "next_block": "Sostener la cualidad dominante y ajustar la variable mas rezagada en el proximo bloque.",
+            }
+        }
+        action_plan = _build_professional_action_plan_payload(
+            {},
+            "Ana Lopez",
+            evaluation_state="available",
+            composite_payload=composite_payload,
+            change_payload={"declines": []},
+            integrated_payload={},
+        )
+        integrated = report_generator._build_professional_integrated_decision_payload(
+            {},
+            "Ana Lopez",
+            evaluation_state="available",
+            assessment_interval_warning="",
+            composite_payload=composite_payload,
+            change_payload={"declines": []},
+            load_payload={},
+            wellness_payload={},
+            exposure_payload={},
+            training_context={},
+        )
+        adjust_text = _normalized_story_text(" ".join(action_plan["actions"]["Ajustar"]))
+        decision_text = _normalized_story_text(" ".join(integrated["decision_practical"]))
+
+        self.assertNotIn("mejorar dj height", adjust_text)
+        self.assertIn("expresion en dj", adjust_text)
+        self.assertIn("calidad de contacto", adjust_text)
+        self.assertIn("expresion en dj", decision_text)
+        self.assertIn("stiffness", decision_text)
 
     def test_professional_pdf_uses_dashboard_composite_zscore_source(self):
         state = {
@@ -1459,6 +1780,22 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         self.assertIn("menor exposicion relativa: derivados olimpicos", text)
         self.assertNotIn("estimulos bajos o ausentes", text)
+
+    def test_professional_pdf_without_exposure_uses_compact_missing_block_and_conservative_interpretation(self):
+        state = _professional_state_with_force_time()
+        state["prepared_raw_df"] = pd.DataFrame()
+        state["raw_df"] = None
+
+        pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
+
+        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertIn("exposicion del bloque / contenido entrenado", text)
+        self.assertIn("faltan raw workouts suficientes para resumir la exposicion del bloque", text)
+        self.assertIn("no reemplazan la exposicion por estimulos", text)
+        self.assertIn("falta exposicion por estimulos suficiente", text)
+        self.assertNotIn("estimulos dominantes", text)
+        self.assertNotIn("distribucion visual del bloque", text)
+        self.assertNotIn("el grafico acompana la tabla", text)
 
     def test_action_plan_is_concrete_and_not_repetitive(self):
         payload = _build_professional_action_plan_payload(
