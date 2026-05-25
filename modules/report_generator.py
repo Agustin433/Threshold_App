@@ -4267,6 +4267,66 @@ def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], a
     return payloads
 
 
+def _collect_client_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], athlete: str) -> dict[str, dict[str, object]]:
+    try:
+        from charts.load_charts import chart_acwr, chart_completion, chart_wellness
+        from charts.dashboard_charts import chart_cmj_trend
+    except Exception:
+        return {}
+
+    theme = _build_report_chart_theme()
+    payloads: dict[str, dict[str, object]] = {}
+    jump_history = _professional_jump_history(state, athlete)
+    if not jump_history.empty and len(_cmj_series(state, athlete)) >= 2:
+        try:
+            payloads["cmj_trend"] = {
+                "slug": "cmj_trend",
+                "title": "Progreso reciente",
+                "figure": chart_cmj_trend(state.get("jump_df"), athlete, theme=theme),
+            }
+        except Exception:
+            pass
+
+    acwr_df = (state.get("acwr_dict") or {}).get(athlete)
+    if acwr_df is not None and not acwr_df.empty and len(_acwr_series(state, athlete)) >= 2:
+        try:
+            payloads["acwr"] = {
+                "slug": "acwr",
+                "title": "Cómo venís tolerando el entrenamiento",
+                "figure": chart_acwr(acwr_df, athlete, theme=theme),
+            }
+        except Exception:
+            pass
+
+    wellness_df = state.get("wellness_df")
+    if wellness_df is not None and not wellness_df.empty and "Athlete" in wellness_df.columns:
+        athlete_wellness = wellness_df[_professional_athlete_mask(wellness_df["Athlete"], athlete)].copy()
+        if not athlete_wellness.empty and "Date" in athlete_wellness.columns and len(_wellness_series(state, athlete)) >= 2:
+            athlete_wellness = athlete_wellness.sort_values("Date")
+            athlete_wellness["Wellness_Score"] = _report_wellness_score_series(athlete_wellness)
+            try:
+                payloads["wellness"] = {
+                    "slug": "wellness",
+                    "title": "Bienestar reciente",
+                    "figure": chart_wellness(athlete_wellness, athlete, theme=theme),
+                }
+            except Exception:
+                pass
+
+    completion_plot_df = _completion_plot_df(state, athlete)
+    if not completion_plot_df.empty and len(completion_plot_df) >= 2:
+        try:
+            payloads["completion"] = {
+                "slug": "completion",
+                "title": "Constancia reciente",
+                "figure": chart_completion(completion_plot_df, theme=theme, athlete_label=athlete),
+            }
+        except Exception:
+            pass
+
+    return payloads
+
+
 def export_plotly_figure_png(
     figure: object,
     *,
@@ -7189,6 +7249,469 @@ def _build_professional_next_steps(evaluation_state: str) -> list[str]:
     ]
 
 
+def _pdf_theme_threshold(colors_module, *, variant: str = "general") -> dict[str, object]:
+    variant_key = str(variant or "general").strip().lower()
+    shared = {
+        "page_width_mm": 174,
+        "page_gap_mm": 4,
+        "box_padding": 8,
+        "table_padding": 6,
+        "footer_label": "Threshold S&C",
+        "footer_font_name": "Helvetica",
+        "footer_font_size": 7.5,
+        "footer_y_mm": 8,
+        "footer_rule_gap_mm": 3.2,
+        "footer_rule_width": 0.45,
+        "white": colors_module.white,
+    }
+    variants = {
+        "general": {
+            "bg": colors_module.HexColor("#F4F6F8"),
+            "card": colors_module.HexColor("#FEFEFE"),
+            "panel": colors_module.HexColor("#F6F9FB"),
+            "panel_alt": colors_module.HexColor("#EEF3F8"),
+            "navy": colors_module.HexColor("#0D3C5E"),
+            "steel": colors_module.HexColor("#134263"),
+            "ink": colors_module.HexColor("#221F20"),
+            "muted": colors_module.HexColor("#708C9F"),
+            "gray": colors_module.HexColor("#5A595B"),
+            "line": colors_module.HexColor("#D8DEE4"),
+            "line_dark": colors_module.HexColor("#C5D0D9"),
+            "green": colors_module.HexColor("#2F6B52"),
+            "yellow": colors_module.HexColor("#C4A464"),
+            "orange": colors_module.HexColor("#B87445"),
+            "red": colors_module.HexColor("#B56B73"),
+        },
+        "professional": {
+            "bg": colors_module.HexColor("#F3F5F7"),
+            "card": colors_module.HexColor("#FFFFFF"),
+            "panel": colors_module.HexColor("#F7FAFC"),
+            "panel_alt": colors_module.HexColor("#EEF3F8"),
+            "navy": colors_module.HexColor("#102C44"),
+            "steel": colors_module.HexColor("#29485F"),
+            "ink": colors_module.HexColor("#161A1D"),
+            "muted": colors_module.HexColor("#617383"),
+            "gray": colors_module.HexColor("#4E5B67"),
+            "line": colors_module.HexColor("#D6DEE5"),
+            "line_dark": colors_module.HexColor("#BCC9D3"),
+            "green": colors_module.HexColor("#2F6B52"),
+            "yellow": colors_module.HexColor("#C4A464"),
+            "orange": colors_module.HexColor("#B87445"),
+            "red": colors_module.HexColor("#B56B73"),
+        },
+    }
+    selected = variants.get(variant_key, variants["general"]).copy()
+    selected.update(shared)
+    return selected
+
+
+def _register_threshold_pdf_styles(
+    styles,
+    ParagraphStyleClass,
+    palette: dict[str, object],
+    *,
+    variant: str = "general",
+):
+    def add(name: str, parent_name: str, **kwargs) -> None:
+        if name in styles.byName:
+            return
+        styles.add(ParagraphStyleClass(name=name, parent=styles[parent_name], **kwargs))
+
+    add("ReportTitle", "Heading1", fontName="Helvetica-Bold", fontSize=23, leading=28, textColor=palette["navy"], spaceAfter=8)
+    add("ReportSection", "Heading2", fontName="Helvetica-Bold", fontSize=16, leading=20, textColor=palette["navy"], spaceAfter=8, spaceBefore=4)
+    add("ReportBody", "BodyText", fontName="Helvetica", fontSize=10, leading=14, textColor=palette["ink"], spaceAfter=6)
+    add("ReportMuted", "BodyText", fontName="Helvetica", fontSize=9, leading=13, textColor=palette["gray"], spaceAfter=4)
+    add("ReportMutedItalic", "BodyText", fontName="Helvetica-Oblique", fontSize=9, leading=13, textColor=palette["gray"], spaceAfter=3)
+    add("CardLabel", "BodyText", fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=palette["gray"], spaceAfter=4)
+    add("CardValue", "BodyText", fontName="Helvetica-Bold", fontSize=15, leading=18, textColor=palette["ink"])
+    add("BlockTitle", "BodyText", fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=palette["ink"], spaceAfter=5)
+    add("ReportDecisionTitle", "BodyText", fontName="Helvetica-Bold", fontSize=10, leading=13, textColor=palette["white"], spaceAfter=3)
+    add("ReportBodyWhite", "BodyText", fontName="Helvetica", fontSize=9.4, leading=12.8, textColor=palette["white"], spaceAfter=4)
+    add("ReportMutedWhite", "BodyText", fontName="Helvetica", fontSize=8.5, leading=11.6, textColor=palette["white"], spaceAfter=3)
+    add("ReportTableHeader", "BodyText", fontName="Helvetica-Bold", fontSize=8.4, leading=10.5, textColor=palette["white"], spaceAfter=0)
+    add("ReportTableCell", "BodyText", fontName="Helvetica", fontSize=8.7, leading=11.4, textColor=palette["ink"], spaceAfter=0)
+
+    if str(variant or "").strip().lower() != "professional":
+        return styles
+
+    add("ProfTitle", "Heading1", fontName="Helvetica-Bold", fontSize=24, leading=28, textColor=palette["navy"], spaceAfter=6)
+    add("ProfHeroTitle", "Heading1", fontName="Helvetica-Bold", fontSize=24, leading=29, textColor=palette["white"], spaceAfter=4)
+    add("ProfHeroMeta", "BodyText", fontName="Helvetica", fontSize=9, leading=12, textColor=palette["line_dark"], spaceAfter=3)
+    add("ProfEyebrow", "BodyText", fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=palette["muted"], spaceAfter=2)
+    add("ProfSection", "Heading2", fontName="Helvetica-Bold", fontSize=18, leading=22, textColor=palette["navy"], spaceBefore=0, spaceAfter=3)
+    add("ProfSectionSubtitle", "BodyText", fontName="Helvetica", fontSize=9, leading=12, textColor=palette["muted"], spaceAfter=3)
+    add("ProfBody", "BodyText", fontName="Helvetica", fontSize=9.2, leading=12.6, textColor=palette["ink"], spaceAfter=4)
+    add("ProfMuted", "BodyText", fontName="Helvetica", fontSize=8.4, leading=11.2, textColor=palette["gray"], spaceAfter=4)
+    add("ProfMutedItalic", "BodyText", fontName="Helvetica-Oblique", fontSize=8.5, leading=11.5, textColor=palette["gray"], spaceAfter=3)
+    add("ProfCardTitle", "BodyText", fontName="Helvetica-Bold", fontSize=9.6, leading=12, textColor=palette["navy"], spaceAfter=3)
+    add("ProfCardValue", "BodyText", fontName="Helvetica-Bold", fontSize=14.2, leading=17, textColor=palette["ink"], spaceAfter=4)
+    add("ProfDecisionTitle", "BodyText", fontName="Helvetica-Bold", fontSize=9.5, leading=12, textColor=palette["white"], spaceAfter=3)
+    add("ProfBodyWhite", "BodyText", fontName="Helvetica", fontSize=9.3, leading=12.8, textColor=palette["white"], spaceAfter=4)
+    add("ProfMutedWhite", "BodyText", fontName="Helvetica", fontSize=8.3, leading=11.2, textColor=palette["line_dark"], spaceAfter=3)
+    add("ProfTableHeader", "BodyText", fontName="Helvetica-Bold", fontSize=8.5, leading=10.5, textColor=palette["white"], spaceAfter=0)
+    add("ProfTableCell", "BodyText", fontName="Helvetica", fontSize=8.5, leading=11.2, textColor=palette["ink"], spaceAfter=0)
+    return styles
+
+
+def _fit_pdf_image(
+    path: Path | None,
+    *,
+    max_width_mm: float,
+    max_height_mm: float,
+    mm_unit,
+    ImageClass,
+    ImageReaderClass,
+):
+    if path is None:
+        return None
+    try:
+        reader = ImageReaderClass(str(path))
+        width, height = reader.getSize()
+    except Exception:
+        return None
+    max_width = max_width_mm * mm_unit
+    max_height = max_height_mm * mm_unit
+    scale = min(max_width / width, max_height / height)
+    return ImageClass(str(path), width=width * scale, height=height * scale)
+
+
+def _build_threshold_box(
+    flowables: list[object],
+    *,
+    TableClass,
+    TableStyleClass,
+    mm_unit,
+    palette: dict[str, object],
+    width_mm: float | None = None,
+    padding: int | None = None,
+    background=None,
+    border_color=None,
+    accent_color=None,
+    h_align: str = "LEFT",
+    border_width: float = 0.8,
+):
+    cell_padding = padding if padding is not None else int(palette.get("box_padding", 8))
+    table = TableClass(
+        [[flowables]],
+        colWidths=[(width_mm or float(palette.get("page_width_mm", 174))) * mm_unit],
+        hAlign=h_align,
+    )
+    style_commands = [
+        ("BOX", (0, 0), (-1, -1), border_width, border_color or palette.get("line")),
+        ("BACKGROUND", (0, 0), (-1, -1), background or palette.get("card")),
+        ("LEFTPADDING", (0, 0), (-1, -1), cell_padding),
+        ("RIGHTPADDING", (0, 0), (-1, -1), cell_padding),
+        ("TOPPADDING", (0, 0), (-1, -1), cell_padding),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), cell_padding),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]
+    if accent_color is not None:
+        style_commands.append(("LINEABOVE", (0, 0), (-1, 0), 2.2, accent_color))
+    table.setStyle(TableStyleClass(style_commands))
+    return table
+
+
+def _build_threshold_table(
+    rows: list[list[object]],
+    *,
+    TableClass,
+    TableStyleClass,
+    mm_unit,
+    palette: dict[str, object],
+    col_widths_mm: list[float] | None = None,
+    col_widths: list[object] | None = None,
+    header_rows: int = 0,
+    repeat_rows: int = 0,
+    h_align: str = "LEFT",
+    background=None,
+    header_background=None,
+    header_text_color=None,
+    row_backgrounds: list[object] | None = None,
+    border_color=None,
+    inner_grid_color=None,
+    show_inner_grid: bool = True,
+    border_width: float = 0.8,
+    inner_grid_width: float = 0.35,
+    left_padding: int | None = None,
+    right_padding: int | None = None,
+    top_padding: int | None = None,
+    bottom_padding: int | None = None,
+    valign: str = "TOP",
+):
+    resolved_widths = col_widths if col_widths is not None else ([width * mm_unit for width in col_widths_mm] if col_widths_mm is not None else None)
+    table = TableClass(rows, colWidths=resolved_widths, repeatRows=repeat_rows, hAlign=h_align)
+    body_background = background or palette.get("card")
+    style_commands = [
+        ("BOX", (0, 0), (-1, -1), border_width, border_color or palette.get("line")),
+        ("LEFTPADDING", (0, 0), (-1, -1), left_padding if left_padding is not None else int(palette.get("table_padding", 6))),
+        ("RIGHTPADDING", (0, 0), (-1, -1), right_padding if right_padding is not None else int(palette.get("table_padding", 6))),
+        ("TOPPADDING", (0, 0), (-1, -1), top_padding if top_padding is not None else int(palette.get("table_padding", 6))),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), bottom_padding if bottom_padding is not None else int(palette.get("table_padding", 6))),
+        ("VALIGN", (0, 0), (-1, -1), valign),
+    ]
+    if show_inner_grid and rows and (len(rows) > 1 or len(rows[0]) > 1):
+        style_commands.append(("INNERGRID", (0, 0), (-1, -1), inner_grid_width, inner_grid_color or palette.get("line")))
+    if header_rows > 0:
+        style_commands.append(("BACKGROUND", (0, 0), (-1, header_rows - 1), header_background or palette.get("navy")))
+        style_commands.append(("TEXTCOLOR", (0, 0), (-1, header_rows - 1), header_text_color or palette.get("white")))
+        if row_backgrounds:
+            style_commands.append(("ROWBACKGROUNDS", (0, header_rows), (-1, -1), row_backgrounds))
+        else:
+            style_commands.append(("BACKGROUND", (0, header_rows), (-1, -1), body_background))
+    elif row_backgrounds:
+        style_commands.append(("ROWBACKGROUNDS", (0, 0), (-1, -1), row_backgrounds))
+    else:
+        style_commands.append(("BACKGROUND", (0, 0), (-1, -1), body_background))
+    table.setStyle(TableStyleClass(style_commands))
+    return table
+
+
+def _build_metric_card(
+    label: object,
+    value: object,
+    *,
+    paragraph_builder,
+    TableClass,
+    TableStyleClass,
+    mm_unit,
+    palette: dict[str, object],
+    width_mm: float = 54,
+    label_style: str = "CardLabel",
+    value_style: str = "CardValue",
+):
+    table = TableClass(
+        [[paragraph_builder(label, label_style)], [paragraph_builder(value, value_style)]],
+        colWidths=[width_mm * mm_unit],
+    )
+    table.setStyle(
+        TableStyleClass(
+            [
+                ("BOX", (0, 0), (-1, -1), 0.7, palette.get("line")),
+                ("BACKGROUND", (0, 0), (-1, -1), palette.get("card")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    return table
+
+
+def _build_threshold_bullets(
+    lines: list[object],
+    *,
+    paragraph_builder,
+    style_name: str = "ReportBody",
+) -> list[object]:
+    return [
+        paragraph_builder(f"- {text}", style_name)
+        for text in [str(line or "").strip() for line in lines]
+        if text
+    ]
+
+
+def _build_note_box(
+    title: str,
+    notes: object,
+    *,
+    paragraph_builder,
+    TableClass,
+    TableStyleClass,
+    mm_unit,
+    palette: dict[str, object],
+    width_mm: float | None = None,
+    title_style: str = "ProfCardTitle",
+    body_style: str = "ProfMuted",
+    background=None,
+    border_color=None,
+    accent_color=None,
+):
+    items = notes if isinstance(notes, list) else [notes]
+    flowables = [paragraph_builder(title, title_style)] if title else []
+    flowables.extend(paragraph_builder(note, body_style) for note in items if str(note or "").strip())
+    return _build_threshold_box(
+        flowables,
+        TableClass=TableClass,
+        TableStyleClass=TableStyleClass,
+        mm_unit=mm_unit,
+        palette=palette,
+        width_mm=width_mm,
+        padding=6,
+        background=background,
+        border_color=border_color,
+        accent_color=accent_color,
+    )
+
+
+def _build_chart_container(
+    chart_flowable: object | None,
+    *,
+    paragraph_builder,
+    TableClass,
+    TableStyleClass,
+    mm_unit,
+    palette: dict[str, object],
+    title: str = "",
+    note: str = "",
+    empty_text: str = "",
+    width_mm: float | None = None,
+    title_style: str = "ProfCardTitle",
+    note_style: str = "ProfMuted",
+    background=None,
+    border_color=None,
+    accent_color=None,
+):
+    flowables: list[object] = []
+    if title:
+        flowables.append(paragraph_builder(title, title_style))
+    if chart_flowable is not None:
+        flowables.append(chart_flowable)
+    elif empty_text:
+        flowables.append(paragraph_builder(empty_text, note_style))
+    if note:
+        flowables.append(paragraph_builder(note, note_style))
+    return _build_threshold_box(
+        flowables,
+        TableClass=TableClass,
+        TableStyleClass=TableStyleClass,
+        mm_unit=mm_unit,
+        palette=palette,
+        width_mm=width_mm,
+        padding=6,
+        background=background or palette.get("panel"),
+        border_color=border_color or palette.get("line_dark", palette.get("line")),
+        accent_color=accent_color,
+    )
+
+
+def _build_pdf_page_title(
+    title: str,
+    *,
+    paragraph_builder,
+    TableClass,
+    TableStyleClass,
+    mm_unit,
+    palette: dict[str, object],
+    subtitle: str = "",
+    eyebrow: str = "Threshold S&C",
+    width_mm: float | None = None,
+    title_style: str = "ProfSection",
+    subtitle_style: str = "ProfSectionSubtitle",
+    eyebrow_style: str = "ProfEyebrow",
+):
+    flowables: list[object] = []
+    if eyebrow:
+        flowables.append(paragraph_builder(str(eyebrow).upper(), eyebrow_style))
+    flowables.append(paragraph_builder(title, title_style))
+    if subtitle:
+        flowables.append(paragraph_builder(subtitle, subtitle_style))
+    return _build_threshold_box(
+        flowables,
+        TableClass=TableClass,
+        TableStyleClass=TableStyleClass,
+        mm_unit=mm_unit,
+        palette=palette,
+        width_mm=width_mm,
+        padding=7,
+        background=palette.get("panel"),
+        border_color=palette.get("line_dark", palette.get("line")),
+        accent_color=palette.get("navy"),
+    )
+
+
+def _build_decision_box(
+    title: str,
+    text: object,
+    *,
+    paragraph_builder,
+    TableClass,
+    TableStyleClass,
+    mm_unit,
+    palette: dict[str, object],
+    width_mm: float | None = None,
+    note: str = "",
+    inverted: bool = True,
+    title_style: str | None = None,
+    body_style: str | None = None,
+    note_style: str | None = None,
+):
+    resolved_title_style = title_style or ("ProfDecisionTitle" if inverted else "ProfCardTitle")
+    resolved_body_style = body_style or ("ProfBodyWhite" if inverted else "ProfBody")
+    resolved_note_style = note_style or ("ProfMutedWhite" if inverted else "ProfMuted")
+    flowables = [
+        paragraph_builder(title, resolved_title_style),
+        paragraph_builder(text, resolved_body_style),
+    ]
+    if note:
+        flowables.append(paragraph_builder(note, resolved_note_style))
+    return _build_threshold_box(
+        flowables,
+        TableClass=TableClass,
+        TableStyleClass=TableStyleClass,
+        mm_unit=mm_unit,
+        palette=palette,
+        width_mm=width_mm,
+        padding=7,
+        background=palette.get("navy") if inverted else palette.get("panel_alt", palette.get("panel")),
+        border_color=palette.get("navy") if inverted else palette.get("line_dark", palette.get("line")),
+        accent_color=None if inverted else palette.get("navy"),
+    )
+
+
+def _build_threshold_separator(
+    *,
+    TableClass,
+    TableStyleClass,
+    mm_unit,
+    palette: dict[str, object],
+    width_mm: float | None = None,
+    color=None,
+    thickness: float = 0.6,
+):
+    table = TableClass([[""]], colWidths=[(width_mm or float(palette.get("page_width_mm", 174))) * mm_unit], rowHeights=[1], hAlign="LEFT")
+    table.setStyle(
+        TableStyleClass(
+            [
+                ("LINEABOVE", (0, 0), (-1, 0), thickness, color or palette.get("line_dark", palette.get("line"))),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return table
+
+
+def _draw_threshold_header(canvas_obj, doc_obj, *, palette: dict[str, object], mm_unit, label: str = "Threshold S&C") -> None:
+    canvas_obj.saveState()
+    top_y = float(doc_obj.pagesize[1]) - (10 * mm_unit)
+    page_width = float(doc_obj.pagesize[0])
+    canvas_obj.setStrokeColor(palette.get("line_dark", palette.get("line")))
+    canvas_obj.setLineWidth(0.35)
+    canvas_obj.line(doc_obj.leftMargin, top_y, page_width - doc_obj.rightMargin, top_y)
+    canvas_obj.setFillColor(palette.get("muted", palette.get("gray")))
+    canvas_obj.setFont(str(palette.get("footer_font_name", "Helvetica")), 7.0)
+    canvas_obj.drawString(doc_obj.leftMargin, top_y + (1.4 * mm_unit), label)
+    canvas_obj.restoreState()
+
+
+def _draw_threshold_footer(canvas_obj, doc_obj, *, palette: dict[str, object], mm_unit, label: str | None = None) -> None:
+    canvas_obj.saveState()
+    footer_y = float(palette.get("footer_y_mm", 8)) * mm_unit
+    rule_gap = float(palette.get("footer_rule_gap_mm", 3.2)) * mm_unit
+    page_width = float(doc_obj.pagesize[0])
+    canvas_obj.setStrokeColor(palette.get("line_dark", palette.get("line")))
+    canvas_obj.setLineWidth(float(palette.get("footer_rule_width", 0.45)))
+    canvas_obj.line(doc_obj.leftMargin, footer_y + rule_gap, page_width - doc_obj.rightMargin, footer_y + rule_gap)
+    canvas_obj.setFillColor(palette.get("muted", palette.get("gray")))
+    canvas_obj.setFont(str(palette.get("footer_font_name", "Helvetica")), float(palette.get("footer_font_size", 7.5)))
+    canvas_obj.drawString(doc_obj.leftMargin, footer_y, label or str(palette.get("footer_label", "Threshold S&C")))
+    canvas_obj.drawRightString(page_width - doc_obj.rightMargin, footer_y, f"Página {doc_obj.page}")
+    canvas_obj.restoreState()
+
+
 def _resolve_brand_asset_path(kind: str = "wordmark") -> Path | None:
     patterns = {
         "wordmark": [
@@ -7233,201 +7756,12 @@ def _generate_professional_profile_pdf_reportlab(
     except Exception:
         return None
 
-    palette = {
-        "bg": colors.HexColor("#F3F5F7"),
-        "card": colors.HexColor("#FFFFFF"),
-        "panel": colors.HexColor("#F7FAFC"),
-        "panel_alt": colors.HexColor("#EEF3F8"),
-        "navy": colors.HexColor("#102C44"),
-        "steel": colors.HexColor("#29485F"),
-        "ink": colors.HexColor("#161A1D"),
-        "muted": colors.HexColor("#617383"),
-        "gray": colors.HexColor("#4E5B67"),
-        "line": colors.HexColor("#D6DEE5"),
-        "line_dark": colors.HexColor("#BCC9D3"),
-        "green": colors.HexColor("#2F6B52"),
-        "yellow": colors.HexColor("#C4A464"),
-        "orange": colors.HexColor("#B87445"),
-        "red": colors.HexColor("#B56B73"),
-    }
-
-    styles = getSampleStyleSheet()
-    styles.add(
-        ParagraphStyle(
-            name="ProfTitle",
-            parent=styles["Heading1"],
-            fontName="Helvetica-Bold",
-            fontSize=24,
-            leading=28,
-            textColor=palette["navy"],
-            spaceAfter=6,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfHeroTitle",
-            parent=styles["Heading1"],
-            fontName="Helvetica-Bold",
-            fontSize=24,
-            leading=29,
-            textColor=colors.white,
-            spaceAfter=4,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfHeroMeta",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=9,
-            leading=12,
-            textColor=colors.HexColor("#DCE7F0"),
-            spaceAfter=3,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfEyebrow",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Bold",
-            fontSize=8,
-            leading=10,
-            textColor=palette["muted"],
-            spaceAfter=2,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfSection",
-            parent=styles["Heading2"],
-            fontName="Helvetica-Bold",
-            fontSize=18,
-            leading=22,
-            textColor=palette["navy"],
-            spaceBefore=0,
-            spaceAfter=3,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfSectionSubtitle",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=9,
-            leading=12,
-            textColor=palette["muted"],
-            spaceAfter=3,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfBody",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=9.2,
-            leading=12.6,
-            textColor=palette["ink"],
-            spaceAfter=4,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfMuted",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=8.4,
-            leading=11.2,
-            textColor=palette["gray"],
-            spaceAfter=4,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfMutedItalic",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Oblique",
-            fontSize=8.5,
-            leading=11.5,
-            textColor=palette["gray"],
-            spaceAfter=3,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfCardTitle",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Bold",
-            fontSize=9.6,
-            leading=12,
-            textColor=palette["navy"],
-            spaceAfter=3,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfCardValue",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Bold",
-            fontSize=14.2,
-            leading=17,
-            textColor=palette["ink"],
-            spaceAfter=4,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfDecisionTitle",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Bold",
-            fontSize=9.5,
-            leading=12,
-            textColor=colors.white,
-            spaceAfter=3,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfBodyWhite",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=9.3,
-            leading=12.8,
-            textColor=colors.white,
-            spaceAfter=4,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfMutedWhite",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=8.3,
-            leading=11.2,
-            textColor=colors.HexColor("#DCE7F0"),
-            spaceAfter=3,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfTableHeader",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Bold",
-            fontSize=8.5,
-            leading=10.5,
-            textColor=colors.white,
-            spaceAfter=0,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ProfTableCell",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=8.5,
-            leading=11.2,
-            textColor=palette["ink"],
-            spaceAfter=0,
-        )
+    palette = _pdf_theme_threshold(colors, variant="professional")
+    styles = _register_threshold_pdf_styles(
+        getSampleStyleSheet(),
+        ParagraphStyle,
+        palette,
+        variant="professional",
     )
 
     def _p(text: object, style_name: str = "ProfBody") -> Paragraph:
@@ -7437,16 +7771,15 @@ def _generate_professional_profile_pdf_reportlab(
     def _pdf_label(text: object, fallback: str = "") -> str:
         return _repair_mojibake_text(safe_value(text, fallback=fallback))
 
-    def _fit_image(path: Path, max_width_mm: float, max_height_mm: float) -> Image | None:
-        try:
-            reader = ImageReader(str(path))
-            width, height = reader.getSize()
-        except Exception:
-            return None
-        max_width = max_width_mm * mm
-        max_height = max_height_mm * mm
-        scale = min(max_width / width, max_height / height)
-        return Image(str(path), width=width * scale, height=height * scale)
+    def _fit_image(path: Path | None, max_width_mm: float, max_height_mm: float) -> Image | None:
+        return _fit_pdf_image(
+            path,
+            max_width_mm=max_width_mm,
+            max_height_mm=max_height_mm,
+            mm_unit=mm,
+            ImageClass=Image,
+            ImageReaderClass=ImageReader,
+        )
 
     def _box(
         flowables: list[object],
@@ -7457,34 +7790,29 @@ def _generate_professional_profile_pdf_reportlab(
         border_color=None,
         accent_color=None,
     ) -> Table:
-        style_commands = [
-            ("BOX", (0, 0), (-1, -1), 0.8, border_color or palette["line"]),
-            ("BACKGROUND", (0, 0), (-1, -1), background or palette["card"]),
-            ("LEFTPADDING", (0, 0), (-1, -1), padding),
-            ("RIGHTPADDING", (0, 0), (-1, -1), padding),
-            ("TOPPADDING", (0, 0), (-1, -1), padding),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), padding),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]
-        if accent_color is not None:
-            style_commands.append(("LINEABOVE", (0, 0), (-1, 0), 2.2, accent_color))
-        table = Table([[flowables]], colWidths=[width_mm * mm], hAlign="LEFT")
-        table.setStyle(TableStyle(style_commands))
-        return table
+        return _build_threshold_box(
+            flowables,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            width_mm=width_mm,
+            padding=padding,
+            background=background,
+            border_color=border_color,
+            accent_color=accent_color,
+        )
 
     def _page_header(title: str, subtitle: str = "", *, eyebrow: str = "Threshold S&C") -> Table:
-        flowables: list[object] = []
-        if eyebrow:
-            flowables.append(_p(eyebrow.upper(), "ProfEyebrow"))
-        flowables.append(_p(title, "ProfSection"))
-        if subtitle:
-            flowables.append(_p(subtitle, "ProfSectionSubtitle"))
-        return _box(
-            flowables,
-            background=palette["panel"],
-            padding=7,
-            border_color=palette["line_dark"],
-            accent_color=palette["navy"],
+        return _build_pdf_page_title(
+            title,
+            paragraph_builder=_p,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            subtitle=subtitle,
+            eyebrow=eyebrow,
         )
 
     def _decision_box(
@@ -7495,16 +7823,17 @@ def _generate_professional_profile_pdf_reportlab(
         note: str = "",
         inverted: bool = True,
     ) -> Table:
-        title_style = "ProfDecisionTitle" if inverted else "ProfCardTitle"
-        body_style = "ProfBodyWhite" if inverted else "ProfBody"
-        note_style = "ProfMutedWhite" if inverted else "ProfMuted"
-        return _box(
-            [_p(title, title_style), _p(text, body_style)] + ([_p(note, note_style)] if note else []),
-            background=palette["navy"] if inverted else palette["panel_alt"],
-            border_color=palette["navy"] if inverted else palette["line_dark"],
-            padding=7,
+        return _build_decision_box(
+            title,
+            text,
+            paragraph_builder=_p,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
             width_mm=width_mm,
-            accent_color=None if inverted else palette["navy"],
+            note=note,
+            inverted=inverted,
         )
 
     def _two_column(
@@ -7539,17 +7868,15 @@ def _generate_professional_profile_pdf_reportlab(
         return table
 
     def _chart_panel(chart_flowable: object, *, title: str = "", note: str = "", width_mm: float = 174) -> Table:
-        flowables: list[object] = []
-        if title:
-            flowables.append(_p(title, "ProfCardTitle"))
-        flowables.append(chart_flowable)
-        if note:
-            flowables.append(_p(note, "ProfMuted"))
-        return _box(
-            flowables,
-            background=palette["panel"],
-            border_color=palette["line_dark"],
-            padding=6,
+        return _build_chart_container(
+            chart_flowable,
+            paragraph_builder=_p,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            title=title,
+            note=note,
             width_mm=width_mm,
             accent_color=palette["steel"],
         )
@@ -8194,7 +8521,13 @@ def _generate_professional_profile_pdf_reportlab(
             cleaned.append(text)
         if not cleaned:
             cleaned = ["Faltan datos para generar una interpretación confiable."]
-        flowables.extend(_p(f"- {line}", style_name) for line in cleaned)
+        flowables.extend(
+            _build_threshold_bullets(
+                cleaned,
+                paragraph_builder=_p,
+                style_name=style_name,
+            )
+        )
         return _box(
             flowables,
             padding=6,
@@ -9436,17 +9769,7 @@ def _generate_professional_profile_pdf_reportlab(
         bottomMargin=14 * mm,
     )
     def _draw_professional_footer(canvas_obj, doc_obj) -> None:
-        canvas_obj.saveState()
-        footer_y = 8 * mm
-        page_width = float(doc_obj.pagesize[0])
-        canvas_obj.setStrokeColor(palette["line_dark"])
-        canvas_obj.setLineWidth(0.45)
-        canvas_obj.line(doc_obj.leftMargin, footer_y + (3.2 * mm), page_width - doc_obj.rightMargin, footer_y + (3.2 * mm))
-        canvas_obj.setFillColor(palette["muted"])
-        canvas_obj.setFont("Helvetica", 7.5)
-        canvas_obj.drawString(doc_obj.leftMargin, footer_y, "Threshold S&C")
-        canvas_obj.drawRightString(page_width - doc_obj.rightMargin, footer_y, f"Página {doc_obj.page}")
-        canvas_obj.restoreState()
+        _draw_threshold_footer(canvas_obj, doc_obj, palette=palette, mm_unit=mm)
     story: list[object] = []
     # The professional report always uses the mother-report structure; missing data is handled inside each section.
     _append_full_executive_page(story)
@@ -9507,141 +9830,40 @@ def _generate_visual_report_pdf_reportlab(
     blocks = _audience_blocks(state, effective_athlete, summary_df, insights, audience)
     charts = collect_report_plotly_figures(state, effective_athlete, audience)
 
-    palette = {
-        "bg": colors.HexColor("#F4F6F8"),
-        "card": colors.HexColor("#FEFEFE"),
-        "navy": colors.HexColor("#0D3C5E"),
-        "steel": colors.HexColor("#134263"),
-        "ink": colors.HexColor("#221F20"),
-        "muted": colors.HexColor("#708C9F"),
-        "gray": colors.HexColor("#5A595B"),
-        "line": colors.HexColor("#D8DEE4"),
-    }
-
-    styles = getSampleStyleSheet()
-    styles.add(
-        ParagraphStyle(
-            name="ReportTitle",
-            parent=styles["Heading1"],
-            fontName="Helvetica-Bold",
-            fontSize=23,
-            leading=28,
-            textColor=palette["navy"],
-            spaceAfter=8,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ReportSection",
-            parent=styles["Heading2"],
-            fontName="Helvetica-Bold",
-            fontSize=16,
-            leading=20,
-            textColor=palette["navy"],
-            spaceAfter=8,
-            spaceBefore=4,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ReportBody",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=10,
-            leading=14,
-            textColor=palette["ink"],
-            spaceAfter=6,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ReportMuted",
-            parent=styles["BodyText"],
-            fontName="Helvetica",
-            fontSize=9,
-            leading=13,
-            textColor=palette["gray"],
-            spaceAfter=4,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="ReportMutedItalic",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Oblique",
-            fontSize=9,
-            leading=13,
-            textColor=palette["gray"],
-            spaceAfter=3,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="CardLabel",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Bold",
-            fontSize=8,
-            leading=10,
-            textColor=palette["gray"],
-            spaceAfter=4,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="CardValue",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Bold",
-            fontSize=15,
-            leading=18,
-            textColor=palette["ink"],
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="BlockTitle",
-            parent=styles["BodyText"],
-            fontName="Helvetica-Bold",
-            fontSize=11,
-            leading=14,
-            textColor=palette["ink"],
-            spaceAfter=5,
-        )
+    palette = _pdf_theme_threshold(colors, variant="general")
+    styles = _register_threshold_pdf_styles(
+        getSampleStyleSheet(),
+        ParagraphStyle,
+        palette,
+        variant="general",
     )
 
     def _p(text: object, style_name: str = "ReportBody") -> Paragraph:
         safe = escape(_ascii_text(text) or "").replace("\n", "<br/>")
         return Paragraph(safe, styles[style_name])
 
-    def _fit_image(path: Path, max_width_mm: float, max_height_mm: float) -> Image | None:
-        try:
-            reader = ImageReader(str(path))
-            width, height = reader.getSize()
-        except Exception:
-            return None
-        max_width = max_width_mm * mm
-        max_height = max_height_mm * mm
-        scale = min(max_width / width, max_height / height)
-        return Image(str(path), width=width * scale, height=height * scale)
+    def _fit_image(path: Path | None, max_width_mm: float, max_height_mm: float) -> Image | None:
+        return _fit_pdf_image(
+            path,
+            max_width_mm=max_width_mm,
+            max_height_mm=max_height_mm,
+            mm_unit=mm,
+            ImageClass=Image,
+            ImageReaderClass=ImageReader,
+        )
 
     def _metric_cards_table(cards: list[tuple[str, str, str]]) -> Table:
         rows = []
         row: list[object] = []
         for idx, (label, value, _) in enumerate(cards, start=1):
-            cell = Table(
-                [[_p(label, "CardLabel")], [_p(value, "CardValue")]],
-                colWidths=[54 * mm],
-            )
-            cell.setStyle(
-                TableStyle(
-                    [
-                        ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
-                        ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                        ("TOPPADDING", (0, 0), (-1, -1), 7),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                    ]
-                )
+            cell = _build_metric_card(
+                label,
+                value,
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
             )
             row.append(cell)
             if idx % 3 == 0:
@@ -9678,37 +9900,36 @@ def _generate_visual_report_pdf_reportlab(
                 _p(f"{adherence_label}\n{completion_text}", "ReportMuted"),
             ]
         ]
-        table = Table(data, colWidths=[56 * mm, 56 * mm, 56 * mm], hAlign="LEFT")
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
-                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 8),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                ]
-            )
+        return _build_threshold_table(
+            data,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            col_widths_mm=[56, 56, 56],
+            show_inner_grid=False,
+            border_width=0.7,
+            left_padding=8,
+            right_padding=8,
+            top_padding=8,
+            bottom_padding=8,
         )
-        return table
 
     def _metric_table(rows: list[tuple[str, str]], *, title: str) -> list[object]:
         data = [[_p(label, "CardLabel"), _p(value, "ReportBody")] for label, value in rows]
-        table = Table(data, colWidths=[58 * mm, 112 * mm], hAlign="LEFT")
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.4, palette["line"]),
-                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 6),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            )
+        table = _build_threshold_table(
+            data,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            col_widths_mm=[58, 112],
+            border_width=0.7,
+            inner_grid_width=0.4,
+            left_padding=8,
+            right_padding=8,
+            top_padding=6,
+            bottom_padding=6,
         )
         return [_p(title, "ReportSection"), table]
 
@@ -9742,24 +9963,22 @@ def _generate_visual_report_pdf_reportlab(
             "Perfil NM": 36 * mm,
         }
         col_widths = [widths_map.get(col, 24 * mm) for col in display_df.columns]
-        table = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
-                    ("BACKGROUND", (0, 0), (-1, 0), palette["navy"]),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                    ("BACKGROUND", (0, 1), (-1, -1), palette["card"]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                    ("TOPPADDING", (0, 0), (-1, -1), 6),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            )
+        return _build_threshold_table(
+            data,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            col_widths=col_widths,
+            header_rows=1,
+            repeat_rows=1,
+            border_width=0.7,
+            inner_grid_width=0.35,
+            left_padding=6,
+            right_padding=6,
+            top_padding=6,
+            bottom_padding=6,
         )
-        return table
 
     def _chart_story(chart_payload: dict[str, object]) -> list[object]:
         image_bytes = export_plotly_figure_png(chart_payload.get("figure"))
@@ -9773,22 +9992,15 @@ def _generate_visual_report_pdf_reportlab(
         ]
 
     def _box_flow(flowables: list[object], *, padding: int = 8) -> Table:
-        table = Table(
-            [[flowables]],
-            colWidths=[174 * mm],
-            style=TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
-                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), padding),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), padding),
-                    ("TOPPADDING", (0, 0), (-1, -1), padding),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), padding),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            ),
+        return _build_threshold_box(
+            flowables,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            padding=padding,
+            border_width=0.7,
         )
-        return table
 
     def _compact_key_value_table(rows: list[dict[str, object] | tuple[str, str]]) -> Table:
         data = []
@@ -9806,22 +10018,20 @@ def _generate_visual_report_pdf_reportlab(
             if note:
                 value_flow.append(_p(note, "ReportMutedItalic"))
             data.append([_p(label, "CardLabel"), value_flow])
-        table = Table(data, colWidths=[42 * mm, 132 * mm], hAlign="LEFT")
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.7, palette["line"]),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.35, palette["line"]),
-                    ("BACKGROUND", (0, 0), (-1, -1), palette["card"]),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 7),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-                    ("TOPPADDING", (0, 0), (-1, -1), 5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            )
+        return _build_threshold_table(
+            data,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            col_widths_mm=[42, 132],
+            border_width=0.7,
+            inner_grid_width=0.35,
+            left_padding=7,
+            right_padding=7,
+            top_padding=5,
+            bottom_padding=5,
         )
-        return table
 
     def _chart_image(chart_payload: dict[str, object] | None, *, width_mm: float = 174, height_mm: float = 88) -> Image | None:
         if not chart_payload:
@@ -10045,6 +10255,884 @@ def _generate_visual_report_pdf_reportlab(
         )
         try:
             doc.build(story)
+        except Exception:
+            return None
+        return buffer.getvalue()
+
+    if audience == "cliente" and effective_athlete != "Todos":
+        focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
+        completion_value = _focus_completion_value(state, effective_athlete)
+        internal_load = _build_professional_internal_load_context(state, effective_athlete)
+        wellness_context = _professional_wellness_context(state, effective_athlete)
+        client_charts = _collect_client_pdf_chart_payloads(state, effective_athlete)
+
+        def _client_missing_text(kind: str = "generic") -> str:
+            mapping = {
+                "generic": "Dato todavía no disponible",
+                "evaluation": "Pendiente de evaluación",
+                "registration": "Todavía no registrado",
+                "reference": "Falta completar esta referencia",
+            }
+            return mapping.get(kind, mapping["generic"])
+
+        def _client_text(value: object, fallback: str = "Dato todavía no disponible") -> str:
+            text = _ascii_text(value).strip()
+            normalized = text.casefold()
+            if not text or normalized in {"-", "sin dato", "sin datos", "nan", "none"}:
+                return fallback
+            return text
+
+        def _client_metric(value: object, *, digits: int = 1, suffix: str = "", fallback: str = "Dato todavía no disponible") -> str:
+            return _client_text(_display_metric(value, digits=digits, suffix=suffix), fallback=fallback)
+
+        def _client_focus_label() -> str:
+            return _client_text(_current_focus_text(focus_row, audience="cliente"), fallback="Seguir construyendo")
+
+        def _client_focus_phrase() -> str:
+            focus = _client_focus_label()
+            normalized = _professional_normalized_text(focus)
+            if normalized == "hacer nueva evaluacion":
+                return "hacer una nueva evaluación"
+            return focus.lower()
+
+        def _client_focus_summary_sentence() -> str:
+            normalized = _professional_normalized_text(_client_focus_label())
+            if normalized == "hacer nueva evaluacion":
+                return "El foco actual es completar una nueva evaluación y sostener continuidad."
+            if normalized == "sostener progreso":
+                return "El foco actual es sostener continuidad y seguir construyendo."
+            if normalized == "ordenar carga":
+                return "El foco actual es ordenar la carga de la semana y sostener continuidad."
+            if normalized == "ganar continuidad":
+                return "El foco actual es ganar continuidad para leer mejor el proceso."
+            if normalized == "recuperar potencia":
+                return "El foco actual es recuperar potencia sin perder continuidad."
+            if normalized == "construir fuerza base":
+                return "El foco actual es construir fuerza base y sostener continuidad."
+            return f"El foco actual es {_client_focus_phrase()}."
+
+        def _client_focus_plan_sentence() -> str:
+            normalized = _professional_normalized_text(_client_focus_label())
+            if normalized == "hacer nueva evaluacion":
+                return "El foco ahora es completar una nueva evaluación para tener una referencia más clara y seguir ajustando el proceso."
+            if normalized == "sostener progreso":
+                return "El foco ahora es sostener lo que viene funcionando y seguir construyendo con continuidad."
+            if normalized == "ordenar carga":
+                return "El foco ahora es ordenar la carga de la semana para que el cuerpo la tolere mejor y podamos sostener continuidad."
+            if normalized == "ganar continuidad":
+                return "El foco ahora es ganar continuidad en el plan para que la lectura del proceso sea más clara."
+            if normalized == "recuperar potencia":
+                return "El foco ahora es recuperar potencia con calma, sin perder continuidad en el proceso."
+            if normalized == "construir fuerza base":
+                return "El foco ahora es construir una base más sólida para que el progreso se sostenga mejor."
+            return f"El foco ahora es {_client_focus_phrase()}."
+
+        def _client_completion_needs_follow_up() -> bool:
+            return completion_value is not None and completion_value < 80
+
+        def _client_recent_wellness_value() -> float | None:
+            return _coerce_float(focus_row.get("Wellness 3d"))
+
+        def _client_recent_wellness_is_low(value: float | None) -> bool:
+            if value is None:
+                return False
+            return value < 15 if value > 5 else value < 3.0
+
+        def _client_recent_wellness_label() -> str:
+            return (
+                _client_metric(_client_recent_wellness_value(), digits=1, fallback=_client_missing_text("registration"))
+                if _client_recent_wellness_value() is not None
+                else _client_missing_text("registration")
+            )
+
+        def _client_wellness_mean_value() -> float | None:
+            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
+            return _coerce_float(summary.get("score_mean"))
+
+        def _client_wellness_days_count() -> int:
+            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
+            day_candidates = [
+                _coerce_float(summary.get("days")),
+                _coerce_float(summary.get("score_n")),
+                _coerce_float(summary.get("sleep_n")),
+                _coerce_float(summary.get("stress_n")),
+                _coerce_float(summary.get("pain_n")),
+            ]
+            return max([int(value) for value in day_candidates if value is not None] or [0])
+
+        def _client_wellness_signal_is_concerning() -> bool:
+            mean_value = _client_wellness_mean_value()
+            recent_value = _client_recent_wellness_value()
+            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
+            scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
+            stress_mean = _coerce_float(summary.get("stress_mean"))
+            pain_mean = _coerce_float(summary.get("pain_mean"))
+            return bool(
+                (mean_value is not None and mean_value < 3.0)
+                or _client_recent_wellness_is_low(recent_value)
+                or (stress_mean is not None and _professional_wellness_high(stress_mean, scales.get("stress")))
+                or (pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain")))
+            )
+
+        def _client_wellness_summary_line() -> str:
+            if wellness_context.get("state") == "missing":
+                return "Falta información reciente para entender cómo venís recuperando."
+            if wellness_context.get("state") == "partial":
+                if _client_wellness_signal_is_concerning():
+                    return "El registro es bajo, pero los valores disponibles sugieren cuidar recuperación, estrés y dolor de cerca."
+                return "Todavía hay pocos registros para sacar una conclusión firme sobre recuperación."
+            mean_value = _client_wellness_mean_value()
+            recent_value = _client_recent_wellness_value()
+            if _client_recent_wellness_is_low(recent_value) and mean_value is not None and mean_value >= 3.0:
+                return "El promedio reciente es aceptable, pero conviene seguir de cerca la recuperación percibida."
+            if mean_value is not None and mean_value < 3.0:
+                return "El promedio reciente viene algo bajo y conviene seguir de cerca la recuperación."
+            if _client_recent_wellness_is_low(recent_value):
+                return "La recuperación percibida viene baja y conviene seguirla de cerca."
+            return "El bienestar reciente acompaña sin señales grandes de alerta."
+
+        def _client_strengths_lines() -> list[str]:
+            lines: list[str] = []
+            zone = _professional_normalized_text(_client_zone_text())
+            if _row_has_eval_data(focus_row):
+                lines.append("Ya tenemos una referencia útil para seguir tu proceso.")
+            if _row_has_load_data(focus_row) and all(flag not in zone for flag in ["alto riesgo", "precaucion", "subcarga"]):
+                lines.append("La carga reciente está en una zona útil para seguir construyendo.")
+            mean_value = _client_wellness_mean_value()
+            if mean_value is not None and mean_value >= 3.0:
+                lines.append("El promedio reciente de bienestar se mantiene en una zona aceptable.")
+            if completion_value is not None and completion_value >= 80:
+                lines.append("La constancia del plan ayuda a leer mejor cómo viene el proceso.")
+            return list(dict.fromkeys(lines))[:3] or ["Ya empezamos a juntar información útil para seguir tu proceso."]
+
+        def _client_watchouts_lines() -> list[str]:
+            lines: list[str] = []
+            zone = _professional_normalized_text(_client_zone_text())
+            summary_parts: list[str] = []
+            if "alto riesgo" in zone:
+                summary_parts.append("carga reciente")
+                lines.append("La carga reciente viene exigente y conviene ordenarla con un poco más de cuidado.")
+            elif "precaucion" in zone:
+                summary_parts.append("carga reciente")
+                lines.append("La carga reciente pide un poco más de cuidado para sostener continuidad.")
+            elif "subcarga" in zone:
+                summary_parts.append("carga reciente")
+                lines.append("La carga reciente quedó baja y conviene recuperar continuidad.")
+            wellness_line = _client_wellness_summary_line()
+            if "conviene seguir" in wellness_line or "viene algo bajo" in wellness_line:
+                summary_parts.append("recuperación percibida")
+                lines.append(wellness_line)
+            elif "registro es bajo" in wellness_line:
+                summary_parts.extend(["recuperación", "estrés", "dolor"])
+                lines.append(wellness_line)
+            if _client_completion_needs_follow_up():
+                summary_parts.append("constancia")
+                lines.append("La constancia todavía merece seguimiento para leer mejor el proceso.")
+            if summary_parts:
+                labels = list(dict.fromkeys(summary_parts))
+                if labels == ["recuperación percibida"]:
+                    summary_text = "La recuperación percibida necesita seguimiento."
+                elif labels == ["constancia"]:
+                    summary_text = "La constancia necesita seguimiento."
+                elif labels == ["carga reciente"]:
+                    summary_text = "La carga reciente necesita seguimiento."
+                elif len(labels) == 1:
+                    summary_text = labels[0].capitalize() + " requiere seguimiento."
+                else:
+                    summary_text = (", ".join(labels[:-1]) + f" y {labels[-1]}").capitalize() + " requieren seguimiento."
+                return [summary_text] + list(dict.fromkeys(lines))[:2]
+            return ["No aparece una alarma grande; el foco está en sostener continuidad."]
+
+        def _client_next_steps_list() -> list[str]:
+            lines: list[str] = []
+            zone = _professional_normalized_text(_client_zone_text())
+            if _professional_normalized_text(_client_focus_label()) == "hacer nueva evaluacion":
+                lines.append("Programar una nueva evaluación para sumar una referencia más clara del proceso.")
+            if _client_completion_needs_follow_up():
+                lines.append("Sostener más continuidad en el plan para que la lectura del proceso sea más clara.")
+            if any(flag in zone for flag in ["alto riesgo", "precaucion", "subcarga"]):
+                lines.append("Lo importante es evitar cambios bruscos y sostener continuidad de una semana a otra.")
+            wellness_line = _client_wellness_summary_line()
+            if "conviene seguir" in wellness_line or "viene algo bajo" in wellness_line or "registro es bajo" in wellness_line:
+                lines.append("Si sueño, estrés, dolor o recuperación empeoran, ajustamos la carga antes de forzar.")
+            if len(lines) < 2 and _professional_normalized_text(_client_focus_label()) != "hacer nueva evaluacion":
+                lines.append("Volver a medir nos va a ayudar a confirmar si el proceso se sostiene.")
+            if not lines:
+                lines.append("Mantener la línea actual y volver a medir para confirmar si el proceso se sostiene.")
+            return list(dict.fromkeys([line for line in lines if str(line).strip()]))[:3]
+
+        def _client_load_watch_lines() -> list[str]:
+            return [
+                "Lo importante no es un día aislado, sino sostener continuidad y evitar cambios bruscos.",
+                "Si la semana se vuelve demasiado exigente o demasiado liviana, ajustamos antes de que el proceso se vuelva confuso.",
+            ]
+
+        def _client_wellness_watch_lines() -> list[str]:
+            if wellness_context.get("state") == "missing":
+                return [
+                    "Sueño, estrés y dolor todavía necesitan más registros para leerse mejor.",
+                    "Cuando aparezcan más registros, vamos a ajustar con más precisión.",
+                ]
+            if wellness_context.get("state") == "partial":
+                if _client_wellness_signal_is_concerning():
+                    return [
+                        "Recuperación, estrés y dolor merecen seguimiento cercano mientras sumamos más registros.",
+                        "Si los próximos registros siguen bajos, ajustamos la carga antes de forzar.",
+                    ]
+                return [
+                    "Sueño, estrés y dolor merecen seguimiento mientras sumamos más registros.",
+                    "Con más registros vamos a poder leer mejor la tendencia.",
+                ]
+            if _client_wellness_signal_is_concerning():
+                return [
+                    "Recuperación percibida, estrés y dolor merecen seguimiento cercano.",
+                    "Si sueño, estrés o dolor empeoran, ajustamos la carga antes de forzar.",
+                ]
+            return [
+                "Seguir registrando bienestar nos va a ayudar a confirmar la tendencia.",
+                "Si sueño, estrés o dolor empeoran, ajustamos la carga antes de forzar.",
+            ]
+
+        def _client_zone_text() -> str:
+            if not _row_has_load_data(focus_row) or not _has_text(focus_row.get("Zona")):
+                return "En seguimiento"
+            return _display_zone(focus_row.get("Zona"))
+
+        def _client_cards() -> list[tuple[str, str, str]]:
+            return [
+                (
+                    "Salto vertical",
+                    _client_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm", fallback=_client_missing_text("evaluation"))
+                    if _row_has_eval_data(focus_row)
+                    else _client_missing_text("evaluation"),
+                    "#134263",
+                ),
+                (
+                    "Bienestar reciente",
+                    _client_recent_wellness_label(),
+                    "#2F6B52",
+                ),
+                (
+                    "Constancia",
+                    _client_metric(completion_value, digits=1, suffix="%", fallback=_client_missing_text("registration"))
+                    if completion_value is not None
+                    else _client_missing_text("registration"),
+                    "#708C9F",
+                ),
+                ("Foco actual", _client_focus_label(), "#134263"),
+            ]
+
+        def _client_overview_text() -> str:
+            if summary_df.empty:
+                return "Todavía falta información para una lectura más clara. Por ahora el foco es completar registros, sumar una evaluación inicial y sostener continuidad."
+            if _row_has_eval_data(focus_row) or _row_has_load_data(focus_row) or _row_has_wellness_data(focus_row):
+                lines = ["Hoy tenemos una referencia útil para seguir el proceso."]
+                zone = _professional_normalized_text(_client_zone_text())
+                if _row_has_load_data(focus_row):
+                    if "alto riesgo" in zone:
+                        lines.append("La carga reciente viene exigente y conviene ordenarla con un poco más de cuidado.")
+                    elif "precaucion" in zone:
+                        lines.append("La carga reciente pide un poco más de cuidado para sostener continuidad.")
+                    elif "subcarga" in zone:
+                        lines.append("La carga reciente quedó baja y conviene recuperar continuidad.")
+                    else:
+                        lines.append("La carga reciente está en una zona útil para construir.")
+                if _row_has_wellness_data(focus_row) or wellness_context.get("state") == "partial":
+                    lines.append(_client_wellness_summary_line())
+                if _client_completion_needs_follow_up():
+                    if any(key in _professional_normalized_text(" ".join(lines)) for key in ["recuperacion", "registro es bajo", "pocos registros"]):
+                        lines.append("La recuperación y la constancia necesitan seguimiento.")
+                    else:
+                        lines.append("La constancia necesita seguimiento para leer mejor el proceso.")
+                lines.append(_client_focus_summary_sentence())
+                return " ".join(lines)
+            return "Ya empezamos a juntar información útil, pero todavía falta completar algunas referencias para leer mejor tu proceso. El foco actual es completar una nueva evaluación y sostener continuidad."
+
+        def _client_state_rows() -> list[dict[str, object]]:
+            rows: list[dict[str, object]] = [
+                {"label": "Estado de carga", "value": _client_zone_text()},
+                {
+                    "label": "Tu salto hoy",
+                    "value": _client_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm", fallback=_client_missing_text("evaluation"))
+                    if _row_has_eval_data(focus_row)
+                    else _client_missing_text("evaluation"),
+                },
+                {
+                    "label": "Cambio contra tu primera referencia",
+                    "value": _client_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%", fallback=_client_missing_text("reference"))
+                    if _coerce_float(focus_row.get("CMJ vs BL %")) is not None
+                    else _client_missing_text("reference"),
+                },
+                {
+                    "label": "Bienestar reciente",
+                    "value": _client_metric(focus_row.get("Wellness 3d"), digits=1, fallback=_client_missing_text("registration"))
+                    if _row_has_wellness_data(focus_row)
+                    else _client_missing_text("registration"),
+                },
+                {
+                    "label": "Constancia del plan",
+                    "value": _client_metric(completion_value, digits=1, suffix="%", fallback=_client_missing_text("registration"))
+                    if completion_value is not None
+                    else _client_missing_text("registration"),
+                },
+                {
+                    "label": "Lectura actual",
+                    "value": "Ya tenemos una referencia útil para seguir tu proceso."
+                    if _row_has_eval_data(focus_row)
+                    else "Falta completar esta referencia para definir mejor la lectura actual.",
+                },
+            ]
+            return rows
+
+        def _client_load_rows() -> list[dict[str, object]]:
+            change_text = _client_missing_text("reference")
+            weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
+            sessions_registered = _coerce_float(internal_load.get("sessions_registered"))
+            if str(internal_load.get("analysis_scope") or "") == "current_week_partial":
+                change_text = "Semana en curso"
+            elif weekly_change_pct is not None:
+                change_text = f"{weekly_change_pct:+.1f}%"
+            elif _coerce_float(internal_load.get("weekly_change")) is not None:
+                change_text = _client_metric(internal_load.get("weekly_change"), digits=0, suffix=" UA")
+            return [
+                {"label": "Estado de la carga", "value": _client_zone_text()},
+                {
+                    "label": "Última semana visible",
+                    "value": _client_metric(internal_load.get("last_week_total"), digits=0, suffix=" UA", fallback=_client_missing_text("registration"))
+                    if _coerce_float(internal_load.get("last_week_total")) is not None
+                    else ("Semana en curso" if str(internal_load.get("analysis_scope") or "") == "current_week_partial" else _client_missing_text("registration")),
+                },
+                {"label": "Cambio reciente", "value": change_text},
+                {
+                    "label": "Sesiones registradas",
+                    "value": str(int(sessions_registered))
+                    if sessions_registered is not None and (_row_has_load_data(focus_row) or str(internal_load.get("analysis_scope") or "") == "current_week_partial")
+                    else _client_missing_text("registration"),
+                },
+                {
+                    "label": "Constancia",
+                    "value": _client_metric(completion_value, digits=1, suffix="%", fallback=_client_missing_text("registration"))
+                    if completion_value is not None
+                    else _client_missing_text("registration"),
+                },
+            ]
+
+        def _client_load_lines() -> list[str]:
+            lines: list[str] = []
+            zone = _client_zone_text().casefold()
+            scope = str(internal_load.get("analysis_scope") or "")
+            if scope == "current_week_partial":
+                total = _coerce_float(internal_load.get("current_week_total"))
+                sessions = int(_coerce_float(internal_load.get("current_week_sessions")) or 0)
+                if total is not None:
+                    lines.append(f"La semana sigue en curso. Por ahora acumulaste {total:.0f} UA en {sessions} sesiones y conviene esperar el cierre semanal para compararla mejor.")
+                else:
+                    lines.append("La semana sigue en curso y todavía falta información para leer bien la carga reciente.")
+            elif "alto riesgo" in zone:
+                lines.append("La carga reciente viene exigente y conviene ordenar la semana para que el cuerpo la tolere mejor.")
+            elif "precaucion" in zone:
+                lines.append("La carga reciente pide un poco más de cuidado para sostener el progreso sin apurarse.")
+            elif "subcarga" in zone:
+                lines.append("La carga reciente quedó baja y puede faltar continuidad para seguir construyendo.")
+            elif _row_has_load_data(focus_row):
+                lines.append("La carga reciente se mueve en una zona útil para seguir construyendo con continuidad.")
+            else:
+                lines.append("Falta información reciente para entender bien cómo venís tolerando el entrenamiento.")
+            if completion_value is not None and completion_value < 70:
+                lines.append(f"La constancia actual ({completion_value:.1f}%) merece seguimiento porque puede volver más ruidosa la lectura del proceso.")
+            elif completion_value is not None:
+                lines.append("La constancia del plan ayuda a leer mejor si el proceso se está sosteniendo.")
+            else:
+                lines.append("La constancia del plan todavía no está registrada con suficiente claridad.")
+            return lines[:3]
+
+        def _client_wellness_rows() -> list[dict[str, object]]:
+            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
+            scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
+            score_value = _coerce_float(summary.get("score_mean"))
+            score_label = _client_missing_text("registration")
+            if score_value is not None:
+                score_meta = _report_wellness_score_label(score_value)
+                score_label = f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']})"
+            days_count = _client_wellness_days_count()
+            return [
+                {"label": "Promedio reciente", "value": score_label, "note": "Últimos registros visibles"},
+                {"label": "Sueño", "value": _client_metric(summary.get("sleep_mean"), digits=1, suffix=" h", fallback=_client_missing_text("registration"))},
+                {"label": "Estrés", "value": _client_metric(summary.get("stress_mean"), digits=1, suffix=str(scales.get("stress", "")), fallback=_client_missing_text("registration"))},
+                {"label": "Dolor", "value": _client_metric(summary.get("pain_mean"), digits=1, suffix=str(scales.get("pain", "")), fallback=_client_missing_text("registration"))},
+                {"label": "Días con registro", "value": str(days_count) if days_count > 0 else _client_missing_text("registration")},
+            ]
+
+        def _client_wellness_lines() -> list[str]:
+            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
+            scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
+            sleep_mean = _coerce_float(summary.get("sleep_mean"))
+            stress_mean = _coerce_float(summary.get("stress_mean"))
+            pain_mean = _coerce_float(summary.get("pain_mean"))
+            if wellness_context.get("state") == "missing":
+                return [
+                    "Con más registros vamos a poder leer mejor la tendencia.",
+                    "Sueño, estrés y dolor van a ayudarnos a entender mejor cómo venís recuperando.",
+                ]
+            if wellness_context.get("state") == "partial":
+                if _client_wellness_signal_is_concerning():
+                    return [
+                        "Igual sirve como primera señal para mirar sueño, estrés y dolor.",
+                        "Con más registros vamos a poder leer mejor la tendencia.",
+                    ]
+                return [
+                    "Igual sirve como primera señal para mirar sueño, estrés y dolor.",
+                    "Con más registros vamos a poder leer mejor la tendencia.",
+                ]
+            lines: list[str] = []
+            if sleep_mean is not None and sleep_mean < 6.5:
+                lines.append("El sueño reciente merece seguimiento para que la recuperación acompañe mejor el trabajo.")
+            if stress_mean is not None and _professional_wellness_high(stress_mean, scales.get("stress")):
+                lines.append("El estrés reciente aparece alto y conviene mirarlo junto con la carga de la semana.")
+            if pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain")):
+                lines.append("El dolor reciente merece seguimiento antes de subir demasiado la exigencia.")
+            if not lines:
+                lines.append("Sueño, estrés y dolor no muestran desvíos grandes en esta ventana.")
+            lines.append("La idea es usar esta información para cuidar recuperación y continuidad, no para juzgar un día aislado.")
+            return list(dict.fromkeys(lines))[:3]
+
+        def _client_review_text() -> str:
+            if _row_has_eval_data(focus_row):
+                return "Volver a medir en 6-8 semanas ayuda a confirmar si el progreso se sostiene."
+            return "Cuando completemos una nueva evaluación, vamos a tener una referencia más clara para seguir ajustando el proceso."
+
+        def _client_status_box() -> Table:
+            return _build_threshold_box(
+                [
+                    _p("Carga actual", "CardLabel"),
+                    _p(_client_zone_text(), "ReportSection"),
+                    _p("Lectura general de esta ventana.", "ReportMuted"),
+                ],
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                width_mm=58,
+                padding=8,
+                background=palette["panel_alt"],
+                border_color=palette["line_dark"],
+                accent_color=palette["navy"],
+                border_width=0.7,
+            )
+
+        def _client_cover_cards_table(cards: list[tuple[str, str, str]]) -> Table:
+            rows: list[list[object]] = []
+            row: list[object] = []
+            for idx, (label, value, _) in enumerate(cards, start=1):
+                cell = _build_metric_card(
+                    label,
+                    value,
+                    paragraph_builder=_p,
+                    TableClass=Table,
+                    TableStyleClass=TableStyle,
+                    mm_unit=mm,
+                    palette=palette,
+                    width_mm=86,
+                )
+                row.append(cell)
+                if idx % 2 == 0:
+                    rows.append(row)
+                    row = []
+            if row:
+                while len(row) < 2:
+                    row.append("")
+                rows.append(row)
+            table = Table(rows, colWidths=[86 * mm, 86 * mm], hAlign="LEFT")
+            table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+            return table
+
+        def _client_chrome(canvas_obj, doc_obj) -> None:
+            _draw_threshold_header(canvas_obj, doc_obj, palette=palette, mm_unit=mm, label="")
+            _draw_threshold_footer(canvas_obj, doc_obj, palette=palette, mm_unit=mm)
+
+        client_cards = _client_cards()
+        client_has_profile_signal = (
+            _row_has_eval_data(focus_row)
+            or _row_has_load_data(focus_row)
+            or _row_has_wellness_data(focus_row)
+        )
+        client_strengths = _client_strengths_lines()
+        client_gaps = _client_watchouts_lines()
+        client_next_steps = _client_next_steps_list()
+        if not client_has_profile_signal:
+            client_strengths = ["Ya empezamos a juntar información útil para seguir tu proceso."]
+            client_gaps = ["Falta información para definir con más claridad qué conviene priorizar."]
+            client_next_steps = [
+                "Programar una nueva evaluación nos va a dar una referencia más clara para seguir ajustando el proceso.",
+                "Sostener más continuidad en el plan va a ayudar a leer mejor cómo viene el proceso.",
+            ]
+        client_focus = _client_focus_label()
+
+        cover_intro = Table(
+            [[
+                _build_note_box(
+                    "Lectura breve",
+                    _client_overview_text(),
+                    paragraph_builder=_p,
+                    TableClass=Table,
+                    TableStyleClass=TableStyle,
+                    mm_unit=mm,
+                    palette=palette,
+                    width_mm=112,
+                    title_style="BlockTitle",
+                    body_style="ReportBody",
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["navy"],
+                ),
+                _client_status_box(),
+            ]],
+            colWidths=[112 * mm, 58 * mm],
+            hAlign="LEFT",
+        )
+        cover_intro.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+
+        story.extend(
+            [
+                _p("Reporte de progreso", "ReportMuted"),
+                _p(effective_athlete, "ReportTitle"),
+                _p(f"Fecha: {datetime.now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
+                Spacer(1, 4 * mm),
+                cover_intro,
+                Spacer(1, 5 * mm),
+                _client_cover_cards_table(client_cards),
+                Spacer(1, 5 * mm),
+                _build_decision_box(
+                    "Qué vamos a priorizar",
+                    f"Hoy la prioridad es {_client_focus_phrase()}.",
+                    paragraph_builder=_p,
+                    TableClass=Table,
+                    TableStyleClass=TableStyle,
+                    mm_unit=mm,
+                    palette=palette,
+                    title_style="ReportDecisionTitle",
+                    body_style="ReportBodyWhite",
+                    note_style="ReportMutedWhite",
+                    note="Lectura simple para entender cómo venís y qué vamos a cuidar ahora.",
+                ),
+            ]
+        )
+
+        story.append(PageBreak())
+        story.append(_build_pdf_page_title(
+            "Estado actual y progreso",
+            paragraph_builder=_p,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            subtitle="Una foto simple de cómo estás hoy y de si ya hay una referencia para comparar el proceso.",
+            eyebrow="",
+            title_style="ReportSection",
+            subtitle_style="ReportMuted",
+            eyebrow_style="ReportMuted",
+        ))
+        story.append(Spacer(1, 4 * mm))
+        state_chart_payload = client_charts.get("cmj_trend") or client_charts.get("completion")
+        state_chart = _chart_image(state_chart_payload, height_mm=66) if state_chart_payload else None
+        story.append(
+            _build_chart_container(
+                state_chart,
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title=state_chart_payload.get("title", "Progreso reciente") if state_chart_payload else "Progreso reciente",
+                note=(
+                    "Sirve para ver si ya hay una referencia útil para comparar tu proceso con más claridad."
+                    if state_chart is not None
+                    else "Cuando tengamos más registros, esta vista va a ayudar a seguir mejor tu progreso."
+                ),
+                empty_text="Todavía no hay historial suficiente para mostrar una tendencia clara.",
+                title_style="BlockTitle",
+                note_style="ReportMuted",
+                accent_color=palette["steel"],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+        story.append(_compact_key_value_table(_client_state_rows()))
+        story.append(Spacer(1, 4 * mm))
+        story.append(
+            _build_note_box(
+                "Lo que estamos viendo",
+                [client_strengths[0], client_gaps[0]],
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette["card"],
+                border_color=palette["line_dark"],
+                accent_color=palette["steel"],
+            )
+        )
+
+        story.append(PageBreak())
+        story.append(_build_pdf_page_title(
+            "Carga y constancia",
+            paragraph_builder=_p,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            subtitle="Una lectura simple para ver si la semana viene estable, baja o exigente, y si hay continuidad del plan.",
+            eyebrow="",
+            title_style="ReportSection",
+            subtitle_style="ReportMuted",
+            eyebrow_style="ReportMuted",
+        ))
+        story.append(Spacer(1, 4 * mm))
+        load_chart_payload = client_charts.get("acwr") or client_charts.get("completion")
+        load_chart = _chart_image(load_chart_payload, height_mm=56) if load_chart_payload else None
+        story.append(
+            _build_note_box(
+                "Qué significa",
+                _client_load_lines()[0],
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette["card"],
+                border_color=palette["line_dark"],
+                accent_color=palette["navy"],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+        story.append(
+            _build_chart_container(
+                load_chart,
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title=load_chart_payload.get("title", "Cómo venís tolerando el entrenamiento") if load_chart_payload else "Cómo venís tolerando el entrenamiento",
+                note=(
+                    "El gráfico acompaña la lectura de continuidad, tolerancia y ritmo reciente del entrenamiento."
+                    if load_chart is not None
+                    else "La lectura resume continuidad, tolerancia y ritmo reciente del entrenamiento con la información disponible."
+                ),
+                empty_text="Todavía no hay información suficiente para mostrar este gráfico de carga reciente.",
+                title_style="BlockTitle",
+                note_style="ReportMuted",
+                accent_color=palette["steel"],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+        story.append(_compact_key_value_table(_client_load_rows()))
+        story.append(Spacer(1, 4 * mm))
+        story.append(
+            _build_note_box(
+                "Lectura de la semana",
+                _client_load_lines(),
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette["panel"],
+                border_color=palette["line_dark"],
+                accent_color=palette["steel"],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+        story.append(
+            _build_note_box(
+                "Qué mirar",
+                _client_load_watch_lines(),
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette["card"],
+                border_color=palette["line_dark"],
+                accent_color=palette["navy"],
+            )
+        )
+
+        story.append(PageBreak())
+        story.append(_build_pdf_page_title(
+            "Bienestar y recuperación",
+            paragraph_builder=_p,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            subtitle="Una referencia simple para ver si sueño, estrés y dolor están acompañando el trabajo.",
+            eyebrow="",
+            title_style="ReportSection",
+            subtitle_style="ReportMuted",
+            eyebrow_style="ReportMuted",
+        ))
+        story.append(Spacer(1, 4 * mm))
+        wellness_chart_payload = client_charts.get("wellness")
+        wellness_chart = _chart_image(wellness_chart_payload, height_mm=56) if wellness_chart_payload else None
+        story.append(
+            _build_note_box(
+                "Qué significa",
+                _client_wellness_summary_line(),
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette["card"],
+                border_color=palette["line_dark"],
+                accent_color=palette["navy"],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+        story.append(
+            _build_chart_container(
+                wellness_chart,
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title=wellness_chart_payload.get("title", "Bienestar reciente") if wellness_chart_payload else "Bienestar reciente",
+                note=(
+                    "La idea es entender cómo venís recuperando y si hace falta cuidar algo más de cerca."
+                    if wellness_chart is not None
+                    else "Con más registros esta vista va a ayudar a seguir mejor cómo venís recuperando."
+                ),
+                empty_text="Todavía no hay registros suficientes para mostrar un gráfico de bienestar reciente.",
+                title_style="BlockTitle",
+                note_style="ReportMuted",
+                accent_color=palette["steel"],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+        story.append(_compact_key_value_table(_client_wellness_rows()))
+        story.append(Spacer(1, 4 * mm))
+        story.append(
+            _build_note_box(
+                "Lectura de recuperación",
+                _client_wellness_lines(),
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette["panel"],
+                border_color=palette["line_dark"],
+                accent_color=palette["steel"],
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+        story.append(
+            _build_note_box(
+                "Qué vamos a cuidar",
+                _client_wellness_watch_lines(),
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette["card"],
+                border_color=palette["line_dark"],
+                accent_color=palette["navy"],
+            )
+        )
+
+        story.append(PageBreak())
+        story.append(_build_pdf_page_title(
+            "Próximos pasos",
+            paragraph_builder=_p,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            subtitle="Lo que está funcionando, lo que vamos a cuidar y la prioridad de esta etapa.",
+            eyebrow="",
+            title_style="ReportSection",
+            subtitle_style="ReportMuted",
+            eyebrow_style="ReportMuted",
+        ))
+        story.append(Spacer(1, 4 * mm))
+        next_focus_box = _build_decision_box(
+            "Qué vamos a priorizar",
+            _client_focus_plan_sentence(),
+            paragraph_builder=_p,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            title_style="ReportDecisionTitle",
+            body_style="ReportBodyWhite",
+            note_style="ReportMutedWhite",
+            note="La decisión se apoya en la información disponible de esta ventana.",
+        )
+        what_is_working = _box_flow(
+            [_p("Qué está funcionando bien", "BlockTitle"), _p(client_strengths[0], "ReportBody")],
+            padding=8,
+        )
+        what_to_watch = _box_flow(
+            [_p("Qué vamos a cuidar", "BlockTitle"), _p(client_gaps[0], "ReportBody")],
+            padding=8,
+        )
+        next_steps_box = _box_flow(
+            [_p("Próximos pasos", "BlockTitle")] + _build_threshold_bullets(client_next_steps[:3], paragraph_builder=_p, style_name="ReportBody"),
+            padding=8,
+        )
+        story.append(next_focus_box)
+        story.append(Spacer(1, 4 * mm))
+        story.append(what_is_working)
+        story.append(Spacer(1, 4 * mm))
+        story.append(what_to_watch)
+        story.append(Spacer(1, 4 * mm))
+        story.append(next_steps_box)
+        story.append(Spacer(1, 5 * mm))
+        story.append(
+            _build_note_box(
+                "Volver a medir",
+                _client_review_text(),
+                paragraph_builder=_p,
+                TableClass=Table,
+                TableStyleClass=TableStyle,
+                mm_unit=mm,
+                palette=palette,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette["panel"],
+                border_color=palette["line_dark"],
+                accent_color=palette["navy"],
+            )
+        )
+        try:
+            doc.build(story, onFirstPage=_client_chrome, onLaterPages=_client_chrome)
         except Exception:
             return None
         return buffer.getvalue()

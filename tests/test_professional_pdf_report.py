@@ -1072,6 +1072,27 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                 self.assertNotIn("interpretacion integrada profesional", text)
                 self.assertNotIn("decision practica", text)
 
+    def test_shared_threshold_pdf_visual_helpers_are_available_for_future_migration(self):
+        helper_names = [
+            "_pdf_theme_threshold",
+            "_register_threshold_pdf_styles",
+            "_fit_pdf_image",
+            "_build_threshold_box",
+            "_build_threshold_table",
+            "_build_metric_card",
+            "_build_note_box",
+            "_build_chart_container",
+            "_build_pdf_page_title",
+            "_build_decision_box",
+            "_build_threshold_separator",
+            "_draw_threshold_header",
+            "_draw_threshold_footer",
+        ]
+
+        missing = [name for name in helper_names if not callable(getattr(report_generator, name, None))]
+
+        self.assertEqual(missing, [])
+
     def test_partial_next_steps_include_protocol_and_missing_metrics_guidance(self):
         steps = _build_professional_next_steps("partial")
 
