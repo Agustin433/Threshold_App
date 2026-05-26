@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime as real_datetime
+from io import BytesIO
 import re
+import unicodedata
 import unittest
 from unittest.mock import patch
 
 import pandas as pd
+from pypdf import PdfReader
 
 import modules.report_generator as report_generator
 from modules.report_generator import (
@@ -17,11 +20,25 @@ from modules.report_force_time import build_force_time_report_payload
 
 
 def _pdf_page_count(pdf: bytes) -> int:
-    return len(re.findall(rb"/Type\s*/Page\b", pdf))
+    return len(PdfReader(BytesIO(pdf)).pages)
 
 
-def _pdf_text(pdf: bytes) -> str:
-    return pdf.decode("latin-1", errors="ignore").lower()
+def _pdf_extracted_text_pages(pdf: bytes) -> list[str]:
+    reader = PdfReader(BytesIO(pdf))
+    return [(page.extract_text() or "") for page in reader.pages]
+
+
+def _normalized_story_text(text: str) -> str:
+    repaired = report_generator._repair_mojibake_text(text)
+    return unicodedata.normalize("NFD", repaired).encode("ascii", "ignore").decode("ascii").lower()
+
+
+def _normalized_pdf_pages(pdf: bytes) -> list[str]:
+    return [_normalized_story_text(page) for page in _pdf_extracted_text_pages(pdf)]
+
+
+def _collapsed_normalized_pdf_text(pdf: bytes) -> str:
+    return re.sub(r"\s+", " ", " ".join(_normalized_pdf_pages(pdf))).strip()
 
 
 class FixedAthleteReportDate(real_datetime):
@@ -123,32 +140,151 @@ def _athlete_report_state_with_force_time() -> dict[str, object]:
     return state
 
 
+def _athlete_partial_report_state() -> dict[str, object]:
+    return {
+        "completion_df": pd.DataFrame([{"Athlete": "Ana Lopez", "Date": "2026-05-01", "Assigned": 4, "Completed": 3, "Pct": 75.0}]),
+        "rpe_df": None,
+        "wellness_df": None,
+        "jump_df": None,
+        "raw_df": None,
+        "maxes_df": None,
+        "rep_load_df": None,
+        "acwr_dict": {},
+        "mono_dict": {},
+    }
+
+
+def _athlete_low_wellness_report_state() -> dict[str, object]:
+    state = _athlete_report_state()
+    state["wellness_df"] = pd.DataFrame(
+        [
+            {"Athlete": "Ana Lopez", "Date": "2026-04-28", "Sueno_hs": 5.8, "Estres": 8, "Dolor": 7, "Wellness_Score": 2.3},
+            {"Athlete": "Ana Lopez", "Date": "2026-04-30", "Sueno_hs": 5.9, "Estres": 8, "Dolor": 6, "Wellness_Score": 2.4},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-01", "Sueno_hs": 5.7, "Estres": 9, "Dolor": 7, "Wellness_Score": 2.2},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-04", "Sueno_hs": 5.6, "Estres": 9, "Dolor": 8, "Wellness_Score": 2.1},
+        ]
+    )
+    return state
+
+
 class AthletePdfReportTest(unittest.TestCase):
-    def test_athlete_pdf_stays_compact_at_four_pages_or_less(self):
+    def test_athlete_pdf_applies_threshold_visual_system_and_target_sections(self):
         with patch.object(report_generator, "datetime", FixedAthleteReportDate):
             pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 4)
+        assert pdf is not None
+        self.assertEqual(_pdf_page_count(pdf), 6)
 
-    def test_athlete_pdf_survives_missing_evaluations_load_and_wellness(self):
-        state = {
-            "completion_df": pd.DataFrame([{"Athlete": "Ana Lopez", "Date": "2026-05-01", "Assigned": 4, "Completed": 3, "Pct": 75}]),
-            "rpe_df": None,
-            "wellness_df": None,
-            "jump_df": None,
-            "raw_df": None,
-            "maxes_df": None,
-            "rep_load_df": None,
-            "acwr_dict": {},
-            "mono_dict": {},
-        }
+        extracted_pages = _normalized_pdf_pages(pdf)
+        self.assertEqual(len(extracted_pages), 6)
+        for index, page_text in enumerate(extracted_pages, start=1):
+            self.assertIn("threshold s&c", page_text)
+            self.assertIn(f"pagina {index}", page_text)
 
+        expected_titles = [
+            "reporte individual para atleta",
+            "perfil neuromuscular",
+            "fuerza e imtp",
+            "carga reciente",
+            "bienestar y adherencia",
+            "fortalezas y proximos pasos",
+        ]
+        for page_text, title in zip(extracted_pages, expected_titles):
+            self.assertIn(title, page_text)
+
+    def test_athlete_pdf_keeps_athlete_language_and_avoids_professional_overreach(self):
         with patch.object(report_generator, "datetime", FixedAthleteReportDate):
-            pdf = generate_visual_report_pdf(state, "Ana Lopez", "atleta")
+            pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 4)
+        assert pdf is not None
+        joined = _collapsed_normalized_pdf_text(pdf)
+        self.assertIn("que significa para vos", joined)
+        self.assertIn("que vamos a priorizar", joined)
+        self.assertIn("como venis tolerando el entrenamiento", joined)
+        self.assertIn("proxima medicion o revision", joined)
+        self.assertNotIn("sostener perfil", joined)
+        self.assertNotIn("relaciones de perfil / cuadrantes", joined)
+        self.assertNotIn("cuadrante", joined)
+        self.assertNotIn("interpretacion integrada profesional", joined)
+        self.assertNotIn("tc inv", joined)
+
+    def test_athlete_pdf_force_time_page_keeps_simple_language_and_accents(self):
+        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            pdf = generate_visual_report_pdf(_athlete_report_state_with_force_time(), "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        assert pdf is not None
+        visible_text = "\n".join(_pdf_extracted_text_pages(pdf))
+        normalized = _normalized_story_text(visible_text)
+        collapsed = re.sub(r"\s+", " ", visible_text).strip()
+
+        self.assertIn("Fuerza e IMTP", visible_text)
+        self.assertIn("Fuerza máxima", visible_text)
+        self.assertIn("Asimetría", visible_text)
+        self.assertIn("posición fija", visible_text)
+        self.assertIn("La RFD ayuda a ver qué tan rápido aparece la fuerza, pero la usamos con cautela cuando todavía no tenemos una referencia propia de confiabilidad.", collapsed)
+        self.assertNotIn("TC inv", visible_text)
+        self.assertNotIn("TE disponible", visible_text)
+        self.assertNotIn("Force@100", visible_text)
+        self.assertNotIn("evaluacion", visible_text)
+        self.assertNotIn("adquisicion", visible_text)
+        self.assertNotIn("Asimetria", visible_text)
+        self.assertNotIn("produccion", visible_text)
+        self.assertNotIn("isometrica", visible_text)
+        self.assertNotIn("posicion", visible_text)
+        self.assertNotIn("cuadrantes", normalized)
+
+    def test_athlete_pdf_chart_fallback_copy_stays_coherent_when_render_fails(self):
+        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            pdf = generate_visual_report_pdf(_athlete_report_state_with_force_time(), "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        assert pdf is not None
+        joined = _collapsed_normalized_pdf_text(pdf)
+
+        self.assertIn("hoy no se pudo renderizar el grafico de carga, pero la lectura reciente sigue disponible", joined)
+        self.assertIn("hoy no se pudo renderizar este grafico, pero la lectura de bienestar y adherencia sigue disponible", joined)
+        self.assertIn("hoy no se pudo renderizar el radar, pero la lectura del perfil sigue disponible", joined)
+        self.assertNotIn("faltan datos de carga interna para mostrar este grafico reciente", joined)
+        self.assertNotIn("faltan datos de evaluacion para mostrar el radar neuromuscular", joined)
+
+    def test_athlete_pdf_handles_missing_data_without_empty_pages(self):
+        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            pdf = generate_visual_report_pdf(_athlete_partial_report_state(), "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        assert pdf is not None
+        extracted_pages = _normalized_pdf_pages(pdf)
+        self.assertEqual(len(extracted_pages), 6)
+        self.assertTrue(all(len(page.strip()) > 40 for page in extracted_pages))
+        joined = re.sub(r"\s+", " ", " ".join(extracted_pages)).strip()
+        self.assertIn("pendiente", joined)
+        self.assertIn("todavia no registrado", joined)
+        self.assertIn("todavia faltan registros recientes de bienestar para entender mejor como venis recuperando", joined)
+        self.assertNotIn("sin datos", joined)
+        self.assertNotIn("tc inv", joined)
+
+    def test_athlete_pdf_when_wellness_is_acceptable_does_not_claim_recovery_is_low(self):
+        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        assert pdf is not None
+        joined = _collapsed_normalized_pdf_text(pdf)
+        self.assertIn("el bienestar reciente acompana, pero conviene seguir registrandolo para confirmar la tendencia", joined)
+        self.assertNotIn("la recuperacion percibida viene baja y requiere seguimiento cercano", joined)
+
+    def test_athlete_pdf_when_wellness_is_low_can_mark_close_follow_up(self):
+        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            pdf = generate_visual_report_pdf(_athlete_low_wellness_report_state(), "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        assert pdf is not None
+        joined = _collapsed_normalized_pdf_text(pdf)
+        self.assertIn("el bienestar reciente viene bajo y conviene cruzarlo de cerca con la carga, el sueno, el estres y el dolor", joined)
+        self.assertIn("la recuperacion reciente merece seguimiento cercano junto con sueno, estres y dolor", joined)
 
     def test_athlete_load_copy_marks_partial_week_without_closed_week_comparison(self):
         row = pd.Series({"ACWR EWMA": 0.98, "Zona": "Optimo", "Monotonia": 1.3})
@@ -173,35 +309,6 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertIn("relación entre carga reciente y carga habitual", definitions["ACWR EWMA"])
         self.assertIn("Drop Jump", definitions["DRI"])
         self.assertIn("salto con contramovimiento", definitions["EUR"])
-
-
-    def test_athlete_pdf_with_imtp_force_time_generates_optional_block_without_forbidden_language(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
-            with patch.object(report_generator, "draw_force_time_test_block", wraps=report_generator.draw_force_time_test_block) as mocked_draw:
-                pdf = generate_visual_report_pdf(_athlete_report_state_with_force_time(), "Ana Lopez", "atleta")
-
-        self.assertIsNotNone(pdf)
-        self.assertEqual(mocked_draw.call_count, 1)
-
-    def test_athlete_pdf_without_imtp_force_time_skips_optional_block(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
-            with patch.object(report_generator, "draw_force_time_test_block", wraps=report_generator.draw_force_time_test_block) as mocked_draw:
-                pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
-
-        self.assertIsNotNone(pdf)
-        self.assertEqual(mocked_draw.call_count, 0)
-
-    def test_athlete_pdf_with_partial_imtp_force_time_skips_optional_block_safely(self):
-        state = _athlete_report_state_with_force_time()
-        state["jump_df"] = state["jump_df"].copy()
-        state["jump_df"].loc[0, "IMTP_N"] = None
-
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
-            with patch.object(report_generator, "draw_force_time_test_block", wraps=report_generator.draw_force_time_test_block) as mocked_draw:
-                pdf = generate_visual_report_pdf(state, "Ana Lopez", "atleta")
-
-        self.assertIsNotNone(pdf)
-        self.assertEqual(mocked_draw.call_count, 0)
 
     def test_force_time_payload_for_athlete_stays_descriptive(self):
         payload = build_force_time_report_payload(
