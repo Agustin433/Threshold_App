@@ -7,6 +7,8 @@ import pandas as pd
 from charts.dashboard_charts import (
     chart_composite_profile_radar,
     chart_jump_metric_trend,
+    chart_quadrant_exploratory,
+    chart_quadrant_rsi_sj,
     chart_radar,
     find_latest_valid_radar_row,
 )
@@ -78,6 +80,7 @@ def _sample_jump_df() -> pd.DataFrame:
                     "Date": "2026-04-01",
                     "CMJ_cm": 38,
                     "SJ_cm": 32,
+                    "DJ_drop_height_cm": 30,
                     "DJ_cm": 28,
                     "DJ_tc_ms": 220,
                     "IMTP_N": 2800,
@@ -91,6 +94,7 @@ def _sample_jump_df() -> pd.DataFrame:
                     "Date": "2026-04-01",
                     "CMJ_cm": 30,
                     "SJ_cm": 32,
+                    "DJ_drop_height_cm": 30,
                     "DJ_cm": 25,
                     "DJ_tc_ms": 180,
                     "IMTP_N": 3200,
@@ -104,6 +108,7 @@ def _sample_jump_df() -> pd.DataFrame:
                     "Date": "2026-04-01",
                     "CMJ_cm": 45,
                     "SJ_cm": 36,
+                    "DJ_drop_height_cm": 30,
                     "DJ_cm": 35,
                     "DJ_tc_ms": 190,
                     "IMTP_N": 3800,
@@ -126,6 +131,7 @@ def _temporal_jump_df() -> pd.DataFrame:
                     "Date": "2026-04-01",
                     "CMJ_cm": 30,
                     "SJ_cm": 28,
+                    "DJ_drop_height_cm": 30,
                     "DJ_cm": 24,
                     "DJ_tc_ms": 220,
                     "IMTP_N": 2500,
@@ -136,6 +142,7 @@ def _temporal_jump_df() -> pd.DataFrame:
                     "Date": "2026-04-08",
                     "CMJ_cm": 31,
                     "SJ_cm": 29,
+                    "DJ_drop_height_cm": 30,
                     "DJ_cm": 25,
                     "DJ_tc_ms": 210,
                     "IMTP_N": 2550,
@@ -146,6 +153,7 @@ def _temporal_jump_df() -> pd.DataFrame:
                     "Date": "2026-04-15",
                     "CMJ_cm": 32,
                     "SJ_cm": 30,
+                    "DJ_drop_height_cm": 30,
                     "DJ_cm": 26,
                     "DJ_tc_ms": 205,
                     "IMTP_N": 2600,
@@ -156,6 +164,7 @@ def _temporal_jump_df() -> pd.DataFrame:
                     "Date": "2026-04-22",
                     "CMJ_cm": 34,
                     "SJ_cm": 31,
+                    "DJ_drop_height_cm": 30,
                     "DJ_cm": 27,
                     "DJ_tc_ms": 225,
                     "IMTP_N": 2800,
@@ -175,6 +184,7 @@ def _composite_profile_source_df() -> pd.DataFrame:
                     "Date": "2026-04-01",
                     "CMJ_cm": 34,
                     "SJ_cm": 30,
+                    "DJ_drop_height_cm": 24,
                     "DJ_cm": 26,
                     "DJ_tc_ms": 220,
                     "IMTP_N": 3000,
@@ -185,6 +195,7 @@ def _composite_profile_source_df() -> pd.DataFrame:
                     "Date": "2026-04-08",
                     "CMJ_cm": 36,
                     "SJ_cm": 31,
+                    "DJ_drop_height_cm": 25,
                     "DJ_cm": 27,
                     "DJ_tc_ms": 210,
                     "BW_kg": 80,
@@ -199,6 +210,7 @@ def _composite_profile_source_df() -> pd.DataFrame:
                 {
                     "Athlete": "Atleta Compuesto",
                     "Date": "2026-04-22",
+                    "DJ_drop_height_cm": 26.94,
                     "DJ_cm": 28,
                     "DJ_tc_ms": 200,
                     "IMTP_N": 3100,
@@ -365,13 +377,17 @@ class JumpProfileSystemTest(unittest.TestCase):
                     "Date": "2026-05-01",
                     "SJ_cm": 31,
                     "CMJ_cm": 35,
+                    "DJ_drop_height_cm": 30,
+                    "DJ_cm": 27,
                     "DJ_tc_ms": 210,
                     "DRI": 1.29,
+                    "DJ_RSI": 1.29,
                     "EUR": 1.129,
                     "IMTP_relPF": 39.5,
                     "SJ_Z": -0.20,
                     "CMJ_Z": 0.30,
                     "DJ_height_Z": 0.10,
+                    "DRI_Z": 0.35,
                     "DJ_RSI_Z": 0.45,
                     "DJtc_Z": 0.80,
                     "EUR_Z": 0.25,
@@ -385,10 +401,12 @@ class JumpProfileSystemTest(unittest.TestCase):
         rows = build_composite_profile_metric_rows(composite_row)
         zscores = dict(zip(metric_table["Variable"], metric_table["Z-score"]))
 
-        self.assertEqual(zscores["DRI"], 0.45)
+        self.assertEqual(zscores["DRI"], 0.35)
         self.assertEqual(zscores["Tiempo de contacto"], 0.80)
         self.assertNotEqual(zscores["IMTP"], "—")
-        self.assertEqual(composite_row["DRI_Z"], composite_row["DJ_RSI_Z"])
+        self.assertEqual(composite_row["DRI_Z"], 0.35)
+        self.assertFalse(pd.isna(composite_row["DJ_RSI_Z"]))
+        self.assertNotEqual(composite_row["DRI_Z"], composite_row["DJ_RSI_Z"])
         self.assertEqual(composite_row["TC_inv_Z"], composite_row["DJtc_Z"])
         self.assertEqual(composite_row["IMTP_relPF_Z"], composite_row["IMTP_Z"])
         self.assertEqual(
@@ -405,10 +423,10 @@ class JumpProfileSystemTest(unittest.TestCase):
     def test_contact_time_composite_zscore_keeps_lower_is_better_semantics(self):
         jump_df = pd.DataFrame(
             [
-                {"Athlete": "Atleta TC", "Date": "2026-04-01", "DJ_cm": 24.0, "DJ_tc_ms": 260.0},
-                {"Athlete": "Atleta TC", "Date": "2026-04-08", "DJ_cm": 24.0, "DJ_tc_ms": 250.0},
-                {"Athlete": "Atleta TC", "Date": "2026-04-15", "DJ_cm": 24.0, "DJ_tc_ms": 240.0},
-                {"Athlete": "Atleta TC", "Date": "2026-04-22", "DJ_cm": 24.0, "DJ_tc_ms": 220.0},
+                    {"Athlete": "Atleta TC", "Date": "2026-04-01", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 260.0},
+                    {"Athlete": "Atleta TC", "Date": "2026-04-08", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 250.0},
+                    {"Athlete": "Atleta TC", "Date": "2026-04-15", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 240.0},
+                    {"Athlete": "Atleta TC", "Date": "2026-04-22", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 220.0},
             ]
         )
 
@@ -423,9 +441,9 @@ class JumpProfileSystemTest(unittest.TestCase):
         jump_df = _prepare_jump_df(
             pd.DataFrame(
                 [
-                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-01", "CMJ_cm": 34, "SJ_cm": 30, "DJ_cm": 26, "DJ_tc_ms": 220},
-                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-08", "CMJ_cm": 35, "SJ_cm": 31, "DJ_cm": 27, "DJ_tc_ms": 210},
-                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-15", "CMJ_cm": 36, "SJ_cm": 32, "DJ_cm": 28, "DJ_tc_ms": 205},
+                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-01", "CMJ_cm": 34, "SJ_cm": 30, "DJ_drop_height_cm": 30, "DJ_cm": 26, "DJ_tc_ms": 220},
+                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-08", "CMJ_cm": 35, "SJ_cm": 31, "DJ_drop_height_cm": 30, "DJ_cm": 27, "DJ_tc_ms": 210},
+                    {"Athlete": "Atleta Sin IMTP", "Date": "2026-04-15", "CMJ_cm": 36, "SJ_cm": 32, "DJ_drop_height_cm": 30, "DJ_cm": 28, "DJ_tc_ms": 205},
                 ]
             )
         )
@@ -443,9 +461,9 @@ class JumpProfileSystemTest(unittest.TestCase):
         jump_df = _prepare_jump_df(
             pd.DataFrame(
                 [
-                    {"Athlete": "Atleta Parcial", "Date": "2026-04-01", "SJ_cm": 30, "DJ_cm": 24, "DJ_tc_ms": 220, "IMTP_N": 2800, "BW_kg": 78},
-                    {"Athlete": "Atleta Parcial", "Date": "2026-04-08", "SJ_cm": 31, "DJ_cm": 25, "DJ_tc_ms": 210, "IMTP_N": 2850, "BW_kg": 78},
-                    {"Athlete": "Atleta Parcial", "Date": "2026-04-15", "SJ_cm": 32, "DJ_cm": 26, "DJ_tc_ms": 205, "IMTP_N": 2900, "BW_kg": 78},
+                    {"Athlete": "Atleta Parcial", "Date": "2026-04-01", "SJ_cm": 30, "DJ_drop_height_cm": 30, "DJ_cm": 24, "DJ_tc_ms": 220, "IMTP_N": 2800, "BW_kg": 78},
+                    {"Athlete": "Atleta Parcial", "Date": "2026-04-08", "SJ_cm": 31, "DJ_drop_height_cm": 30, "DJ_cm": 25, "DJ_tc_ms": 210, "IMTP_N": 2850, "BW_kg": 78},
+                    {"Athlete": "Atleta Parcial", "Date": "2026-04-15", "SJ_cm": 32, "DJ_drop_height_cm": 30, "DJ_cm": 26, "DJ_tc_ms": 205, "IMTP_N": 2900, "BW_kg": 78},
                 ]
             )
         )
@@ -474,6 +492,7 @@ class JumpProfileSystemTest(unittest.TestCase):
                         "Date": "2026-04-10",
                         "CMJ_cm": 35,
                         "SJ_cm": 31,
+                        "DJ_drop_height_cm": 30,
                         "DJ_cm": 27,
                         "DJ_tc_ms": 210,
                         "IMTP_N": 3000,
@@ -487,13 +506,13 @@ class JumpProfileSystemTest(unittest.TestCase):
         metric_table = build_composite_profile_metric_table(composite_row)
         zscores = dict(zip(metric_table["Variable"], metric_table["Z-score"]))
 
-        self.assertEqual(zscores["SJ"], "—")
-        self.assertNotEqual(zscores["CMJ"], "—")
-        self.assertEqual(zscores["DJ"], "—")
-        self.assertNotEqual(zscores["DRI"], "—")
-        self.assertEqual(zscores["Tiempo de contacto"], "—")
-        self.assertEqual(zscores["EUR"], "—")
-        self.assertNotEqual(zscores["IMTP"], "—")
+        self.assertEqual(zscores["SJ"], "\u2014")
+        self.assertNotEqual(zscores["CMJ"], "\u2014")
+        self.assertEqual(zscores["DJ"], "\u2014")
+        self.assertEqual(zscores["DRI"], "\u2014")
+        self.assertEqual(zscores["Tiempo de contacto"], "\u2014")
+        self.assertEqual(zscores["EUR"], "\u2014")
+        self.assertNotEqual(zscores["IMTP"], "\u2014")
 
     def test_metric_trend_chart_uses_chronological_eval_dates(self):
         jump_df = _temporal_jump_df()
@@ -508,6 +527,21 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(dj_rsi_figure.data[0].name, "DJ RSI")
         self.assertEqual(eur_dates, ["2026-04-01", "2026-04-08", "2026-04-15", "2026-04-22"])
         self.assertEqual(dj_rsi_dates, ["2026-04-01", "2026-04-08", "2026-04-15", "2026-04-22"])
+
+    def test_rsi_quadrant_uses_dj_rsi_even_when_dri_is_missing(self):
+        jump_df = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Date": "2026-05-01", "SJ_Z": 0.8, "DJ_RSI_Z": 0.6, "DJ_RSI": 1.55},
+                {"Athlete": "Bruno Rey", "Date": "2026-05-01", "SJ_Z": -0.2, "DJ_RSI_Z": -0.4, "DJ_RSI": 1.20},
+            ]
+        )
+
+        rsi_figure = chart_quadrant_rsi_sj(jump_df, theme=_chart_theme())
+        dri_figure = chart_quadrant_exploratory(jump_df, theme=_chart_theme())
+
+        self.assertIn("DJ RSI", str(rsi_figure.layout.title.text))
+        self.assertGreater(len(rsi_figure.data), 0)
+        self.assertIn("No hay suficientes datos de DRI", str(dri_figure.layout.annotations[0].text))
 
     def test_radar_uses_latest_valid_row_when_last_calendar_row_has_no_renderable_axes(self):
         jump_df = _prepare_jump_df(
@@ -1122,7 +1156,6 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertIn("baseline insuficiente", display_df["Senal"].tolist())
         self.assertTrue(any("N=2/3" in str(value) for value in display_df["Metodo"].tolist()))
-
 
 if __name__ == "__main__":
     unittest.main()

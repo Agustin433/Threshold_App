@@ -18,6 +18,7 @@ create table if not exists public.evaluations (
     cmj_rsi double precision,
     dj_asym_pct double precision,
     dj_cm double precision,
+    dj_drop_height_cm double precision,
     dj_flight_ms double precision,
     dj_force_l_n double precision,
     dj_force_r_n double precision,
@@ -91,6 +92,7 @@ alter table if exists public.evaluations add column if not exists iso_ham_rfd_50
 alter table if exists public.evaluations add column if not exists iso_ham_rfd_100_n_s double precision;
 alter table if exists public.evaluations add column if not exists iso_ham_rfd_150_n_s double precision;
 alter table if exists public.evaluations add column if not exists iso_ham_rfd_250_n_s double precision;
+alter table if exists public.evaluations add column if not exists dj_drop_height_cm double precision;
 
 create or replace function public.set_evaluations_updated_at()
 returns trigger

@@ -49,6 +49,7 @@ SELECTED_METRIC_CONFIG = [
     ("SJ", "SJ_cm", "cm", ".1f"),
     ("DJ", "DJ_cm", "cm", ".1f"),
     ("DJ RSI", "DJ_RSI", "m/s", ".2f"),
+    ("DRI", "DRI", "", ".3f"),
     ("IMTP relPF", "IMTP_relPF", "N/kg", ".2f"),
     ("EUR (ratio)", "EUR", "", ".3f"),
 ]

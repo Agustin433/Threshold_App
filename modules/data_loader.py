@@ -262,7 +262,11 @@ _SJ_MAP = {
 _DJ_MAP = {
     "Height Jump (cm)": ("DJ_cm", "max"),
     "Contact Time (ms)": ("DJ_tc_ms", "min"),
-    "RSI": ("DRI", "max"),
+    "RSI": ("DJ_RSI", "max"),
+    "Drop Height (cm)": ("DJ_drop_height_cm", "max"),
+    "Drop height (cm)": ("DJ_drop_height_cm", "max"),
+    "Box Height (cm)": ("DJ_drop_height_cm", "max"),
+    "Box height (cm)": ("DJ_drop_height_cm", "max"),
     "Asimmetry (%)": ("DJ_asym_pct", "mean"),
     "Force Contact Max (N)": ("DJ_peak_force_N", "max"),
     "Flight Time (ms)": ("DJ_flight_ms", "max"),
@@ -2053,7 +2057,7 @@ def parse_jump_eval(file) -> pd.DataFrame:
         dayfirst=True,
         errors="coerce",
     )
-    for column in ["CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "IMTP_N"]:
+    for column in ["CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "DJ_RSI", "DJ_drop_height_cm", "DRI", "IMTP_N"]:
         if column in df.columns:
             df[column] = pd.to_numeric(df[column], errors="coerce")
     df = _require_valid_dates(

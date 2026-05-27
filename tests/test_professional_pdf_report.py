@@ -298,6 +298,7 @@ def _professional_state_with_force_time() -> dict[str, object]:
                 "Date": "2026-04-01",
                 "CMJ_cm": 32.0,
                 "SJ_cm": 29.0,
+                "DJ_drop_height_cm": 48.65,
                 "DJ_cm": 24.0,
                 "DJ_tc_ms": 230,
                 "DRI": 1.4,
@@ -310,6 +311,7 @@ def _professional_state_with_force_time() -> dict[str, object]:
                 "Date": "2026-05-01",
                 "CMJ_cm": 33.0,
                 "SJ_cm": 30.0,
+                "DJ_drop_height_cm": 49.49,
                 "DJ_cm": 25.0,
                 "DJ_tc_ms": 225,
                 "DRI": 1.5,
@@ -517,7 +519,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertTrue(any(point["selected"] for point in points))
         self.assertTrue(all("Athlete" not in point and "name" not in point for point in points))
 
-    def test_professional_quadrant_uses_dri_sj_instead_of_dj_rsi(self):
+    def test_professional_quadrant_uses_dj_rsi_as_primary_reactivity_axis(self):
         state = {
             "jump_df": pd.DataFrame(
                 [
@@ -546,31 +548,34 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         }
 
         sections = _build_professional_quadrant_sections(state, "Ana Lopez")
-        dri_section = sections[1]
+        rsi_section = sections[1]
 
-        self.assertEqual(dri_section["title"], "Cuadrante fuerza concéntrica vs DRI")
-        self.assertEqual(dri_section["x_col"], "DRI_Z")
-        self.assertEqual(dri_section["x_label"], "DRI z")
-        self.assertEqual(dri_section["y_label"], "SJ z")
-        self.assertNotIn("DJ RSI", dri_section["title"])
-        self.assertNotIn("DJ RSI", dri_section["what"])
-        self.assertIsNotNone(dri_section["selected"])
-        self.assertIn("SJ", dri_section["athlete_meaning"])
-        self.assertIn("DRI", dri_section["athlete_meaning"])
+        self.assertEqual(rsi_section["title"], "Cuadrante fuerza concéntrica vs DJ RSI")
+        self.assertEqual(rsi_section["x_col"], "DJ_RSI_Z")
+        self.assertEqual(rsi_section["x_label"], "DJ RSI z")
+        self.assertEqual(rsi_section["y_label"], "SJ z")
+        self.assertNotIn("DRI", rsi_section["title"])
+        self.assertNotIn("DRI", rsi_section["what"])
+        self.assertIsNotNone(rsi_section["selected"])
+        self.assertIn("SJ", rsi_section["athlete_meaning"])
+        self.assertIn("DJ RSI", rsi_section["athlete_meaning"])
 
-    def test_professional_quadrant_does_not_fallback_to_rsi_when_dri_is_missing(self):
+    def test_professional_dri_experimental_quadrant_does_not_fallback_to_rsi_when_dri_is_missing(self):
         state = {
             "jump_df": pd.DataFrame(
                 [
-                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "SJ_Z": 0.8, "DJ_RSI_Z": 0.9},
-                    {"Athlete": "Bruno Rey", "Date": "2026-04-01", "SJ_Z": -0.2, "DJ_RSI_Z": -0.4},
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "SJ_Z": 0.8, "DJ_RSI": 1.62, "DJ_RSI_Z": 0.9},
+                    {"Athlete": "Bruno Rey", "Date": "2026-04-01", "SJ_Z": -0.2, "DJ_RSI": 1.28, "DJ_RSI_Z": -0.4},
                 ]
             )
         }
 
         sections = _build_professional_quadrant_sections(state, "Ana Lopez")
-        dri_section = sections[1]
+        rsi_section = sections[1]
+        dri_section = sections[2]
 
+        self.assertIsNotNone(rsi_section["selected"])
+        self.assertEqual(rsi_section["message"], "")
         self.assertIsNone(dri_section["selected"])
         self.assertEqual(dri_section["message"], "Faltan datos para construir el cuadrante SJ vs DRI.")
 
@@ -1020,6 +1025,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                     "Date": "2026-05-01",
                     "SJ_cm": 31.0,
                     "CMJ_cm": 34.0,
+                    "DJ_drop_height_cm": 39.43,
                     "DJ_cm": 22.0,
                     "DJ_tc_ms": 210.0,
                     "DRI": 1.42,
@@ -1027,6 +1033,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                     "SJ_Z": 0.8,
                     "CMJ_Z": 0.7,
                     "DJ_height_Z": -1.0,
+                    "DRI_Z": 0.2,
                     "DJ_RSI_Z": 0.2,
                     "TC_inv_Z": 0.9,
                     "IMTP_relPF_Z": 0.6,
@@ -1036,6 +1043,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                     "Date": "2026-05-01",
                     "SJ_cm": 29.0,
                     "CMJ_cm": 33.0,
+                    "DJ_drop_height_cm": 35.60,
                     "DJ_cm": 23.0,
                     "DJ_tc_ms": 225.0,
                     "DRI": 1.18,
@@ -1043,6 +1051,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                     "SJ_Z": 0.2,
                     "CMJ_Z": 0.1,
                     "DJ_height_Z": 0.1,
+                    "DRI_Z": 0.0,
                     "DJ_RSI_Z": 0.0,
                     "TC_inv_Z": -0.2,
                     "IMTP_relPF_Z": 0.1,
@@ -1294,6 +1303,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                     "Date": "2026-04-01",
                     "CMJ_cm": 31.0,
                     "SJ_cm": 27.0,
+                    "DJ_drop_height_cm": 34.67,
                     "DJ_cm": 20.0,
                     "DJ_tc_ms": 212.0,
                     "DRI": 1.24,
@@ -1304,6 +1314,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                     "Date": "2026-05-01",
                     "CMJ_cm": 32.0,
                     "SJ_cm": 28.0,
+                    "DJ_drop_height_cm": 33.01,
                     "DJ_cm": 21.0,
                     "DJ_tc_ms": 205.0,
                     "DRI": 1.31,
@@ -1541,6 +1552,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                         "Date": "2026-05-01",
                         "SJ_cm": 31.0,
                         "CMJ_cm": 34.0,
+                        "DJ_drop_height_cm": 39.43,
                         "DJ_cm": 22.0,
                         "DJ_tc_ms": 210.0,
                         "DRI": 1.42,
@@ -1548,6 +1560,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                         "SJ_Z": 0.8,
                         "CMJ_Z": 0.7,
                         "DJ_height_Z": -1.0,
+                        "DRI_Z": 0.2,
                         "DJ_RSI_Z": 0.2,
                         "TC_inv_Z": 0.9,
                         "IMTP_relPF_Z": 0.6,
@@ -1610,12 +1623,15 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                         "Date": "2026-05-01",
                         "SJ_cm": 31.0,
                         "CMJ_cm": 35.0,
+                        "DJ_cm": 25.0,
+                        "DJ_drop_height_cm": 47.89,
                         "DJ_tc_ms": 210.0,
                         "DRI": 1.29,
                         "EUR": 1.129,
                         "IMTP_relPF": 39.5,
                         "SJ_Z": -0.20,
                         "CMJ_Z": 0.30,
+                        "DRI_Z": 0.45,
                         "DJ_RSI_Z": 0.45,
                         "DJtc_Z": 0.80,
                         "EUR_Z": 0.25,
@@ -1646,6 +1662,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                         "Date": "2026-05-01",
                         "CMJ_cm": 31.0,
                         "SJ_cm": 29.0,
+                        "DJ_drop_height_cm": 56.93,
                         "DJ_cm": 25.0,
                         "DJ_tc_ms": 240,
                         "DRI": 1.45,

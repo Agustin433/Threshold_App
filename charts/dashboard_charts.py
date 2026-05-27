@@ -49,12 +49,79 @@ def _theme_parts(theme: dict) -> tuple[dict, dict, str, str, str, dict]:
     return colors, layout, grid, grid_soft, reference_line, legend
 
 
+def _empty_state_figure(*, theme: dict, title: str, message: str, height: int = 480) -> go.Figure:
+    colors, layout, _, _, _, _ = _theme_parts(theme)
+    fig = go.Figure()
+    fig.update_layout(
+        **layout,
+        height=height,
+        title=dict(text=title, font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        annotations=[
+            dict(
+                text=message,
+                x=0.5,
+                y=0.5,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                align="center",
+                font=dict(color=colors["muted"], size=13),
+            )
+        ],
+    )
+    return fig
+
+
 def _prepare_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
     if {"SJ_Z", "CMJ_Z"}.issubset(df.columns):
         return df.copy()
     return _prepare_jump_df(df)
+
+
+def _dri_missing_message(df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return "No hay datos suficientes para construir este grafico."
+
+    dj_cm = pd.to_numeric(df.get("DJ_cm"), errors="coerce") if "DJ_cm" in df.columns else pd.Series(dtype=float)
+    dj_tc = pd.to_numeric(df.get("DJ_tc_ms"), errors="coerce") if "DJ_tc_ms" in df.columns else pd.Series(dtype=float)
+    drop_height = (
+        pd.to_numeric(df.get("DJ_drop_height_cm"), errors="coerce")
+        if "DJ_drop_height_cm" in df.columns
+        else pd.Series(dtype=float)
+    )
+    dri = pd.to_numeric(df.get("DRI"), errors="coerce") if "DRI" in df.columns else pd.Series(dtype=float)
+
+    has_dj_context = dj_cm.notna().any() and dj_tc.notna().any()
+    has_drop_height = drop_height.notna().any() and (drop_height > 0).any()
+    has_dri = dri.notna().any()
+
+    if has_dj_context and not has_drop_height:
+        return (
+            "No hay DRI valido para graficar.<br>"
+            "Completa la altura de caida (DJ drop height) en las evaluaciones DJ."
+        )
+    if has_dj_context and not has_dri:
+        return (
+            "Todavia no hay DRI suficiente para este grafico.<br>"
+            "Revisa que las evaluaciones DJ tengan salto, tiempo de contacto y altura de caida."
+        )
+    return "No hay suficientes datos de DRI y SJ con z-score valido para construir este cuadrante."
+
+
+def _rsi_missing_message(df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return "No hay datos suficientes para construir este grafico."
+
+    dj_rsi = pd.to_numeric(df.get("DJ_RSI"), errors="coerce") if "DJ_RSI" in df.columns else pd.Series(dtype=float)
+    sj = pd.to_numeric(df.get("SJ_cm"), errors="coerce") if "SJ_cm" in df.columns else pd.Series(dtype=float)
+
+    if dj_rsi.notna().any() and sj.notna().any():
+        return "Todavia no hay suficientes z-scores validos de DJ RSI y SJ para construir este cuadrante."
+    return "No hay suficientes datos de DJ RSI y SJ para construir este cuadrante."
 
 
 def _prepare_row(row: pd.Series) -> pd.Series:
@@ -280,12 +347,83 @@ def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme
     return fig
 
 
+def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
+    colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
+    source_data = _prepare_frame(df)
+    data = source_data.dropna(subset=["DJ_RSI_Z", "SJ_Z", "Athlete"])
+    if data.empty:
+        return _empty_state_figure(
+            theme=theme,
+            title="<b>Cuadrante Principal - SJ z vs DJ RSI z</b>",
+            message=_rsi_missing_message(source_data),
+            height=500,
+        )
+
+    def quadrant(row: pd.Series) -> str:
+        high_x = row["DJ_RSI_Z"] >= 0
+        high_y = row["SJ_Z"] >= 0
+        if high_x and high_y:
+            return "Completo"
+        if not high_x and high_y:
+            return "Fuerza/Propulsion - RSI limitado"
+        if high_x and not high_y:
+            return "Reactivo - techo de fuerza bajo"
+        return "Deficit global"
+
+    color_map = {
+        "Completo": colors["green"],
+        "Fuerza/Propulsion - RSI limitado": colors["yellow"],
+        "Reactivo - techo de fuerza bajo": colors["orange"],
+        "Deficit global": colors["red"],
+    }
+
+    data = data.copy()
+    data["Quadrant"] = data.apply(quadrant, axis=1)
+
+    fig = go.Figure()
+    fig.add_vline(x=0, line_dash="dash", line_color=reference_line)
+    fig.add_hline(y=0, line_dash="dash", line_color=reference_line)
+
+    for quadrant_name, color in color_map.items():
+        subset = data[data["Quadrant"] == quadrant_name]
+        if subset.empty:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=subset["DJ_RSI_Z"],
+                y=subset["SJ_Z"],
+                mode="markers+text",
+                marker=dict(size=13, color=color, line=dict(color=colors["card"], width=1.5)),
+                text=subset["Athlete"].astype(str).str.split().str[0],
+                textposition="top center",
+                textfont=dict(size=9, color=colors["gray"]),
+                name=quadrant_name,
+                hovertemplate="<b>%{text}</b><br>DJ RSI z: %{x:.2f}<br>SJ z: %{y:.2f}<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        **layout,
+        height=500,
+        title=dict(text="<b>Cuadrante Principal - SJ z vs DJ RSI z</b>", font=dict(color=colors["navy"], size=13)),
+        xaxis=dict(title="DJ RSI z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
+        yaxis=dict(title="SJ z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
+        legend=legend,
+    )
+    return fig
+
+
 def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
-    data = _prepare_frame(df)
-    data = data.dropna(subset=["DRI_Z", "SJ_Z", "Athlete"])
+    source_data = _prepare_frame(df)
+    data = source_data.dropna(subset=["DRI_Z", "SJ_Z", "Athlete"])
     if data.empty:
-        return go.Figure()
+        return _empty_state_figure(
+            theme=theme,
+            title="<b>Cuadrante Principal - SJ z vs DRI z</b>",
+            message=_dri_missing_message(source_data),
+            height=500,
+        )
 
     def quadrant(row: pd.Series) -> str:
         high_x = row["DRI_Z"] >= 0
@@ -405,10 +543,15 @@ def chart_quadrant_cmj_imtp(df: pd.DataFrame, *, theme: dict) -> go.Figure:
 
 def chart_quadrant_exploratory(df: pd.DataFrame, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
-    data = _prepare_frame(df)
-    data = data.dropna(subset=["DRI_Z", "SJ_Z", "Athlete"])
+    source_data = _prepare_frame(df)
+    data = source_data.dropna(subset=["DRI_Z", "SJ_Z", "Athlete"])
     if data.empty:
-        return go.Figure()
+        return _empty_state_figure(
+            theme=theme,
+            title="<b>DRI experimental - interpretar con cautela</b>",
+            message=_dri_missing_message(source_data),
+            height=460,
+        )
 
     fig = go.Figure()
     fig.add_vline(x=0, line_dash="dash", line_color=reference_line)

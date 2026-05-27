@@ -314,8 +314,8 @@ PROFESSIONAL_PDF_METRICS = (
     },
     {
         "title": "RSI",
-        "value_cols": ("DJ_RSI", "DRI"),
-        "z_cols": ("DJ_RSI_Z", "DRI_Z"),
+        "value_cols": ("DJ_RSI",),
+        "z_cols": ("DJ_RSI_Z",),
         "unit": "rsi_index",
         "digits": 3,
         "higher_is_better": True,
@@ -363,7 +363,7 @@ PROFESSIONAL_TE_REFERENCES = {
     "SJ_cm": {"value": 1.5, "unit": "cm"},
     "DJ_cm": {"value": 0.4, "unit": "cm"},
     "DJ_RSI": {"value": 0.031, "unit": "m/s"},
-    "DRI": {"value": 0.05, "unit": "DRI"},
+    "DRI": {"value": 0.05, "unit": "dri_index"},
     "DJ_tc_ms": {"value": 4.0, "unit": "ms"},
     "mRSI": {"value": 0.05, "unit": "mRSI"},
     "EUR": {"value": 0.021, "unit": "ratio"},
@@ -2953,7 +2953,7 @@ def _next_steps_from_row(row: pd.Series, *, audience: str) -> list[str]:
 ATHLETE_METRIC_EXPLANATIONS = [
     ("sRPE", "carga interna percibida del entrenamiento."),
     ("ACWR EWMA", "relación entre carga reciente y carga habitual, suavizada para ver tendencia."),
-    ("DRI", "métrica del Drop Jump que ayuda a interpretar tu perfil reactivo."),
+    ("DRI", "índice del Drop Jump que combina altura de caída, altura de salto y tiempo de contacto para interpretar el perfil reactivo."),
     ("EUR", "relación entre salto con contramovimiento y salto sin contramovimiento."),
     ("IMTP", "fuerza isométrica máxima; ayuda a entender tu base de fuerza."),
     ("Monotonía", "qué tan parecida fue la carga entre días de la semana."),
@@ -4299,6 +4299,7 @@ def collect_report_plotly_figures(
             chart_cmj_trend,
             chart_quadrant_cmj_imtp,
             chart_quadrant_dri_sj,
+            chart_quadrant_rsi_sj,
             chart_radar,
         )
     except Exception:
@@ -4333,11 +4334,19 @@ def collect_report_plotly_figures(
                         "figure": chart_quadrant_cmj_imtp(latest_team, theme=theme),
                     }
                 )
+            if len(latest_team) > 1 and {"DJ_RSI", "SJ_cm"}.issubset(latest_team.columns):
+                figures.append(
+                    {
+                        "slug": "quadrant_rsi_sj",
+                        "title": "Mapa de RSI y fuerza concéntrica",
+                        "figure": chart_quadrant_rsi_sj(latest_team, theme=theme),
+                    }
+                )
             if len(latest_team) > 1 and {"DRI", "SJ_cm"}.issubset(latest_team.columns):
                 figures.append(
                     {
-                        "slug": "quadrant_dri_sj",
-                        "title": "Mapa de reactividad y fuerza concéntrica",
+                        "slug": "quadrant_dri_sj_experimental",
+                        "title": "Mapa experimental de DRI y fuerza concéntrica",
                         "figure": chart_quadrant_dri_sj(latest_team, theme=theme),
                     }
                 )
@@ -4347,7 +4356,7 @@ def collect_report_plotly_figures(
         elif audience == "atleta":
             preferred = {"completion_team", "quadrant_cmj_imtp"}
         else:
-            preferred = {"completion_team", "quadrant_cmj_imtp", "quadrant_dri_sj"}
+            preferred = {"completion_team", "quadrant_cmj_imtp", "quadrant_rsi_sj"}
         return [item for item in figures if item["slug"] in preferred][:2]
 
     if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and effective_athlete in jdf["Athlete"].values:
@@ -4661,6 +4670,8 @@ def _professional_metric_display_unit(spec: dict[str, object], value_col: str) -
     title = str(spec.get("title", "")).strip()
     if unit == "rsi_index":
         return "Índice RSI"
+    if unit == "dri_index":
+        return "Índice DRI"
     if unit == "mrsi_index":
         return "Índice mRSI"
     if unit == "ratio":
@@ -4674,6 +4685,8 @@ def _professional_metric_delta_unit(spec: dict[str, object], value_col: str) -> 
     unit = _professional_metric_unit(spec, value_col)
     if unit == "rsi_index":
         return "unidades RSI"
+    if unit == "dri_index":
+        return "unidades DRI"
     if unit == "mrsi_index":
         return "unidades mRSI"
     return unit
@@ -4946,6 +4959,26 @@ def _professional_dri_sj_athlete_meaning(selected: dict[str, object] | None) -> 
     return f"SJ {sj_zone} + DRI {dri_zone}: no aparece un limitante extremo; conviene integrar fuerza concéntrica y reactividad según el bloque."
 
 
+def _professional_rsi_sj_athlete_meaning(selected: dict[str, object] | None) -> str:
+    if selected is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    rsi = _coerce_float(selected.get("x"))
+    sj = _coerce_float(selected.get("y"))
+    if rsi is None or sj is None:
+        return "Faltan datos para interpretar la ubicación individual."
+    rsi_zone = "alto" if rsi >= 0.35 else "bajo" if rsi <= -0.35 else "intermedio"
+    sj_zone = "alto" if sj >= 0.35 else "bajo" if sj <= -0.35 else "intermedio"
+    if sj_zone == "alto" and rsi_zone == "alto":
+        return "SJ alto + DJ RSI alto: buen perfil concéntrico y buena eficiencia reactiva en DJ."
+    if sj_zone == "alto" and rsi_zone in {"intermedio", "bajo"}:
+        return f"SJ alto + DJ RSI {rsi_zone}: buena capacidad concéntrica, pero la eficiencia reactiva del DJ queda rezagada; priorizar stiffness, contacto y progresión reactiva."
+    if sj_zone in {"intermedio", "bajo"} and rsi_zone == "alto":
+        return "SJ bajo + DJ RSI alto: buena eficiencia reactiva relativa, pero falta base concéntrica."
+    if sj_zone == "bajo" and rsi_zone == "bajo":
+        return "SJ bajo + DJ RSI bajo: prioridad general de fuerza base y eficiencia reactiva progresiva."
+    return f"SJ {sj_zone} + DJ RSI {rsi_zone}: no aparece un limitante extremo; conviene integrar fuerza concéntrica y eficiencia reactiva según el bloque."
+
+
 def _professional_eur_cmj_athlete_meaning(selected: dict[str, object] | None) -> str:
     if selected is None:
         return "Faltan datos para interpretar la ubicación individual."
@@ -4970,6 +5003,8 @@ def _professional_quadrant_specific_meaning(selected: dict[str, object] | None, 
     meaning_type = spec.get("meaning_type")
     if meaning_type == "cmj_imtp":
         return _professional_cmj_imtp_athlete_meaning(selected)
+    if meaning_type == "rsi_sj":
+        return _professional_rsi_sj_athlete_meaning(selected)
     if meaning_type == "dri_sj":
         return _professional_dri_sj_athlete_meaning(selected)
     if meaning_type == "eur_cmj":
@@ -5152,14 +5187,27 @@ def _build_professional_quadrant_sections(
             "meaning_type": "cmj_imtp",
         },
         {
-            "title": "Cuadrante fuerza concéntrica vs DRI",
+            "title": "Cuadrante fuerza concéntrica vs DJ RSI",
+            "x_cols": ("DJ_RSI_Z",),
+            "x_label": "DJ RSI z",
+            "y_col": "SJ_Z",
+            "y_label": "SJ z",
+            "what": "Cruza la capacidad concéntrica expresada en SJ con el DJ RSI del Drop Jump.",
+            "meaning": "Distingue si el limitante principal parece estar en fuerza concéntrica, eficiencia reactiva del DJ o integración entre ambas.",
+            "decision": "Orientar el próximo bloque según si el limitante principal parece estar en fuerza concéntrica, DJ RSI/reactividad o integración entre ambas.",
+            "missing_message": "Faltan datos para construir el cuadrante SJ vs DJ RSI.",
+            "meaning_type": "rsi_sj",
+            "required_value_cols": ("DJ_RSI",),
+        },
+        {
+            "title": "Cuadrante experimental - fuerza concéntrica vs DRI",
             "x_cols": ("DRI_Z",),
             "x_label": "DRI z",
             "y_col": "SJ_Z",
             "y_label": "SJ z",
-            "what": "Cruza la capacidad concéntrica expresada en SJ con el DRI del Drop Jump.",
-            "meaning": "Distingue si el limitante principal parece estar en fuerza concéntrica, DRI/reactividad o integración entre ambas.",
-            "decision": "Orientar el próximo bloque según si el limitante principal parece estar en fuerza concéntrica, DRI/reactividad o integración entre ambas.",
+            "what": "Cruza la capacidad concéntrica expresada en SJ con el DRI 2026 del Drop Jump.",
+            "meaning": "Aporta una lectura experimental para distinguir si el limitante principal parece estar en fuerza concéntrica, DRI/reactividad o integración entre ambas.",
+            "decision": "Usarlo como apoyo experimental; confirmar la lectura junto con DJ RSI, tiempo de contacto y contexto del bloque.",
             "missing_message": "Faltan datos para construir el cuadrante SJ vs DRI.",
             "meaning_type": "dri_sj",
             "required_value_cols": ("DRI",),
@@ -6124,7 +6172,7 @@ def _professional_build_profile_feedback_fallback(
     sj_z = _professional_snapshot_metric(row_series, "SJ_Z")
     cmj_z = _professional_snapshot_metric(row_series, "CMJ_Z")
     dj_z = _professional_snapshot_metric(row_series, "DJ_height_Z", "DJ_Z")
-    dri_z = _professional_snapshot_metric(row_series, "DRI_Z", "DJ_RSI_Z")
+    dri_z = _professional_snapshot_metric(row_series, "DRI_Z")
     contact_z = _professional_snapshot_metric(row_series, "TC_inv_Z", "DJtc_Z")
     eur_z = _professional_snapshot_metric(row_series, "EUR_Z")
     imtp_z = _professional_snapshot_metric(row_series, "IMTP_relPF_Z", "IMTP_Z", "IMTP_N_Z")

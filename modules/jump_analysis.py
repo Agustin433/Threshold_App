@@ -38,6 +38,7 @@ METRIC_LABELS = {
     "CMJ_cm": "CMJ",
     "DJ_cm": "DJ height",
     "DJ_RSI": "DJ RSI",
+    "DRI": "DRI",
     "DJ_tc_ms": "Tiempo de contacto",
     "TC_inv_Z": "Tiempo de contacto",
     "IMTP_relPF": "IMTP relPF",
@@ -203,7 +204,7 @@ COMPOSITE_PROFILE_METRICS = (
     ("SJ", "SJ_cm", "cm", "SJ_Z", 1),
     ("CMJ", "CMJ_cm", "cm", "CMJ_Z", 1),
     ("DJ", "DJ_cm", "cm", "DJ_height_Z", 1),
-    ("DRI", "DRI", "m/s", "DRI_Z", 3),
+    ("DRI", "DRI", "", "DRI_Z", 3),
     ("Tiempo de contacto", "DJ_tc_ms", "ms", "TC_inv_Z", 0),
     ("EUR", "EUR", "ratio", "EUR_Z", 3),
     ("IMTP", "IMTP_relPF", "N/kg", "IMTP_relPF_Z", 2),
@@ -221,12 +222,12 @@ COMPOSITE_PROFILE_DIRECTIONS = {
 }
 
 ZSCORE_ALIAS_GROUPS = (
-    ("DJ_RSI_Z", "DRI_Z"),
     ("TC_inv_Z", "DJtc_Z"),
     ("IMTP_relPF_Z", "IMTP_Z"),
 )
 
 COMPOSITE_PROFILE_SUPPORT_FIELDS = (
+    "DJ_drop_height_cm",
     "DJ_RSI",
     "DJ_RSI_Z",
     "TC_inv_Z",
@@ -376,6 +377,17 @@ def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def promote_legacy_dri_to_dj_rsi(df: pd.DataFrame) -> pd.DataFrame:
+    """Move legacy DRI values into DJ_RSI when no drop-height context exists."""
+    legacy_dri = _numeric_series(df, "DRI")
+    dj_rsi = _numeric_series(df, "DJ_RSI")
+    drop_height_cm = _numeric_series(df, "DJ_drop_height_cm")
+    legacy_mask = dj_rsi.isna() & legacy_dri.notna() & (drop_height_cm.isna() | (drop_height_cm <= 0))
+    if legacy_mask.any():
+        df.loc[legacy_mask, "DJ_RSI"] = legacy_dri.loc[legacy_mask].round(3)
+    return df
+
+
 def calc_dj_rsi(df: pd.DataFrame) -> pd.DataFrame:
     """Canonical DJ RSI in m/s using jump height (m) / contact time (s)."""
     if {"DJ_cm", "DJ_tc_ms"}.issubset(df.columns):
@@ -383,14 +395,34 @@ def calc_dj_rsi(df: pd.DataFrame) -> pd.DataFrame:
         dj_tc_s = _numeric_series(df, "DJ_tc_ms") / 1000
         mask = dj_height_m.notna() & dj_tc_s.notna() & (dj_tc_s > 0)
         df.loc[mask, "DJ_RSI"] = (dj_height_m.loc[mask] / dj_tc_s.loc[mask]).round(3)
-        # Backward-compatible alias. Older views and exports still look for DRI.
-        df.loc[mask, "DRI"] = df.loc[mask, "DJ_RSI"]
     return df
 
 
 def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
-    """Backward-compatible alias for the legacy DRI field."""
-    return calc_dj_rsi(df)
+    """DRI 2026 using drop height + jump height over gravity and contact time squared."""
+    existing_dri = _numeric_series(df, "DRI").round(3)
+    df["DRI"] = existing_dri
+    dj_height_cm = _numeric_series(df, "DJ_cm")
+    dj_tc_ms = _numeric_series(df, "DJ_tc_ms")
+    raw_dj_mask = dj_height_cm.notna() & dj_tc_ms.notna()
+    if raw_dj_mask.any():
+        df.loc[raw_dj_mask, "DRI"] = np.nan
+    if {"DJ_drop_height_cm", "DJ_cm", "DJ_tc_ms"}.issubset(df.columns):
+        drop_height_m = _numeric_series(df, "DJ_drop_height_cm") / 100
+        dj_height_m = dj_height_cm / 100
+        dj_tc_s = dj_tc_ms / 1000
+        mask = (
+            drop_height_m.notna()
+            & (drop_height_m > 0)
+            & dj_height_m.notna()
+            & dj_tc_s.notna()
+            & (dj_tc_s > 0)
+        )
+        df.loc[mask, "DRI"] = (
+            (drop_height_m.loc[mask] + dj_height_m.loc[mask])
+            / (EARTH_GRAVITY * (dj_tc_s.loc[mask] ** 2))
+        ).round(3)
+    return df
 
 
 def calc_mrsi(df: pd.DataFrame) -> pd.DataFrame:
@@ -449,6 +481,7 @@ def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
         ("CMJ_cm", "CMJ_Z", "CMJ_cm", False),
         ("DJ_cm", "DJ_height_Z", None, False),
         ("DJ_RSI", "DJ_RSI_Z", "DJ_RSI", False),
+        ("DRI", "DRI_Z", None, False),
         ("DJ_tc_ms", "TC_inv_Z", None, True),
         ("IMTP_relPF", "IMTP_relPF_Z", "IMTP_relPF", False),
         ("mRSI", "mRSI_Z", "mRSI", False),
@@ -483,6 +516,8 @@ def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
         alias = _coalesced_numeric_series(df, alias_col, primary_col).round(2)
         df[primary_col] = primary
         df[alias_col] = alias
+    if "DRI_Z" in df.columns:
+        df.loc[_numeric_series(df, "DRI").isna(), "DRI_Z"] = np.nan
     return df
 
 
@@ -1185,11 +1220,6 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
         snapshot[source_z_col] = _coalesced_numeric_value(source_row, source_z_col)
         snapshot[f"{value_col}__source_date"] = source_date
         snapshot[f"{source_value_col}__source_date"] = source_date
-        if value_col == "DRI":
-            snapshot["DJ_RSI"] = source_row.get("DJ_RSI", source_row.get("DRI"))
-            dri_z = _coalesced_numeric_value(source_row, "DRI_Z", "DJ_RSI_Z")
-            snapshot["DRI_Z"] = dri_z
-            snapshot["DJ_RSI_Z"] = dri_z
         if value_col == "DJ_tc_ms":
             tc_z = _coalesced_numeric_value(source_row, "TC_inv_Z", "DJtc_Z")
             snapshot["TC_inv_Z"] = tc_z
@@ -1413,8 +1443,10 @@ def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     result = _merge_duplicate_athlete_date_rows(result)
+    result = promote_legacy_dri_to_dj_rsi(result)
     result = calc_eur(result)
     result = calc_dj_rsi(result)
+    result = calc_dri(result)
     result = calc_mrsi(result)
     result = calc_dsi(result)
     result = calc_imtp_rel_pf(result)

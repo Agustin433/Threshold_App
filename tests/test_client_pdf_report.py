@@ -108,8 +108,8 @@ def _client_report_state() -> dict[str, object]:
         ),
         "jump_df": pd.DataFrame(
             [
-                {"Athlete": "Ana Lopez", "Date": "2026-03-15", "CMJ_cm": 30, "SJ_cm": 28, "DJ_cm": 24, "DJ_tc_ms": 235, "DRI": 1.30, "EUR": 1.08, "IMTP_N": 1750, "NM_Profile": "Mixto"},
-                {"Athlete": "Ana Lopez", "Date": "2026-05-02", "CMJ_cm": 32, "SJ_cm": 29, "DJ_cm": 25, "DJ_tc_ms": 228, "DRI": 1.38, "EUR": 1.10, "IMTP_N": 1800, "NM_Profile": "Reactivo"},
+                {"Athlete": "Ana Lopez", "Date": "2026-03-15", "CMJ_cm": 30, "SJ_cm": 28, "DJ_drop_height_cm": 46.43, "DJ_cm": 24, "DJ_tc_ms": 235, "DRI": 1.30, "EUR": 1.08, "IMTP_N": 1750, "NM_Profile": "Mixto"},
+                {"Athlete": "Ana Lopez", "Date": "2026-05-02", "CMJ_cm": 32, "SJ_cm": 29, "DJ_drop_height_cm": 45.37, "DJ_cm": 25, "DJ_tc_ms": 228, "DRI": 1.38, "EUR": 1.10, "IMTP_N": 1800, "NM_Profile": "Reactivo"},
             ]
         ),
         "raw_df": None,

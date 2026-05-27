@@ -228,11 +228,19 @@ if jdf is not None and not jdf.empty:
     latest = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
     show_cols = [
         col
-        for col in ["Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "EUR", "DRI", "IMTP_N", "NM_Profile"]
+        for col in [
+            "Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_drop_height_cm",
+            "DJ_cm", "DJ_tc_ms", "DJ_RSI", "EUR", "DRI", "IMTP_N", "NM_Profile"
+        ]
         if col in latest.columns
     ]
     st.dataframe(
-        latest[show_cols].rename(columns={"EUR": "EUR (ratio)"}),
+        latest[show_cols].rename(
+            columns={
+                "DJ_drop_height_cm": "DJ drop height (cm)",
+                "EUR": "EUR (ratio)",
+            }
+        ),
         use_container_width=True,
         hide_index=True,
     )

@@ -12,6 +12,7 @@ from charts.dashboard_charts import (
     chart_quadrant_cmj_imtp,
     chart_quadrant_dri_sj,
     chart_quadrant_exploratory,
+    chart_quadrant_rsi_sj,
 )
 from charts.load_charts import chart_maxes_trend
 from modules.jump_analysis import (
@@ -165,10 +166,10 @@ else:
             st.markdown("### Cuadrantes")
             quad_left, quad_right = st.columns(2)
             with quad_left:
-                st.plotly_chart(chart_quadrant_dri_sj(latest_team, theme=theme), use_container_width=True)
+                st.plotly_chart(chart_quadrant_rsi_sj(latest_team, theme=theme), use_container_width=True)
             with quad_right:
                 st.plotly_chart(chart_quadrant_cmj_imtp(latest_team, theme=theme), use_container_width=True)
-            with st.expander("DRI experimental", expanded=False):
+            with st.expander("DRI experimental (SJ vs DRI)", expanded=False):
                 st.plotly_chart(chart_quadrant_exploratory(latest_team, theme=theme), use_container_width=True)
 
     if maxes_df is not None and "Athlete" in maxes_df.columns:
