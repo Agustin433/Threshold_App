@@ -13,8 +13,11 @@ from charts.dashboard_charts import (
     find_latest_valid_radar_row,
 )
 from modules.jump_analysis import (
+    PATTERN_LIBRARY,
+    NEUROMUSCULAR_PATTERN_FIELDS,
     _prepare_jump_df,
     _records_to_jump_df,
+    build_neuromuscular_profile_result,
     build_composite_profile_metric_table,
     build_composite_profile_metric_rows,
     build_composite_profile_snapshot,
@@ -219,6 +222,27 @@ def _composite_profile_source_df() -> pd.DataFrame:
             ]
         )
     )
+
+
+def _synthetic_profile_row(**overrides) -> pd.Series:
+    base = {
+        "SJ_cm": 32.0,
+        "CMJ_cm": 34.0,
+        "DJ_cm": 26.0,
+        "DJ_RSI": 1.40,
+        "DJ_tc_ms": 220.0,
+        "IMTP_relPF": 38.0,
+        "IMTP_N": 3000.0,
+        "EUR": 1.062,
+        "SJ_Z": 0.10,
+        "CMJ_Z": 0.15,
+        "DJ_height_Z": 0.05,
+        "DJ_RSI_Z": 0.10,
+        "TC_inv_Z": 0.05,
+        "IMTP_relPF_Z": 0.20,
+    }
+    base.update(overrides)
+    return pd.Series(base)
 
 
 class JumpProfileSystemTest(unittest.TestCase):
@@ -1156,6 +1180,110 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertIn("baseline insuficiente", display_df["Senal"].tolist())
         self.assertTrue(any("N=2/3" in str(value) for value in display_df["Metodo"].tolist()))
+
+    def test_neuromuscular_profile_result_imports_and_handles_empty_row(self):
+        result = build_neuromuscular_profile_result(pd.Series(dtype=object))
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["profile_code"], "UNCLASSIFIED")
+        self.assertEqual(result["confidence"], "low")
+        self.assertIn("missing_imtp", result["flags"])
+        self.assertIn("missing_dj", result["flags"])
+        self.assertIn("insufficient_pattern_evidence", result["flags"])
+        self.assertEqual(result["metrics"]["SJ_cm"]["label"], "SJ")
+
+    def test_all_pattern_payloads_keep_consistent_structured_keys(self):
+        for pattern_code in ("A", "B", "C", "D", "E"):
+            payload = PATTERN_LIBRARY[pattern_code]
+            with self.subTest(pattern=pattern_code):
+                for key in NEUROMUSCULAR_PATTERN_FIELDS:
+                    self.assertIn(key, payload)
+                    self.assertTrue(payload[key])
+
+    def test_pattern_e_keeps_phys_bio_and_train(self):
+        payload = PATTERN_LIBRARY["E"]
+
+        self.assertTrue(payload["phys"])
+        self.assertTrue(payload["bio"])
+        self.assertTrue(payload["train"])
+
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(EUR=0.95, CMJ_cm=29.0, SJ_cm=31.0)
+        )
+        self.assertEqual(result["profile_code"], "E")
+        self.assertTrue(result["phys"])
+        self.assertTrue(result["bio"])
+        self.assertTrue(result["train"])
+
+    def test_neuromuscular_profile_result_adds_missing_imtp_and_missing_dj_flags(self):
+        result = build_neuromuscular_profile_result(
+            pd.Series({"SJ_cm": 30.0, "CMJ_cm": 32.0, "EUR": 1.067})
+        )
+
+        self.assertIn("missing_imtp", result["flags"])
+        self.assertIn("missing_dj", result["flags"])
+        self.assertEqual(result["confidence"], "low")
+
+    def test_neuromuscular_profile_result_detects_pattern_a(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(SJ_Z=0.80, DJ_RSI_Z=-0.80)
+        )
+
+        self.assertEqual(result["profile_code"], "A")
+        self.assertEqual(result["confidence"], "high")
+        self.assertIn("SJ_Z alto", result["evidence"])
+        self.assertIn("DJ_RSI_Z bajo", result["evidence"])
+
+    def test_neuromuscular_profile_result_detects_pattern_b(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(SJ_Z=-0.80, DJ_RSI_Z=0.80)
+        )
+
+        self.assertEqual(result["profile_code"], "B")
+        self.assertEqual(result["confidence"], "high")
+
+    def test_neuromuscular_profile_result_detects_pattern_c(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(IMTP_relPF_Z=-0.80, CMJ_Z=0.00)
+        )
+
+        self.assertEqual(result["profile_code"], "C")
+        self.assertEqual(result["confidence"], "high")
+        self.assertIn("IMTP_relPF_Z bajo", result["evidence"])
+
+    def test_neuromuscular_profile_result_detects_pattern_d(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                SJ_Z=-0.80,
+                CMJ_Z=-0.70,
+                DJ_height_Z=-0.90,
+                DJ_RSI_Z=-0.85,
+                TC_inv_Z=-0.65,
+                IMTP_relPF_Z=-0.75,
+                EUR=1.02,
+            )
+        )
+
+        self.assertEqual(result["profile_code"], "D")
+        self.assertEqual(result["confidence"], "high")
+        self.assertTrue(any("todos los z-scores renderizables" in item for item in result["evidence"]))
+
+    def test_neuromuscular_profile_result_detects_pattern_e(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                EUR=0.95,
+                CMJ_cm=29.0,
+                SJ_cm=31.0,
+                SJ_Z=0.10,
+                DJ_RSI_Z=0.10,
+                IMTP_relPF_Z=0.20,
+            )
+        )
+
+        self.assertEqual(result["profile_code"], "E")
+        self.assertEqual(result["confidence"], "low")
+        self.assertIn("cmj_lower_than_sj", result["flags"])
+        self.assertIn("EUR bajo", result["evidence"])
 
 if __name__ == "__main__":
     unittest.main()

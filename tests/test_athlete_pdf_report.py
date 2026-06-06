@@ -12,8 +12,10 @@ from pypdf import PdfReader
 
 import modules.report_generator as report_generator
 from modules.report_generator import (
+    _athlete_profile_interpretation,
     _athlete_load_status_lines,
     _athlete_metric_explanation_rows,
+    _build_pdf_neuromuscular_profile_payload,
     generate_visual_report_pdf,
 )
 from modules.report_force_time import build_force_time_report_payload
@@ -39,6 +41,52 @@ def _normalized_pdf_pages(pdf: bytes) -> list[str]:
 
 def _collapsed_normalized_pdf_text(pdf: bytes) -> str:
     return re.sub(r"\s+", " ", " ".join(_normalized_pdf_pages(pdf))).strip()
+
+
+def _structured_neuromuscular_stub(**overrides) -> dict[str, object]:
+    base = {
+        "profile_code": "A",
+        "profile_label": "Patron A - Fuerza/propulsion con SSC rapido limitado",
+        "confidence": "high",
+        "phys": "Buena capacidad concentrica con rezago reactivo rapido.",
+        "bio": "Menor expresion del SSC rapido en contactos breves.",
+        "train": "Priorizar stiffness, contacto y progresion reactiva sin perder la base actual.",
+        "summary_short": "Buen perfil concentrico con rezago reactivo rapido.",
+        "summary_athlete": "Mensaje atleta custom para validar la ruta estructurada.",
+        "summary_client": "Mensaje cliente custom.",
+        "summary_professional": "Mensaje profesional custom.",
+        "metrics": {
+            "SJ_cm": {
+                "label": "SJ",
+                "value": 32.0,
+                "unit": "cm",
+                "z_score": 0.80,
+                "direction": "higher_is_better",
+                "semaphore": "Amarillo",
+                "value_col": "SJ_cm",
+                "z_col": "SJ_Z",
+                "source_date": "-",
+                "available": True,
+            },
+            "DJ_RSI": {
+                "label": "DJ RSI",
+                "value": 1.10,
+                "unit": "m/s",
+                "z_score": -0.80,
+                "direction": "higher_is_better",
+                "semaphore": "Naranja",
+                "value_col": "DJ_RSI",
+                "z_col": "DJ_RSI_Z",
+                "source_date": "-",
+                "available": True,
+            },
+        },
+        "flags": [],
+        "evidence": ["SJ_Z alto", "DJ_RSI_Z bajo"],
+        "kpi_to_track": ["DJ_RSI", "DJ_tc_ms", "DRI"],
+    }
+    base.update(overrides)
+    return base
 
 
 class FixedAthleteReportDate(real_datetime):
@@ -164,6 +212,27 @@ def _athlete_low_wellness_report_state() -> dict[str, object]:
             {"Athlete": "Ana Lopez", "Date": "2026-04-30", "Sueno_hs": 5.9, "Estres": 8, "Dolor": 6, "Wellness_Score": 2.4},
             {"Athlete": "Ana Lopez", "Date": "2026-05-01", "Sueno_hs": 5.7, "Estres": 9, "Dolor": 7, "Wellness_Score": 2.2},
             {"Athlete": "Ana Lopez", "Date": "2026-05-04", "Sueno_hs": 5.6, "Estres": 9, "Dolor": 8, "Wellness_Score": 2.1},
+        ]
+    )
+    return state
+
+
+def _athlete_pattern_e_report_state() -> dict[str, object]:
+    state = _athlete_report_state()
+    state["jump_df"] = pd.DataFrame(
+        [
+            {
+                "Athlete": "Ana Lopez",
+                "Date": "2026-05-01",
+                "CMJ_cm": 29.0,
+                "SJ_cm": 31.0,
+                "DJ_drop_height_cm": 30.0,
+                "DJ_cm": 24.0,
+                "DJ_RSI": 1.10,
+                "DJ_tc_ms": 220.0,
+                "IMTP_N": 1800.0,
+                "EUR": 0.95,
+            }
         ]
     )
     return state
@@ -311,6 +380,120 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertIn("relación entre carga reciente y carga habitual", definitions["ACWR EWMA"])
         self.assertIn("Drop Jump", definitions["DRI"])
         self.assertIn("salto con contramovimiento", definitions["EUR"])
+
+    def test_athlete_profile_interpretation_can_use_structured_neuromuscular_payload(self):
+        focus_row = pd.Series(
+            {
+                "CMJ cm": 34.0,
+                "DRI": 1.40,
+                "IMTP N": 1800.0,
+                "EUR (ratio)": 1.06,
+                "Perfil NM": "Reactivo",
+            }
+        )
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series(
+                {
+                    "SJ_cm": 32.0,
+                    "CMJ_cm": 34.0,
+                    "DJ_cm": 25.0,
+                    "DJ_RSI": 1.10,
+                    "DJ_tc_ms": 210.0,
+                    "IMTP_relPF": 38.0,
+                    "EUR": 1.06,
+                    "SJ_Z": 0.80,
+                    "CMJ_Z": 0.10,
+                    "DJ_height_Z": -0.20,
+                    "DJ_RSI_Z": -0.80,
+                    "TC_inv_Z": 0.20,
+                    "IMTP_relPF_Z": 0.30,
+                }
+            ),
+            context={"audience": "atleta"},
+        )
+
+        reading = _athlete_profile_interpretation(focus_row, neuromuscular_profile=payload)
+
+        self.assertEqual(payload["profile_code"], "A")
+        self.assertIn("perfil actual", _normalized_story_text(reading["what"]))
+        self.assertIn(_normalized_story_text(payload["summary_athlete"]), _normalized_story_text(reading["meaning"]))
+        self.assertIn(_normalized_story_text(payload["training_priority_detailed"]), _normalized_story_text(reading["priority"]))
+
+    def test_same_row_keeps_same_profile_code_for_profe_atleta_and_cliente(self):
+        row = pd.Series(
+            {
+                "SJ_cm": 32.0,
+                "CMJ_cm": 34.0,
+                "DJ_cm": 25.0,
+                "DJ_RSI": 1.10,
+                "DJ_tc_ms": 210.0,
+                "IMTP_relPF": 38.0,
+                "EUR": 1.06,
+                "SJ_Z": 0.80,
+                "CMJ_Z": 0.10,
+                "DJ_height_Z": -0.20,
+                "DJ_RSI_Z": -0.80,
+                "TC_inv_Z": 0.20,
+                "IMTP_relPF_Z": 0.30,
+            }
+        )
+
+        codes = {
+            _build_pdf_neuromuscular_profile_payload(row, context={"audience": "profe"})["profile_code"],
+            _build_pdf_neuromuscular_profile_payload(row, context={"audience": "atleta"})["profile_code"],
+            _build_pdf_neuromuscular_profile_payload(row, context={"audience": "cliente"})["profile_code"],
+        }
+
+        self.assertEqual(codes, {"A"})
+
+    def test_athlete_profile_payload_handles_missing_imtp_without_keyerror(self):
+        focus_row = pd.Series({"CMJ cm": 32.0, "DRI": 1.20, "EUR (ratio)": 1.04, "Perfil NM": "Mixto"})
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series({"SJ_cm": 30.0, "CMJ_cm": 32.0, "DJ_cm": 24.0, "DJ_RSI": 1.05, "DJ_tc_ms": 220.0, "EUR": 1.04}),
+            context={"audience": "atleta"},
+        )
+
+        reading = _athlete_profile_interpretation(focus_row, neuromuscular_profile=payload)
+
+        self.assertIn("missing_imtp", payload["flags"])
+        self.assertTrue(reading["meaning"])
+        self.assertTrue(reading["priority"])
+
+    def test_athlete_profile_payload_handles_missing_dj_without_keyerror(self):
+        focus_row = pd.Series({"CMJ cm": 32.0, "IMTP N": 1800.0, "EUR (ratio)": 1.04, "Perfil NM": "Mixto"})
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series({"SJ_cm": 30.0, "CMJ_cm": 32.0, "IMTP_relPF": 38.0, "EUR": 1.04, "IMTP_relPF_Z": 0.10}),
+            context={"audience": "atleta"},
+        )
+
+        reading = _athlete_profile_interpretation(focus_row, neuromuscular_profile=payload)
+
+        self.assertIn("missing_dj", payload["flags"])
+        self.assertTrue(reading["meaning"])
+        self.assertTrue(reading["priority"])
+
+    def test_athlete_pdf_renders_pattern_e_as_interpretative_alert(self):
+        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            pdf = generate_visual_report_pdf(_athlete_pattern_e_report_state(), "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        assert pdf is not None
+        joined = _collapsed_normalized_pdf_text(pdf)
+        self.assertIn("contramovimiento", joined)
+
+    def test_athlete_pdf_uses_structured_summary_even_if_wording_changes(self):
+        custom_summary = "Lectura atleta custom que cambia sin romper la estructura."
+        with patch.object(
+            report_generator,
+            "build_neuromuscular_profile_result",
+            return_value=_structured_neuromuscular_stub(summary_athlete=custom_summary),
+        ):
+            with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+                pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        assert pdf is not None
+        self.assertIn(_normalized_story_text(custom_summary), _collapsed_normalized_pdf_text(pdf))
 
     def test_force_time_payload_for_athlete_stays_descriptive(self):
         payload = build_force_time_report_payload(

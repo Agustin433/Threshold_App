@@ -151,31 +151,76 @@ SEMAPHORE_LABELS = (
 
 PATTERN_LIBRARY = {
     "A": {
+        "label": "Patron A - Fuerza/propulsion con SSC rapido limitado",
         "phys": "Buena capacidad concentrica y techo de fuerza aceptable, menor expresion en SSC rapido.",
         "bio": "Mayor tiempo de construccion de impulso en ventanas de contacto breves.",
         "train": "Fast SSC, stiffness util, pogos, drop jumps dosificados, sprints cortos, fuerza con intencion alta y bajo lastre.",
+        "summary_short": "Buen perfil concentrico con rezago reactivo rapido.",
+        "summary_athlete": "Tenes una base concentrica util, pero hoy la reaccion rapida en contactos breves aparece mas limitada.",
+        "summary_client": "Hay una base de fuerza/propulsion util, con margen para mejorar la reaccion rapida y la calidad de contacto.",
+        "summary_professional": "Se observa buena salida concentrica con menor expresion del SSC rapido; conviene priorizar stiffness, contacto y transferencia reactiva.",
+        "kpi_to_track": ["DJ_RSI", "DJ_tc_ms", "DRI"],
     },
     "B": {
+        "label": "Patron B - Reactivo con techo de fuerza bajo",
         "phys": "Buena reutilizacion de energia elastica en SSC rapido, con techo de fuerza concentrica limitado.",
         "bio": "Alta rigidez muscular funcional pero menor capacidad propulsiva maxima en saltos sin ciclo.",
         "train": "Trabajo de fuerza maxima y potencia concentrica, sentadilla pesada, hip thrust, saltos con carga.",
+        "summary_short": "Buen componente reactivo con base concentrica limitada.",
+        "summary_athlete": "Respondés bien en acciones rapidas, pero todavia falta mas base de fuerza para sostener mejor esa reaccion.",
+        "summary_client": "La reactividad aparece bien expresada, aunque la base concentrica todavia puede crecer para darle mas sostén al perfil.",
+        "summary_professional": "Hay buena eficiencia reactiva relativa, con menor techo de fuerza/propulsion concentrica; conviene priorizar fuerza maxima y transferencia vertical.",
+        "kpi_to_track": ["SJ_cm", "CMJ_cm", "IMTP_relPF"],
     },
     "C": {
+        "label": "Patron C - Salida vertical con deficit isometrico relativo",
         "phys": "Potencia explosiva presente con deficit de fuerza isometrica relativa. DSI probablemente elevado.",
         "bio": "Buena transferencia explosiva pero con menor base de fuerza maxima para sostenerla.",
         "train": "Fuerza maxima, IMTP-specific, isometricos en angulo de trabajo funcional.",
+        "summary_short": "Salida explosiva presente con base isometrica relativa rezagada.",
+        "summary_athlete": "Hoy mostras una buena salida explosiva, pero la base de fuerza isometrica relativa aparece por debajo de lo deseado.",
+        "summary_client": "Hay una salida explosiva util, aunque la fuerza base relativa todavia parece corta para sostener mejor esa expresion.",
+        "summary_professional": "La salida vertical se conserva, pero la fuerza isometrica relativa aparece rezagada; priorizar fuerza maxima e isometricos especificos.",
+        "kpi_to_track": ["IMTP_relPF", "IMTP_N", "DSI"],
     },
     "D": {
+        "label": "Patron D - Deficit neuromuscular global",
         "phys": "Deficit generalizado en capacidades neuromusculares evaluadas.",
         "bio": "Limitacion en produccion de fuerza, potencia y reutilizacion elastica.",
         "train": "Fase de acumulacion general. Priorizar fuerza basica antes de trabajo reactivo.",
+        "summary_short": "Perfil globalmente por debajo de la referencia disponible.",
+        "summary_athlete": "Hoy varias cualidades del perfil aparecen por debajo de la referencia, por lo que conviene reconstruir base antes de pedir mas complejidad.",
+        "summary_client": "El perfil actual muestra un rezago global y pide consolidar bases antes de subir complejidad o densidad reactiva.",
+        "summary_professional": "Los z-scores renderizables del radar quedan deprimidos en conjunto; conviene priorizar acumulacion general, fuerza basica y progresion reactiva conservadora.",
+        "kpi_to_track": ["CMJ_cm", "SJ_cm", "DJ_RSI", "IMTP_relPF"],
     },
     "E": {
+        "label": "Patron E - CMJ menor que SJ",
+        "phys": "El CMJ no supera al SJ, lo que sugiere menor aprovechamiento del contramovimiento en este test.",
+        "bio": "El SSC lento no esta agregando impulso util; conviene revisar tecnica, fatiga y estrategia de contramovimiento.",
+        "train": "Revisar tecnica de CMJ, control de fatiga y progresion de SSC lento antes de escalar el trabajo reactivo.",
+        "summary_short": "CMJ por debajo de SJ: alerta sobre uso ineficiente del contramovimiento.",
+        "summary_athlete": "Hoy el salto con contramovimiento no mejora al SJ, asi que conviene revisar tecnica, fatiga y calidad del gesto antes de exigir mas reactividad.",
+        "summary_client": "El uso del contramovimiento aparece ineficiente en esta medicion; conviene validar tecnica, contexto y fatiga antes de sacar conclusiones fuertes.",
+        "summary_professional": "CMJ < SJ sugiere una señal anomala o un deficit del SSC lento; confirmar tecnica, familiarizacion, fatiga y coherencia con el resto del bloque.",
+        "kpi_to_track": ["EUR", "CMJ_cm", "SJ_cm", "DJ_RSI"],
         "note": "Nota: CMJ < SJ. El atleta no aprovecha eficientemente el ciclo estiramiento-acortamiento en este test. Revisar fatiga acumulada, tecnica de CMJ o deficit especifico de SSC lento.",
         "bio_dj_rsi_high": "Buena rigidez muscular funcional en SSC rapido, pero el CMJ < SJ indica que el ciclo de estiramiento no esta potenciando el salto con contramovimiento. Posible dominancia reactiva con limitacion en SSC lento.",
         "bio_sj_high": "Buena capacidad concentrica en SJ, pero el CMJ no supera al SJ, lo que indica que el contramovimiento no genera impulso adicional util. Revisar tecnica, fatiga o deficit de stiffness en SSC lento.",
     },
 }
+
+NEUROMUSCULAR_PATTERN_FIELDS = (
+    "label",
+    "phys",
+    "bio",
+    "train",
+    "summary_short",
+    "summary_athlete",
+    "summary_client",
+    "summary_professional",
+    "kpi_to_track",
+)
 
 RADAR_FULL_AXES = (
     ("SJ", "SJ_cm", "cm", "SJ_Z"),
@@ -632,6 +677,204 @@ def _pattern_matches(row: pd.Series) -> list[str]:
     if pd.notna(eur) and eur < 1.00:
         patterns.append("E")
     return patterns
+
+
+def _pattern_text(row: pd.Series, pattern_code: str, field: str) -> str:
+    payload = PATTERN_LIBRARY.get(pattern_code, {})
+    if pattern_code != "E" or field != "bio":
+        return str(payload.get(field, "")).strip()
+
+    dj_rsi_z = _coalesced_numeric_value(row, "DJ_RSI_Z")
+    sj_z = _coalesced_numeric_value(row, "SJ_Z")
+    if dj_rsi_z is not None and dj_rsi_z > 0.5:
+        return str(payload.get("bio_dj_rsi_high") or payload.get("bio", "")).strip()
+    if sj_z is not None and sj_z > 0.5:
+        return str(payload.get("bio_sj_high") or payload.get("bio", "")).strip()
+    return str(payload.get("bio", "")).strip()
+
+
+def _merge_unique_texts(values: list[str]) -> str:
+    return " ".join(dict.fromkeys(value.strip() for value in values if str(value or "").strip()))
+
+
+def _composite_metric_display_spec(
+    row_series: pd.Series,
+    value_col: str,
+    unit: str,
+    z_col: str,
+    digits: int,
+) -> dict[str, object]:
+    display_value_col = value_col
+    display_unit = unit
+    display_z_col = z_col
+    display_digits = digits
+    if value_col == "IMTP_relPF":
+        relpf_value = pd.to_numeric(pd.Series([row_series.get("IMTP_relPF")]), errors="coerce").iloc[0]
+        imtp_value = pd.to_numeric(pd.Series([row_series.get("IMTP_N")]), errors="coerce").iloc[0]
+        if pd.isna(relpf_value) and pd.notna(imtp_value):
+            display_value_col = "IMTP_N"
+            display_unit = "N"
+            display_z_col = "IMTP_N_Z"
+            display_digits = 0
+    return {
+        "value_col": display_value_col,
+        "unit": display_unit,
+        "z_col": display_z_col,
+        "digits": display_digits,
+    }
+
+
+def _build_pattern_evidence(row: pd.Series, patterns: list[str]) -> list[str]:
+    evidence: list[str] = []
+    if "A" in patterns:
+        evidence.extend(["SJ_Z alto", "DJ_RSI_Z bajo"])
+    if "B" in patterns:
+        evidence.extend(["SJ_Z bajo", "DJ_RSI_Z alto"])
+    if "C" in patterns:
+        evidence.extend(["IMTP_relPF_Z bajo", "CMJ_Z conservado"])
+    if "D" in patterns:
+        evidence.append("todos los z-scores renderizables del radar por debajo de -0.5")
+    if "E" in patterns:
+        if _coalesced_numeric_value(row, "EUR") is not None and float(_coalesced_numeric_value(row, "EUR")) < 1.0:
+            evidence.append("EUR bajo")
+        cmj = _coalesced_numeric_value(row, "CMJ_cm")
+        sj = _coalesced_numeric_value(row, "SJ_cm")
+        if cmj is not None and sj is not None and cmj < sj:
+            evidence.append("CMJ menor que SJ")
+    return list(dict.fromkeys(evidence))
+
+
+def _default_neuromuscular_result() -> dict[str, object]:
+    return {
+        "profile_code": "UNCLASSIFIED",
+        "profile_label": "Sin patron dominante",
+        "confidence": "low",
+        "phys": "Perfil equilibrado en los indices disponibles.",
+        "bio": "Sin deficits biomecanicos marcados en los tests disponibles.",
+        "train": "Continuar progresion planificada y completar la bateria faltante si hiciera falta.",
+        "summary_short": "Sin patron dominante con las reglas actuales.",
+        "summary_athlete": "Hoy no aparece un patron dominante con las reglas actuales; conviene completar o repetir mediciones antes de cambiar demasiado el foco.",
+        "summary_client": "No aparece un patron dominante con las reglas actuales; la lectura debe tomarse con cautela y conviene completar mediciones clave.",
+        "summary_professional": "La evidencia disponible no alcanza para clasificar un patron dominante con las reglas actuales; conviene completar variables clave y releer el contexto del test.",
+        "metrics": {},
+        "flags": [],
+        "evidence": [],
+        "kpi_to_track": [],
+    }
+
+
+def build_neuromuscular_profile_result(
+    row,
+    reference_df: pd.DataFrame | None = None,
+    context: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Return a structured neuromuscular interpretation for a single row.
+
+    The current implementation keeps the existing A/B/C/D/E pattern rules and
+    output semantics stable. ``reference_df`` and ``context`` are reserved for
+    future extensions and are accepted for compatibility with the planned API.
+    """
+
+    del reference_df, context
+
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    result = _default_neuromuscular_result()
+
+    metrics: dict[str, dict[str, object]] = {}
+    for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
+        display_spec = _composite_metric_display_spec(row_series, value_col, unit, z_col, digits)
+        display_value_col = str(display_spec["value_col"])
+        display_z_col = str(display_spec["z_col"])
+        value = _coalesced_numeric_value(row_series, display_value_col)
+        z_value = _coalesced_numeric_value(row_series, *_zscore_aliases(display_z_col))
+        source_date = (
+            row_series.get(f"{display_value_col}__source_date")
+            or row_series.get(f"{value_col}__source_date")
+            or "-"
+        )
+        metrics[value_col] = {
+            "label": label,
+            "value": value,
+            "unit": str(display_spec["unit"]),
+            "z_score": z_value,
+            "direction": COMPOSITE_PROFILE_DIRECTIONS.get(display_value_col, "higher_is_better"),
+            "semaphore": semaphore_label(z_value),
+            "value_col": display_value_col,
+            "z_col": display_z_col,
+            "z_aliases": list(_zscore_aliases(display_z_col)),
+            "source_date": source_date,
+            "available": value is not None,
+        }
+    result["metrics"] = metrics
+
+    flags: list[str] = []
+    imtp_value = _coalesced_numeric_value(row_series, "IMTP_relPF", "IMTP_N")
+    imtp_z = _coalesced_numeric_value(row_series, "IMTP_relPF_Z", "IMTP_Z", "IMTP_N_Z")
+    if imtp_value is None or imtp_z is None:
+        flags.append("missing_imtp")
+
+    dj_required = (
+        _coalesced_numeric_value(row_series, "DJ_RSI"),
+        _coalesced_numeric_value(row_series, "DJ_tc_ms"),
+        _coalesced_numeric_value(row_series, "DJ_cm"),
+    )
+    if any(value is None for value in dj_required):
+        flags.append("missing_dj")
+
+    eur = _coalesced_numeric_value(row_series, "EUR")
+    cmj = _coalesced_numeric_value(row_series, "CMJ_cm")
+    sj = _coalesced_numeric_value(row_series, "SJ_cm")
+    if (eur is not None and eur < 1.00) or (cmj is not None and sj is not None and cmj < sj):
+        flags.append("cmj_lower_than_sj")
+
+    patterns = _pattern_matches(row_series)
+    if not patterns:
+        flags.append("insufficient_pattern_evidence")
+
+    result["flags"] = flags
+    result["evidence"] = _build_pattern_evidence(row_series, patterns)
+
+    if patterns:
+        payloads = [PATTERN_LIBRARY[code] for code in patterns if code in PATTERN_LIBRARY]
+        result["profile_code"] = "+".join(patterns)
+        result["profile_label"] = " + ".join(
+            dict.fromkeys(str(payload.get("label", f"Patron {code}")).strip() for code, payload in zip(patterns, payloads))
+        )
+        result["phys"] = _merge_unique_texts([str(payload.get("phys", "")).strip() for payload in payloads])
+        result["bio"] = _merge_unique_texts([_pattern_text(row_series, code, "bio") for code in patterns])
+        result["train"] = _merge_unique_texts([str(payload.get("train", "")).strip() for payload in payloads])
+        result["summary_short"] = _merge_unique_texts([str(payload.get("summary_short", "")).strip() for payload in payloads])
+        result["summary_athlete"] = _merge_unique_texts([str(payload.get("summary_athlete", "")).strip() for payload in payloads])
+        result["summary_client"] = _merge_unique_texts([str(payload.get("summary_client", "")).strip() for payload in payloads])
+        result["summary_professional"] = _merge_unique_texts(
+            [str(payload.get("summary_professional", "")).strip() for payload in payloads]
+        )
+        result["kpi_to_track"] = list(
+            dict.fromkeys(
+                metric
+                for payload in payloads
+                for metric in payload.get("kpi_to_track", [])
+                if str(metric).strip()
+            )
+        )
+
+    if "missing_imtp" in flags:
+        result["kpi_to_track"] = list(dict.fromkeys([*result["kpi_to_track"], "IMTP_relPF"]))
+    if "missing_dj" in flags:
+        result["kpi_to_track"] = list(dict.fromkeys([*result["kpi_to_track"], "DJ_cm", "DJ_RSI", "DJ_tc_ms"]))
+    if not result["kpi_to_track"]:
+        result["kpi_to_track"] = ["CMJ_cm", "SJ_cm", "EUR", "DJ_RSI", "IMTP_relPF"]
+
+    if "insufficient_pattern_evidence" in flags or "cmj_lower_than_sj" in flags or "E" in patterns:
+        result["confidence"] = "low"
+    elif "missing_imtp" in flags and "missing_dj" in flags:
+        result["confidence"] = "low"
+    elif "missing_imtp" in flags or "missing_dj" in flags:
+        result["confidence"] = "moderate"
+    else:
+        result["confidence"] = "high"
+
+    return result
 
 
 def build_jump_feedback_lines(row: pd.Series | dict[str, object]) -> list[str]:
@@ -1289,18 +1532,11 @@ def build_composite_profile_metric_rows(row: pd.Series | dict[str, object]) -> l
     rows: list[dict[str, object]] = []
 
     for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
-        display_value_col = value_col
-        display_unit = unit
-        display_z_col = z_col
-        display_digits = digits
-        if value_col == "IMTP_relPF":
-            relpf_value = pd.to_numeric(pd.Series([row_series.get("IMTP_relPF")]), errors="coerce").iloc[0]
-            imtp_value = pd.to_numeric(pd.Series([row_series.get("IMTP_N")]), errors="coerce").iloc[0]
-            if pd.isna(relpf_value) and pd.notna(imtp_value):
-                display_value_col = "IMTP_N"
-                display_unit = "N"
-                display_z_col = "IMTP_N_Z"
-                display_digits = 0
+        display_spec = _composite_metric_display_spec(row_series, value_col, unit, z_col, digits)
+        display_value_col = str(display_spec["value_col"])
+        display_unit = str(display_spec["unit"])
+        display_z_col = str(display_spec["z_col"])
+        display_digits = int(display_spec["digits"])
 
         value = pd.to_numeric(pd.Series([row_series.get(display_value_col)]), errors="coerce").iloc[0]
         z_value = _coalesced_numeric_value(row_series, *_zscore_aliases(display_z_col))

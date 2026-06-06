@@ -11,7 +11,7 @@ import pandas as pd
 from pypdf import PdfReader
 
 import modules.report_generator as report_generator
-from modules.report_generator import generate_visual_report_pdf
+from modules.report_generator import _build_pdf_neuromuscular_profile_payload, generate_visual_report_pdf
 
 
 def _pdf_page_count(pdf: bytes) -> int:
@@ -73,6 +73,52 @@ def _rendered_pdf_and_story_text(
     assert pdf is not None
     story_text = _normalized_story_text(" ".join(_story_plain_text(captured.get("story", []))))
     return pdf, story_text
+
+
+def _structured_neuromuscular_stub(**overrides) -> dict[str, object]:
+    base = {
+        "profile_code": "A",
+        "profile_label": "Patron A - Fuerza/propulsion con SSC rapido limitado",
+        "confidence": "high",
+        "phys": "Buena capacidad concentrica con rezago reactivo rapido.",
+        "bio": "Menor expresion del SSC rapido en contactos breves.",
+        "train": "Priorizar stiffness, contacto y progresion reactiva sin perder la base actual.",
+        "summary_short": "Buen perfil concentrico con rezago reactivo rapido.",
+        "summary_athlete": "Mensaje atleta custom.",
+        "summary_client": "Mensaje cliente custom para validar la ruta estructurada.",
+        "summary_professional": "Mensaje profesional custom.",
+        "metrics": {
+            "SJ_cm": {
+                "label": "SJ",
+                "value": 32.0,
+                "unit": "cm",
+                "z_score": 0.80,
+                "direction": "higher_is_better",
+                "semaphore": "Amarillo",
+                "value_col": "SJ_cm",
+                "z_col": "SJ_Z",
+                "source_date": "-",
+                "available": True,
+            },
+            "DJ_RSI": {
+                "label": "DJ RSI",
+                "value": 1.10,
+                "unit": "m/s",
+                "z_score": -0.80,
+                "direction": "higher_is_better",
+                "semaphore": "Naranja",
+                "value_col": "DJ_RSI",
+                "z_col": "DJ_RSI_Z",
+                "source_date": "-",
+                "available": True,
+            },
+        },
+        "flags": [],
+        "evidence": ["SJ_Z alto", "DJ_RSI_Z bajo"],
+        "kpi_to_track": ["DJ_RSI", "DJ_tc_ms", "DRI"],
+    }
+    base.update(overrides)
+    return base
 
 
 class FixedClientReportDate(real_datetime):
@@ -155,6 +201,27 @@ def _client_partial_low_wellness_report_state() -> dict[str, object]:
         [
             {"Athlete": "Ana Lopez", "Date": "2026-05-03", "Sueno_hs": 5.8, "Estres": 8, "Dolor": 7, "Wellness_Score": 2.2},
             {"Athlete": "Ana Lopez", "Date": "2026-05-05", "Sueno_hs": 5.6, "Estres": 9, "Dolor": 8, "Wellness_Score": 2.0},
+        ]
+    )
+    return state
+
+
+def _client_pattern_e_report_state() -> dict[str, object]:
+    state = _client_report_state()
+    state["jump_df"] = pd.DataFrame(
+        [
+            {
+                "Athlete": "Ana Lopez",
+                "Date": "2026-05-02",
+                "CMJ_cm": 29.0,
+                "SJ_cm": 31.0,
+                "DJ_drop_height_cm": 30.0,
+                "DJ_cm": 24.0,
+                "DJ_RSI": 1.10,
+                "DJ_tc_ms": 220.0,
+                "IMTP_N": 1800.0,
+                "EUR": 0.95,
+            }
         ]
     )
     return state
@@ -272,6 +339,58 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertNotIn("sin senales grandes de alerta", joined_pages)
         self.assertNotIn("estado actual optimo", joined_pages)
         self.assertNotIn("tc inv", story_text)
+
+    def test_client_payload_handles_missing_imtp_without_keyerror(self):
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series({"SJ_cm": 30.0, "CMJ_cm": 32.0, "DJ_cm": 24.0, "DJ_RSI": 1.05, "DJ_tc_ms": 220.0, "EUR": 1.04}),
+            context={"audience": "cliente"},
+        )
+
+        self.assertIn("missing_imtp", payload["flags"])
+        self.assertTrue(payload["summary_client"])
+        self.assertTrue(payload["training_priority_short"])
+
+    def test_client_payload_handles_missing_dj_without_keyerror(self):
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series({"SJ_cm": 30.0, "CMJ_cm": 32.0, "IMTP_relPF": 38.0, "EUR": 1.04, "IMTP_relPF_Z": 0.10}),
+            context={"audience": "cliente"},
+        )
+
+        self.assertIn("missing_dj", payload["flags"])
+        self.assertTrue(payload["summary_client"])
+        self.assertTrue(payload["training_priority_short"])
+
+    def test_client_pdf_renders_pattern_e_as_simple_alert(self):
+        pdf, story_text = _rendered_pdf_and_story_text(_client_pattern_e_report_state(), "Ana Lopez")
+        joined_pages = " ".join(_normalized_pdf_pages(pdf))
+
+        self.assertIsNotNone(pdf)
+        self.assertIn("contramovimiento", joined_pages)
+        self.assertNotIn("tc inv", story_text)
+
+    def test_client_pdf_uses_structured_summary_when_wording_changes(self):
+        custom_summary = "Lectura cliente custom que cambia sin romper la estructura."
+        with patch.object(
+            report_generator,
+            "build_neuromuscular_profile_result",
+            return_value=_structured_neuromuscular_stub(summary_client=custom_summary),
+        ):
+            pdf, story_text = _rendered_pdf_and_story_text(_client_report_state(), "Ana Lopez")
+
+        self.assertIsNotNone(pdf)
+        self.assertIn(_normalized_story_text(custom_summary), story_text)
+
+    def test_client_focus_can_read_profile_label_from_structured_payload(self):
+        custom_label = "Patron E - CMJ menor que SJ"
+        with patch.object(
+            report_generator,
+            "build_neuromuscular_profile_result",
+            return_value=_structured_neuromuscular_stub(profile_label=custom_label, profile_code="E"),
+        ):
+            pdf, story_text = _rendered_pdf_and_story_text(_client_report_state(), "Ana Lopez")
+
+        self.assertIsNotNone(pdf)
+        self.assertIn(_normalized_story_text(custom_label), story_text)
 
 
 if __name__ == "__main__":

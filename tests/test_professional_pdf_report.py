@@ -19,6 +19,7 @@ from modules.jump_analysis import (
 from modules.report_generator import (
     PDF_MISSING_TEXT,
     PROFESSIONAL_NO_EVALUATION_TEXT,
+    _build_pdf_neuromuscular_profile_payload,
     _build_professional_action_plan_payload,
     _build_professional_change_payload,
     _build_professional_composite_profile_payload,
@@ -67,6 +68,64 @@ def _normalized_pdf_pages(pdf: bytes) -> list[str]:
 def _normalized_story_text(text: str) -> str:
     repaired = report_generator._repair_mojibake_text(text)
     return unicodedata.normalize("NFD", repaired).encode("ascii", "ignore").decode("ascii").lower()
+
+
+def _structured_neuromuscular_stub(**overrides) -> dict[str, object]:
+    base = {
+        "profile_code": "A",
+        "profile_label": "Patron A - Fuerza/propulsion con SSC rapido limitado",
+        "confidence": "high",
+        "phys": "Buena capacidad concentrica con rezago reactivo rapido.",
+        "bio": "Menor expresion en el SSC rapido para contactos breves.",
+        "train": "Priorizar stiffness y calidad de contacto sin perder la base actual.",
+        "summary_short": "Buen perfil concentrico con rezago reactivo rapido.",
+        "summary_athlete": "Tenes una base concentrica util y conviene mejorar la reaccion rapida.",
+        "summary_client": "Hay una base util con margen para mejorar la reaccion rapida.",
+        "summary_professional": "Resumen profesional libre sin prefijos fijos.",
+        "metrics": {
+            "SJ_cm": {
+                "label": "SJ",
+                "value": 32.0,
+                "unit": "cm",
+                "z_score": 0.80,
+                "direction": "higher_is_better",
+                "semaphore": "Amarillo",
+                "value_col": "SJ_cm",
+                "z_col": "SJ_Z",
+                "source_date": "-",
+                "available": True,
+            },
+            "DJ_RSI": {
+                "label": "DJ RSI",
+                "value": 1.10,
+                "unit": "m/s",
+                "z_score": -0.80,
+                "direction": "higher_is_better",
+                "semaphore": "Naranja",
+                "value_col": "DJ_RSI",
+                "z_col": "DJ_RSI_Z",
+                "source_date": "-",
+                "available": True,
+            },
+            "DJ_tc_ms": {
+                "label": "Tiempo de contacto",
+                "value": 210.0,
+                "unit": "ms",
+                "z_score": 0.30,
+                "direction": "lower_is_better_inverted_z",
+                "semaphore": "Amarillo",
+                "value_col": "DJ_tc_ms",
+                "z_col": "TC_inv_Z",
+                "source_date": "-",
+                "available": True,
+            },
+        },
+        "flags": [],
+        "evidence": ["SJ_Z alto", "DJ_RSI_Z bajo"],
+        "kpi_to_track": ["DJ_RSI", "DJ_tc_ms", "DRI"],
+    }
+    base.update(overrides)
+    return base
 
 
 def _story_plain_text(flowable: object) -> list[str]:
@@ -1543,6 +1602,56 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertNotIn("tc inv", visible_text)
         self.assertNotEqual(visible_text, "tiempo de contacto (+1.00)")
 
+    def test_pdf_neuromuscular_profile_payload_handles_empty_row(self):
+        payload = _build_pdf_neuromuscular_profile_payload(pd.Series(dtype=object))
+
+        self.assertEqual(payload["source"], "core")
+        self.assertEqual(payload["profile_code"], "UNCLASSIFIED")
+        self.assertEqual(payload["confidence"], "low")
+        self.assertIn("missing_imtp", payload["flags"])
+        self.assertIn("missing_dj", payload["flags"])
+        self.assertIn("evidence", payload)
+        self.assertIn("SJ_cm", payload["metrics"])
+        self.assertIn("band", payload["metrics"]["SJ_cm"])
+
+    def test_pdf_neuromuscular_profile_payload_handles_missing_imtp_and_dj(self):
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series({"SJ_cm": 30.0, "CMJ_cm": 32.0, "EUR": 1.067})
+        )
+
+        self.assertIn("missing_imtp", payload["flags"])
+        self.assertIn("missing_dj", payload["flags"])
+        self.assertEqual(payload["confidence"], "low")
+
+    def test_pdf_neuromuscular_profile_payload_keeps_pattern_e_alert_structure(self):
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series(
+                {
+                    "SJ_cm": 31.0,
+                    "CMJ_cm": 29.0,
+                    "DJ_cm": 24.0,
+                    "DJ_RSI": 1.20,
+                    "DJ_tc_ms": 220.0,
+                    "IMTP_relPF": 38.0,
+                    "EUR": 0.95,
+                    "SJ_Z": 0.10,
+                    "CMJ_Z": 0.05,
+                    "DJ_height_Z": 0.00,
+                    "DJ_RSI_Z": 0.15,
+                    "TC_inv_Z": 0.05,
+                    "IMTP_relPF_Z": 0.20,
+                }
+            )
+        )
+
+        self.assertEqual(payload["profile_code"], "E")
+        self.assertEqual(payload["confidence"], "low")
+        self.assertTrue(payload["phys"])
+        self.assertTrue(payload["bio"])
+        self.assertTrue(payload["train"])
+        self.assertIn("cmj_lower_than_sj", payload["flags"])
+        self.assertTrue(payload["summary_professional"])
+
     def test_composite_profile_avoids_missing_readings_when_profile_variables_exist(self):
         state = {
             "jump_df": pd.DataFrame(
@@ -1574,9 +1683,50 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         combined = _normalized_story_text(" ".join(feedback.values()))
 
         self.assertNotIn("faltan datos", combined)
-        self.assertIn("perfil actual", combined)
+        self.assertEqual(payload["profile_code"], "A")
+        self.assertIn("capacidad concentrica", combined)
         self.assertIn("zona favorable", combined)
         self.assertIn("progresion reactiva", combined)
+
+    def test_composite_profile_exposes_structured_neuromuscular_fields(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-05-01",
+                        "SJ_cm": 31.0,
+                        "CMJ_cm": 34.0,
+                        "DJ_drop_height_cm": 39.43,
+                        "DJ_cm": 22.0,
+                        "DJ_RSI": 1.25,
+                        "DJ_tc_ms": 210.0,
+                        "DRI": 1.42,
+                        "IMTP_relPF": 39.5,
+                        "SJ_Z": 0.8,
+                        "CMJ_Z": 0.7,
+                        "DJ_height_Z": -1.0,
+                        "DJ_RSI_Z": 0.2,
+                        "DRI_Z": 0.2,
+                        "TC_inv_Z": 0.9,
+                        "IMTP_relPF_Z": 0.6,
+                    }
+                ]
+            )
+        }
+
+        payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+
+        self.assertIn("neuromuscular_profile", payload)
+        self.assertIn("profile_code", payload)
+        self.assertIn("profile_label", payload)
+        self.assertIn("confidence", payload)
+        self.assertIn("flags", payload)
+        self.assertIn("evidence", payload)
+        self.assertIn("kpi_to_track", payload)
+        self.assertIn("metrics", payload)
+        self.assertIn("SJ_cm", payload["metrics"])
+        self.assertIn("band", payload["metrics"]["SJ_cm"])
 
     def test_dj_height_lagging_translates_to_training_language(self):
         composite_payload = {
@@ -1679,8 +1829,9 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             "Biomecanico: Sin deficits marcados en los tests disponibles.",
             "Proximo bloque: Continuar progresion planificada.",
         ]
-        with patch.object(report_generator, "build_jump_feedback_lines", return_value=feedback_lines):
-            composite = _build_professional_composite_profile_payload(state, "Ana Lopez")
+        with patch.object(report_generator, "build_neuromuscular_profile_result", side_effect=RuntimeError("legacy")):
+            with patch.object(report_generator, "build_jump_feedback_lines", return_value=feedback_lines):
+                composite = _build_professional_composite_profile_payload(state, "Ana Lopez")
         action_plan = _build_professional_action_plan_payload(
             state,
             "Ana Lopez",
@@ -1704,6 +1855,35 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("monitorear si alguna variable empieza a separarse", visible_text)
         self.assertNotIn("sin variables < -0.5", visible_text)
         self.assertNotIn("mejorar sin variables", visible_text)
+
+    def test_composite_profile_uses_structured_profile_without_parsing_summary_prefixes(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-05-01",
+                        "SJ_cm": 31.0,
+                        "CMJ_cm": 34.0,
+                        "DJ_cm": 22.0,
+                        "DJ_RSI": 1.15,
+                        "DJ_tc_ms": 210.0,
+                        "IMTP_relPF": 39.5,
+                    }
+                ]
+            )
+        }
+        custom_summary = "Texto profesional libre que cambia sin prefijos fijos."
+        structured_profile = _structured_neuromuscular_stub(summary_professional=custom_summary)
+
+        with patch.object(report_generator, "build_neuromuscular_profile_result", return_value=structured_profile):
+            payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+
+        self.assertEqual(payload["profile_code"], "A")
+        self.assertEqual(payload["summary_professional"], custom_summary)
+        self.assertIn("rezago reactivo rapido", _normalized_story_text(payload["feedback"]["physiological"]))
+        self.assertIn("SJ (+0.80)", payload["feedback"]["high"])
+        self.assertIn("DJ RSI (-0.80)", payload["feedback"]["low"])
 
     def test_composite_profile_z_score_cells_are_explicit_when_missing(self):
         state = {

@@ -20,6 +20,7 @@ from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import (
     _format_profile_source_date,
     _prepare_jump_df,
+    build_neuromuscular_profile_result,
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
     build_jump_delta_display_table,
@@ -28,6 +29,7 @@ from modules.jump_analysis import (
     build_profile_radar_row,
     compute_baseline_delta,
     compute_swc_delta,
+    semaphore_label,
 )
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 from modules.report_force_time import build_force_time_report_payload, draw_force_time_test_block
@@ -1119,6 +1121,12 @@ def _profile_text(row: pd.Series, fallback: str = "-") -> str:
 
 def _compact_lines(items: list[str | None]) -> list[str]:
     return [item for item in items if item and _ascii_text(item).strip()]
+
+
+def _sentence_fragment(value: object, *, lowercase: bool = False) -> str:
+    text = _professional_visible_metric_text(value).strip()
+    text = re.sub(r"[\s\.;:!,?]+$", "", text)
+    return text.lower() if lowercase else text
 
 
 def _count_phrase(count: int, singular: str, plural: str | None = None) -> str:
@@ -2975,12 +2983,80 @@ def _athlete_metric_explanation_rows(row: pd.Series | None) -> list[tuple[str, s
     return rows[:5] if len(rows) > 1 else ATHLETE_METRIC_EXPLANATIONS[:4]
 
 
-def _athlete_profile_interpretation(row: pd.Series | None) -> dict[str, str]:
+def _neuromuscular_metric_fact(
+    profile_payload: dict[str, object],
+    key: str,
+    *,
+    digits: int = 1,
+) -> str | None:
+    metrics = profile_payload.get("metrics", {})
+    metric = metrics.get(key, {}) if isinstance(metrics, dict) else {}
+    if not isinstance(metric, dict) or not metric.get("available"):
+        return None
+    value = _coerce_float(metric.get("value"))
+    if value is None:
+        return None
+    label = _professional_visible_metric_text(metric.get("label", NEUROMUSCULAR_KPI_LABELS.get(key, key)))
+    unit = str(metric.get("unit") or "").strip()
+    if unit == "ratio":
+        unit = ""
+    suffix = f" {unit}" if unit else ""
+    return _professional_visible_metric_text(f"{label} {_display_metric(value, digits=digits, suffix=suffix)}")
+
+
+def _athlete_profile_interpretation(
+    row: pd.Series | None,
+    *,
+    neuromuscular_profile: dict[str, object] | None = None,
+) -> dict[str, str]:
     if row is None or row.empty or not _row_has_eval_data(row):
         return {
             "what": "Faltan datos de evaluación física para construir el perfil neuromuscular.",
             "meaning": "Por ahora no conviene sacar conclusiones sobre fuerza, salto o reactividad.",
             "priority": "Completar una batería de evaluación con CMJ, SJ, Drop Jump/DRI e IMTP.",
+        }
+    if isinstance(neuromuscular_profile, dict) and neuromuscular_profile.get("source") == "core":
+        metric_facts = _compact_lines(
+            [
+                _neuromuscular_metric_fact(neuromuscular_profile, "CMJ_cm", digits=1),
+                _neuromuscular_metric_fact(neuromuscular_profile, "SJ_cm", digits=1),
+                _neuromuscular_metric_fact(neuromuscular_profile, "DJ_RSI", digits=2),
+                _neuromuscular_metric_fact(neuromuscular_profile, "EUR", digits=2),
+                _neuromuscular_metric_fact(neuromuscular_profile, "IMTP_N", digits=0),
+                _neuromuscular_metric_fact(neuromuscular_profile, "IMTP_relPF", digits=2),
+            ]
+        )
+        profile_label = _professional_visible_metric_text(
+            neuromuscular_profile.get("profile_label") or _profile_text(row, fallback="perfil parcial")
+        )
+        confidence_label = _professional_visible_metric_text(
+            neuromuscular_profile.get("confidence_label")
+            or NEUROMUSCULAR_CONFIDENCE_LABELS.get(str(neuromuscular_profile.get("confidence") or "low"), "Baja")
+        )
+        summary_athlete = _professional_visible_metric_text(neuromuscular_profile.get("summary_athlete") or "")
+        flag_messages = [
+            _professional_visible_metric_text(message)
+            for message in list(neuromuscular_profile.get("flag_messages_athlete", []))
+        ]
+        meaning_parts = _compact_lines(
+            [
+                summary_athlete,
+                None if summary_athlete else (flag_messages[0] if flag_messages else None),
+            ]
+        )
+        priority_parts = _compact_lines(
+            [
+                _professional_visible_metric_text(neuromuscular_profile.get("training_priority_detailed") or ""),
+            ]
+        )
+        return {
+            "what": (
+                "El radar resume tus principales cualidades neuromusculares: "
+                + (" | ".join(metric_facts) if metric_facts else "hay métricas parciales disponibles.")
+                + f" Perfil actual: {profile_label}. Confianza de lectura: {confidence_label}."
+            ),
+            "meaning": " ".join(meaning_parts) if meaning_parts else "Todavía falta una lectura más clara del perfil neuromuscular.",
+            "priority": " ".join(priority_parts) if priority_parts else "Completar una batería de evaluación para definir mejor el próximo foco.",
         }
     profile = _profile_text(row, fallback="perfil parcial")
     profile_key = profile.lower()
@@ -3052,13 +3128,53 @@ def _athlete_load_status_lines(row: pd.Series | None, internal_load: dict[str, o
     return lines[:5]
 
 
-def _athlete_final_focus_blocks(row: pd.Series | None, completion_value: float | None) -> list[dict[str, str]]:
+def _athlete_final_focus_blocks(
+    row: pd.Series | None,
+    completion_value: float | None,
+    *,
+    neuromuscular_profile: dict[str, object] | None = None,
+) -> list[dict[str, str]]:
     if row is None or row.empty:
         return [
             {"title": "Fortaleza principal", "body": "Faltan datos suficientes para definir una fortaleza principal."},
             {"title": "Punto a vigilar", "body": "Completar carga, wellness y evaluación para mejorar la lectura."},
             {"title": "Foco del próximo bloque", "body": "Construir continuidad y registrar datos de forma consistente."},
             {"title": "Próxima medición o revisión", "body": "Realizar una evaluación física inicial y revisar carga semanal."},
+        ]
+    if isinstance(neuromuscular_profile, dict) and neuromuscular_profile.get("source") == "core":
+        strengths = _strengths_from_row(row, audience="atleta")
+        strength_line = _professional_visible_metric_text(
+            neuromuscular_profile.get("summary_short")
+            or neuromuscular_profile.get("summary_athlete")
+            or (strengths[0] if strengths else PDF_MISSING_TEXT)
+        )
+        gap_lines = list(neuromuscular_profile.get("flag_messages_athlete", [])) or _gaps_from_row(row, audience="atleta")
+        if completion_value is not None and completion_value < 70:
+            gap_lines = [f"La adherencia actual ({completion_value:.1f}%) puede limitar la lectura del bloque."] + gap_lines
+        review_bits = []
+        if neuromuscular_profile.get("kpi_labels"):
+            review_bits.append(
+                _professional_visible_metric_text(
+                    f"En la próxima medición conviene volver a mirar {', '.join(neuromuscular_profile.get('kpi_labels', [])[:3])}."
+                )
+            )
+        review_bits.append(
+            "Repetir evaluación física en 6-8 semanas y revisar carga/bienestar semanalmente."
+            if _row_has_eval_data(row)
+            else "Completar evaluación física y usarla como línea base del perfil."
+        )
+        return [
+            {"title": "Fortaleza principal", "body": strength_line},
+            {"title": "Punto a vigilar", "body": gap_lines[0] if gap_lines else PDF_MISSING_TEXT},
+            {
+                "title": "Foco del próximo bloque",
+                "body": _professional_visible_metric_text(
+                    neuromuscular_profile.get("training_priority_detailed")
+                    or neuromuscular_profile.get("training_priority_short")
+                    or PDF_MISSING_TEXT
+                ),
+            },
+            {"title": "Próxima medición o revisión", "body": " ".join(review_bits)},
         ]
     strengths = _strengths_from_row(row, audience="atleta")
     gaps = _gaps_from_row(row, audience="atleta")
@@ -4609,6 +4725,25 @@ def _professional_latest_team_jump_rows(state: dict[str, pd.DataFrame | None]) -
     return data.sort_values("Date").groupby("Athlete", as_index=False).tail(1).reset_index(drop=True)
 
 
+def _build_current_pdf_neuromuscular_profile_payload(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    *,
+    audience: str,
+) -> dict[str, object]:
+    history = _professional_jump_history(state, athlete)
+    if history.empty:
+        return _build_pdf_neuromuscular_profile_payload(
+            pd.Series(dtype=object),
+            context={"audience": audience, "scope": "latest_evaluation"},
+        )
+    return _build_pdf_neuromuscular_profile_payload(
+        history.iloc[-1],
+        reference_df=history,
+        context={"audience": audience, "scope": "latest_evaluation"},
+    )
+
+
 def _professional_completion_snapshot(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
@@ -6141,6 +6276,333 @@ def _professional_snapshot_metric(row: pd.Series | dict[str, object], *columns: 
     return None
 
 
+PROFESSIONAL_NEUROMUSCULAR_SIGNAL_ORDER = (
+    "SJ_cm",
+    "CMJ_cm",
+    "DJ_cm",
+    "DJ_RSI",
+    "DJ_tc_ms",
+    "IMTP_relPF",
+)
+
+PROFESSIONAL_NEUROMUSCULAR_SUPPORT_METRICS = (
+    ("DJ_RSI", "DJ RSI", "m/s", ("DJ_RSI_Z",), "higher_is_better"),
+    ("DSI", "DSI", "", ("DSI_Z",), "higher_is_better"),
+    ("mRSI", "mRSI", "m/s", ("mRSI_Z",), "higher_is_better"),
+    ("IMTP_N", "IMTP", "N", ("IMTP_N_Z", "IMTP_Z"), "higher_is_better"),
+)
+
+NEUROMUSCULAR_KPI_LABELS = {
+    "CMJ_cm": "CMJ",
+    "SJ_cm": "SJ",
+    "DJ_cm": "DJ",
+    "DJ_RSI": "DJ RSI",
+    "DJ_tc_ms": "Tiempo de contacto",
+    "DRI": "DRI",
+    "EUR": "EUR",
+    "IMTP_relPF": "IMTP relPF",
+    "IMTP_N": "IMTP",
+    "DSI": "DSI",
+    "mRSI": "mRSI",
+}
+
+NEUROMUSCULAR_PRIORITY_SHORT_TEXT = {
+    "A": "Mejorar calidad de contacto y reacción rápida.",
+    "B": "Construir más base de fuerza para sostener la reacción rápida.",
+    "C": "Construir más base de fuerza máxima e isométrica.",
+    "D": "Reconstruir la base general antes de complejizar el bloque.",
+    "E": "Revisar el salto con contramovimiento y la calidad del gesto.",
+}
+
+NEUROMUSCULAR_PRIORITY_DETAILED_TEXT = {
+    "A": "Priorizar la reactividad rápida y la calidad de contacto sin perder la base de fuerza actual.",
+    "B": "Priorizar fuerza base y transferencia vertical para sostener mejor la reactividad ya visible.",
+    "C": "Priorizar fuerza máxima e isométricos específicos para sostener mejor la salida vertical.",
+    "D": "Priorizar base general, fuerza básica y una progresión reactiva conservadora antes de complejizar el bloque.",
+    "E": "Revisar técnica de CMJ, contexto de fatiga y progresión del contramovimiento antes de escalar la exigencia reactiva.",
+}
+
+NEUROMUSCULAR_FLAG_MESSAGES = {
+    "atleta": {
+        "missing_imtp": "Todavía falta IMTP para leer mejor tu base de fuerza.",
+        "missing_dj": "Todavía falta Drop Jump para leer mejor tu reactividad.",
+        "cmj_lower_than_sj": "En esta medición el CMJ no superó al SJ; conviene revisar técnica, fatiga y calidad del gesto.",
+        "insufficient_pattern_evidence": "La foto actual todavía es parcial; conviene completar mediciones antes de cambiar demasiado el foco.",
+    },
+    "cliente": {
+        "missing_imtp": "Todavía falta una referencia de fuerza para entender mejor la base actual.",
+        "missing_dj": "Todavía falta una referencia reactiva para entender mejor cómo responde el salto.",
+        "cmj_lower_than_sj": "En esta medición el salto con contramovimiento no mejoró al salto base; conviene revisarlo en el próximo control.",
+        "insufficient_pattern_evidence": "Todavía falta información para definir con más claridad qué conviene priorizar.",
+    },
+    "profe": {
+        "missing_imtp": "Falta IMTP para cerrar mejor la lectura de fuerza base.",
+        "missing_dj": "Falta Drop Jump para cerrar mejor la lectura reactiva.",
+        "cmj_lower_than_sj": "CMJ < SJ: revisar técnica, fatiga y coherencia del test antes de cambiar prioridades.",
+        "insufficient_pattern_evidence": "La evidencia todavía es parcial para cerrar un patrón dominante.",
+    },
+}
+
+NEUROMUSCULAR_CONFIDENCE_LABELS = {
+    "high": "Alta",
+    "moderate": "Media",
+    "low": "Baja",
+}
+
+
+def _professional_metric_band_label(z_value: object) -> str:
+    numeric = _coerce_float(z_value)
+    return _professional_visible_metric_text(semaphore_label(numeric))
+
+
+def _professional_metric_payload(
+    *,
+    key: str,
+    label: object,
+    value: object,
+    unit: object,
+    z_value: object,
+    direction: object,
+    available: object = None,
+    value_col: object = "",
+    z_col: object = "",
+    source_date: object = "-",
+) -> dict[str, object]:
+    numeric_value = _coerce_float(value)
+    numeric_z = _coerce_float(z_value)
+    is_available = bool(available) if available is not None else numeric_value is not None
+    return {
+        "key": str(key),
+        "label": _professional_visible_metric_text(label),
+        "value": numeric_value,
+        "unit": str(unit or "").strip(),
+        "z": numeric_z,
+        "z_score": numeric_z,
+        "band": _professional_metric_band_label(numeric_z),
+        "direction": str(direction or ""),
+        "available": is_available,
+        "value_col": str(value_col or key),
+        "z_col": str(z_col or ""),
+        "source_date": _professional_visible_metric_text(source_date or "-"),
+    }
+
+
+def _professional_neuromuscular_metrics(
+    row: pd.Series | dict[str, object] | None,
+    core_metrics: dict[str, object] | None,
+) -> dict[str, dict[str, object]]:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    metrics: dict[str, dict[str, object]] = {}
+    for key, payload in (core_metrics or {}).items():
+        if not isinstance(payload, dict):
+            continue
+        metric_key = str(key)
+        value_col = str(payload.get("value_col") or metric_key)
+        metrics[metric_key] = _professional_metric_payload(
+            key=metric_key,
+            label=payload.get("label", metric_key),
+            value=payload.get("value"),
+            unit=payload.get("unit", ""),
+            z_value=payload.get("z_score", payload.get("z")),
+            direction=payload.get("direction", ""),
+            available=payload.get("available"),
+            value_col=value_col,
+            z_col=payload.get("z_col", ""),
+            source_date=payload.get("source_date") or row_series.get(f"{value_col}__source_date") or "-",
+        )
+
+    occupied_value_cols = {
+        str(metric.get("value_col") or key)
+        for key, metric in metrics.items()
+        if isinstance(metric, dict) and metric.get("available") and str(metric.get("value_col") or key).strip()
+    }
+
+    for metric_key, label, unit, z_columns, direction in PROFESSIONAL_NEUROMUSCULAR_SUPPORT_METRICS:
+        value = _professional_snapshot_metric(row_series, metric_key)
+        z_value = _professional_snapshot_metric(row_series, *z_columns)
+        if value is None and z_value is None:
+            continue
+        if metric_key in metrics and metrics[metric_key].get("available"):
+            continue
+        if metric_key in occupied_value_cols:
+            continue
+        metrics[metric_key] = _professional_metric_payload(
+            key=metric_key,
+            label=label,
+            value=value,
+            unit=unit,
+            z_value=z_value,
+            direction=direction,
+            available=value is not None,
+            value_col=metric_key,
+            z_col=z_columns[0],
+            source_date=row_series.get(f"{metric_key}__source_date") or "-",
+        )
+        occupied_value_cols.add(metric_key)
+    return metrics
+
+
+def _professional_neuromuscular_signal_text(
+    profile_payload: dict[str, object],
+    *,
+    threshold: float,
+) -> str:
+    metrics = profile_payload.get("metrics", {})
+    if not isinstance(metrics, dict):
+        return ""
+    comparisons: list[str] = []
+    for key in PROFESSIONAL_NEUROMUSCULAR_SIGNAL_ORDER:
+        metric = metrics.get(key)
+        if not isinstance(metric, dict):
+            continue
+        z_value = _coerce_float(metric.get("z_score", metric.get("z")))
+        if z_value is None:
+            continue
+        if threshold > 0 and z_value > threshold:
+            comparisons.append(f"{metric.get('label', key)} ({z_value:+.2f})")
+        elif threshold < 0 and z_value < threshold:
+            comparisons.append(f"{metric.get('label', key)} ({z_value:+.2f})")
+    return ", ".join(_professional_visible_metric_text(value) for value in dict.fromkeys(comparisons))
+
+
+def _neuromuscular_primary_code(profile_payload: dict[str, object]) -> str:
+    tokens = [token.strip() for token in str(profile_payload.get("profile_code") or "").split("+") if token.strip()]
+    if "E" in tokens:
+        return "E"
+    return tokens[0] if tokens else "UNCLASSIFIED"
+
+
+def _neuromuscular_kpi_labels(profile_payload: dict[str, object]) -> list[str]:
+    metrics = profile_payload.get("metrics", {})
+    labels: list[str] = []
+    for key in profile_payload.get("kpi_to_track", []):
+        metric = metrics.get(key, {}) if isinstance(metrics, dict) else {}
+        label = metric.get("label") if isinstance(metric, dict) else ""
+        labels.append(_professional_visible_metric_text(label or NEUROMUSCULAR_KPI_LABELS.get(str(key), str(key))))
+    return list(dict.fromkeys([label for label in labels if str(label).strip()]))
+
+
+def _neuromuscular_priority_short(profile_payload: dict[str, object]) -> str:
+    primary_code = _neuromuscular_primary_code(profile_payload)
+    flags = set(profile_payload.get("flags", []))
+    if primary_code in NEUROMUSCULAR_PRIORITY_SHORT_TEXT:
+        return _professional_visible_metric_text(NEUROMUSCULAR_PRIORITY_SHORT_TEXT[primary_code])
+    if {"missing_imtp", "missing_dj"}.issubset(flags):
+        return "Completar las mediciones clave que faltan y sostener la calidad actual."
+    if "missing_dj" in flags:
+        return "Completar la referencia reactiva y sostener la calidad del salto actual."
+    if "missing_imtp" in flags:
+        return "Completar la referencia de fuerza y sostener la calidad del salto actual."
+    if "insufficient_pattern_evidence" in flags:
+        return "Confirmar la próxima medición antes de cambiar demasiado el foco."
+    return "Sostener la calidad actual y confirmar la próxima medición."
+
+
+def _neuromuscular_priority_detailed(profile_payload: dict[str, object]) -> str:
+    primary_code = _neuromuscular_primary_code(profile_payload)
+    detail = NEUROMUSCULAR_PRIORITY_DETAILED_TEXT.get(primary_code, "")
+    short_text = _neuromuscular_priority_short(profile_payload)
+    if not detail:
+        flags = set(profile_payload.get("flags", []))
+        if {"missing_imtp", "missing_dj"}.issubset(flags):
+            detail = "Completar IMTP y Drop Jump antes de mover demasiado la prioridad física del bloque."
+        elif "missing_dj" in flags:
+            detail = "Completar el Drop Jump para leer mejor la reactividad y no ajustar el bloque con una foto parcial."
+        elif "missing_imtp" in flags:
+            detail = "Completar IMTP para leer mejor la base de fuerza y no ajustar el bloque con una foto parcial."
+        elif "insufficient_pattern_evidence" in flags:
+            detail = "La evidencia actual todavía es parcial; conviene completar o repetir mediciones clave antes de cambiar demasiado el foco."
+        else:
+            detail = short_text
+    kpi_labels = _neuromuscular_kpi_labels(profile_payload)
+    if kpi_labels:
+        detail = f"{detail} Seguir de cerca {', '.join(kpi_labels[:3])}."
+    return _professional_visible_metric_text(detail)
+
+
+def _neuromuscular_flag_messages(profile_payload: dict[str, object], audience: str) -> list[str]:
+    audience_messages = NEUROMUSCULAR_FLAG_MESSAGES.get(normalize_report_audience(audience), {})
+    messages = [
+        _professional_visible_metric_text(audience_messages.get(flag, ""))
+        for flag in profile_payload.get("flags", [])
+        if str(audience_messages.get(flag, "")).strip()
+    ]
+    return list(dict.fromkeys(messages))
+
+
+def _professional_feedback_from_structured_profile(profile_payload: dict[str, object]) -> dict[str, str]:
+    feedback = {
+        "high": _professional_neuromuscular_signal_text(profile_payload, threshold=0.5) or "sin variables > 0.5.",
+        "low": _professional_neuromuscular_signal_text(profile_payload, threshold=-0.5) or "sin variables < -0.5.",
+        "physiological": _professional_visible_metric_text(profile_payload.get("phys", "")),
+        "biomechanical": _professional_visible_metric_text(profile_payload.get("bio", "")),
+        "next_block": _professional_visible_metric_text(profile_payload.get("train", "")),
+    }
+    if profile_payload.get("profile_code") == "E" and str(profile_payload.get("summary_short") or "").strip():
+        feedback["extras"] = _professional_visible_metric_text(profile_payload.get("summary_short"))
+    return feedback
+
+
+def _build_pdf_neuromuscular_profile_payload(
+    row,
+    reference_df: pd.DataFrame | None = None,
+    context: dict[str, object] | None = None,
+) -> dict[str, object]:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    core_context = dict(context or {})
+    core_context.setdefault("audience", "profe")
+    core_available = True
+    try:
+        core_payload = build_neuromuscular_profile_result(
+            row_series,
+            reference_df=reference_df,
+            context=core_context,
+        )
+    except Exception:
+        core_available = False
+        core_payload = {}
+
+    if not isinstance(core_payload, dict):
+        core_available = False
+        core_payload = {}
+
+    metrics = _professional_neuromuscular_metrics(row_series, core_payload.get("metrics"))
+    payload = {
+        "source": "core" if core_available else "legacy_fallback",
+        "profile_code": str(core_payload.get("profile_code") or "UNCLASSIFIED"),
+        "profile_label": _professional_visible_metric_text(core_payload.get("profile_label") or "Sin patron dominante"),
+        "confidence": str(core_payload.get("confidence") or "low"),
+        "confidence_label": NEUROMUSCULAR_CONFIDENCE_LABELS.get(str(core_payload.get("confidence") or "low"), "Baja"),
+        "phys": _professional_visible_metric_text(core_payload.get("phys") or ""),
+        "bio": _professional_visible_metric_text(core_payload.get("bio") or ""),
+        "train": _professional_visible_metric_text(core_payload.get("train") or ""),
+        "summary_short": _professional_visible_metric_text(core_payload.get("summary_short") or ""),
+        "summary_athlete": _professional_visible_metric_text(core_payload.get("summary_athlete") or ""),
+        "summary_client": _professional_visible_metric_text(core_payload.get("summary_client") or ""),
+        "summary_professional": _professional_visible_metric_text(core_payload.get("summary_professional") or ""),
+        "metrics": metrics,
+        "flags": [str(flag).strip() for flag in core_payload.get("flags", []) if str(flag).strip()],
+        "evidence": [
+            _professional_visible_metric_text(item)
+            for item in core_payload.get("evidence", [])
+            if str(item).strip()
+        ],
+        "kpi_to_track": [
+            _professional_visible_metric_text(item)
+            for item in core_payload.get("kpi_to_track", [])
+            if str(item).strip()
+        ],
+    }
+    payload["kpi_labels"] = _neuromuscular_kpi_labels(payload)
+    payload["training_priority_short"] = _neuromuscular_priority_short(payload)
+    payload["training_priority_detailed"] = _neuromuscular_priority_detailed(payload)
+    payload["flag_messages_athlete"] = _neuromuscular_flag_messages(payload, "atleta")
+    payload["flag_messages_client"] = _neuromuscular_flag_messages(payload, "cliente")
+    payload["flag_messages_professional"] = _neuromuscular_flag_messages(payload, "profe")
+    payload["feedback"] = _professional_feedback_from_structured_profile(payload) if core_available else {}
+    return payload
+
+
 def _professional_force_time_note_text(value: object) -> str:
     text = _professional_visible_metric_text(value).strip()
     targeted_replacements = {
@@ -6372,6 +6834,10 @@ def _build_professional_composite_profile_payload(
 ) -> dict[str, object]:
     history = _professional_jump_history(state, athlete)
     assessment_count = _professional_assessment_date_count(state, athlete)
+    empty_neuromuscular_profile = _build_pdf_neuromuscular_profile_payload(
+        pd.Series(dtype=object),
+        context={"assessment_count": assessment_count, "scope": "professional_composite_profile"},
+    )
     if history.empty:
         return {
             "title": "Perfil actual compuesto",
@@ -6380,6 +6846,21 @@ def _build_professional_composite_profile_payload(
             "metric_table": pd.DataFrame(columns=["Variable", "Valor", "Z-score", "Origen / referencia"]),
             "available_metric_count": 0,
             "feedback": {},
+            "neuromuscular_profile": empty_neuromuscular_profile,
+            "profile_code": empty_neuromuscular_profile["profile_code"],
+            "profile_label": empty_neuromuscular_profile["profile_label"],
+            "confidence": empty_neuromuscular_profile["confidence"],
+            "summary_short": empty_neuromuscular_profile["summary_short"],
+            "summary_athlete": empty_neuromuscular_profile["summary_athlete"],
+            "summary_client": empty_neuromuscular_profile["summary_client"],
+            "summary_professional": empty_neuromuscular_profile["summary_professional"],
+            "phys": empty_neuromuscular_profile["phys"],
+            "bio": empty_neuromuscular_profile["bio"],
+            "train": empty_neuromuscular_profile["train"],
+            "metrics": empty_neuromuscular_profile["metrics"],
+            "flags": empty_neuromuscular_profile["flags"],
+            "evidence": empty_neuromuscular_profile["evidence"],
+            "kpi_to_track": empty_neuromuscular_profile["kpi_to_track"],
             "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
         }
 
@@ -6392,6 +6873,21 @@ def _build_professional_composite_profile_payload(
             "metric_table": pd.DataFrame(columns=["Variable", "Valor", "Z-score", "Origen / referencia"]),
             "available_metric_count": 0,
             "feedback": {},
+            "neuromuscular_profile": empty_neuromuscular_profile,
+            "profile_code": empty_neuromuscular_profile["profile_code"],
+            "profile_label": empty_neuromuscular_profile["profile_label"],
+            "confidence": empty_neuromuscular_profile["confidence"],
+            "summary_short": empty_neuromuscular_profile["summary_short"],
+            "summary_athlete": empty_neuromuscular_profile["summary_athlete"],
+            "summary_client": empty_neuromuscular_profile["summary_client"],
+            "summary_professional": empty_neuromuscular_profile["summary_professional"],
+            "phys": empty_neuromuscular_profile["phys"],
+            "bio": empty_neuromuscular_profile["bio"],
+            "train": empty_neuromuscular_profile["train"],
+            "metrics": empty_neuromuscular_profile["metrics"],
+            "flags": empty_neuromuscular_profile["flags"],
+            "evidence": empty_neuromuscular_profile["evidence"],
+            "kpi_to_track": empty_neuromuscular_profile["kpi_to_track"],
             "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
         }
 
@@ -6405,11 +6901,23 @@ def _build_professional_composite_profile_payload(
                 in {"", "-", "\u2014", PDF_MISSING_TEXT, "Sin dato"}
                 else value
             )
-    feedback = _professional_sanitize_profile_feedback(
-        {
+    neuromuscular_profile = _build_pdf_neuromuscular_profile_payload(
+        snapshot_row,
+        reference_df=history,
+        context={"assessment_count": assessment_count, "scope": "professional_composite_profile"},
+    )
+    feedback_seed = neuromuscular_profile.get("feedback", {})
+    if neuromuscular_profile.get("source") != "core":
+        feedback_seed = {}
+    if not isinstance(feedback_seed, dict) or not any(str(value or "").strip() for value in feedback_seed.values()):
+        feedback_seed = {}
+    if not feedback_seed:
+        feedback_seed = {
             key: _professional_visible_metric_text(value)
             for key, value in _professional_feedback_map(build_jump_feedback_lines(snapshot_row)).items()
-        },
+        }
+    feedback = _professional_sanitize_profile_feedback(
+        feedback_seed,
         snapshot_row,
         assessment_count=assessment_count,
     )
@@ -6436,6 +6944,21 @@ def _build_professional_composite_profile_payload(
         "metric_table": metric_table,
         "available_metric_count": available_metric_count,
         "feedback": feedback,
+        "neuromuscular_profile": neuromuscular_profile,
+        "profile_code": neuromuscular_profile.get("profile_code", "UNCLASSIFIED"),
+        "profile_label": neuromuscular_profile.get("profile_label", "Sin patron dominante"),
+        "confidence": neuromuscular_profile.get("confidence", "low"),
+        "summary_short": neuromuscular_profile.get("summary_short", ""),
+        "summary_athlete": neuromuscular_profile.get("summary_athlete", ""),
+        "summary_client": neuromuscular_profile.get("summary_client", ""),
+        "summary_professional": neuromuscular_profile.get("summary_professional", ""),
+        "phys": neuromuscular_profile.get("phys", ""),
+        "bio": neuromuscular_profile.get("bio", ""),
+        "train": neuromuscular_profile.get("train", ""),
+        "metrics": neuromuscular_profile.get("metrics", {}),
+        "flags": neuromuscular_profile.get("flags", []),
+        "evidence": neuromuscular_profile.get("evidence", []),
+        "kpi_to_track": neuromuscular_profile.get("kpi_to_track", []),
         "has_clear_lagging": has_clear_lagging,
         "summary_line": summary_line.strip(),
         "latest_profile_date": _format_profile_source_date(history["Date"].max()),
@@ -10819,6 +11342,11 @@ def _generate_visual_report_pdf_reportlab(
 
     if audience == "atleta" and effective_athlete != "Todos":
         focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
+        athlete_neuromuscular_profile = _build_current_pdf_neuromuscular_profile_payload(
+            state,
+            effective_athlete,
+            audience="atleta",
+        )
         force_time_payload = build_force_time_report_payload(
             _latest_jump_row(state, effective_athlete),
             test_id="imtp",
@@ -10827,13 +11355,24 @@ def _generate_visual_report_pdf_reportlab(
         completion_value = _focus_completion_value(state, effective_athlete)
         internal_load = _build_professional_internal_load_context(state, effective_athlete)
         wellness_context = _professional_wellness_context(state, effective_athlete)
-        profile_reading = _athlete_profile_interpretation(focus_row)
-        final_blocks = _athlete_final_focus_blocks(focus_row, completion_value)
+        profile_reading = _athlete_profile_interpretation(
+            focus_row,
+            neuromuscular_profile=athlete_neuromuscular_profile,
+        )
+        final_blocks = _athlete_final_focus_blocks(
+            focus_row,
+            completion_value,
+            neuromuscular_profile=athlete_neuromuscular_profile,
+        )
         athlete_charts = _collect_athlete_pdf_chart_payloads(state, effective_athlete)
         evaluation_available = _row_has_eval_data(focus_row)
         load_available = _row_has_load_data(focus_row)
         wellness_available = _row_has_wellness_data(focus_row)
-        athlete_focus = _current_focus_text(focus_row, audience="atleta") if not summary_df.empty else "Nueva evaluación"
+        athlete_focus = (
+            _professional_visible_metric_text(athlete_neuromuscular_profile.get("training_priority_short"))
+            if evaluation_available and athlete_neuromuscular_profile.get("source") == "core"
+            else (_current_focus_text(focus_row, audience="atleta") if not summary_df.empty else "Nueva evaluación")
+        )
         load_lines = _athlete_load_status_lines(focus_row, internal_load)
         wellness_summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
         wellness_scale = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
@@ -10852,7 +11391,10 @@ def _generate_visual_report_pdf_reportlab(
             for point in list(force_time_payload.get("rfd_points", []))
             if _coerce_float(point.get("value_n_s")) is not None
         ]
-        profile_label = _profile_text(focus_row, fallback="Pendiente de evaluación")
+        profile_label = _professional_visible_metric_text(
+            athlete_neuromuscular_profile.get("profile_label")
+            or _profile_text(focus_row, fallback="Pendiente de evaluación")
+        )
 
         def _athlete_metric(value: object, *, digits: int = 1, suffix: str = "", fallback: str = "Dato todavía no disponible") -> str:
             numeric = _coerce_float(value)
@@ -10877,6 +11419,9 @@ def _generate_visual_report_pdf_reportlab(
             return "Todavía no registrado"
 
         def _athlete_focus_summary_sentence() -> str:
+            if evaluation_available and athlete_neuromuscular_profile.get("source") == "core":
+                focus_phrase = _sentence_fragment(athlete_focus, lowercase=True) or "sostener la calidad actual"
+                return f"El foco actual es {focus_phrase}."
             normalized = _professional_normalized_text(athlete_focus)
             if normalized == "nueva evaluacion":
                 return "El foco actual es completar una nueva evaluación y sostener continuidad."
@@ -10891,6 +11436,12 @@ def _generate_visual_report_pdf_reportlab(
             return "El foco actual es sostener lo que viene funcionando y seguir construyendo con continuidad."
 
         def _athlete_focus_plan_text() -> str:
+            if evaluation_available and athlete_neuromuscular_profile.get("source") == "core":
+                return _professional_visible_metric_text(
+                    athlete_neuromuscular_profile.get("training_priority_detailed")
+                    or athlete_neuromuscular_profile.get("training_priority_short")
+                    or athlete_focus
+                )
             normalized = _professional_normalized_text(athlete_focus)
             if normalized == "nueva evaluacion":
                 return "Completar una nueva evaluación para tener una referencia más clara y seguir ajustando el trabajo."
@@ -11816,6 +12367,11 @@ def _generate_visual_report_pdf_reportlab(
 
     if audience == "cliente" and effective_athlete != "Todos":
         focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
+        client_neuromuscular_profile = _build_current_pdf_neuromuscular_profile_payload(
+            state,
+            effective_athlete,
+            audience="cliente",
+        )
         completion_value = _focus_completion_value(state, effective_athlete)
         internal_load = _build_professional_internal_load_context(state, effective_athlete)
         wellness_context = _professional_wellness_context(state, effective_athlete)
@@ -11841,10 +12397,15 @@ def _generate_visual_report_pdf_reportlab(
             return _client_text(_display_metric(value, digits=digits, suffix=suffix), fallback=fallback)
 
         def _client_focus_label() -> str:
+            if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core":
+                return _client_text(
+                    client_neuromuscular_profile.get("training_priority_short"),
+                    fallback="Seguir construyendo",
+                )
             return _client_text(_current_focus_text(focus_row, audience="cliente"), fallback="Seguir construyendo")
 
         def _client_focus_phrase() -> str:
-            focus = _client_focus_label()
+            focus = _sentence_fragment(_client_focus_label())
             normalized = _professional_normalized_text(focus)
             if normalized == "hacer nueva evaluacion":
                 return "hacer una nueva evaluación"
@@ -11964,6 +12525,10 @@ def _generate_visual_report_pdf_reportlab(
             lines: list[str] = []
             zone = _professional_normalized_text(_client_zone_text())
             summary_parts: list[str] = []
+            if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core":
+                translated_flags = list(client_neuromuscular_profile.get("flag_messages_client", []))
+                if translated_flags:
+                    return translated_flags[:1] + ["Conviene usar el próximo control para confirmar si esta señal se sostiene."]
             if "alto riesgo" in zone:
                 summary_parts.append("carga reciente")
                 lines.append("La carga reciente viene exigente y conviene ordenarla con un poco más de cuidado.")
@@ -12001,6 +12566,8 @@ def _generate_visual_report_pdf_reportlab(
         def _client_next_steps_list() -> list[str]:
             lines: list[str] = []
             zone = _professional_normalized_text(_client_zone_text())
+            if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core":
+                lines.append(_professional_visible_metric_text(f"Sostener el foco en {_client_focus_phrase()}."))
             if _professional_normalized_text(_client_focus_label()) == "hacer nueva evaluacion":
                 lines.append("Programar una nueva evaluación para sumar una referencia más clara del proceso.")
             if _client_completion_needs_follow_up():
@@ -12082,6 +12649,14 @@ def _generate_visual_report_pdf_reportlab(
                 return "Todavía falta información para una lectura más clara. Por ahora el foco es completar registros, sumar una evaluación inicial y sostener continuidad."
             if _row_has_eval_data(focus_row) or _row_has_load_data(focus_row) or _row_has_wellness_data(focus_row):
                 lines = ["Hoy tenemos una referencia útil para seguir el proceso."]
+                if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core":
+                    lines.append(
+                        _professional_visible_metric_text(
+                            client_neuromuscular_profile.get("summary_client")
+                            or client_neuromuscular_profile.get("summary_short")
+                            or ""
+                        )
+                    )
                 zone = _professional_normalized_text(_client_zone_text())
                 if _row_has_load_data(focus_row):
                     if "alto riesgo" in zone:
@@ -12132,9 +12707,18 @@ def _generate_visual_report_pdf_reportlab(
                 },
                 {
                     "label": "Lectura actual",
-                    "value": "Ya tenemos una referencia útil para seguir tu proceso."
-                    if _row_has_eval_data(focus_row)
-                    else "Falta completar esta referencia para definir mejor la lectura actual.",
+                    "value": (
+                        _professional_visible_metric_text(
+                            client_neuromuscular_profile.get("profile_label")
+                            or "Ya tenemos una referencia útil para seguir tu proceso."
+                        )
+                        if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core"
+                        else (
+                            "Ya tenemos una referencia útil para seguir tu proceso."
+                            if _row_has_eval_data(focus_row)
+                            else "Falta completar esta referencia para definir mejor la lectura actual."
+                        )
+                    ),
                 },
             ]
             return rows
