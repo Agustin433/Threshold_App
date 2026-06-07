@@ -108,7 +108,7 @@ from modules.alerts import (
     build_alert_feed,
     select_executive_alerts,
 )
-from modules.metrics import calculate_completion_rate, summarize_completion_by_group
+from modules.metrics import calculate_completion_rate, calculate_monotony, summarize_completion_by_group
 from modules.load_monitoring import build_weekly_acwr_context
 from modules.jump_analysis import (
     _prepare_jump_df as shared_prepare_jump_df,
