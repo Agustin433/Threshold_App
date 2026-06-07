@@ -18,8 +18,7 @@ from charts.load_charts import chart_maxes_trend
 from modules.jump_analysis import (
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
-    build_jump_feedback_lines,
-    build_jump_flag_rows,
+    build_dashboard_neuromuscular_payload,
 )
 from modules.page_state import collect_state_athletes, ensure_page_state
 from modules.page_visuals import build_page_theme
@@ -93,6 +92,11 @@ else:
         else pd.DataFrame()
     )
     current_profile_row, current_profile_sources = build_composite_profile_snapshot(athlete_hist)
+    current_profile_payload = (
+        build_dashboard_neuromuscular_payload(current_profile_row)
+        if current_profile_row is not None
+        else None
+    )
     executive_df = build_executive_summary_df(dict(st.session_state), athlete)
 
     if not executive_df.empty:
@@ -119,8 +123,8 @@ else:
         )
         metrics[3].metric(
             "Perfil NM actual",
-            current_profile_row["NM_Profile"]
-            if current_profile_row is not None and pd.notna(current_profile_row.get("NM_Profile"))
+            current_profile_payload["profile_metric_value"]
+            if isinstance(current_profile_payload, dict)
             else j_last["NM_Profile"].iloc[-1]
             if "NM_Profile" in j_last.columns and not j_last.empty
             else "-",
@@ -139,8 +143,9 @@ else:
                 "Este bloque no depende de una unica evaluacion por fecha. "
                 "Usa el ultimo dato valido disponible por variable para construir un perfil compuesto."
             )
-            _render_flag_chips(build_jump_flag_rows(current_profile_row))
-            _render_feedback(build_jump_feedback_lines(current_profile_row))
+            if isinstance(current_profile_payload, dict):
+                _render_flag_chips(list(current_profile_payload.get("flag_rows", [])))
+                _render_feedback(list(current_profile_payload.get("feedback_lines", [])))
 
             radar_col, table_col = st.columns([1.1, 0.9])
             with radar_col:

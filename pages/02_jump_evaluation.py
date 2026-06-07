@@ -31,10 +31,9 @@ from modules.force_time_analysis import (
 from modules.jump_analysis import (
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
+    build_dashboard_neuromuscular_payload,
     build_jump_baseline_display_table,
     build_jump_delta_display_table,
-    build_jump_feedback_lines,
-    build_jump_flag_rows,
     build_jump_temporal_context,
     compute_baseline_delta,
     compute_swc_delta,
@@ -414,7 +413,13 @@ else:
     delta_df = compute_swc_delta(athlete_hist, primary_detail_date)
     baseline_df = compute_baseline_delta(athlete_hist, primary_detail_date)
     temporal_lines = build_jump_temporal_context(delta_df)
-    selected_feedback_lines = build_jump_feedback_lines(primary_detail_row) + temporal_lines
+    selected_profile_payload = build_dashboard_neuromuscular_payload(primary_detail_row)
+    current_profile_payload = (
+        build_dashboard_neuromuscular_payload(current_profile_row)
+        if current_profile_row is not None
+        else None
+    )
+    selected_feedback_lines = list(selected_profile_payload.get("feedback_lines", [])) + temporal_lines
 
     st.markdown("### Evaluacion seleccionada")
     st.caption(f"Fecha elegida para el detalle puntual: {_format_eval_date(selected_date)}")
@@ -445,7 +450,7 @@ else:
         st.caption(
             "Baseline insuficiente: se necesitan al menos 3 mediciones validas por variable para establecer la referencia inicial."
         )
-    _render_flag_chips(build_jump_flag_rows(primary_detail_row))
+    _render_flag_chips(list(selected_profile_payload.get("flag_rows", [])))
     _render_feedback(selected_feedback_lines)
 
     st.markdown("### Detalle de la evaluacion seleccionada")
@@ -638,8 +643,9 @@ else:
             st.dataframe(metric_table, use_container_width=True, hide_index=True)
         with st.expander("Origen por variable", expanded=False):
             st.dataframe(current_profile_sources, use_container_width=True, hide_index=True)
-        _render_flag_chips(build_jump_flag_rows(current_profile_row))
-        _render_feedback(build_jump_feedback_lines(current_profile_row))
+        if isinstance(current_profile_payload, dict):
+            _render_flag_chips(list(current_profile_payload.get("flag_rows", [])))
+            _render_feedback(list(current_profile_payload.get("feedback_lines", [])))
 
     st.markdown("### Historial temporal")
     st.caption("Estos graficos usan siempre la fecha de evaluacion como eje temporal y no dependen de la fecha seleccionada.")

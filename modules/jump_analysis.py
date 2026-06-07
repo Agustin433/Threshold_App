@@ -877,6 +877,132 @@ def build_neuromuscular_profile_result(
     return result
 
 
+_DASHBOARD_CONFIDENCE_LABELS = {
+    "high": "alta",
+    "moderate": "moderada",
+    "low": "baja",
+}
+
+_DASHBOARD_STRUCTURED_FLAG_MAP = {
+    "missing_imtp": {"level": "gray", "text": "IMTP pendiente"},
+    "missing_dj": {"level": "gray", "text": "DJ pendiente"},
+    "cmj_lower_than_sj": {"level": "red", "text": "CMJ < SJ"},
+    "insufficient_pattern_evidence": {"level": "yellow", "text": "Perfil parcial"},
+}
+
+
+def _dashboard_profile_metric_value(profile_payload: dict[str, object]) -> str:
+    profile_code = str(profile_payload.get("profile_code") or "").strip()
+    if not profile_code or profile_code == "UNCLASSIFIED":
+        return "Sin patron"
+    return f"Patron {profile_code}"
+
+
+def _dashboard_signal_summary(row_series: pd.Series) -> tuple[list[str], list[str]]:
+    axes, _ = _available_radar_axes(row_series)
+    high_values: list[str] = []
+    low_values: list[str] = []
+
+    for label, _, _, z_col in axes:
+        z_value = _coalesced_numeric_value(row_series, z_col, *_zscore_aliases(z_col))
+        if z_value is None:
+            continue
+        if z_value > 0.5:
+            high_values.append(f"{label} ({z_value:+.2f})")
+        elif z_value < -0.5:
+            low_values.append(f"{label} ({z_value:+.2f})")
+
+    return high_values, low_values
+
+
+def _dashboard_structured_flag_rows(profile_payload: dict[str, object]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    profile_value = _dashboard_profile_metric_value(profile_payload)
+    confidence = str(profile_payload.get("confidence") or "low").strip().lower()
+    rows.append(
+        {
+            "level": {"high": "green", "moderate": "yellow"}.get(confidence, "gray"),
+            "text": f"Perfil: {profile_value}",
+        }
+    )
+
+    for flag in profile_payload.get("flags", []):
+        flag_key = str(flag).strip()
+        if flag_key == "insufficient_pattern_evidence" and profile_payload.get("profile_code") != "UNCLASSIFIED":
+            continue
+        mapped = _DASHBOARD_STRUCTURED_FLAG_MAP.get(flag_key)
+        if mapped:
+            rows.append(dict(mapped))
+
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        key = (str(row.get("level") or ""), str(row.get("text") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
+
+
+def build_dashboard_neuromuscular_payload(
+    row,
+    reference_df: pd.DataFrame | None = None,
+    context: dict[str, object] | None = None,
+) -> dict[str, object]:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    core_context = dict(context or {})
+    core_context.setdefault("audience", "dashboard")
+
+    try:
+        profile_payload = build_neuromuscular_profile_result(
+            row_series,
+            reference_df=reference_df,
+            context=core_context,
+        )
+        core_available = isinstance(profile_payload, dict)
+    except Exception:
+        profile_payload = {}
+        core_available = False
+
+    if not core_available:
+        return {
+            "source": "legacy_fallback",
+            "profile_code": "UNCLASSIFIED",
+            "profile_label": "Sin patron dominante",
+            "confidence": "low",
+            "confidence_label": _DASHBOARD_CONFIDENCE_LABELS["low"],
+            "summary_short": "Sin patron dominante con las reglas actuales.",
+            "phys": "",
+            "bio": "",
+            "train": "",
+            "metrics": {},
+            "flags": [],
+            "evidence": [],
+            "kpi_to_track": [],
+            "profile_metric_value": "Sin patron",
+            "flag_rows": build_jump_flag_rows(row_series),
+            "feedback_lines": build_jump_feedback_lines(row_series),
+        }
+
+    high_values, low_values = _dashboard_signal_summary(row_series)
+    confidence = str(profile_payload.get("confidence") or "low").strip().lower()
+    payload = dict(profile_payload)
+    payload["source"] = "core"
+    payload["confidence_label"] = _DASHBOARD_CONFIDENCE_LABELS.get(confidence, _DASHBOARD_CONFIDENCE_LABELS["low"])
+    payload["profile_metric_value"] = _dashboard_profile_metric_value(profile_payload)
+    payload["flag_rows"] = [*build_jump_flag_rows(row_series), *_dashboard_structured_flag_rows(profile_payload)]
+    payload["feedback_lines"] = [
+        f"Perfil: {profile_payload.get('profile_label', 'Sin patron dominante')} (confianza {payload['confidence_label']})",
+        f"Alto: {', '.join(high_values) if high_values else 'sin variables > 0.5.'}",
+        f"Bajo: {', '.join(low_values) if low_values else 'sin variables < -0.5.'}",
+        f"Fisiologico: {str(profile_payload.get('phys') or '').strip()}",
+        f"Biomecanico: {str(profile_payload.get('bio') or '').strip()}",
+        f"Proximo bloque: {str(profile_payload.get('train') or '').strip()}",
+    ]
+    return payload
+
+
 def build_jump_feedback_lines(row: pd.Series | dict[str, object]) -> list[str]:
     row_series = row if isinstance(row, pd.Series) else pd.Series(row)
     axes, _ = _available_radar_axes(row_series)

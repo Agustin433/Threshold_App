@@ -17,6 +17,7 @@ from modules.jump_analysis import (
     NEUROMUSCULAR_PATTERN_FIELDS,
     _prepare_jump_df,
     _records_to_jump_df,
+    build_dashboard_neuromuscular_payload,
     build_neuromuscular_profile_result,
     build_composite_profile_metric_table,
     build_composite_profile_metric_rows,
@@ -33,6 +34,7 @@ from modules.jump_analysis import (
     compute_swc_delta,
     select_primary_profile_row,
 )
+from modules.report_generator import _build_pdf_neuromuscular_profile_payload
 
 
 def _chart_theme() -> dict:
@@ -1191,6 +1193,73 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertIn("missing_dj", result["flags"])
         self.assertIn("insufficient_pattern_evidence", result["flags"])
         self.assertEqual(result["metrics"]["SJ_cm"]["label"], "SJ")
+
+    def test_dashboard_payload_matches_pdf_payload_on_empty_row(self):
+        dashboard_payload = build_dashboard_neuromuscular_payload(pd.Series(dtype=object))
+        pdf_payload = _build_pdf_neuromuscular_profile_payload(pd.Series(dtype=object))
+
+        self.assertEqual(dashboard_payload["source"], "core")
+        self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
+        self.assertEqual(dashboard_payload["profile_label"], pdf_payload["profile_label"])
+        self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
+        self.assertIn("missing_imtp", dashboard_payload["flags"])
+        self.assertIn("missing_dj", dashboard_payload["flags"])
+        self.assertTrue(dashboard_payload["feedback_lines"])
+        self.assertTrue(dashboard_payload["flag_rows"])
+
+    def test_dashboard_payload_matches_pdf_profile_code_and_label(self):
+        row = _synthetic_profile_row(SJ_Z=0.80, DJ_RSI_Z=-0.80)
+
+        dashboard_payload = build_dashboard_neuromuscular_payload(row)
+        pdf_payload = _build_pdf_neuromuscular_profile_payload(row)
+
+        self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
+        self.assertEqual(dashboard_payload["profile_label"], pdf_payload["profile_label"])
+        self.assertEqual(dashboard_payload["confidence"], pdf_payload["confidence"])
+        self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
+        self.assertIn("Patron A", dashboard_payload["profile_metric_value"])
+
+    def test_dashboard_payload_handles_missing_imtp_without_keyerror(self):
+        row = _synthetic_profile_row(IMTP_relPF=None, IMTP_N=None, IMTP_relPF_Z=None)
+
+        dashboard_payload = build_dashboard_neuromuscular_payload(row)
+        pdf_payload = _build_pdf_neuromuscular_profile_payload(row)
+
+        self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
+        self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
+        self.assertIn("missing_imtp", dashboard_payload["flags"])
+        self.assertTrue(any("IMTP" in item["text"] for item in dashboard_payload["flag_rows"]))
+
+    def test_dashboard_payload_handles_missing_dj_without_keyerror(self):
+        row = _synthetic_profile_row(DJ_cm=None, DJ_RSI=None, DJ_tc_ms=None, DJ_RSI_Z=None, DJ_height_Z=None)
+
+        dashboard_payload = build_dashboard_neuromuscular_payload(row)
+        pdf_payload = _build_pdf_neuromuscular_profile_payload(row)
+
+        self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
+        self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
+        self.assertIn("missing_dj", dashboard_payload["flags"])
+        self.assertTrue(any("DJ" in item["text"] for item in dashboard_payload["flag_rows"]))
+
+    def test_dashboard_payload_keeps_pattern_e_alert_consistent_with_pdf(self):
+        row = _synthetic_profile_row(
+            EUR=0.95,
+            CMJ_cm=29.0,
+            SJ_cm=31.0,
+            SJ_Z=0.10,
+            DJ_RSI_Z=0.15,
+            IMTP_relPF_Z=0.20,
+        )
+
+        dashboard_payload = build_dashboard_neuromuscular_payload(row)
+        pdf_payload = _build_pdf_neuromuscular_profile_payload(row)
+
+        self.assertEqual(dashboard_payload["profile_code"], "E")
+        self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
+        self.assertEqual(dashboard_payload["profile_label"], pdf_payload["profile_label"])
+        self.assertIn("cmj_lower_than_sj", dashboard_payload["flags"])
+        self.assertTrue(any("CMJ < SJ" in item["text"] for item in dashboard_payload["flag_rows"]))
+        self.assertTrue(any("Patron E" in line for line in dashboard_payload["feedback_lines"]))
 
     def test_all_pattern_payloads_keep_consistent_structured_keys(self):
         for pattern_code in ("A", "B", "C", "D", "E"):
