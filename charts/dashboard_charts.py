@@ -11,6 +11,7 @@ from modules.jump_analysis import (
     build_composite_profile_metric_rows,
     choose_secondary_quadrant_x_spec,
     compute_baseline_delta,
+    resolve_zscore,
 )
 
 
@@ -145,7 +146,7 @@ def _resolve_radar_axes(row: pd.Series) -> tuple[pd.Series, list[tuple[str, str,
     valid_axes: list[tuple[str, str, str, str]] = []
     values: list[float] = []
     for axis in axes:
-        value = _numeric_value(prepared_row.get(axis[3]))
+        value = resolve_zscore(prepared_row, axis[3])
         if value is None:
             continue
         valid_axes.append(axis)

@@ -267,6 +267,7 @@ COMPOSITE_PROFILE_DIRECTIONS = {
 }
 
 ZSCORE_ALIAS_GROUPS = (
+    ("DJ_height_Z", "DJ_Z"),
     ("TC_inv_Z", "DJtc_Z"),
     ("IMTP_relPF_Z", "IMTP_Z"),
 )
@@ -314,12 +315,23 @@ def _coalesced_numeric_series(frame: pd.DataFrame, *columns: str) -> pd.Series:
 
 
 def _zscore_aliases(z_col: str) -> tuple[str, ...]:
-    aliases = [z_col]
+    canonical = z_col
     for group in ZSCORE_ALIAS_GROUPS:
         if z_col in group:
-            aliases.extend(column for column in group if column != z_col)
+            canonical = group[0]
+            break
+    aliases = [canonical]
+    for group in ZSCORE_ALIAS_GROUPS:
+        if canonical == group[0]:
+            aliases.extend(column for column in group[1:])
             break
     return tuple(dict.fromkeys(aliases))
+
+
+def resolve_zscore(row: pd.Series | dict[str, object], canonical_field: str) -> float | None:
+    """Resolve a canonical z-score from the current field or approved legacy aliases."""
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    return _coalesced_numeric_value(row_series, *_zscore_aliases(str(canonical_field)))
 
 
 def _normalize_eur_series_to_ratio(series: pd.Series) -> pd.Series:
@@ -652,10 +664,10 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
 
 
 def _pattern_matches(row: pd.Series) -> list[str]:
-    sj_z = pd.to_numeric(pd.Series([row.get("SJ_Z")]), errors="coerce").iloc[0]
-    dj_rsi_z = pd.to_numeric(pd.Series([row.get("DJ_RSI_Z")]), errors="coerce").iloc[0]
-    cmj_z = pd.to_numeric(pd.Series([row.get("CMJ_Z")]), errors="coerce").iloc[0]
-    imtp_relpf_z = pd.to_numeric(pd.Series([row.get("IMTP_relPF_Z")]), errors="coerce").iloc[0]
+    sj_z = resolve_zscore(row, "SJ_Z")
+    dj_rsi_z = resolve_zscore(row, "DJ_RSI_Z")
+    cmj_z = resolve_zscore(row, "CMJ_Z")
+    imtp_relpf_z = resolve_zscore(row, "IMTP_relPF_Z")
     eur = pd.to_numeric(pd.Series([row.get("EUR")]), errors="coerce").iloc[0]
 
     patterns: list[str] = []
@@ -668,7 +680,7 @@ def _pattern_matches(row: pd.Series) -> list[str]:
 
     radar_z_cols = [axis[3] for axis in _available_radar_axes(row)[0]]
     radar_values = [
-        pd.to_numeric(pd.Series([row.get(col)]), errors="coerce").iloc[0]
+        resolve_zscore(row, col)
         for col in radar_z_cols
     ]
     radar_values = [value for value in radar_values if pd.notna(value)]
@@ -684,8 +696,8 @@ def _pattern_text(row: pd.Series, pattern_code: str, field: str) -> str:
     if pattern_code != "E" or field != "bio":
         return str(payload.get(field, "")).strip()
 
-    dj_rsi_z = _coalesced_numeric_value(row, "DJ_RSI_Z")
-    sj_z = _coalesced_numeric_value(row, "SJ_Z")
+    dj_rsi_z = resolve_zscore(row, "DJ_RSI_Z")
+    sj_z = resolve_zscore(row, "SJ_Z")
     if dj_rsi_z is not None and dj_rsi_z > 0.5:
         return str(payload.get("bio_dj_rsi_high") or payload.get("bio", "")).strip()
     if sj_z is not None and sj_z > 0.5:
@@ -786,7 +798,7 @@ def build_neuromuscular_profile_result(
         display_value_col = str(display_spec["value_col"])
         display_z_col = str(display_spec["z_col"])
         value = _coalesced_numeric_value(row_series, display_value_col)
-        z_value = _coalesced_numeric_value(row_series, *_zscore_aliases(display_z_col))
+        z_value = resolve_zscore(row_series, display_z_col)
         source_date = (
             row_series.get(f"{display_value_col}__source_date")
             or row_series.get(f"{value_col}__source_date")
@@ -809,7 +821,9 @@ def build_neuromuscular_profile_result(
 
     flags: list[str] = []
     imtp_value = _coalesced_numeric_value(row_series, "IMTP_relPF", "IMTP_N")
-    imtp_z = _coalesced_numeric_value(row_series, "IMTP_relPF_Z", "IMTP_Z", "IMTP_N_Z")
+    imtp_z = resolve_zscore(row_series, "IMTP_relPF_Z")
+    if imtp_z is None:
+        imtp_z = _coalesced_numeric_value(row_series, "IMTP_N_Z")
     if imtp_value is None or imtp_z is None:
         flags.append("missing_imtp")
 
@@ -1010,8 +1024,8 @@ def build_jump_feedback_lines(row: pd.Series | dict[str, object]) -> list[str]:
     low_values: list[str] = []
 
     for label, _, _, z_col in axes:
-        z_value = pd.to_numeric(pd.Series([row_series.get(z_col)]), errors="coerce").iloc[0]
-        if pd.isna(z_value):
+        z_value = resolve_zscore(row_series, z_col)
+        if z_value is None or pd.isna(z_value):
             continue
         if z_value > 0.5:
             high_values.append(f"{label} ({z_value:+.2f})")
@@ -1586,17 +1600,22 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
         source_date = _format_profile_source_date(source_row.get("Date"))
         source_z_col = "IMTP_N_Z" if source_value_col == "IMTP_N" else z_col
         snapshot[source_value_col] = source_row.get(source_value_col)
-        snapshot[source_z_col] = _coalesced_numeric_value(source_row, source_z_col)
+        resolved_source_z = (
+            resolve_zscore(source_row, source_z_col)
+            if source_z_col != "IMTP_N_Z"
+            else _coalesced_numeric_value(source_row, "IMTP_N_Z")
+        )
+        snapshot[source_z_col] = resolved_source_z
         snapshot[f"{value_col}__source_date"] = source_date
         snapshot[f"{source_value_col}__source_date"] = source_date
         if value_col == "DJ_tc_ms":
-            tc_z = _coalesced_numeric_value(source_row, "TC_inv_Z", "DJtc_Z")
+            tc_z = resolve_zscore(source_row, "TC_inv_Z")
             snapshot["TC_inv_Z"] = tc_z
             snapshot["DJtc_Z"] = tc_z
         if value_col == "IMTP_relPF":
             snapshot["IMTP_N"] = source_row.get("IMTP_N")
             if source_value_col == "IMTP_relPF":
-                imtp_z = _coalesced_numeric_value(source_row, "IMTP_relPF_Z", "IMTP_Z")
+                imtp_z = resolve_zscore(source_row, "IMTP_relPF_Z")
                 snapshot["IMTP_relPF_Z"] = imtp_z
                 snapshot["IMTP_Z"] = imtp_z
             else:
@@ -1616,6 +1635,13 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
         if source_row is not None:
             snapshot[field] = source_row.get(field)
 
+    for primary_col, alias_col in ZSCORE_ALIAS_GROUPS:
+        z_value = resolve_zscore(snapshot, primary_col)
+        if z_value is None:
+            continue
+        snapshot[primary_col] = z_value
+        snapshot[alias_col] = z_value
+
     snapshot_df = pd.DataFrame([snapshot])
     if "EUR" in snapshot_df.columns:
         snapshot_df = calc_nm_profile(snapshot_df)
@@ -1628,8 +1654,8 @@ def _count_renderable_radar_axes(row: pd.Series | dict[str, object]) -> int:
     axes, _ = _available_radar_axes(row_series)
     renderable = 0
     for _, _, _, z_col in axes:
-        z_value = pd.to_numeric(pd.Series([row_series.get(z_col)]), errors="coerce").iloc[0]
-        if pd.notna(z_value):
+        z_value = resolve_zscore(row_series, z_col)
+        if z_value is not None and pd.notna(z_value):
             renderable += 1
     return renderable
 
@@ -1665,7 +1691,7 @@ def build_composite_profile_metric_rows(row: pd.Series | dict[str, object]) -> l
         display_digits = int(display_spec["digits"])
 
         value = pd.to_numeric(pd.Series([row_series.get(display_value_col)]), errors="coerce").iloc[0]
-        z_value = _coalesced_numeric_value(row_series, *_zscore_aliases(display_z_col))
+        z_value = resolve_zscore(row_series, display_z_col)
         rounded_value = round(float(value), display_digits) if pd.notna(value) else None
         z_score_display = round(float(z_value), 2) if pd.notna(z_value) else "\u2014"
         rows.append(
@@ -1701,7 +1727,7 @@ def build_jump_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:
 
     for label, value_col, unit, z_col in axes:
         value = pd.to_numeric(pd.Series([row_series.get(value_col)]), errors="coerce").iloc[0]
-        z_value = pd.to_numeric(pd.Series([row_series.get(z_col)]), errors="coerce").iloc[0]
+        z_value = resolve_zscore(row_series, z_col)
         rows.append(
             {
                 "Variable": label,

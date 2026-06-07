@@ -29,6 +29,7 @@ from modules.jump_analysis import (
     build_profile_radar_row,
     compute_baseline_delta,
     compute_swc_delta,
+    resolve_zscore,
     semaphore_label,
 )
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
@@ -4400,8 +4401,18 @@ def _build_report_chart_theme() -> dict:
 
 
 def _team_mean_for_radar(jdf: pd.DataFrame) -> dict[str, float]:
-    z_keys = ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"]
-    return {key: float(jdf[key].mean()) for key in z_keys if key in jdf.columns and not jdf[key].dropna().empty}
+    if jdf is None or jdf.empty:
+        return {}
+
+    prepared = _prepare_jump_df(jdf)
+    z_keys = ("SJ_Z", "CMJ_Z", "DJ_height_Z", "DJ_RSI_Z", "TC_inv_Z", "IMTP_relPF_Z")
+    team_means: dict[str, float] = {}
+    for key in z_keys:
+        values = prepared.apply(lambda row: resolve_zscore(row, key), axis=1)
+        numeric = pd.to_numeric(values, errors="coerce").dropna()
+        if not numeric.empty:
+            team_means[key] = float(numeric.mean())
+    return team_means
 
 
 def collect_report_plotly_figures(
@@ -4846,14 +4857,20 @@ def _format_professional_metric_value(value: object, spec: dict[str, object], va
     return rendered
 
 
-def _professional_z_value(row: pd.Series | None, spec: dict[str, object]) -> float | None:
+def _professional_z_value(row: pd.Series | None, spec: dict[str, object], value_col: str = "") -> float | None:
     if row is None:
         return None
+    if value_col == "IMTP_relPF":
+        return _professional_snapshot_zscore(row, "IMTP_relPF_Z")
+    if value_col == "IMTP_N":
+        return _professional_snapshot_zscore(row, "IMTP_N_Z")
     for column in tuple(spec.get("z_cols", ())):
-        if column in row.index:
-            numeric = _coerce_float(row.get(column))
-            if numeric is not None:
-                return numeric
+        if str(column).endswith("_Z") or str(column) in {"DJtc_Z", "DJ_Z", "IMTP_Z"}:
+            numeric = _professional_snapshot_zscore(row, str(column))
+        else:
+            numeric = _coerce_float(row.get(column)) if column in row.index else None
+        if numeric is not None:
+            return numeric
     return None
 
 
@@ -5198,7 +5215,7 @@ def _build_professional_metric_cards(
         previous_row = metric_rows.iloc[-2] if len(metric_rows) >= 2 else None
         current_value = _coerce_float(latest_row.get(value_col)) if latest_row is not None else None
         previous_value = _coerce_float(previous_row.get(value_col)) if previous_row is not None else None
-        z_value = _professional_z_value(latest_row, spec)
+        z_value = _professional_z_value(latest_row, spec, value_col)
         delta_payload = _professional_delta_payload(history, latest_row, value_col, spec)
         threshold_abs = _coerce_float(delta_payload.get("threshold_abs"))
         threshold_method = delta_payload.get("threshold_method")
@@ -6276,6 +6293,11 @@ def _professional_snapshot_metric(row: pd.Series | dict[str, object], *columns: 
     return None
 
 
+def _professional_snapshot_zscore(row: pd.Series | dict[str, object], canonical_field: str) -> float | None:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row)
+    return resolve_zscore(row_series, canonical_field)
+
+
 PROFESSIONAL_NEUROMUSCULAR_SIGNAL_ORDER = (
     "SJ_cm",
     "CMJ_cm",
@@ -6289,7 +6311,7 @@ PROFESSIONAL_NEUROMUSCULAR_SUPPORT_METRICS = (
     ("DJ_RSI", "DJ RSI", "m/s", ("DJ_RSI_Z",), "higher_is_better"),
     ("DSI", "DSI", "", ("DSI_Z",), "higher_is_better"),
     ("mRSI", "mRSI", "m/s", ("mRSI_Z",), "higher_is_better"),
-    ("IMTP_N", "IMTP", "N", ("IMTP_N_Z", "IMTP_Z"), "higher_is_better"),
+    ("IMTP_N", "IMTP", "N", ("IMTP_N_Z",), "higher_is_better"),
 )
 
 NEUROMUSCULAR_KPI_LABELS = {
@@ -6419,7 +6441,14 @@ def _professional_neuromuscular_metrics(
 
     for metric_key, label, unit, z_columns, direction in PROFESSIONAL_NEUROMUSCULAR_SUPPORT_METRICS:
         value = _professional_snapshot_metric(row_series, metric_key)
-        z_value = _professional_snapshot_metric(row_series, *z_columns)
+        z_value = None
+        for z_col in z_columns:
+            if str(z_col).endswith("_Z") or str(z_col) in {"DJtc_Z", "DJ_Z", "IMTP_Z"}:
+                z_value = _professional_snapshot_zscore(row_series, str(z_col))
+            else:
+                z_value = _professional_snapshot_metric(row_series, str(z_col))
+            if z_value is not None:
+                break
         if value is None and z_value is None:
             continue
         if metric_key in metrics and metrics[metric_key].get("available"):
@@ -6631,13 +6660,13 @@ def _professional_build_profile_feedback_fallback(
     has_clear_lagging: bool,
 ) -> dict[str, str]:
     row_series = snapshot_row if isinstance(snapshot_row, pd.Series) else pd.Series(snapshot_row)
-    sj_z = _professional_snapshot_metric(row_series, "SJ_Z")
-    cmj_z = _professional_snapshot_metric(row_series, "CMJ_Z")
-    dj_z = _professional_snapshot_metric(row_series, "DJ_height_Z", "DJ_Z")
-    dri_z = _professional_snapshot_metric(row_series, "DRI_Z")
-    contact_z = _professional_snapshot_metric(row_series, "TC_inv_Z", "DJtc_Z")
-    eur_z = _professional_snapshot_metric(row_series, "EUR_Z")
-    imtp_z = _professional_snapshot_metric(row_series, "IMTP_relPF_Z", "IMTP_Z", "IMTP_N_Z")
+    sj_z = _professional_snapshot_zscore(row_series, "SJ_Z")
+    cmj_z = _professional_snapshot_zscore(row_series, "CMJ_Z")
+    dj_z = _professional_snapshot_zscore(row_series, "DJ_height_Z")
+    dri_z = _professional_snapshot_zscore(row_series, "DRI_Z")
+    contact_z = _professional_snapshot_zscore(row_series, "TC_inv_Z")
+    eur_z = _professional_snapshot_zscore(row_series, "EUR_Z")
+    imtp_z = _professional_snapshot_zscore(row_series, "IMTP_relPF_Z")
 
     vertical_high = any(value is not None and value >= 0.5 for value in (sj_z, cmj_z))
     imtp_high = imtp_z is not None and imtp_z >= 0.5

@@ -1803,6 +1803,42 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("Tiempo de contacto", pdf_table.index)
         self.assertNotIn("TC inv", " ".join(pdf_table.index.astype(str)))
 
+    def test_team_mean_for_radar_resolves_canonical_overlay_keys_from_legacy_aliases(self):
+        jump_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-05-01",
+                    "SJ_Z": -0.20,
+                    "CMJ_Z": 0.30,
+                    "DJ_Z": 0.10,
+                    "DJ_RSI_Z": 0.45,
+                    "DJtc_Z": 0.80,
+                    "IMTP_Z": 0.60,
+                },
+                {
+                    "Athlete": "Juan Perez",
+                    "Date": "2026-05-02",
+                    "SJ_Z": 0.10,
+                    "CMJ_Z": 0.40,
+                    "DJ_Z": 0.20,
+                    "DJ_RSI_Z": 0.35,
+                    "DJtc_Z": 0.70,
+                    "IMTP_Z": 0.50,
+                },
+            ]
+        )
+
+        overlay = report_generator._team_mean_for_radar(jump_df)
+
+        self.assertIn("DJ_height_Z", overlay)
+        self.assertIn("TC_inv_Z", overlay)
+        self.assertIn("IMTP_relPF_Z", overlay)
+        self.assertNotIn("DJtc_Z", overlay)
+        self.assertNotIn("IMTP_Z", overlay)
+        self.assertAlmostEqual(overlay["TC_inv_Z"], 0.75)
+        self.assertAlmostEqual(overlay["IMTP_relPF_Z"], 0.55)
+
     def test_composite_profile_handles_absent_lagging_variable_professionally(self):
         state = {
             "jump_df": pd.DataFrame(

@@ -32,6 +32,7 @@ from modules.jump_analysis import (
     choose_secondary_quadrant_x_spec,
     compute_baseline_delta,
     compute_swc_delta,
+    resolve_zscore,
     select_primary_profile_row,
 )
 from modules.report_generator import _build_pdf_neuromuscular_profile_payload
@@ -1194,6 +1195,38 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertIn("insufficient_pattern_evidence", result["flags"])
         self.assertEqual(result["metrics"]["SJ_cm"]["label"], "SJ")
 
+    def test_resolve_zscore_prefers_canonical_contact_time_field(self):
+        row = pd.Series({"TC_inv_Z": 0.55, "DJtc_Z": -0.10})
+
+        self.assertEqual(resolve_zscore(row, "TC_inv_Z"), 0.55)
+
+    def test_resolve_zscore_falls_back_to_contact_time_alias(self):
+        row = pd.Series({"DJtc_Z": 0.80})
+
+        self.assertEqual(resolve_zscore(row, "TC_inv_Z"), 0.80)
+
+    def test_resolve_zscore_prefers_canonical_imtp_relpf_field(self):
+        row = pd.Series({"IMTP_relPF_Z": 0.42, "IMTP_Z": -0.20})
+
+        self.assertEqual(resolve_zscore(row, "IMTP_relPF_Z"), 0.42)
+
+    def test_resolve_zscore_falls_back_to_imtp_legacy_alias(self):
+        row = pd.Series({"IMTP_Z": 0.60})
+
+        self.assertEqual(resolve_zscore(row, "IMTP_relPF_Z"), 0.60)
+
+    def test_resolve_zscore_keeps_dj_height_and_dj_rsi_separate(self):
+        row = pd.Series({"DJ_height_Z": -0.40, "DJ_RSI_Z": 0.75})
+
+        self.assertEqual(resolve_zscore(row, "DJ_height_Z"), -0.40)
+        self.assertEqual(resolve_zscore(row, "DJ_RSI_Z"), 0.75)
+
+    def test_resolve_zscore_keeps_mrsi_separate_from_dj_rsi(self):
+        row = pd.Series({"mRSI_Z": 0.33, "DJ_RSI_Z": -0.66})
+
+        self.assertEqual(resolve_zscore(row, "mRSI_Z"), 0.33)
+        self.assertEqual(resolve_zscore(row, "DJ_RSI_Z"), -0.66)
+
     def test_dashboard_payload_matches_pdf_payload_on_empty_row(self):
         dashboard_payload = build_dashboard_neuromuscular_payload(pd.Series(dtype=object))
         pdf_payload = _build_pdf_neuromuscular_profile_payload(pd.Series(dtype=object))
@@ -1260,6 +1293,83 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertIn("cmj_lower_than_sj", dashboard_payload["flags"])
         self.assertTrue(any("CMJ < SJ" in item["text"] for item in dashboard_payload["flag_rows"]))
         self.assertTrue(any("Patron E" in line for line in dashboard_payload["feedback_lines"]))
+
+    def test_dashboard_and_pdf_payloads_resolve_same_canonical_zscores(self):
+        row = pd.Series(
+            {
+                "SJ_cm": 31.0,
+                "CMJ_cm": 35.0,
+                "DJ_cm": 25.0,
+                "DJ_RSI": 1.29,
+                "DJ_tc_ms": 210.0,
+                "IMTP_relPF": 39.5,
+                "SJ_Z": -0.20,
+                "CMJ_Z": 0.30,
+                "DJ_Z": 0.10,
+                "DJ_RSI_Z": 0.45,
+                "DJtc_Z": 0.80,
+                "IMTP_Z": 0.60,
+                "EUR": 1.129,
+                "EUR_Z": 0.25,
+                "DRI": 1.29,
+                "DRI_Z": 0.35,
+            }
+        )
+
+        dashboard_payload = build_dashboard_neuromuscular_payload(row)
+        pdf_payload = _build_pdf_neuromuscular_profile_payload(row)
+
+        self.assertEqual(
+            dashboard_payload["metrics"]["DJ_tc_ms"]["z_score"],
+            pdf_payload["metrics"]["DJ_tc_ms"]["z_score"],
+        )
+        self.assertEqual(
+            dashboard_payload["metrics"]["IMTP_relPF"]["z_score"],
+            pdf_payload["metrics"]["IMTP_relPF"]["z_score"],
+        )
+
+    def test_radar_and_composite_survive_legacy_alias_only_zscores(self):
+        row = pd.Series(
+            {
+                "Athlete": "Atleta Legacy",
+                "Date": "2026-05-01",
+                "SJ_cm": 31.0,
+                "CMJ_cm": 35.0,
+                "DJ_cm": 25.0,
+                "DJ_tc_ms": 210.0,
+                "DJ_RSI": 1.29,
+                "IMTP_relPF": 39.5,
+                "SJ_Z": -0.20,
+                "CMJ_Z": 0.30,
+                "DJ_Z": 0.10,
+                "DJ_RSI_Z": 0.45,
+                "DJtc_Z": 0.80,
+                "IMTP_Z": 0.60,
+                "EUR": 1.129,
+                "EUR_Z": 0.25,
+                "DRI": 1.29,
+                "DRI_Z": 0.35,
+            }
+        )
+
+        metric_rows = build_composite_profile_metric_rows(row)
+        metric_table = build_composite_profile_metric_table(row).set_index("Variable")
+        radar = chart_radar(row, "Atleta Legacy", None, theme=_chart_theme())
+
+        self.assertEqual(metric_table.loc["Tiempo de contacto", "Z-score"], 0.80)
+        self.assertEqual(metric_table.loc["IMTP", "Z-score"], 0.60)
+        self.assertEqual(next(item for item in metric_rows if item["Variable"] == "DJ")["Z-score"], 0.10)
+        self.assertIn("Tiempo de contacto", list(radar.data[-1].theta))
+
+    def test_radar_and_composite_survive_canonical_only_zscores(self):
+        row = _synthetic_profile_row(DJ_height_Z=0.10, TC_inv_Z=0.80, IMTP_relPF_Z=0.60)
+
+        metric_table = build_composite_profile_metric_table(row).set_index("Variable")
+        radar = chart_radar(row, "Atleta Canonico", None, theme=_chart_theme())
+
+        self.assertEqual(metric_table.loc["Tiempo de contacto", "Z-score"], 0.80)
+        self.assertEqual(metric_table.loc["IMTP", "Z-score"], 0.60)
+        self.assertIn("DJ height", list(radar.data[-1].theta))
 
     def test_all_pattern_payloads_keep_consistent_structured_keys(self):
         for pattern_code in ("A", "B", "C", "D", "E"):
