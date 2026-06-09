@@ -289,6 +289,37 @@ COMPOSITE_PROFILE_SUPPORT_FIELDS = (
     "BW_kg",
 )
 
+PROFILE_SOURCE_CONFIG = {
+    "latest_valid_row": {
+        "label": "Ultima evaluacion valida",
+        "note": "El perfil surge de una unica evaluacion valida.",
+        "is_composite": False,
+    },
+    "composite_snapshot": {
+        "label": "Perfil compuesto",
+        "note": "El perfil combina las ultimas metricas validas disponibles por variable. Puede incluir datos de fechas distintas.",
+        "is_composite": True,
+    },
+    "unknown": {
+        "label": "Fuente no determinada",
+        "note": "No se pudo determinar con claridad la fuente del perfil.",
+        "is_composite": False,
+    },
+}
+
+PROFILE_SOURCE_DATE_FIELDS = (
+    ("SJ_cm", ("SJ_cm",)),
+    ("CMJ_cm", ("CMJ_cm",)),
+    ("DJ_cm", ("DJ_cm",)),
+    ("DJ_RSI", ("DJ_RSI",)),
+    ("DJ_tc_ms", ("DJ_tc_ms",)),
+    ("DRI", ("DRI",)),
+    ("EUR", ("EUR",)),
+    ("IMTP_relPF", ("IMTP_relPF", "IMTP_N")),
+    ("DSI", ("DSI",)),
+    ("mRSI", ("mRSI",)),
+)
+
 
 def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame.columns:
@@ -332,6 +363,77 @@ def resolve_zscore(row: pd.Series | dict[str, object], canonical_field: str) -> 
     """Resolve a canonical z-score from the current field or approved legacy aliases."""
     row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
     return _coalesced_numeric_value(row_series, *_zscore_aliases(str(canonical_field)))
+
+
+def _normalize_profile_source(value: object) -> str:
+    source = str(value or "").strip()
+    return source if source in PROFILE_SOURCE_CONFIG else "unknown"
+
+
+def _format_profile_source_iso_date(value: object) -> str:
+    text = str(value or "").strip()
+    if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-":
+        parsed = pd.to_datetime(text, errors="coerce")
+    else:
+        parsed = pd.to_datetime(value, errors="coerce", dayfirst=True)
+    return parsed.strftime("%Y-%m-%d") if pd.notna(parsed) else "-"
+
+
+def _profile_source_dates_from_row(row: pd.Series | dict[str, object]) -> dict[str, str]:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    row_date_iso = _format_profile_source_iso_date(row_series.get("Date"))
+    source_dates: dict[str, str] = {}
+
+    for metric_key, value_columns in PROFILE_SOURCE_DATE_FIELDS:
+        value = _coalesced_numeric_value(row_series, *value_columns)
+        if value is None:
+            continue
+
+        source_date = "-"
+        for value_col in value_columns:
+            source_date = (
+                row_series.get(f"{value_col}__source_date_iso")
+                or row_series.get(f"{value_col}__source_date")
+                or source_date
+            )
+            if str(source_date).strip() and str(source_date).strip() != "-":
+                break
+        if (not str(source_date).strip()) or str(source_date).strip() == "-":
+            source_date = row_date_iso
+
+        iso_date = _format_profile_source_iso_date(source_date)
+        if iso_date != "-":
+            source_dates[metric_key] = iso_date
+
+    return source_dates
+
+
+def _infer_profile_source(
+    row: pd.Series | dict[str, object],
+    *,
+    context: dict[str, object] | None = None,
+    profile_source_dates: dict[str, str] | None = None,
+) -> str:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    explicit_source = _normalize_profile_source((context or {}).get("profile_source"))
+    if explicit_source != "unknown":
+        return explicit_source
+
+    if bool(row_series.get("Profile_Composed")):
+        return "composite_snapshot"
+
+    has_metric_source_fields = any(
+        str(column).endswith("__source_date") or str(column).endswith("__source_date_iso")
+        for column in row_series.index
+    )
+    source_dates = dict(profile_source_dates or {})
+    if has_metric_source_fields and source_dates:
+        return "composite_snapshot"
+
+    if pd.notna(pd.to_datetime(row_series.get("Date"), errors="coerce")):
+        return "latest_valid_row"
+
+    return "unknown"
 
 
 def _normalize_eur_series_to_ratio(series: pd.Series) -> pd.Series:
@@ -761,6 +863,11 @@ def _default_neuromuscular_result() -> dict[str, object]:
         "profile_code": "UNCLASSIFIED",
         "profile_label": "Sin patron dominante",
         "confidence": "low",
+        "profile_source": "unknown",
+        "profile_source_label": PROFILE_SOURCE_CONFIG["unknown"]["label"],
+        "profile_source_note": PROFILE_SOURCE_CONFIG["unknown"]["note"],
+        "profile_source_dates": {},
+        "profile_source_is_composite": PROFILE_SOURCE_CONFIG["unknown"]["is_composite"],
         "phys": "Perfil equilibrado en los indices disponibles.",
         "bio": "Sin deficits biomecanicos marcados en los tests disponibles.",
         "train": "Continuar progresion planificada y completar la bateria faltante si hiciera falta.",
@@ -787,10 +894,11 @@ def build_neuromuscular_profile_result(
     future extensions and are accepted for compatibility with the planned API.
     """
 
-    del reference_df, context
+    del reference_df
 
     row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
     result = _default_neuromuscular_result()
+    row_date_display = _format_profile_source_date(row_series.get("Date"))
 
     metrics: dict[str, dict[str, object]] = {}
     for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
@@ -802,6 +910,7 @@ def build_neuromuscular_profile_result(
         source_date = (
             row_series.get(f"{display_value_col}__source_date")
             or row_series.get(f"{value_col}__source_date")
+            or row_date_display
             or "-"
         )
         metrics[value_col] = {
@@ -887,6 +996,19 @@ def build_neuromuscular_profile_result(
         result["confidence"] = "moderate"
     else:
         result["confidence"] = "high"
+
+    profile_source_dates = _profile_source_dates_from_row(row_series)
+    profile_source = _infer_profile_source(
+        row_series,
+        context=context,
+        profile_source_dates=profile_source_dates,
+    )
+    source_meta = PROFILE_SOURCE_CONFIG.get(profile_source, PROFILE_SOURCE_CONFIG["unknown"])
+    result["profile_source"] = profile_source
+    result["profile_source_label"] = str(source_meta["label"])
+    result["profile_source_note"] = str(source_meta["note"])
+    result["profile_source_dates"] = profile_source_dates
+    result["profile_source_is_composite"] = bool(source_meta["is_composite"])
 
     return result
 
@@ -986,6 +1108,11 @@ def build_dashboard_neuromuscular_payload(
             "profile_label": "Sin patron dominante",
             "confidence": "low",
             "confidence_label": _DASHBOARD_CONFIDENCE_LABELS["low"],
+            "profile_source": "unknown",
+            "profile_source_label": PROFILE_SOURCE_CONFIG["unknown"]["label"],
+            "profile_source_note": PROFILE_SOURCE_CONFIG["unknown"]["note"],
+            "profile_source_dates": {},
+            "profile_source_is_composite": PROFILE_SOURCE_CONFIG["unknown"]["is_composite"],
             "summary_short": "Sin patron dominante con las reglas actuales.",
             "phys": "",
             "bio": "",
@@ -1598,6 +1725,7 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
 
         source_row, source_value_col = source
         source_date = _format_profile_source_date(source_row.get("Date"))
+        source_date_iso = _format_profile_source_iso_date(source_row.get("Date"))
         source_z_col = "IMTP_N_Z" if source_value_col == "IMTP_N" else z_col
         snapshot[source_value_col] = source_row.get(source_value_col)
         resolved_source_z = (
@@ -1607,7 +1735,9 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
         )
         snapshot[source_z_col] = resolved_source_z
         snapshot[f"{value_col}__source_date"] = source_date
+        snapshot[f"{value_col}__source_date_iso"] = source_date_iso
         snapshot[f"{source_value_col}__source_date"] = source_date
+        snapshot[f"{source_value_col}__source_date_iso"] = source_date_iso
         if value_col == "DJ_tc_ms":
             tc_z = resolve_zscore(source_row, "TC_inv_Z")
             snapshot["TC_inv_Z"] = tc_z
@@ -1634,6 +1764,8 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
         source_row = _latest_valid_numeric_row(data, field)
         if source_row is not None:
             snapshot[field] = source_row.get(field)
+            snapshot[f"{field}__source_date"] = _format_profile_source_date(source_row.get("Date"))
+            snapshot[f"{field}__source_date_iso"] = _format_profile_source_iso_date(source_row.get("Date"))
 
     for primary_col, alias_col in ZSCORE_ALIAS_GROUPS:
         z_value = resolve_zscore(snapshot, primary_col)

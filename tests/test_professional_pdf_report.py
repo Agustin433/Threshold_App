@@ -1608,11 +1608,43 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertEqual(payload["source"], "core")
         self.assertEqual(payload["profile_code"], "UNCLASSIFIED")
         self.assertEqual(payload["confidence"], "low")
+        self.assertEqual(payload["profile_source"], "unknown")
         self.assertIn("missing_imtp", payload["flags"])
         self.assertIn("missing_dj", payload["flags"])
         self.assertIn("evidence", payload)
         self.assertIn("SJ_cm", payload["metrics"])
         self.assertIn("band", payload["metrics"]["SJ_cm"])
+
+    def test_pdf_neuromuscular_profile_payload_preserves_latest_valid_row_source(self):
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series(
+                {
+                    "Date": "2026-05-01",
+                    "SJ_cm": 31.0,
+                    "CMJ_cm": 34.0,
+                    "DJ_cm": 22.0,
+                    "DJ_RSI": 1.25,
+                    "DJ_tc_ms": 210.0,
+                    "DRI": 1.42,
+                    "IMTP_relPF": 39.5,
+                    "SJ_Z": 0.8,
+                    "CMJ_Z": 0.7,
+                    "DJ_height_Z": -1.0,
+                    "DJ_RSI_Z": 0.2,
+                    "DRI_Z": 0.2,
+                    "TC_inv_Z": 0.9,
+                    "IMTP_relPF_Z": 0.6,
+                }
+            ),
+            context={"profile_source": "latest_valid_row"},
+        )
+
+        self.assertEqual(payload["profile_source"], "latest_valid_row")
+        self.assertEqual(
+            _normalized_story_text(payload["profile_source_label"]),
+            _normalized_story_text("Ultima evaluacion valida"),
+        )
+        self.assertEqual(payload["profile_source_dates"]["SJ_cm"], "2026-05-01")
 
     def test_pdf_neuromuscular_profile_payload_handles_missing_imtp_and_dj(self):
         payload = _build_pdf_neuromuscular_profile_payload(
@@ -1727,6 +1759,9 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("metrics", payload)
         self.assertIn("SJ_cm", payload["metrics"])
         self.assertIn("band", payload["metrics"]["SJ_cm"])
+        self.assertIn("profile_source", payload)
+        self.assertIn("profile_source_note", payload)
+        self.assertIn("profile_source_dates", payload)
 
     def test_dj_height_lagging_translates_to_training_language(self):
         composite_payload = {
@@ -1802,6 +1837,40 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertFalse(pd.isna(pdf_z["IMTP"]))
         self.assertIn("Tiempo de contacto", pdf_table.index)
         self.assertNotIn("TC inv", " ".join(pdf_table.index.astype(str)))
+
+    def test_professional_composite_profile_keeps_composite_source_note(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-04-15",
+                        "SJ_cm": 32.0,
+                        "CMJ_cm": 35.0,
+                        "BW_kg": 80.0,
+                    },
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-04-22",
+                        "DJ_drop_height_cm": 26.94,
+                        "DJ_cm": 28.0,
+                        "DJ_tc_ms": 200.0,
+                        "IMTP_N": 3100.0,
+                        "BW_kg": 80.0,
+                    },
+                ]
+            )
+        }
+
+        payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+
+        self.assertEqual(payload["profile_source"], "composite_snapshot")
+        self.assertTrue(payload["profile_source_is_composite"])
+        self.assertIn("ultimas metricas validas", _normalized_story_text(payload["profile_source_note"]))
+        self.assertEqual(
+            payload["profile_source_note"],
+            payload["neuromuscular_profile"]["profile_source_note"],
+        )
 
     def test_team_mean_for_radar_resolves_canonical_overlay_keys_from_legacy_aliases(self):
         jump_df = pd.DataFrame(

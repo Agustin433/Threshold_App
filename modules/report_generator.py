@@ -1472,7 +1472,13 @@ def build_executive_summary_df(
         completion_mean = _team_completion_mean(state)
         if completion_mean is None:
             return pd.DataFrame()
-        return pd.DataFrame([{"Atleta": "Equipo", "Completion promedio": completion_mean}])
+        summary_df = pd.DataFrame([{"Atleta": "Equipo", "Completion promedio": completion_mean}])
+        summary_df.attrs["neuromuscular_profile_source"] = "unknown"
+        summary_df.attrs["neuromuscular_profile_source_label"] = "Fuente no determinada"
+        summary_df.attrs["neuromuscular_profile_source_note"] = (
+            "No se pudo determinar una fuente de perfil NM para este resumen ejecutivo."
+        )
+        return summary_df
 
     summary_df = pd.DataFrame(rows)
     completion_mean = _team_completion_mean(state)
@@ -1486,6 +1492,12 @@ def build_executive_summary_df(
             lambda x: "—" if pd.isna(x) or x is None else str(x) if not isinstance(x, str) else x
         )
     
+    summary_df.attrs["neuromuscular_profile_source"] = "latest_valid_row"
+    summary_df.attrs["neuromuscular_profile_source_label"] = "Ultima evaluacion valida"
+    summary_df.attrs["neuromuscular_profile_source_note"] = (
+        "El perfil NM del resumen ejecutivo usa la ultima fila de evaluacion disponible, "
+        "no el snapshot compuesto."
+    )
     return summary_df
 
 
@@ -4751,7 +4763,7 @@ def _build_current_pdf_neuromuscular_profile_payload(
     return _build_pdf_neuromuscular_profile_payload(
         history.iloc[-1],
         reference_df=history,
-        context={"audience": audience, "scope": "latest_evaluation"},
+        context={"audience": audience, "scope": "latest_evaluation", "profile_source": "latest_valid_row"},
     )
 
 
@@ -6602,6 +6614,15 @@ def _build_pdf_neuromuscular_profile_payload(
         "profile_label": _professional_visible_metric_text(core_payload.get("profile_label") or "Sin patron dominante"),
         "confidence": str(core_payload.get("confidence") or "low"),
         "confidence_label": NEUROMUSCULAR_CONFIDENCE_LABELS.get(str(core_payload.get("confidence") or "low"), "Baja"),
+        "profile_source": str(core_payload.get("profile_source") or "unknown"),
+        "profile_source_label": _professional_visible_metric_text(core_payload.get("profile_source_label") or "Fuente no determinada"),
+        "profile_source_note": _professional_visible_metric_text(core_payload.get("profile_source_note") or ""),
+        "profile_source_dates": {
+            str(key): str(value)
+            for key, value in dict(core_payload.get("profile_source_dates") or {}).items()
+            if str(key).strip() and str(value).strip()
+        },
+        "profile_source_is_composite": bool(core_payload.get("profile_source_is_composite")),
         "phys": _professional_visible_metric_text(core_payload.get("phys") or ""),
         "bio": _professional_visible_metric_text(core_payload.get("bio") or ""),
         "train": _professional_visible_metric_text(core_payload.get("train") or ""),
@@ -6879,6 +6900,11 @@ def _build_professional_composite_profile_payload(
             "profile_code": empty_neuromuscular_profile["profile_code"],
             "profile_label": empty_neuromuscular_profile["profile_label"],
             "confidence": empty_neuromuscular_profile["confidence"],
+            "profile_source": empty_neuromuscular_profile["profile_source"],
+            "profile_source_label": empty_neuromuscular_profile["profile_source_label"],
+            "profile_source_note": empty_neuromuscular_profile["profile_source_note"],
+            "profile_source_dates": empty_neuromuscular_profile["profile_source_dates"],
+            "profile_source_is_composite": empty_neuromuscular_profile["profile_source_is_composite"],
             "summary_short": empty_neuromuscular_profile["summary_short"],
             "summary_athlete": empty_neuromuscular_profile["summary_athlete"],
             "summary_client": empty_neuromuscular_profile["summary_client"],
@@ -6906,6 +6932,11 @@ def _build_professional_composite_profile_payload(
             "profile_code": empty_neuromuscular_profile["profile_code"],
             "profile_label": empty_neuromuscular_profile["profile_label"],
             "confidence": empty_neuromuscular_profile["confidence"],
+            "profile_source": empty_neuromuscular_profile["profile_source"],
+            "profile_source_label": empty_neuromuscular_profile["profile_source_label"],
+            "profile_source_note": empty_neuromuscular_profile["profile_source_note"],
+            "profile_source_dates": empty_neuromuscular_profile["profile_source_dates"],
+            "profile_source_is_composite": empty_neuromuscular_profile["profile_source_is_composite"],
             "summary_short": empty_neuromuscular_profile["summary_short"],
             "summary_athlete": empty_neuromuscular_profile["summary_athlete"],
             "summary_client": empty_neuromuscular_profile["summary_client"],
@@ -6933,7 +6964,11 @@ def _build_professional_composite_profile_payload(
     neuromuscular_profile = _build_pdf_neuromuscular_profile_payload(
         snapshot_row,
         reference_df=history,
-        context={"assessment_count": assessment_count, "scope": "professional_composite_profile"},
+        context={
+            "assessment_count": assessment_count,
+            "scope": "professional_composite_profile",
+            "profile_source": "composite_snapshot",
+        },
     )
     feedback_seed = neuromuscular_profile.get("feedback", {})
     if neuromuscular_profile.get("source") != "core":
@@ -6977,6 +7012,11 @@ def _build_professional_composite_profile_payload(
         "profile_code": neuromuscular_profile.get("profile_code", "UNCLASSIFIED"),
         "profile_label": neuromuscular_profile.get("profile_label", "Sin patron dominante"),
         "confidence": neuromuscular_profile.get("confidence", "low"),
+        "profile_source": neuromuscular_profile.get("profile_source", "unknown"),
+        "profile_source_label": neuromuscular_profile.get("profile_source_label", "Fuente no determinada"),
+        "profile_source_note": neuromuscular_profile.get("profile_source_note", ""),
+        "profile_source_dates": neuromuscular_profile.get("profile_source_dates", {}),
+        "profile_source_is_composite": neuromuscular_profile.get("profile_source_is_composite", False),
         "summary_short": neuromuscular_profile.get("summary_short", ""),
         "summary_athlete": neuromuscular_profile.get("summary_athlete", ""),
         "summary_client": neuromuscular_profile.get("summary_client", ""),

@@ -1190,10 +1190,37 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertEqual(result["profile_code"], "UNCLASSIFIED")
         self.assertEqual(result["confidence"], "low")
+        self.assertEqual(result["profile_source"], "unknown")
+        self.assertEqual(result["profile_source_label"], "Fuente no determinada")
         self.assertIn("missing_imtp", result["flags"])
         self.assertIn("missing_dj", result["flags"])
         self.assertIn("insufficient_pattern_evidence", result["flags"])
         self.assertEqual(result["metrics"]["SJ_cm"]["label"], "SJ")
+
+    def test_neuromuscular_profile_result_marks_latest_valid_row_when_date_exists(self):
+        row = _synthetic_profile_row(Date="2026-05-10")
+
+        result = build_neuromuscular_profile_result(row)
+
+        self.assertEqual(result["profile_source"], "latest_valid_row")
+        self.assertEqual(result["profile_source_label"], "Ultima evaluacion valida")
+        self.assertEqual(result["profile_source_dates"]["SJ_cm"], "2026-05-10")
+        self.assertFalse(result["profile_source_is_composite"])
+
+    def test_neuromuscular_profile_result_marks_composite_snapshot_and_keeps_dates(self):
+        jump_df = _composite_profile_source_df()
+        snapshot_row, _ = build_composite_profile_snapshot(jump_df)
+
+        assert snapshot_row is not None
+        result = build_neuromuscular_profile_result(snapshot_row)
+
+        self.assertEqual(result["profile_source"], "composite_snapshot")
+        self.assertEqual(result["profile_source_label"], "Perfil compuesto")
+        self.assertTrue(result["profile_source_is_composite"])
+        self.assertIn("SJ_cm", result["profile_source_dates"])
+        self.assertIn("DJ_RSI", result["profile_source_dates"])
+        self.assertEqual(result["profile_source_dates"]["SJ_cm"], "2026-04-15")
+        self.assertEqual(result["profile_code"], build_neuromuscular_profile_result(snapshot_row)["profile_code"])
 
     def test_resolve_zscore_prefers_canonical_contact_time_field(self):
         row = pd.Series({"TC_inv_Z": 0.55, "DJtc_Z": -0.10})
@@ -1234,6 +1261,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(dashboard_payload["source"], "core")
         self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
         self.assertEqual(dashboard_payload["profile_label"], pdf_payload["profile_label"])
+        self.assertEqual(dashboard_payload["profile_source"], pdf_payload["profile_source"])
         self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
         self.assertIn("missing_imtp", dashboard_payload["flags"])
         self.assertIn("missing_dj", dashboard_payload["flags"])
@@ -1249,6 +1277,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
         self.assertEqual(dashboard_payload["profile_label"], pdf_payload["profile_label"])
         self.assertEqual(dashboard_payload["confidence"], pdf_payload["confidence"])
+        self.assertEqual(dashboard_payload["profile_source"], pdf_payload["profile_source"])
         self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
         self.assertIn("Patron A", dashboard_payload["profile_metric_value"])
 

@@ -199,6 +199,8 @@ class Phase1ReportingTest(unittest.TestCase):
         self.assertIn("EUR (ratio)", summary_df.columns)
         self.assertNotIn("EUR", summary_df.columns)
         self.assertEqual(summary_df.loc[0, "EUR (ratio)"], "1.167")
+        self.assertEqual(summary_df.attrs.get("neuromuscular_profile_source"), "latest_valid_row")
+        self.assertIn("ultima fila de evaluacion disponible", summary_df.attrs.get("neuromuscular_profile_source_note", "").lower())
 
         sheets = build_report_sheets(
             state,
