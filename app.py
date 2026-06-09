@@ -128,6 +128,7 @@ from modules.jump_analysis import (
     calc_zscores as shared_calc_zscores,
     compute_baseline_delta as shared_compute_baseline_delta,
     compute_swc_delta as shared_compute_swc_delta,
+    resolve_zscore as shared_resolve_zscore,
     select_primary_profile_row as shared_select_primary_profile_row,
 )
 from modules.force_time_analysis import (
@@ -1740,6 +1741,8 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     return weekly
 
 
+# Historical reference only. Active neuromuscular calculations live in
+# modules.jump_analysis and the public names below are rebound to shared helpers.
 def _legacy_calc_eur_percentage_unused(df: pd.DataFrame) -> pd.DataFrame:
     """DEPRECATED: legacy EUR percentage formula, kept only for historical reference."""
     if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
@@ -1748,34 +1751,13 @@ def _legacy_calc_eur_percentage_unused(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
-    """DRI = height_m / TC_s. Young 1995; Flanagan & Comyns 2008."""
-    if "DJ_cm" in df.columns and "DJ_tc_ms" in df.columns:
-        df["DRI"] = (df["DJ_cm"] / 100) / (df["DJ_tc_ms"] / 1000)
-    return df
+    """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
+    return shared_calc_dri(df)
 
 
 def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Z-scores grupales para radar.
-    DJ_tc_ms invertido: menor TC = mejor reactividad.
-    """
-    cols_config = {
-        "CMJ_cm":   ("CMJ_Z",    False),
-        "SJ_cm":    ("SJ_Z",     False),
-        "DJ_tc_ms": ("DJtc_Z",   True),   # invertido
-        "EUR":      ("EUR_Z",    False),
-        "DRI":      ("DRI_Z",    False),
-        "IMTP_N":   ("IMTP_Z",   False),
-    }
-    for col, (z_col, invert) in cols_config.items():
-        if col in df.columns:
-            vals = df[col].dropna()
-            if len(vals) > 1 and vals.std() > 0:
-                z = (df[col] - vals.mean()) / vals.std()
-                df[z_col] = (-z if invert else z).round(2)
-            else:
-                df[z_col] = 0.0
-    return df
+    """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
+    return shared_calc_zscores(df)
 
 
 def _legacy_calc_eur_from_records_unused(df: pd.DataFrame) -> pd.DataFrame:
@@ -1920,77 +1902,28 @@ def parse_maxes_health(file) -> pd.DataFrame:
 
 
 def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
-    """EUR canonico = ratio CMJ/SJ."""
-    if "EUR" in df.columns:
-        df["EUR"] = _normalize_eur_series_to_ratio(df["EUR"])
-    if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
-        mask = df["CMJ_cm"].notna() & df["SJ_cm"].notna() & (df["SJ_cm"] != 0)
-        df.loc[mask, "EUR"] = (df.loc[mask, "CMJ_cm"] / df.loc[mask, "SJ_cm"]).round(3)
-    return df
+    """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
+    return shared_calc_eur(df)
 
 
 def _calc_eur_from_records(df: pd.DataFrame) -> pd.DataFrame:
-    """Compatibilidad: normaliza EUR a ratio CMJ/SJ."""
-    if "EUR" in df.columns:
-        df["EUR"] = _normalize_eur_series_to_ratio(df["EUR"])
-    return calc_eur(df)
+    """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
+    return shared_calc_eur(df)
 
 
 def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """DEPRECATED local wrapper. Runtime uses the shared neuromuscular profile."""
+    """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
     return shared_calc_nm_profile(df)
 
 
 def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
-    """Normaliza y recalcula metricas derivadas para la fuente unica de evaluaciones."""
-    if jump_df is None or jump_df.empty:
-        return pd.DataFrame()
-
-    jump_df = jump_df.copy()
-    if "Athlete" in jump_df.columns:
-        jump_df["Athlete"] = jump_df["Athlete"].astype(str).str.strip().str.title()
-    if "Date" in jump_df.columns:
-        jump_df["Date"] = pd.to_datetime(jump_df["Date"], errors="coerce").dt.normalize()
-
-    for col in [c for c in jump_df.columns if c not in {"Athlete", "Date", "NM_Profile"}]:
-        jump_df[col] = pd.to_numeric(jump_df[col], errors="coerce")
-
-    jump_df = jump_df.dropna(subset=[c for c in ["Athlete", "Date"] if c in jump_df.columns])
-    if jump_df.empty:
-        return pd.DataFrame()
-
-    jump_df = jump_df.sort_values(["Athlete", "Date"]).drop_duplicates(
-        subset=["Athlete", "Date"],
-        keep="last",
-    )
-    jump_df = calc_eur(jump_df)
-    jump_df = calc_dri(jump_df)
-    jump_df = calc_zscores(jump_df)
-    jump_df = calc_nm_profile(jump_df)
-    return jump_df.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+    """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
+    return shared_prepare_jump_df(jump_df)
 
 
 def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
-    """Consolida los tests individuales en una fila por atleta y fecha."""
-    if not records:
-        return pd.DataFrame()
-
-    rows = {}
-    for rec in records:
-        athlete = str(rec.get("Athlete", "")).strip().title()
-        date = pd.to_datetime(rec.get("Date"), errors="coerce")
-        if not athlete or pd.isna(date):
-            continue
-
-        key = (athlete, date.normalize())
-        row = rows.setdefault(key, {"Athlete": athlete, "Date": date.normalize()})
-        for k, v in rec.items():
-            if k in {"Athlete", "Date", "test_type"} or k.endswith("_reps"):
-                continue
-            if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                row[k] = v
-
-    return _prepare_jump_df(pd.DataFrame(rows.values()))
+    """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
+    return shared_records_to_jump_df(records)
 
 
 def _dataset_event_date(value) -> str | None:
@@ -2662,8 +2595,10 @@ def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str) -> go.Figure:
     return fig
 
 
-def chart_radar(df_row: pd.Series, athlete: str,
-                team_mean: dict = None) -> go.Figure:
+# Historical reference only. Active neuromuscular radar logic is rebound below
+# from charts.dashboard_charts.
+def _legacy_chart_radar_unused(df_row: pd.Series, athlete: str,
+                               team_mean: dict = None) -> go.Figure:
     cats = ["CMJ\nAltura", "SJ\nF.Concéntrica", "DJ\nReactividad",
             "EUR\nRatio", "DRI\nÍnd. Reactivo", "IMTP\nF.Máxima"]
     z_keys = ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"]
@@ -2720,7 +2655,9 @@ def chart_radar(df_row: pd.Series, athlete: str,
     return fig
 
 
-def chart_quadrant_cmj_imtp(df: pd.DataFrame) -> go.Figure:
+# Historical reference only. Active quadrant logic is rebound below from
+# charts.dashboard_charts.
+def _legacy_chart_quadrant_cmj_imtp_unused(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["CMJ_cm", "IMTP_N", "Athlete"])
     if d.empty:
         return go.Figure()
@@ -2775,7 +2712,7 @@ def chart_quadrant_cmj_imtp(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def chart_quadrant_dri_sj(df: pd.DataFrame) -> go.Figure:
+def _legacy_chart_quadrant_dri_sj_unused(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["DRI", "SJ_cm", "Athlete"])
     if d.empty:
         return go.Figure()
@@ -3417,6 +3354,9 @@ def _bind_chart(shared_chart):
 
 
 # Shared modules are the active source of truth for Sprint 2.
+# Legacy compatibility wrappers in this file only exist to preserve imports and
+# older call sites; neuromuscular logic lives in modules.jump_analysis and
+# charts.dashboard_charts.
 TEST_MAPS = SHARED_TEST_MAPS
 RAW_EVALUATION_COLUMNS = SHARED_RAW_EVALUATION_COLUMNS
 EVALUATION_PERSIST_COLUMNS = SHARED_EVALUATION_PERSIST_COLUMNS
@@ -5411,7 +5351,9 @@ def render_decision_panel():
                 if any(signal == "sin cambio relevante" for signal in signals)
                 else "Sin dato anterior"
             )
-            nm_profile = str(last_row.get("NM_Profile", "Sin datos"))
+            # Legacy EUR-based bucket for operational triage only. The main
+            # neuromuscular profile lives in modules.jump_analysis.
+            nm_profile = str(last_row.get("EUR_Profile") or last_row.get("NM_Profile", "Sin datos"))
             card_base = {"title": athlete, "stale": stale}
             if (
                 nm_profile == "Base de Fuerza"
@@ -5771,7 +5713,7 @@ def render_decision_panel():
                     "Atleta": athlete,
                     "Ultima evaluacion": f"{last_date:%d/%m/%Y}",
                     "Dias sin test": days_without,
-                    "Ultimo NM_Profile": str(last_row.get("NM_Profile", "-")),
+                    "Ultimo NM_Profile": str(last_row.get("EUR_Profile") or last_row.get("NM_Profile", "-")),
                     "Prioridad": priority,
                     "_sort": days_without,
                 }
@@ -6765,8 +6707,9 @@ elif active_main_view == "Profile":
                     use_container_width=False,
                 )
 
-                if "NM_Profile" in last_j.index:
-                    st.markdown(f"**Perfil NM:** {last_j['NM_Profile']}")
+                eur_based_profile = last_j.get("EUR_Profile") or last_j.get("NM_Profile")
+                if pd.notna(eur_based_profile):
+                    st.markdown(f"**Perfil NM:** {eur_based_profile}")
 
             maxes_df_profile = st.session_state.maxes_df
             if maxes_df_profile is not None and "Athlete" in maxes_df_profile.columns:
@@ -6881,13 +6824,27 @@ elif active_main_view == "Team":
         # Z-scores grupales
         st.markdown("---")
         render_subsection_header("Ranking por Z-scores", "lectura comparativa entre atletas y variables", kicker="Ranking")
-        z_cols = [c for c in ["CMJ_Z","SJ_Z","DJtc_Z","EUR_Z","DRI_Z","IMTP_Z"]
-                  if c in latest.columns]
-        if z_cols:
-            rank_df = latest[["Athlete"] + z_cols].set_index("Athlete")
+        z_specs = [
+            ("CMJ", "CMJ_Z"),
+            ("SJ", "SJ_Z"),
+            ("DJtc", "TC_inv_Z"),
+            ("EUR", "EUR_Z"),
+            ("DRI", "DRI_Z"),
+            ("IMTP", "IMTP_relPF_Z"),
+        ]
+        z_rows = []
+        for _, row in latest.iterrows():
+            z_row = {"Athlete": row.get("Athlete")}
+            for label, canonical_field in z_specs:
+                z_value = shared_resolve_zscore(row, canonical_field)
+                z_row[label] = z_value
+            z_rows.append(z_row)
+        rank_df = pd.DataFrame(z_rows).set_index("Athlete") if z_rows else pd.DataFrame()
+        rank_df = rank_df.dropna(axis=1, how="all")
+        if not rank_df.empty:
             fig_heat = go.Figure(data=go.Heatmap(
                 z=rank_df.values,
-                x=[c.replace("_Z","") for c in z_cols],
+                x=rank_df.columns.tolist(),
                 y=rank_df.index.tolist(),
                 colorscale=[
                     [0.0, "#B56B73"], [0.35, "#C88759"],
