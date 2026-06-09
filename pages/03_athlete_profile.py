@@ -91,6 +91,11 @@ else:
         if jdf is not None and "Athlete" in jdf.columns and athlete in jdf["Athlete"].values
         else pd.DataFrame()
     )
+    latest_profile_payload = (
+        build_dashboard_neuromuscular_payload(athlete_hist.tail(1).iloc[0])
+        if not athlete_hist.empty
+        else None
+    )
     current_profile_row, current_profile_sources = build_composite_profile_snapshot(athlete_hist)
     current_profile_payload = (
         build_dashboard_neuromuscular_payload(current_profile_row)
@@ -125,8 +130,8 @@ else:
             "Perfil NM actual",
             current_profile_payload["profile_metric_value"]
             if isinstance(current_profile_payload, dict)
-            else j_last["NM_Profile"].iloc[-1]
-            if "NM_Profile" in j_last.columns and not j_last.empty
+            else latest_profile_payload["profile_metric_value"]
+            if isinstance(latest_profile_payload, dict)
             else "-",
         )
 

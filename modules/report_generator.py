@@ -27,6 +27,7 @@ from modules.jump_analysis import (
     build_jump_feedback_lines,
     build_jump_temporal_context,
     build_profile_radar_row,
+    classify_neuromuscular_quadrant,
     compute_baseline_delta,
     compute_swc_delta,
     resolve_zscore,
@@ -1439,11 +1440,25 @@ def build_executive_summary_df(
 
     rows: list[dict[str, object]] = []
     athletes = _selected_athletes(state, effective_athlete)
+    summary_audience = normalize_report_audience(report_audience)
+    prepared_jump_df = (
+        _prepare_jump_df(state.get("jump_df"))
+        if isinstance(state.get("jump_df"), pd.DataFrame)
+        else pd.DataFrame()
+    )
+    evaluation_date_key = "Fecha evaluaci" + bytes((195, 179)).decode("latin-1") + "n"
 
     for athlete in athletes:
         load_row = _latest_acwr_row(state, athlete)
         mono_row = _latest_mono_row(state, athlete)
         jump_row = _latest_jump_row(state, athlete)
+        athlete_jump_history = (
+            prepared_jump_df[prepared_jump_df["Athlete"] == athlete].sort_values("Date")
+            if not prepared_jump_df.empty and "Athlete" in prepared_jump_df.columns
+            else pd.DataFrame()
+        )
+        prepared_jump_row = athlete_jump_history.iloc[-1] if not athlete_jump_history.empty else None
+        jump_summary_row = prepared_jump_row if prepared_jump_row is not None else jump_row
 
         row = {"Atleta": athlete}
         if load_row is not None:
@@ -1456,8 +1471,43 @@ def build_executive_summary_df(
             row["Strain"] = _round_or_none(mono_row.get("Strain"), 0)
 
         row["Wellness 3d"] = _recent_wellness_mean(state, athlete)
+        profile_row = jump_summary_row
+        if profile_row is not None:
+            row["Fecha evaluaciÃ³n"] = pd.to_datetime(profile_row["Date"]).strftime("%d/%m/%Y")
+            row["CMJ cm"] = _round_or_none(profile_row.get("CMJ_cm"), 1)
+            row["CMJ vs BL %"] = _cmj_delta_vs_baseline(state, athlete)
+            row[EUR_RATIO_LABEL] = _round_or_none(profile_row.get("EUR"), 3)
+            row["DRI"] = _round_or_none(profile_row.get("DRI"), 3)
+            row["IMTP N"] = _round_or_none(profile_row.get("IMTP_N"), 0)
+            try:
+                profile_payload = build_neuromuscular_profile_result(
+                    profile_row,
+                    reference_df=athlete_jump_history if not athlete_jump_history.empty else None,
+                    context={"audience": summary_audience, "profile_source": "latest_valid_row"},
+                )
+            except Exception:
+                profile_payload = {}
+            structured_profile_label = _professional_visible_metric_text(
+                profile_payload.get("profile_label") if isinstance(profile_payload, dict) else ""
+            ).strip()
+            row["Perfil NM"] = (
+                structured_profile_label
+                or profile_row.get("NM_Profile")
+                or (jump_row.get("NM_Profile") if jump_row is not None else None)
+            )
+            visible_eval_key = next(
+                (
+                    key
+                    for key in tuple(row.keys())
+                    if str(key).startswith("Fecha evaluaci") and str(key).endswith("n")
+                ),
+                None,
+            )
+            if visible_eval_key is not None and visible_eval_key != evaluation_date_key:
+                row[evaluation_date_key] = row.pop(visible_eval_key)
+            jump_summary_row = None
 
-        if jump_row is not None:
+        if False and jump_summary_row is not None:
             row["Fecha evaluación"] = pd.to_datetime(jump_row["Date"]).strftime("%d/%m/%Y")
             row["CMJ cm"] = _round_or_none(jump_row.get("CMJ_cm"), 1)
             row["CMJ vs BL %"] = _cmj_delta_vs_baseline(state, athlete)
@@ -2018,7 +2068,21 @@ def build_report_sheets(
                 included_sections.append("Wellness")
 
         if include_jumps and state.get("jump_df") is not None:
-            df = state["jump_df"]
+            df = state["jump_df"].copy()
+            prepared_jumps = _prepare_jump_df(df)
+            if (
+                "EUR_Profile" not in df.columns
+                and not prepared_jumps.empty
+                and {"Athlete", "Date", "EUR_Profile"}.issubset(prepared_jumps.columns)
+                and {"Athlete", "Date"}.issubset(df.columns)
+            ):
+                df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
+                df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+                df = df.merge(
+                    prepared_jumps[["Athlete", "Date", "EUR_Profile"]],
+                    on=["Athlete", "Date"],
+                    how="left",
+                )
             if effective_athlete != "Todos" and "Athlete" in df.columns:
                 df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
             sheets["Evaluaciones_Saltos"] = df.round(2)
@@ -2164,6 +2228,7 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
                 "DRI",
                 "IMTP_N",
                 "NM_Profile",
+                "EUR_Profile",
                 "IMTP_avg_N",
                 "IMTP_force_L_N",
                 "IMTP_force_R_N",
@@ -5054,111 +5119,120 @@ def _professional_metric_interpretation(
 
 
 def _professional_quadrant_location(selected: dict[str, object] | None, spec: dict[str, object]) -> str:
-    if selected is None:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    if classification.get("quadrant_code") == "missing":
         return PDF_MISSING_TEXT
-    x = _coerce_float(selected.get("x"))
-    y = _coerce_float(selected.get("y"))
-    if x is None or y is None:
-        return PDF_MISSING_TEXT
+    x = _coerce_float(classification.get("x_z"))
+    y = _coerce_float(classification.get("y_z"))
     x_label = str(spec.get("x_label", "eje X"))
     y_label = str(spec.get("y_label", "eje Y"))
-    x_zone = "alto" if x >= 0.35 else "bajo" if x <= -0.35 else "intermedio"
-    y_zone = "alto" if y >= 0.35 else "bajo" if y <= -0.35 else "intermedio"
+    zone_labels = {"low": "bajo", "mid": "intermedio", "high": "alto", "missing": "sin dato"}
+    x_zone = zone_labels.get(str(classification.get("x_zone") or "missing"), "sin dato")
+    y_zone = zone_labels.get(str(classification.get("y_zone") or "missing"), "sin dato")
     return f"{x_label} {x_zone} (z={x:+.2f}) y {y_label} {y_zone} (z={y:+.2f})."
 
 
 def _professional_quadrant_athlete_meaning(selected: dict[str, object] | None) -> str:
-    if selected is None:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    x_zone = str(classification.get("x_zone") or "missing")
+    y_zone = str(classification.get("y_zone") or "missing")
+    if "missing" in (x_zone, y_zone):
         return "Faltan datos para interpretar la ubicación individual."
-    x = _coerce_float(selected.get("x"))
-    y = _coerce_float(selected.get("y"))
-    if x is None or y is None:
-        return "Faltan datos para interpretar la ubicación individual."
-    if x >= 0 and y >= 0:
+    if x_zone == "high" and y_zone == "high":
         return "El atleta se ubica en un perfil relativamente favorable para ambas dimensiones del cuadrante."
-    if x >= 0 > y:
+    if x_zone == "high" and y_zone in {"mid", "low"}:
         return "El atleta muestra mejor perfil en el eje horizontal que en el vertical; conviene atacar la dimensión rezagada."
-    if y >= 0 > x:
+    if y_zone == "high" and x_zone in {"mid", "low"}:
         return "El atleta muestra mejor perfil en el eje vertical que en el horizontal; conviene mejorar transferencia hacia la dimensión rezagada."
-    return "El atleta queda por debajo de la referencia en ambas dimensiones; priorizar bases antes de complejizar el bloque."
+    if x_zone == "low" and y_zone == "low":
+        return "El atleta queda por debajo de la referencia en ambas dimensiones; priorizar bases antes de complejizar el bloque."
+    return "El atleta queda dentro de una zona intermedia del cuadrante; conviene leer la ubicación como señal contextual y no como limitante absoluto."
 
 
 def _professional_cmj_imtp_athlete_meaning(selected: dict[str, object] | None) -> str:
-    if selected is None:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    cmj_zone = str(classification.get("x_zone") or "missing")
+    imtp_zone = str(classification.get("y_zone") or "missing")
+    if "missing" in (cmj_zone, imtp_zone):
         return "Faltan datos para interpretar la ubicación individual."
-    cmj = _coerce_float(selected.get("x"))
-    imtp = _coerce_float(selected.get("y"))
-    if cmj is None or imtp is None:
-        return "Faltan datos para interpretar la ubicación individual."
-    cmj_zone = "alto" if cmj >= 0.35 else "bajo" if cmj <= -0.35 else "intermedio"
-    imtp_zone = "alto" if imtp >= 0.35 else "bajo" if imtp <= -0.35 else "intermedio"
-    if cmj_zone == "alto" and imtp_zone in {"intermedio", "bajo"}:
+    if cmj_zone == "high" and imtp_zone in {"mid", "low"}:
         return "El perfil sugiere buena salida vertical relativa, con fuerza isométrica relativa menos destacada. Para el próximo bloque, conviene sostener potencia/salto y reforzar fuerza base sin perder expresión rápida."
-    if cmj_zone in {"intermedio", "bajo"} and imtp_zone == "alto":
+    if cmj_zone in {"mid", "low"} and imtp_zone == "high":
         return "La fuerza isométrica relativa aparece mejor que la expresión vertical. Conviene trabajar transferencia hacia salto, coordinación de impulso y velocidad de aplicación."
-    if cmj_zone == "alto" and imtp_zone == "alto":
+    if cmj_zone == "high" and imtp_zone == "high":
         return "El atleta combina buena salida vertical y fuerza isométrica relativa. El foco puede pasar por sostener capacidad y afinar transferencia específica del deporte."
-    if cmj_zone == "bajo" and imtp_zone == "bajo":
+    if cmj_zone == "low" and imtp_zone == "low":
         return "El perfil muestra limitación simultánea en fuerza base y salida vertical. Priorizar fuerza general, técnica de salto y progresión de potencia."
     return "El perfil no muestra un extremo dominante; conviene integrar fuerza base y expresión vertical según el objetivo del bloque."
 
 
 def _professional_dri_sj_athlete_meaning(selected: dict[str, object] | None) -> str:
-    if selected is None:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    dri_zone = str(classification.get("x_zone") or "missing")
+    sj_zone = str(classification.get("y_zone") or "missing")
+    if "missing" in (dri_zone, sj_zone):
         return "Faltan datos para interpretar la ubicación individual."
-    dri = _coerce_float(selected.get("x"))
-    sj = _coerce_float(selected.get("y"))
-    if dri is None or sj is None:
-        return "Faltan datos para interpretar la ubicación individual."
-    dri_zone = "alto" if dri >= 0.35 else "bajo" if dri <= -0.35 else "intermedio"
-    sj_zone = "alto" if sj >= 0.35 else "bajo" if sj <= -0.35 else "intermedio"
-    if sj_zone == "alto" and dri_zone == "alto":
+    zone_text = {"low": "bajo", "mid": "intermedio", "high": "alto"}
+    if sj_zone == "high" and dri_zone == "high":
         return "SJ alto + DRI alto: buen perfil concéntrico y buen comportamiento reactivo en DJ."
-    if sj_zone == "alto" and dri_zone in {"intermedio", "bajo"}:
-        return f"SJ alto + DRI {dri_zone}: buena capacidad concéntrica, pero DRI rezagado; priorizar estrategia reactiva, stiffness, contacto y tolerancia progresiva a DJ."
-    if sj_zone in {"intermedio", "bajo"} and dri_zone == "alto":
+    if sj_zone == "high" and dri_zone in {"mid", "low"}:
+        return f"SJ alto + DRI {zone_text[dri_zone]}: buena capacidad concéntrica, pero DRI rezagado; priorizar estrategia reactiva, stiffness, contacto y tolerancia progresiva a DJ."
+    if sj_zone in {"mid", "low"} and dri_zone == "high":
         return "SJ bajo + DRI alto: buena respuesta reactiva relativa, pero falta base concéntrica."
-    if sj_zone == "bajo" and dri_zone == "bajo":
+    if sj_zone == "low" and dri_zone == "low":
         return "SJ bajo + DRI bajo: prioridad general de fuerza base y reactividad progresiva."
-    return f"SJ {sj_zone} + DRI {dri_zone}: no aparece un limitante extremo; conviene integrar fuerza concéntrica y reactividad según el bloque."
+    return f"SJ {zone_text.get(sj_zone, 'intermedio')} + DRI {zone_text.get(dri_zone, 'intermedio')}: no aparece un limitante extremo; conviene integrar fuerza concéntrica y reactividad según el bloque."
 
 
 def _professional_rsi_sj_athlete_meaning(selected: dict[str, object] | None) -> str:
-    if selected is None:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    rsi_zone = str(classification.get("x_zone") or "missing")
+    sj_zone = str(classification.get("y_zone") or "missing")
+    if "missing" in (rsi_zone, sj_zone):
         return "Faltan datos para interpretar la ubicación individual."
-    rsi = _coerce_float(selected.get("x"))
-    sj = _coerce_float(selected.get("y"))
-    if rsi is None or sj is None:
-        return "Faltan datos para interpretar la ubicación individual."
-    rsi_zone = "alto" if rsi >= 0.35 else "bajo" if rsi <= -0.35 else "intermedio"
-    sj_zone = "alto" if sj >= 0.35 else "bajo" if sj <= -0.35 else "intermedio"
-    if sj_zone == "alto" and rsi_zone == "alto":
+    zone_text = {"low": "bajo", "mid": "intermedio", "high": "alto"}
+    if sj_zone == "high" and rsi_zone == "high":
         return "SJ alto + DJ RSI alto: buen perfil concéntrico y buena eficiencia reactiva en DJ."
-    if sj_zone == "alto" and rsi_zone in {"intermedio", "bajo"}:
-        return f"SJ alto + DJ RSI {rsi_zone}: buena capacidad concéntrica, pero la eficiencia reactiva del DJ queda rezagada; priorizar stiffness, contacto y progresión reactiva."
-    if sj_zone in {"intermedio", "bajo"} and rsi_zone == "alto":
+    if sj_zone == "high" and rsi_zone in {"mid", "low"}:
+        return f"SJ alto + DJ RSI {zone_text[rsi_zone]}: buena capacidad concéntrica, pero la eficiencia reactiva del DJ queda rezagada; priorizar stiffness, contacto y progresión reactiva."
+    if sj_zone in {"mid", "low"} and rsi_zone == "high":
         return "SJ bajo + DJ RSI alto: buena eficiencia reactiva relativa, pero falta base concéntrica."
-    if sj_zone == "bajo" and rsi_zone == "bajo":
+    if sj_zone == "low" and rsi_zone == "low":
         return "SJ bajo + DJ RSI bajo: prioridad general de fuerza base y eficiencia reactiva progresiva."
-    return f"SJ {sj_zone} + DJ RSI {rsi_zone}: no aparece un limitante extremo; conviene integrar fuerza concéntrica y eficiencia reactiva según el bloque."
+    return f"SJ {zone_text.get(sj_zone, 'intermedio')} + DJ RSI {zone_text.get(rsi_zone, 'intermedio')}: no aparece un limitante extremo; conviene integrar fuerza concéntrica y eficiencia reactiva según el bloque."
 
 
 def _professional_eur_cmj_athlete_meaning(selected: dict[str, object] | None) -> str:
-    if selected is None:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    eur_zone = str(classification.get("x_zone") or "missing")
+    cmj_zone = str(classification.get("y_zone") or "missing")
+    if "missing" in (eur_zone, cmj_zone):
         return "Faltan datos para interpretar la ubicación individual."
-    eur = _coerce_float(selected.get("x"))
-    cmj = _coerce_float(selected.get("y"))
-    if eur is None or cmj is None:
-        return "Faltan datos para interpretar la ubicación individual."
-    eur_zone = "alto" if eur >= 0.35 else "bajo" if eur <= -0.35 else "intermedio"
-    cmj_zone = "alto" if cmj >= 0.35 else "bajo" if cmj <= -0.35 else "intermedio"
-    if eur_zone == "alto" and cmj_zone == "alto":
+    if eur_zone == "high" and cmj_zone == "high":
         return "El atleta presenta buen uso del contramovimiento y buen rendimiento vertical. Interpretar EUR junto con SJ para evitar sobrevalorar eficiencia elástica si el SJ cambia mucho."
-    if eur_zone == "alto" and cmj_zone in {"intermedio", "bajo"}:
+    if eur_zone == "high" and cmj_zone in {"mid", "low"}:
         return "EUR alto con CMJ menos destacado puede reflejar dependencia del contramovimiento o SJ bajo. Revisar fuerza concéntrica y técnica antes de concluir ventaja elástica real."
-    if eur_zone in {"intermedio", "bajo"} and cmj_zone == "alto":
+    if eur_zone in {"mid", "low"} and cmj_zone == "high":
         return "CMJ alto con EUR menos destacado sugiere buena salida vertical, pero menor diferencia CMJ-SJ. Mantener potencia y revisar si la estrategia de contramovimiento puede optimizarse."
-    if eur_zone == "bajo" and cmj_zone == "bajo":
+    if eur_zone == "low" and cmj_zone == "low":
         return "EUR y CMJ bajos sugieren prioridad en fuerza propulsiva, técnica de salto y progresión de capacidades elásticas."
     return "La relación EUR-CMJ es intermedia; conviene leerla junto con SJ, DRI y contexto del bloque antes de cambiar prioridades."
 
@@ -5405,27 +5479,32 @@ def _build_professional_quadrant_sections(
         selected = None
         if x_col and y_col in data.columns and "Athlete" in data.columns:
             plot_df = data[["Athlete", x_col, y_col]].copy()
-            plot_df[x_col] = pd.to_numeric(plot_df[x_col], errors="coerce")
-            plot_df[y_col] = pd.to_numeric(plot_df[y_col], errors="coerce")
-            plot_df = plot_df.dropna(subset=[x_col, y_col])
+            plot_df["x_plot"] = plot_df.apply(lambda row: resolve_zscore(row, x_col), axis=1)
+            plot_df["y_plot"] = plot_df.apply(lambda row: resolve_zscore(row, y_col), axis=1)
+            plot_df = plot_df.dropna(subset=["x_plot", "y_plot"])
             target = str(athlete).strip().casefold()
             for _, row in plot_df.iterrows():
                 is_selected = str(row["Athlete"]).strip().casefold() == target
                 point = {
-                    "x": float(row[x_col]),
-                    "y": float(row[y_col]),
+                    "x": float(row["x_plot"]),
+                    "y": float(row["y_plot"]),
                     "selected": is_selected,
                 }
                 if is_selected:
                     selected = point
                 points.append(point)
         state_label = "available" if selected is not None and len(points) > 1 else "partial" if selected is not None else "missing"
+        classification = classify_neuromuscular_quadrant(
+            None if selected is None else selected.get("x"),
+            None if selected is None else selected.get("y"),
+        )
         sections.append(
             {
                 **spec,
                 "x_col": x_col,
                 "points": points,
                 "selected": selected,
+                "classification": classification,
                 "state": state_label,
                 "message": "" if selected is not None else str(spec.get("missing_message") or "Faltan datos para ubicar al atleta en este cuadrante."),
                 "location": _professional_quadrant_location(selected, spec),

@@ -30,6 +30,7 @@ from modules.jump_analysis import (
     build_jump_metric_table,
     build_jump_temporal_context,
     choose_secondary_quadrant_x_spec,
+    classify_neuromuscular_quadrant,
     compute_baseline_delta,
     compute_swc_delta,
     resolve_zscore,
@@ -271,6 +272,9 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(athlete_a["NM_Profile"], "Reactivo")
         self.assertEqual(athlete_b["NM_Profile"], "Base de Fuerza")
         self.assertEqual(athlete_c["NM_Profile"], "Reactivo")
+        self.assertEqual(athlete_a["EUR_Profile"], "Reactivo")
+        self.assertEqual(athlete_b["EUR_Profile"], "Base de Fuerza")
+        self.assertEqual(athlete_c["EUR_Profile"], "Reactivo")
 
     def test_feedback_and_flags_follow_official_rules(self):
         jump_df = _sample_jump_df()
@@ -862,6 +866,7 @@ class JumpProfileSystemTest(unittest.TestCase):
             "IMTP_relPF_Z",
             "IMTP_Z",
             "NM_Profile",
+            "EUR_Profile",
         ):
             with self.subTest(column=column):
                 pd.testing.assert_series_equal(base_df[column], enriched_df[column], check_names=False)
@@ -929,7 +934,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         base_df = _prepare_jump_df(base_input)
         enriched_df = _prepare_jump_df(enriched_input)
 
-        for column in ("EUR", "DJ_RSI", "DRI", "IMTP_relPF", "Jump_Momentum", "DSI", "IMTP_Z", "NM_Profile"):
+        for column in ("EUR", "DJ_RSI", "DRI", "IMTP_relPF", "Jump_Momentum", "DSI", "IMTP_Z", "NM_Profile", "EUR_Profile"):
             with self.subTest(column=column):
                 pd.testing.assert_series_equal(base_df[column], enriched_df[column], check_names=False)
 
@@ -1027,7 +1032,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(float(merged_df.iloc[0]["ISO_HAM_rfd_250_N_s"]), 3720.0)
         self.assertNotIn("ISO_HAM_rfd_200_N_s", merged_df.columns)
 
-        for column in ("EUR", "DJ_RSI", "DRI", "IMTP_relPF", "Jump_Momentum", "DSI", "IMTP_Z", "NM_Profile"):
+        for column in ("EUR", "DJ_RSI", "DRI", "IMTP_relPF", "Jump_Momentum", "DSI", "IMTP_Z", "NM_Profile", "EUR_Profile"):
             with self.subTest(column=column):
                 pd.testing.assert_series_equal(base_df[column], merged_df[column], check_names=False)
 
@@ -1492,6 +1497,74 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(result["confidence"], "low")
         self.assertIn("cmj_lower_than_sj", result["flags"])
         self.assertIn("EUR bajo", result["evidence"])
+
+    def test_neuromuscular_profile_result_keeps_legacy_eur_profile_separate_from_main_profile(self):
+        row = _synthetic_profile_row(
+            EUR=1.12,
+            SJ_Z=0.80,
+            DJ_RSI_Z=-0.80,
+            NM_Profile="Reactivo",
+            EUR_Profile="Reactivo",
+        )
+
+        result = build_neuromuscular_profile_result(row)
+
+        self.assertEqual(result["profile_code"], "A")
+        self.assertIn("Fuerza/propulsion", result["profile_label"])
+        self.assertEqual(result["eur_profile"], "Reactivo")
+        self.assertEqual(result["nm_profile_legacy"], "Reactivo")
+
+    def test_dashboard_payload_uses_structured_profile_not_legacy_nm_profile(self):
+        row = _synthetic_profile_row(
+            EUR=1.12,
+            SJ_Z=0.80,
+            DJ_RSI_Z=-0.80,
+            NM_Profile="Reactivo",
+            EUR_Profile="Reactivo",
+        )
+
+        payload = build_dashboard_neuromuscular_payload(row)
+
+        self.assertEqual(payload["profile_code"], "A")
+        self.assertEqual(payload["profile_metric_value"], "Patron A")
+        self.assertEqual(payload["eur_profile"], "Reactivo")
+        self.assertEqual(payload["nm_profile_legacy"], "Reactivo")
+        self.assertNotEqual(payload["profile_metric_value"], payload["nm_profile_legacy"])
+
+    def test_classify_neuromuscular_quadrant_uses_shared_neutral_band(self):
+        cases = [
+            ((0.10, 0.10), ("mid", "mid", "mid_mid")),
+            ((0.50, 0.50), ("high", "high", "high_high")),
+            ((-0.50, 0.50), ("low", "high", "low_high")),
+            ((0.50, -0.50), ("high", "low", "high_low")),
+            ((-0.50, -0.50), ("low", "low", "low_low")),
+        ]
+
+        for (x_value, y_value), expected in cases:
+            with self.subTest(x_value=x_value, y_value=y_value):
+                result = classify_neuromuscular_quadrant(x_value, y_value)
+                self.assertEqual((result["x_zone"], result["y_zone"], result["quadrant_code"]), expected)
+                self.assertEqual(result["neutral_band"], 0.35)
+
+    def test_classify_neuromuscular_quadrant_handles_missing_values(self):
+        result = classify_neuromuscular_quadrant(None, 0.10)
+
+        self.assertEqual(result["quadrant_code"], "missing")
+        self.assertEqual(result["x_zone"], "missing")
+        self.assertEqual(result["y_zone"], "mid")
+
+    def test_dashboard_quadrant_chart_uses_transition_band_for_mid_values(self):
+        jump_df = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Date": "2026-05-01", "SJ_Z": 0.10, "DJ_RSI_Z": 0.10, "DJ_RSI": 1.40},
+                {"Athlete": "Bruno Rey", "Date": "2026-05-01", "SJ_Z": 0.20, "DJ_RSI_Z": 0.15, "DJ_RSI": 1.35},
+            ]
+        )
+
+        figure = chart_quadrant_rsi_sj(jump_df, theme=_chart_theme())
+        trace_names = {str(trace.name) for trace in figure.data}
+
+        self.assertIn("Zona media / transicion", trace_names)
 
 if __name__ == "__main__":
     unittest.main()

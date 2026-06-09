@@ -224,6 +224,64 @@ class Phase1ReportingTest(unittest.TestCase):
         eur_column = headers.index("EUR (ratio)") + 1
         self.assertEqual(eval_sheet.cell(row=2, column=eur_column).value, 1.17)
 
+    def test_executive_summary_prefers_structured_neuromuscular_profile_over_legacy_nm_profile(self):
+        jump_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-03",
+                    "CMJ_cm": 35,
+                    "SJ_cm": 30,
+                    "DJ_cm": 24,
+                    "DJ_tc_ms": 225,
+                    "EUR": 1.167,
+                    "DRI": 1.6,
+                    "IMTP_N": 1820,
+                    "NM_Profile": "Reactivo",
+                }
+            ]
+        )
+        state = {
+            "rpe_df": None,
+            "wellness_df": None,
+            "completion_df": None,
+            "rep_load_df": None,
+            "raw_df": None,
+            "maxes_df": None,
+            "jump_df": jump_df,
+            "acwr_dict": {},
+            "mono_dict": {},
+        }
+        structured_label = "Patron A - Fuerza/propulsion con SSC rapido limitado"
+
+        with patch(
+            "modules.report_generator.build_neuromuscular_profile_result",
+            return_value={"profile_label": structured_label},
+        ):
+            summary_df = build_executive_summary_df(state, report_athlete="Ana Lopez")
+
+        self.assertEqual(summary_df.loc[0, "Perfil NM"], structured_label)
+        self.assertNotEqual(summary_df.loc[0, "Perfil NM"], "Reactivo")
+
+        sheets = build_report_sheets(
+            state,
+            report_athlete="Ana Lopez",
+            report_audience="profe",
+            include_technical_annex=True,
+            include_acwr=False,
+            include_mono=False,
+            include_wellness=False,
+            include_jumps=True,
+            include_maxes=False,
+            include_volume=False,
+            include_completion=False,
+        )
+
+        workbook = load_workbook(BytesIO(export_excel(sheets)))
+        headers = [cell.value for cell in workbook["07_Evaluaciones"][1]]
+        self.assertIn("NM_Profile", headers)
+        self.assertIn("EUR_Profile", headers)
+
     def test_jump_reports_export_imtp_force_time_columns_at_end_without_rfd_200(self):
         jump_df = pd.DataFrame(
             [

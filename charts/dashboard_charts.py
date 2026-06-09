@@ -10,6 +10,7 @@ from modules.jump_analysis import (
     _available_radar_axes,
     build_composite_profile_metric_rows,
     choose_secondary_quadrant_x_spec,
+    classify_neuromuscular_quadrant,
     compute_baseline_delta,
     resolve_zscore,
 )
@@ -137,6 +138,36 @@ def _numeric_value(value: object) -> float | None:
     if pd.isna(numeric):
         return None
     return float(numeric)
+
+
+def _quadrant_classification(row: pd.Series, x_col: str, y_col: str) -> dict[str, object]:
+    return classify_neuromuscular_quadrant(
+        resolve_zscore(row, x_col),
+        resolve_zscore(row, y_col),
+    )
+
+
+def _quadrant_chart_category(
+    quadrant_payload: dict[str, object],
+    *,
+    both_high: str,
+    x_low_y_high: str,
+    x_high_y_low: str,
+    both_low: str,
+) -> str:
+    x_zone = str(quadrant_payload.get("x_zone") or "missing")
+    y_zone = str(quadrant_payload.get("y_zone") or "missing")
+    if "missing" in (x_zone, y_zone):
+        return "Sin datos"
+    if "mid" in (x_zone, y_zone):
+        return "Zona media / transicion"
+    if x_zone == "high" and y_zone == "high":
+        return both_high
+    if x_zone == "low" and y_zone == "high":
+        return x_low_y_high
+    if x_zone == "high" and y_zone == "low":
+        return x_high_y_low
+    return both_low
 
 
 def _resolve_radar_axes(row: pd.Series) -> tuple[pd.Series, list[tuple[str, str, str, str]], list[float], list[str]]:
@@ -351,7 +382,12 @@ def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme
 def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
     source_data = _prepare_frame(df)
-    data = source_data.dropna(subset=["DJ_RSI_Z", "SJ_Z", "Athlete"])
+    data = source_data.copy()
+    data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
+    if not data.empty:
+        data["DJ_RSI_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "DJ_RSI_Z"), axis=1)
+        data["SJ_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "SJ_Z"), axis=1)
+        data = data.dropna(subset=["DJ_RSI_Z_plot", "SJ_Z_plot"])
     if data.empty:
         return _empty_state_figure(
             theme=theme,
@@ -360,26 +396,25 @@ def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
             height=500,
         )
 
-    def quadrant(row: pd.Series) -> str:
-        high_x = row["DJ_RSI_Z"] >= 0
-        high_y = row["SJ_Z"] >= 0
-        if high_x and high_y:
-            return "Completo"
-        if not high_x and high_y:
-            return "Fuerza/Propulsion - RSI limitado"
-        if high_x and not high_y:
-            return "Reactivo - techo de fuerza bajo"
-        return "Deficit global"
-
     color_map = {
         "Completo": colors["green"],
         "Fuerza/Propulsion - RSI limitado": colors["yellow"],
         "Reactivo - techo de fuerza bajo": colors["orange"],
         "Deficit global": colors["red"],
+        "Zona media / transicion": colors["gray"],
     }
 
     data = data.copy()
-    data["Quadrant"] = data.apply(quadrant, axis=1)
+    data["QuadrantData"] = data.apply(lambda row: _quadrant_classification(row, "DJ_RSI_Z", "SJ_Z"), axis=1)
+    data["Quadrant"] = data["QuadrantData"].apply(
+        lambda payload: _quadrant_chart_category(
+            payload,
+            both_high="Completo",
+            x_low_y_high="Fuerza/Propulsion - RSI limitado",
+            x_high_y_low="Reactivo - techo de fuerza bajo",
+            both_low="Deficit global",
+        )
+    )
 
     fig = go.Figure()
     fig.add_vline(x=0, line_dash="dash", line_color=reference_line)
@@ -391,15 +426,21 @@ def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
             continue
         fig.add_trace(
             go.Scatter(
-                x=subset["DJ_RSI_Z"],
-                y=subset["SJ_Z"],
+                x=subset["DJ_RSI_Z_plot"],
+                y=subset["SJ_Z_plot"],
                 mode="markers+text",
                 marker=dict(size=13, color=color, line=dict(color=colors["card"], width=1.5)),
                 text=subset["Athlete"].astype(str).str.split().str[0],
+                customdata=subset["QuadrantData"].apply(
+                    lambda payload: [payload.get("quadrant_label", ""), payload.get("interpretation", "")]
+                ).tolist(),
                 textposition="top center",
                 textfont=dict(size=9, color=colors["gray"]),
                 name=quadrant_name,
-                hovertemplate="<b>%{text}</b><br>DJ RSI z: %{x:.2f}<br>SJ z: %{y:.2f}<extra></extra>",
+                hovertemplate=(
+                    "<b>%{text}</b><br>DJ RSI z: %{x:.2f}<br>SJ z: %{y:.2f}"
+                    "<br>%{customdata[0]}<br>%{customdata[1]}<extra></extra>"
+                ),
             )
         )
 
@@ -417,7 +458,12 @@ def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
 def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
     source_data = _prepare_frame(df)
-    data = source_data.dropna(subset=["DRI_Z", "SJ_Z", "Athlete"])
+    data = source_data.copy()
+    data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
+    if not data.empty:
+        data["DRI_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "DRI_Z"), axis=1)
+        data["SJ_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "SJ_Z"), axis=1)
+        data = data.dropna(subset=["DRI_Z_plot", "SJ_Z_plot"])
     if data.empty:
         return _empty_state_figure(
             theme=theme,
@@ -426,26 +472,25 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
             height=500,
         )
 
-    def quadrant(row: pd.Series) -> str:
-        high_x = row["DRI_Z"] >= 0
-        high_y = row["SJ_Z"] >= 0
-        if high_x and high_y:
-            return "Completo"
-        if not high_x and high_y:
-            return "Fuerza/Propulsion - SSC rapido limitado"
-        if high_x and not high_y:
-            return "Reactivo - techo de fuerza bajo"
-        return "Deficit global"
-
     color_map = {
         "Completo": colors["green"],
         "Fuerza/Propulsion - SSC rapido limitado": colors["yellow"],
         "Reactivo - techo de fuerza bajo": colors["orange"],
         "Deficit global": colors["red"],
+        "Zona media / transicion": colors["gray"],
     }
 
     data = data.copy()
-    data["Quadrant"] = data.apply(quadrant, axis=1)
+    data["QuadrantData"] = data.apply(lambda row: _quadrant_classification(row, "DRI_Z", "SJ_Z"), axis=1)
+    data["Quadrant"] = data["QuadrantData"].apply(
+        lambda payload: _quadrant_chart_category(
+            payload,
+            both_high="Completo",
+            x_low_y_high="Fuerza/Propulsion - SSC rapido limitado",
+            x_high_y_low="Reactivo - techo de fuerza bajo",
+            both_low="Deficit global",
+        )
+    )
 
     fig = go.Figure()
     fig.add_vline(x=0, line_dash="dash", line_color=reference_line)
@@ -457,15 +502,21 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
             continue
         fig.add_trace(
             go.Scatter(
-                x=subset["DRI_Z"],
-                y=subset["SJ_Z"],
+                x=subset["DRI_Z_plot"],
+                y=subset["SJ_Z_plot"],
                 mode="markers+text",
                 marker=dict(size=13, color=color, line=dict(color=colors["card"], width=1.5)),
                 text=subset["Athlete"].astype(str).str.split().str[0],
+                customdata=subset["QuadrantData"].apply(
+                    lambda payload: [payload.get("quadrant_label", ""), payload.get("interpretation", "")]
+                ).tolist(),
                 textposition="top center",
                 textfont=dict(size=9, color=colors["gray"]),
                 name=quadrant_name,
-                hovertemplate="<b>%{text}</b><br>DRI z: %{x:.2f}<br>SJ z: %{y:.2f}<extra></extra>",
+                hovertemplate=(
+                    "<b>%{text}</b><br>DRI z: %{x:.2f}<br>SJ z: %{y:.2f}"
+                    "<br>%{customdata[0]}<br>%{customdata[1]}<extra></extra>"
+                ),
             )
         )
 
@@ -484,30 +535,34 @@ def chart_quadrant_cmj_imtp(df: pd.DataFrame, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
     data = _prepare_frame(df)
     x_col, x_label = choose_secondary_quadrant_x_spec(data)
-    data = data.dropna(subset=[x_col, "IMTP_relPF_Z", "Athlete"])
+    data = data.copy()
+    data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
+    if not data.empty:
+        data[f"{x_col}_plot"] = data.apply(lambda row: resolve_zscore(row, x_col), axis=1)
+        data["IMTP_relPF_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "IMTP_relPF_Z"), axis=1)
+        data = data.dropna(subset=[f"{x_col}_plot", "IMTP_relPF_Z_plot"])
     if data.empty:
         return go.Figure()
-
-    def quadrant(row: pd.Series) -> str:
-        high_x = row[x_col] >= 0
-        high_y = row["IMTP_relPF_Z"] >= 0
-        if high_x and high_y:
-            return "Alto en ambos"
-        if not high_x and high_y:
-            return "Base de fuerza > salida"
-        if high_x and not high_y:
-            return "Salida > fuerza relativa"
-        return "Deficit global"
 
     color_map = {
         "Alto en ambos": colors["steel"],
         "Base de fuerza > salida": colors["yellow"],
         "Salida > fuerza relativa": colors["orange"],
         "Deficit global": colors["red"],
+        "Zona media / transicion": colors["gray"],
     }
 
     data = data.copy()
-    data["Quadrant"] = data.apply(quadrant, axis=1)
+    data["QuadrantData"] = data.apply(lambda row: _quadrant_classification(row, x_col, "IMTP_relPF_Z"), axis=1)
+    data["Quadrant"] = data["QuadrantData"].apply(
+        lambda payload: _quadrant_chart_category(
+            payload,
+            both_high="Alto en ambos",
+            x_low_y_high="Base de fuerza > salida",
+            x_high_y_low="Salida > fuerza relativa",
+            both_low="Deficit global",
+        )
+    )
 
     fig = go.Figure()
     fig.add_vline(x=0, line_dash="dash", line_color=reference_line)
@@ -519,15 +574,21 @@ def chart_quadrant_cmj_imtp(df: pd.DataFrame, *, theme: dict) -> go.Figure:
             continue
         fig.add_trace(
             go.Scatter(
-                x=subset[x_col],
-                y=subset["IMTP_relPF_Z"],
+                x=subset[f"{x_col}_plot"],
+                y=subset["IMTP_relPF_Z_plot"],
                 mode="markers+text",
                 marker=dict(size=13, color=color, line=dict(color=colors["card"], width=1.5)),
                 text=subset["Athlete"].astype(str).str.split().str[0],
+                customdata=subset["QuadrantData"].apply(
+                    lambda payload: [payload.get("quadrant_label", ""), payload.get("interpretation", "")]
+                ).tolist(),
                 textposition="top center",
                 textfont=dict(size=9, color=colors["gray"]),
                 name=quadrant_name,
-                hovertemplate=f"<b>%{{text}}</b><br>{x_label}: %{{x:.2f}}<br>IMTP relPF z: %{{y:.2f}}<extra></extra>",
+                hovertemplate=(
+                    f"<b>%{{text}}</b><br>{x_label}: %{{x:.2f}}<br>IMTP relPF z: %{{y:.2f}}"
+                    "<br>%{customdata[0]}<br>%{customdata[1]}<extra></extra>"
+                ),
             )
         )
 

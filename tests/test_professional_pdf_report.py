@@ -15,6 +15,7 @@ import modules.report_generator as report_generator
 from modules.jump_analysis import (
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
+    classify_neuromuscular_quadrant,
 )
 from modules.report_generator import (
     PDF_MISSING_TEXT,
@@ -1206,6 +1207,27 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             self.assertEqual(section["message"], "")
             self.assertNotEqual(section["location"], PDF_MISSING_TEXT)
             self.assertNotIn("Faltan datos para ubicar al atleta", section["location"])
+
+    def test_professional_quadrant_section_uses_shared_neutral_band_classification(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "SJ_Z": 0.10, "DJ_RSI": 1.42, "DJ_RSI_Z": 0.10},
+                    {"Athlete": "Bruno Rey", "Date": "2026-04-01", "SJ_Z": 0.45, "DJ_RSI": 1.58, "DJ_RSI_Z": 0.52},
+                ]
+            )
+        }
+
+        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        rsi_section = sections[1]
+        expected = classify_neuromuscular_quadrant(
+            rsi_section["selected"]["x"],
+            rsi_section["selected"]["y"],
+        )
+
+        self.assertEqual(rsi_section["classification"], expected)
+        self.assertIn("intermedio", rsi_section["location"].lower())
+        self.assertIn("intermedio", rsi_section["athlete_meaning"].lower())
 
     def test_professional_narrative_avoids_double_periods(self):
         state = _weekly_state_without_evaluations()

@@ -272,6 +272,27 @@ ZSCORE_ALIAS_GROUPS = (
     ("IMTP_relPF_Z", "IMTP_Z"),
 )
 
+NEUROMUSCULAR_QUADRANT_NEUTRAL_BAND = 0.35
+
+_NEUROMUSCULAR_QUADRANT_ZONE_META = {
+    "low": {
+        "label": "bajo",
+        "code_suffix": "low",
+    },
+    "mid": {
+        "label": "intermedio",
+        "code_suffix": "mid",
+    },
+    "high": {
+        "label": "alto",
+        "code_suffix": "high",
+    },
+    "missing": {
+        "label": "sin dato",
+        "code_suffix": "missing",
+    },
+}
+
 COMPOSITE_PROFILE_SUPPORT_FIELDS = (
     "DJ_drop_height_cm",
     "DJ_RSI",
@@ -320,6 +341,11 @@ PROFILE_SOURCE_DATE_FIELDS = (
     ("mRSI", ("mRSI",)),
 )
 
+EUR_PROFILE_THRESHOLDS = (
+    (1.10, "Reactivo"),
+    (1.00, "Mixto"),
+)
+
 
 def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame.columns:
@@ -363,6 +389,108 @@ def resolve_zscore(row: pd.Series | dict[str, object], canonical_field: str) -> 
     """Resolve a canonical z-score from the current field or approved legacy aliases."""
     row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
     return _coalesced_numeric_value(row_series, *_zscore_aliases(str(canonical_field)))
+
+
+def _eur_profile_label_from_ratio(eur_ratio: object) -> str:
+    numeric = pd.to_numeric(pd.Series([eur_ratio]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return "Sin datos"
+    ratio = float(numeric)
+    for threshold, label in EUR_PROFILE_THRESHOLDS:
+        if ratio >= threshold:
+            return label
+    return "Base de Fuerza"
+
+
+def _eur_profile_from_row(row: pd.Series | dict[str, object]) -> str:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    for field in ("EUR_Profile", "EUR_based_profile", "NM_Profile"):
+        value = str(row_series.get(field) or "").strip()
+        if value:
+            return value
+    return _eur_profile_label_from_ratio(row_series.get("EUR"))
+
+
+def _coerce_quadrant_z(value: object) -> float | None:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
+
+def _quadrant_zone(value: float | None, neutral_band: float) -> str:
+    if value is None:
+        return "missing"
+    if value <= -neutral_band:
+        return "low"
+    if value >= neutral_band:
+        return "high"
+    return "mid"
+
+
+def classify_neuromuscular_quadrant(
+    x_z: object,
+    y_z: object,
+    neutral_band: float = NEUROMUSCULAR_QUADRANT_NEUTRAL_BAND,
+) -> dict[str, object]:
+    """Classify a neuromuscular quadrant with a shared neutral band."""
+    band = _coerce_quadrant_z(neutral_band)
+    if band is None or band <= 0:
+        band = NEUROMUSCULAR_QUADRANT_NEUTRAL_BAND
+
+    x_value = _coerce_quadrant_z(x_z)
+    y_value = _coerce_quadrant_z(y_z)
+    x_zone = _quadrant_zone(x_value, band)
+    y_zone = _quadrant_zone(y_value, band)
+
+    if "missing" in (x_zone, y_zone):
+        return {
+            "x_z": x_value,
+            "y_z": y_value,
+            "x_zone": x_zone,
+            "y_zone": y_zone,
+            "quadrant_code": "missing",
+            "quadrant_label": "Datos insuficientes",
+            "interpretation": "Faltan datos numericos suficientes para ubicar el punto en el cuadrante.",
+            "neutral_band": band,
+        }
+
+    zone_pair = (x_zone, y_zone)
+    labels = _NEUROMUSCULAR_QUADRANT_ZONE_META
+    quadrant_code = f"{labels[x_zone]['code_suffix']}_{labels[y_zone]['code_suffix']}"
+    quadrant_label_map = {
+        ("high", "high"): "Ambos altos",
+        ("low", "high"): "X bajo / Y alto",
+        ("high", "low"): "X alto / Y bajo",
+        ("low", "low"): "Ambos bajos",
+        ("mid", "mid"): "Ambos en banda media",
+        ("mid", "high"): "X intermedio / Y alto",
+        ("high", "mid"): "X alto / Y intermedio",
+        ("low", "mid"): "X bajo / Y intermedio",
+        ("mid", "low"): "X intermedio / Y bajo",
+    }
+    interpretation_map = {
+        ("high", "high"): "Ambos ejes quedan por encima de la banda neutral.",
+        ("low", "high"): "El eje X queda bajo y el eje Y alto respecto a la banda neutral.",
+        ("high", "low"): "El eje X queda alto y el eje Y bajo respecto a la banda neutral.",
+        ("low", "low"): "Ambos ejes quedan por debajo de la banda neutral.",
+        ("mid", "mid"): "Ambos ejes quedan dentro de la banda neutral.",
+        ("mid", "high"): "El eje Y queda alto y el eje X permanece en banda neutral.",
+        ("high", "mid"): "El eje X queda alto y el eje Y permanece en banda neutral.",
+        ("low", "mid"): "El eje X queda bajo y el eje Y permanece en banda neutral.",
+        ("mid", "low"): "El eje Y queda bajo y el eje X permanece en banda neutral.",
+    }
+
+    return {
+        "x_z": x_value,
+        "y_z": y_value,
+        "x_zone": x_zone,
+        "y_zone": y_zone,
+        "quadrant_code": quadrant_code,
+        "quadrant_label": quadrant_label_map[zone_pair],
+        "interpretation": interpretation_map[zone_pair],
+        "neutral_band": band,
+    }
 
 
 def _normalize_profile_source(value: object) -> str:
@@ -681,19 +809,24 @@ def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """Official NM profile based on canonical EUR ratio thresholds."""
+    """Populate the legacy EUR-based profile fields.
+
+    ``NM_Profile`` is kept only as a backward-compatible alias based on EUR.
+    It should not be used as the global neuromuscular profile; the structured
+    profile must come from ``build_neuromuscular_profile_result(...)``.
+    """
     if "EUR" not in df.columns:
         return df
 
     eur_ratio = _normalize_eur_series_to_ratio(df["EUR"])
-    conditions = [
-        eur_ratio >= 1.10,
-        eur_ratio >= 1.00,
-        eur_ratio < 1.00,
-    ]
-    labels = ["Reactivo", "Mixto", "Base de Fuerza"]
+    conditions = [eur_ratio >= threshold for threshold, _ in EUR_PROFILE_THRESHOLDS]
+    labels = [label for _, label in EUR_PROFILE_THRESHOLDS]
     df["EUR"] = eur_ratio
-    df["NM_Profile"] = np.select(conditions, labels, default="Sin datos")
+    eur_profile = np.select(conditions, labels, default="Base de Fuerza")
+    eur_profile = pd.Series(eur_profile, index=df.index).where(eur_ratio.notna(), "Sin datos")
+    df["EUR_Profile"] = eur_profile
+    # Legacy alias based only on EUR. Do not use as the main neuromuscular profile.
+    df["NM_Profile"] = eur_profile
     return df
 
 
@@ -862,6 +995,8 @@ def _default_neuromuscular_result() -> dict[str, object]:
     return {
         "profile_code": "UNCLASSIFIED",
         "profile_label": "Sin patron dominante",
+        "eur_profile": "Sin datos",
+        "nm_profile_legacy": "Sin datos",
         "confidence": "low",
         "profile_source": "unknown",
         "profile_source_label": PROFILE_SOURCE_CONFIG["unknown"]["label"],
@@ -898,6 +1033,8 @@ def build_neuromuscular_profile_result(
 
     row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
     result = _default_neuromuscular_result()
+    result["eur_profile"] = _eur_profile_from_row(row_series)
+    result["nm_profile_legacy"] = str(row_series.get("NM_Profile") or result["eur_profile"] or "Sin datos").strip() or "Sin datos"
     row_date_display = _format_profile_source_date(row_series.get("Date"))
 
     metrics: dict[str, dict[str, object]] = {}
@@ -1106,6 +1243,8 @@ def build_dashboard_neuromuscular_payload(
             "source": "legacy_fallback",
             "profile_code": "UNCLASSIFIED",
             "profile_label": "Sin patron dominante",
+            "eur_profile": _eur_profile_from_row(row_series),
+            "nm_profile_legacy": str(row_series.get("NM_Profile") or _eur_profile_from_row(row_series) or "Sin datos").strip() or "Sin datos",
             "confidence": "low",
             "confidence_label": _DASHBOARD_CONFIDENCE_LABELS["low"],
             "profile_source": "unknown",
@@ -1922,7 +2061,7 @@ def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
             "Date": group.iloc[-1]["Date"],
         }
         for column in group.columns:
-            if column in {"Athlete", "Date", "NM_Profile"}:
+            if column in {"Athlete", "Date", "NM_Profile", "EUR_Profile", "EUR_based_profile"}:
                 continue
 
             numeric_values = pd.to_numeric(group[column], errors="coerce")
@@ -1953,7 +2092,11 @@ def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
     if "Date" in result.columns:
         result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
 
-    numeric_cols = [col for col in result.columns if col not in {"Athlete", "Date", "NM_Profile"}]
+    numeric_cols = [
+        col
+        for col in result.columns
+        if col not in {"Athlete", "Date", "NM_Profile", "EUR_Profile", "EUR_based_profile"}
+    ]
     for col in numeric_cols:
         result[col] = pd.to_numeric(result[col], errors="coerce")
 
