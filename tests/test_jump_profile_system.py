@@ -249,6 +249,21 @@ def _synthetic_profile_row(**overrides) -> pd.Series:
     return pd.Series(base)
 
 
+def _combined_neuromuscular_text(result: dict[str, object]) -> str:
+    fields = (
+        "profile_label",
+        "phys",
+        "bio",
+        "train",
+        "summary_short",
+        "summary_athlete",
+        "summary_client",
+        "summary_professional",
+        "profile_source_note",
+    )
+    return " ".join(str(result.get(field) or "") for field in fields).lower()
+
+
 class JumpProfileSystemTest(unittest.TestCase):
     def test_prepare_jump_df_computes_new_profile_metrics(self):
         jump_df = _sample_jump_df()
@@ -1481,6 +1496,31 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(result["confidence"], "high")
         self.assertTrue(any("todos los z-scores renderizables" in item for item in result["evidence"]))
 
+    def test_pattern_d_with_partial_battery_requires_explicit_caution(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                SJ_Z=-0.80,
+                CMJ_Z=-0.70,
+                DJ_cm=None,
+                DJ_RSI=None,
+                DJ_tc_ms=None,
+                DJ_height_Z=None,
+                DJ_RSI_Z=None,
+                TC_inv_Z=None,
+                IMTP_relPF=None,
+                IMTP_N=None,
+                IMTP_relPF_Z=None,
+            )
+        )
+
+        self.assertEqual(result["profile_code"], "D")
+        self.assertNotEqual(result["confidence"], "high")
+        self.assertTrue({"missing_imtp", "missing_dj"}.issubset(set(result["flags"])))
+        self.assertTrue(
+            any(token in _combined_neuromuscular_text(result) for token in ("variables disponibles", "datos disponibles", "bateria parcial", "interpretacion limitada")),
+            result,
+        )
+
     def test_neuromuscular_profile_result_detects_pattern_e(self):
         result = build_neuromuscular_profile_result(
             _synthetic_profile_row(
@@ -1497,6 +1537,140 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(result["confidence"], "low")
         self.assertIn("cmj_lower_than_sj", result["flags"])
         self.assertIn("EUR bajo", result["evidence"])
+
+    def test_pattern_a_without_imtp_avoids_force_ceiling_claims(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                SJ_Z=0.80,
+                DJ_RSI_Z=-0.80,
+                IMTP_relPF=None,
+                IMTP_N=None,
+                IMTP_relPF_Z=None,
+            )
+        )
+
+        self.assertEqual(result["profile_code"], "A")
+        combined = _combined_neuromuscular_text(result)
+        for forbidden in ("techo de fuerza", "fuerza maxima", "fuerza máxima", "isometrica", "isométrica"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, combined)
+
+    def test_pattern_b_without_imtp_avoids_force_limit_claims(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                SJ_Z=-0.80,
+                DJ_RSI_Z=0.80,
+                IMTP_relPF=None,
+                IMTP_N=None,
+                IMTP_relPF_Z=None,
+            )
+        )
+
+        self.assertEqual(result["profile_code"], "B")
+        combined = _combined_neuromuscular_text(result)
+        for forbidden in ("techo de fuerza", "fuerza maxima limitada", "fuerza máxima limitada", "techo de fuerza bajo"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, combined)
+
+    def test_pattern_c_without_dsi_does_not_project_dsi_conclusions(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                IMTP_relPF_Z=-0.80,
+                CMJ_Z=0.00,
+                DSI=None,
+            )
+        )
+
+        self.assertEqual(result["profile_code"], "C")
+        combined = _combined_neuromuscular_text(result)
+        for forbidden in ("dsi probablemente elevado", "dsi elevado", "probablemente elevado"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, combined)
+
+    def test_composite_snapshot_requires_lower_confidence_or_visible_caution(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                Profile_Composed=True,
+                Date=None,
+                SJ_Z=0.80,
+                DJ_RSI_Z=-0.80,
+                SJ_cm__source_date="01/05/2026",
+                CMJ_cm__source_date="15/05/2026",
+                DJ_cm__source_date="22/05/2026",
+                DJ_RSI__source_date="22/05/2026",
+                DJ_tc_ms__source_date="22/05/2026",
+                IMTP_relPF__source_date="10/04/2026",
+                EUR__source_date="15/05/2026",
+            )
+        )
+
+        self.assertEqual(result["profile_source"], "composite_snapshot")
+        self.assertTrue(result["profile_source_is_composite"])
+        self.assertTrue(result["profile_source_note"])
+        self.assertNotEqual(result["confidence"], "high")
+
+    def test_pattern_match_near_threshold_requires_caution(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                SJ_Z=0.51,
+                DJ_RSI_Z=-0.51,
+            )
+        )
+
+        self.assertEqual(result["profile_code"], "A")
+        self.assertNotEqual(result["confidence"], "high")
+        self.assertTrue(
+            any(flag in result["flags"] for flag in ("weak_pattern_evidence", "near_threshold", "insufficient_pattern_evidence"))
+            or any(token in _combined_neuromuscular_text(result) for token in ("cerca del umbral", "evidencia debil", "interpretacion limitada")),
+            result,
+        )
+
+    def test_jump_flag_rows_keep_contextual_language_for_eur_dsi_and_mrsi(self):
+        green_flags = build_jump_flag_rows(
+            _synthetic_profile_row(
+                EUR=1.12,
+                DSI=1.02,
+                mRSI=0.72,
+                TTT_s=0.55,
+            )
+        )
+        red_flags = build_jump_flag_rows(
+            _synthetic_profile_row(
+                EUR=0.95,
+                DSI=0.70,
+                mRSI=0.30,
+                TTT_s=0.55,
+            )
+        )
+
+        green_text = " ".join(item["text"] for item in green_flags).lower()
+        red_text = " ".join(item["text"] for item in red_flags).lower()
+
+        for forbidden_text, source_text in (
+            ("ssc eficiente", green_text),
+            ("fuerza explosiva", green_text),
+            ("ssc deficiente", red_text),
+            (" bueno ", f" {green_text} {red_text} "),
+            (" malo ", f" {green_text} {red_text} "),
+        ):
+            with self.subTest(forbidden_text=forbidden_text):
+                self.assertNotIn(forbidden_text, source_text)
+
+    def test_pattern_e_combined_with_another_pattern_preserves_caution(self):
+        result = build_neuromuscular_profile_result(
+            _synthetic_profile_row(
+                EUR=0.95,
+                CMJ_cm=29.0,
+                SJ_cm=31.0,
+                SJ_Z=0.80,
+                DJ_RSI_Z=-0.80,
+            )
+        )
+
+        self.assertIn("E", result["profile_code"].split("+"))
+        self.assertIn("cmj_lower_than_sj", result["flags"])
+        self.assertIn("EUR bajo", result["evidence"])
+        self.assertIn("cmj por debajo de sj", _combined_neuromuscular_text(result))
 
     def test_neuromuscular_profile_result_keeps_legacy_eur_profile_separate_from_main_profile(self):
         row = _synthetic_profile_row(

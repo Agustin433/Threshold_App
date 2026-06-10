@@ -1677,6 +1677,31 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("missing_dj", payload["flags"])
         self.assertEqual(payload["confidence"], "low")
 
+    def test_professional_missing_imtp_message_is_precise_when_imtp_exists_without_reference(self):
+        payload = _build_pdf_neuromuscular_profile_payload(
+            pd.Series(
+                {
+                    "Date": "2026-05-01",
+                    "SJ_cm": 30.0,
+                    "CMJ_cm": 32.0,
+                    "DJ_cm": 24.0,
+                    "DJ_RSI": 1.05,
+                    "DJ_tc_ms": 220.0,
+                    "IMTP_N": 1800.0,
+                    "EUR": 1.04,
+                }
+            ),
+            context={"audience": "profe"},
+        )
+
+        self.assertIn("missing_imtp", payload["flags"])
+        joined = _normalized_story_text(" ".join(payload.get("flag_messages_professional", [])))
+        self.assertNotIn("falta imtp", joined)
+        self.assertTrue(
+            any(token in joined for token in ("referencia", "z-score", "clasificable", "comparable")),
+            joined,
+        )
+
     def test_pdf_neuromuscular_profile_payload_keeps_pattern_e_alert_structure(self):
         payload = _build_pdf_neuromuscular_profile_payload(
             pd.Series(
@@ -1892,6 +1917,40 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertEqual(
             payload["profile_source_note"],
             payload["neuromuscular_profile"]["profile_source_note"],
+        )
+
+    def test_professional_rendered_story_surfaces_composite_source_caution(self):
+        state = _weekly_state_without_evaluations()
+        state["jump_df"] = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-15",
+                    "SJ_cm": 32.0,
+                    "CMJ_cm": 35.0,
+                    "BW_kg": 80.0,
+                },
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-22",
+                    "DJ_drop_height_cm": 26.94,
+                    "DJ_cm": 28.0,
+                    "DJ_tc_ms": 200.0,
+                    "IMTP_N": 3100.0,
+                    "BW_kg": 80.0,
+                },
+            ]
+        )
+
+        payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+        text = _rendered_story_text(state, "Ana Lopez", "profe")
+
+        self.assertEqual(payload["profile_source"], "composite_snapshot")
+        self.assertTrue(payload["profile_source_is_composite"])
+        self.assertTrue(payload["profile_source_note"])
+        self.assertTrue(
+            any(token in text for token in ("ultimas metricas validas", "fechas distintas", "datos de fechas distintas")),
+            text,
         )
 
     def test_team_mean_for_radar_resolves_canonical_overlay_keys_from_legacy_aliases(self):

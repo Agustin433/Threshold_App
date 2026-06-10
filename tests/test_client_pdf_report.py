@@ -360,6 +360,24 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertTrue(payload["summary_client"])
         self.assertTrue(payload["training_priority_short"])
 
+    def test_client_summary_avoids_heavy_jargon_across_patterns(self):
+        rows = {
+            "A": pd.Series({"SJ_cm": 32.0, "CMJ_cm": 34.0, "DJ_cm": 25.0, "DJ_RSI": 1.10, "DJ_tc_ms": 210.0, "IMTP_relPF": 38.0, "EUR": 1.06, "SJ_Z": 0.80, "CMJ_Z": 0.10, "DJ_height_Z": -0.20, "DJ_RSI_Z": -0.80, "TC_inv_Z": 0.20, "IMTP_relPF_Z": 0.30}),
+            "B": pd.Series({"SJ_cm": 26.0, "CMJ_cm": 29.0, "DJ_cm": 24.0, "DJ_RSI": 1.35, "DJ_tc_ms": 205.0, "EUR": 1.08, "SJ_Z": -0.80, "CMJ_Z": 0.00, "DJ_height_Z": 0.20, "DJ_RSI_Z": 0.80, "TC_inv_Z": 0.30}),
+            "C": pd.Series({"SJ_cm": 30.0, "CMJ_cm": 33.0, "DJ_cm": 24.0, "DJ_RSI": 1.00, "DJ_tc_ms": 220.0, "IMTP_relPF": 30.0, "EUR": 1.10, "SJ_Z": 0.00, "CMJ_Z": 0.00, "DJ_height_Z": 0.00, "DJ_RSI_Z": 0.00, "TC_inv_Z": 0.00, "IMTP_relPF_Z": -0.80}),
+            "D": pd.Series({"SJ_cm": 25.0, "CMJ_cm": 27.0, "DJ_cm": 20.0, "DJ_RSI": 0.85, "DJ_tc_ms": 260.0, "IMTP_relPF": 28.0, "EUR": 1.02, "SJ_Z": -0.80, "CMJ_Z": -0.70, "DJ_height_Z": -0.90, "DJ_RSI_Z": -0.85, "TC_inv_Z": -0.65, "IMTP_relPF_Z": -0.75}),
+            "E": pd.Series({"SJ_cm": 31.0, "CMJ_cm": 29.0, "DJ_cm": 24.0, "DJ_RSI": 1.20, "DJ_tc_ms": 220.0, "IMTP_relPF": 38.0, "EUR": 0.95, "SJ_Z": 0.10, "CMJ_Z": 0.05, "DJ_height_Z": 0.00, "DJ_RSI_Z": 0.15, "TC_inv_Z": 0.05, "IMTP_relPF_Z": 0.20}),
+        }
+
+        forbidden_terms = ("ssc", "isometrica relativa", "isométrica relativa", "densidad reactiva", "stiffness", "dsi", "imtp")
+
+        for pattern_code, row in rows.items():
+            with self.subTest(pattern=pattern_code):
+                payload = _build_pdf_neuromuscular_profile_payload(row, context={"audience": "cliente"})
+                summary = _normalized_story_text(payload["summary_client"])
+                for forbidden in forbidden_terms:
+                    self.assertNotIn(forbidden, summary)
+
     def test_client_pdf_renders_pattern_e_as_simple_alert(self):
         pdf, story_text = _rendered_pdf_and_story_text(_client_pattern_e_report_state(), "Ana Lopez")
         joined_pages = " ".join(_normalized_pdf_pages(pdf))
