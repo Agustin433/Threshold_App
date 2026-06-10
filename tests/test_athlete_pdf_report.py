@@ -309,7 +309,8 @@ class AthletePdfReportTest(unittest.TestCase):
 
     def test_athlete_pdf_chart_fallback_copy_stays_coherent_when_render_fails(self):
         with patch.object(report_generator, "datetime", FixedAthleteReportDate):
-            pdf = generate_visual_report_pdf(_athlete_report_state_with_force_time(), "Ana Lopez", "atleta")
+            with patch.object(report_generator, "export_plotly_figure_png", return_value=None):
+                pdf = generate_visual_report_pdf(_athlete_report_state_with_force_time(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
         assert pdf is not None

@@ -6437,22 +6437,34 @@ NEUROMUSCULAR_PRIORITY_DETAILED_TEXT = {
 
 NEUROMUSCULAR_FLAG_MESSAGES = {
     "atleta": {
-        "missing_imtp": "Todavía falta IMTP para leer mejor tu base de fuerza.",
-        "missing_dj": "Todavía falta Drop Jump para leer mejor tu reactividad.",
-        "cmj_lower_than_sj": "En esta medición el CMJ no superó al SJ; conviene revisar técnica, fatiga y calidad del gesto.",
-        "insufficient_pattern_evidence": "La foto actual todavía es parcial; conviene completar mediciones antes de cambiar demasiado el foco.",
+        "missing_imtp": "Todavia no hay una referencia IMTP comparable para leer mejor tu base de fuerza.",
+        "imtp_reference_missing": "Hay IMTP medido, pero falta una referencia comparable para clasificarlo mejor.",
+        "missing_dj": "Todavia falta Drop Jump para leer mejor tu reactividad.",
+        "cmj_lower_than_sj": "En esta medicion el CMJ no supero al SJ; conviene revisar tecnica, fatiga y calidad del gesto.",
+        "insufficient_pattern_evidence": "La foto actual todavia es parcial; conviene completar mediciones antes de cambiar demasiado el foco.",
+        "partial_battery_caution": "La bateria actual es parcial; conviene interpretar el perfil con mas cautela.",
+        "composite_profile_caution": "El perfil combina datos de fechas distintas; conviene confirmarlo con una evaluacion mas alineada.",
+        "near_threshold_evidence": "La senal cae cerca del umbral actual; conviene confirmarla antes de cambiar prioridades.",
     },
     "cliente": {
-        "missing_imtp": "Todavía falta una referencia de fuerza para entender mejor la base actual.",
-        "missing_dj": "Todavía falta una referencia reactiva para entender mejor cómo responde el salto.",
-        "cmj_lower_than_sj": "En esta medición el salto con contramovimiento no mejoró al salto base; conviene revisarlo en el próximo control.",
-        "insufficient_pattern_evidence": "Todavía falta información para definir con más claridad qué conviene priorizar.",
+        "missing_imtp": "Todavia no hay una referencia de fuerza comparable para entender mejor la base actual.",
+        "imtp_reference_missing": "Hay una medicion de fuerza, pero todavia no es comparable para clasificarla bien.",
+        "missing_dj": "Todavia falta una referencia reactiva para entender mejor como responde el salto.",
+        "cmj_lower_than_sj": "En esta medicion el salto con contramovimiento no mejoro al salto base; conviene revisarlo en el proximo control.",
+        "insufficient_pattern_evidence": "Todavia falta informacion para definir con mas claridad que conviene priorizar.",
+        "partial_battery_caution": "La evaluacion actual quedo parcial; conviene tomar esta lectura con mas cautela.",
+        "composite_profile_caution": "Esta lectura mezcla datos de fechas distintas; conviene confirmarla con una evaluacion mas pareja.",
+        "near_threshold_evidence": "La senal actual queda cerca del umbral; conviene confirmarla antes de cambiar demasiado el foco.",
     },
     "profe": {
-        "missing_imtp": "Falta IMTP para cerrar mejor la lectura de fuerza base.",
+        "missing_imtp": "La referencia IMTP todavia no es comparable para cerrar mejor la lectura de fuerza base.",
+        "imtp_reference_missing": "Hay IMTP medido, pero falta z-score/referencia clasificable para usarlo con confianza.",
         "missing_dj": "Falta Drop Jump para cerrar mejor la lectura reactiva.",
-        "cmj_lower_than_sj": "CMJ < SJ: revisar técnica, fatiga y coherencia del test antes de cambiar prioridades.",
-        "insufficient_pattern_evidence": "La evidencia todavía es parcial para cerrar un patrón dominante.",
+        "cmj_lower_than_sj": "CMJ < SJ: revisar tecnica, fatiga y coherencia del test antes de cambiar prioridades.",
+        "insufficient_pattern_evidence": "La evidencia todavia es parcial para cerrar un patron dominante.",
+        "partial_battery_caution": "La bateria actual es parcial; la lectura queda limitada a las variables disponibles.",
+        "composite_profile_caution": "El perfil combina metricas de fechas distintas; no conviene tratarlo igual que una evaluacion unica robusta.",
+        "near_threshold_evidence": "La evidencia cae cerca del umbral actual; conviene confirmarla antes de cerrar una prioridad fuerte.",
     },
 }
 
@@ -6853,9 +6865,9 @@ def _professional_sanitize_profile_feedback(
         cleaned["low"] = PROFESSIONAL_NO_CLEAR_LAGGING_TEXT
         cleaned["next_block"] = PROFESSIONAL_NO_CLEAR_LAGGING_NEXT_BLOCK
         if not cleaned.get("physiological"):
-            cleaned["physiological"] = "Perfil equilibrado en los índices disponibles."
+            cleaned["physiological"] = "La lectura disponible no muestra un rezago dominante claro, pero tampoco alcanza por si sola para cerrar un perfil estable."
         if not cleaned.get("biomechanical"):
-            cleaned["biomechanical"] = "Sin déficits biomecánicos marcados en los tests disponibles."
+            cleaned["biomechanical"] = "No aparece un deficit biomecanico unico con los datos visibles; conviene leerlo junto con la bateria y el contexto del test."
     elif "variable mas rezagada" in next_block_normalized:
         cleaned["next_block"] = "Sostener la cualidad dominante y ajustar el limitante principal en el próximo bloque."
     if snapshot_row is not None:
@@ -10674,14 +10686,22 @@ def _generate_professional_profile_pdf_reportlab(
             return
         target.append(Spacer(1, 3 * mm))
         radar_image = _composite_radar_image(composite_profile, width_mm=102, height_mm=66)
-        methodological_notes: list[str] = [str(composite_profile.get("note") or PROFESSIONAL_COMPOSITE_PROFILE_NOTE)]
-        if str(composite_profile.get("scope_note") or "").strip():
-            methodological_notes.append(str(composite_profile.get("scope_note")))
-        if change_payload.get("state") == "missing":
-            methodological_notes.append(
+        methodological_note_parts: list[str] = []
+        for note in (
+            composite_profile.get("note") or PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
+            composite_profile.get("profile_source_note"),
+            composite_profile.get("scope_note"),
+            (
                 f"Cambios vs evaluación anterior: {change_payload.get('message') or PROFESSIONAL_NO_EVOLUTION_TEXT}"
-            )
-        note_title = "Notas metodológicas" if len(methodological_notes) > 1 else "Nota metodológica"
+                if change_payload.get("state") == "missing"
+                else ""
+            ),
+        ):
+            cleaned_note = str(note or "").strip()
+            if cleaned_note and cleaned_note not in methodological_note_parts:
+                methodological_note_parts.append(cleaned_note)
+        methodological_notes = [" ".join(methodological_note_parts)] if methodological_note_parts else []
+        note_title = "Notas metodológicas" if len(methodological_note_parts) > 1 else "Nota metodológica"
         profile_summary_flow: list[object] = [
             _decision_box(
                 "Lectura principal del perfil",

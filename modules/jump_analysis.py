@@ -152,46 +152,46 @@ SEMAPHORE_LABELS = (
 PATTERN_LIBRARY = {
     "A": {
         "label": "Patron A - Fuerza/propulsion con SSC rapido limitado",
-        "phys": "Buena capacidad concentrica y techo de fuerza aceptable, menor expresion en SSC rapido.",
-        "bio": "Mayor tiempo de construccion de impulso en ventanas de contacto breves.",
+        "phys": "Mejor capacidad concentrica/propulsiva relativa, con menor expresion en SSC rapido.",
+        "bio": "El SJ disponible supera la expresion reactiva rapida; conviene leerlo junto con el resto de la bateria.",
         "train": "Fast SSC, stiffness util, pogos, drop jumps dosificados, sprints cortos, fuerza con intencion alta y bajo lastre.",
         "summary_short": "Buen perfil concentrico con rezago reactivo rapido.",
         "summary_athlete": "Tenes una base concentrica util, pero hoy la reaccion rapida en contactos breves aparece mas limitada.",
         "summary_client": "Hay una base de fuerza/propulsion util, con margen para mejorar la reaccion rapida y la calidad de contacto.",
-        "summary_professional": "Se observa buena salida concentrica con menor expresion del SSC rapido; conviene priorizar stiffness, contacto y transferencia reactiva.",
+        "summary_professional": "Se observa mejor salida concentrica relativa con menor expresion del SSC rapido; conviene priorizar contacto y transferencia reactiva sin cerrar la lectura de fuerza base solo con este patron.",
         "kpi_to_track": ["DJ_RSI", "DJ_tc_ms", "DRI"],
     },
     "B": {
-        "label": "Patron B - Reactivo con techo de fuerza bajo",
-        "phys": "Buena reutilizacion de energia elastica en SSC rapido, con techo de fuerza concentrica limitado.",
-        "bio": "Alta rigidez muscular funcional pero menor capacidad propulsiva maxima en saltos sin ciclo.",
+        "label": "Patron B - Reactivo relativo con base concentrica limitada",
+        "phys": "DJ RSI relativamente mejor que SJ en esta foto, con base concentrica menos destacada.",
+        "bio": "La respuesta rapida disponible conviene validarla junto con altura de DJ, tiempo de contacto y DRI antes de cerrarla como fortaleza global.",
         "train": "Trabajo de fuerza maxima y potencia concentrica, sentadilla pesada, hip thrust, saltos con carga.",
         "summary_short": "Buen componente reactivo con base concentrica limitada.",
         "summary_athlete": "Respondés bien en acciones rapidas, pero todavia falta mas base de fuerza para sostener mejor esa reaccion.",
         "summary_client": "La reactividad aparece bien expresada, aunque la base concentrica todavia puede crecer para darle mas sostén al perfil.",
-        "summary_professional": "Hay buena eficiencia reactiva relativa, con menor techo de fuerza/propulsion concentrica; conviene priorizar fuerza maxima y transferencia vertical.",
+        "summary_professional": "Hay una senal reactiva relativa por DJ RSI, con menor SJ; conviene validarla con altura/contacto/DRI y reforzar fuerza base.",
         "kpi_to_track": ["SJ_cm", "CMJ_cm", "IMTP_relPF"],
     },
     "C": {
         "label": "Patron C - Salida vertical con deficit isometrico relativo",
-        "phys": "Potencia explosiva presente con deficit de fuerza isometrica relativa. DSI probablemente elevado.",
-        "bio": "Buena transferencia explosiva pero con menor base de fuerza maxima para sostenerla.",
+        "phys": "Buena expresion vertical relativa con IMTP relPF por debajo de la referencia disponible.",
+        "bio": "La salida vertical se sostiene mejor que la referencia de fuerza base disponible.",
         "train": "Fuerza maxima, IMTP-specific, isometricos en angulo de trabajo funcional.",
         "summary_short": "Salida explosiva presente con base isometrica relativa rezagada.",
         "summary_athlete": "Hoy mostras una buena salida explosiva, pero la base de fuerza isometrica relativa aparece por debajo de lo deseado.",
-        "summary_client": "Hay una salida explosiva util, aunque la fuerza base relativa todavia parece corta para sostener mejor esa expresion.",
-        "summary_professional": "La salida vertical se conserva, pero la fuerza isometrica relativa aparece rezagada; priorizar fuerza maxima e isometricos especificos.",
+        "summary_client": "Hay una salida explosiva util, aunque la base de fuerza todavia parece corta para sostener mejor esa expresion.",
+        "summary_professional": "La salida vertical se conserva, pero la fuerza base relativa aparece rezagada; priorizar fuerza maxima e isometricos especificos.",
         "kpi_to_track": ["IMTP_relPF", "IMTP_N", "DSI"],
     },
     "D": {
         "label": "Patron D - Deficit neuromuscular global",
-        "phys": "Deficit generalizado en capacidades neuromusculares evaluadas.",
-        "bio": "Limitacion en produccion de fuerza, potencia y reutilizacion elastica.",
-        "train": "Fase de acumulacion general. Priorizar fuerza basica antes de trabajo reactivo.",
-        "summary_short": "Perfil globalmente por debajo de la referencia disponible.",
-        "summary_athlete": "Hoy varias cualidades del perfil aparecen por debajo de la referencia, por lo que conviene reconstruir base antes de pedir mas complejidad.",
-        "summary_client": "El perfil actual muestra un rezago global y pide consolidar bases antes de subir complejidad o densidad reactiva.",
-        "summary_professional": "Los z-scores renderizables del radar quedan deprimidos en conjunto; conviene priorizar acumulacion general, fuerza basica y progresion reactiva conservadora.",
+        "phys": "Las variables disponibles muestran un rezago amplio del perfil actual.",
+        "bio": "Las variables disponibles sugieren limitaciones compartidas en fuerza y expresion del salto, con interpretacion mas firme si la bateria esta completa.",
+        "train": "Priorizar base general y progresion conservadora antes de complejizar el bloque, especialmente si la bateria actual es parcial.",
+        "summary_short": "Varias variables disponibles quedan por debajo de la referencia.",
+        "summary_athlete": "Hoy varias cualidades disponibles aparecen por debajo de la referencia, por lo que conviene reconstruir base antes de pedir mas complejidad.",
+        "summary_client": "El perfil actual muestra varias senales por debajo de la referencia y pide consolidar bases antes de sumar mas exigencia.",
+        "summary_professional": "Las variables disponibles del radar quedan deprimidas en conjunto; conviene priorizar acumulacion general y progresion reactiva conservadora, con mas cautela si la bateria es parcial.",
         "kpi_to_track": ["CMJ_cm", "SJ_cm", "DJ_RSI", "IMTP_relPF"],
     },
     "E": {
@@ -862,20 +862,20 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
     eur = pd.to_numeric(pd.Series([row_series.get("EUR")]), errors="coerce").iloc[0]
     if pd.notna(eur):
         if eur >= 1.10:
-            flags.append({"level": "green", "text": "EUR ✓ SSC eficiente"})
+            flags.append({"level": "green", "text": "EUR alto: revisar junto con SJ y CMJ"})
         elif eur >= 1.00:
-            flags.append({"level": "yellow", "text": "EUR ~ SSC moderado"})
+            flags.append({"level": "yellow", "text": "EUR intermedio: leer junto con SJ y CMJ"})
         else:
-            flags.append({"level": "red", "text": "EUR ↓ SSC deficiente"})
+            flags.append({"level": "red", "text": "EUR bajo: posible bajo aporte del contramovimiento; validar tecnica y fatiga"})
 
     dsi = pd.to_numeric(pd.Series([row_series.get("DSI")]), errors="coerce").iloc[0]
     if pd.notna(dsi):
         if dsi >= 1.0:
-            flags.append({"level": "green", "text": "DSI ✓ Fuerza explosiva"})
+            flags.append({"level": "green", "text": "DSI alto: relacion dinamica/isometrica elevada; interpretar con IMTP y CMJ"})
         elif dsi >= 0.8:
-            flags.append({"level": "yellow", "text": "DSI ~ Balanceado"})
+            flags.append({"level": "yellow", "text": "DSI intermedio: interpretar con IMTP y CMJ"})
         else:
-            flags.append({"level": "red", "text": "DSI ↓ Deficit isometrico relativo"})
+            flags.append({"level": "red", "text": "DSI bajo: relacion dinamica/isometrica reducida; interpretar con IMTP y CMJ"})
 
     has_real_ttt = False
     for ttt_col in ("TTT_s", "TTT_ms"):
@@ -889,11 +889,11 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
         flags.append({"level": "gray", "text": "mRSI — requiere TTT del export"})
     elif pd.notna(mrsi):
         if mrsi >= 0.70:
-            flags.append({"level": "green", "text": "mRSI ✓"})
+            flags.append({"level": "green", "text": "mRSI alto: eficiencia temporal del CMJ; no equivalente a DJ RSI"})
         elif mrsi >= 0.45:
-            flags.append({"level": "yellow", "text": "mRSI ~"})
+            flags.append({"level": "yellow", "text": "mRSI intermedio: leer junto con CMJ y el protocolo aplicado"})
         else:
-            flags.append({"level": "red", "text": "mRSI ↓"})
+            flags.append({"level": "red", "text": "mRSI bajo: eficiencia temporal del CMJ a validar con el protocolo aplicado"})
 
     return flags
 
@@ -991,6 +991,135 @@ def _build_pattern_evidence(row: pd.Series, patterns: list[str]) -> list[str]:
     return list(dict.fromkeys(evidence))
 
 
+def _append_unique_text(base_text: object, extra_text: object) -> str:
+    base = str(base_text or "").strip()
+    extra = str(extra_text or "").strip()
+    if not extra:
+        return base
+    if not base:
+        return extra
+    if extra in base:
+        return base
+    return f"{base} {extra}".strip()
+
+
+def _replace_text_tokens(text: object, replacements: dict[str, str]) -> str:
+    updated = str(text or "")
+    for source, target in replacements.items():
+        updated = updated.replace(source, target)
+    return updated.strip()
+
+
+def _is_near_threshold(value: object, *, threshold: float = 0.5, margin: float = 0.1) -> bool:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return False
+    return abs(abs(float(numeric)) - threshold) <= margin
+
+
+def _pattern_has_near_threshold_evidence(row: pd.Series, patterns: list[str]) -> bool:
+    sj_z = resolve_zscore(row, "SJ_Z")
+    dj_rsi_z = resolve_zscore(row, "DJ_RSI_Z")
+    cmj_z = resolve_zscore(row, "CMJ_Z")
+    imtp_relpf_z = resolve_zscore(row, "IMTP_relPF_Z")
+    eur = _coalesced_numeric_value(row, "EUR")
+
+    if "A" in patterns and (_is_near_threshold(sj_z) or _is_near_threshold(dj_rsi_z)):
+        return True
+    if "B" in patterns and (_is_near_threshold(sj_z) or _is_near_threshold(dj_rsi_z)):
+        return True
+    if "C" in patterns and (
+        _is_near_threshold(imtp_relpf_z) or (cmj_z is not None and abs(float(cmj_z) - (-0.5)) <= 0.1)
+    ):
+        return True
+    if "E" in patterns and eur is not None and abs(float(eur) - 1.0) <= 0.03:
+        return True
+    return False
+
+
+def _profile_has_partial_battery(flags: list[str]) -> bool:
+    flag_set = set(flags)
+    return "missing_imtp" in flag_set or "missing_dj" in flag_set
+
+
+def _profile_confidence_from_context(
+    *,
+    patterns: list[str],
+    flags: list[str],
+    profile_source: str,
+) -> str:
+    flag_set = set(flags)
+    if "insufficient_pattern_evidence" in flag_set or "cmj_lower_than_sj" in flag_set or "E" in patterns:
+        return "low"
+    if "D" in patterns and "partial_battery_caution" in flag_set:
+        return "low"
+    if {"missing_imtp", "missing_dj"}.issubset(flag_set):
+        return "low"
+    if "near_threshold_evidence" in flag_set:
+        return "moderate"
+    if "partial_battery_caution" in flag_set:
+        return "moderate"
+    if profile_source in {"composite_snapshot", "unknown"}:
+        return "moderate"
+    if "composite_profile_caution" in flag_set:
+        return "moderate"
+    return "high"
+
+
+def _apply_pattern_claim_guards(
+    result: dict[str, object],
+    row_series: pd.Series,
+    *,
+    patterns: list[str],
+    flags: list[str],
+) -> None:
+    flag_set = set(flags)
+    has_imtp_reference = "missing_imtp" not in flag_set
+    has_dj_complete = "missing_dj" not in flag_set
+    partial_battery = "partial_battery_caution" in flag_set
+
+    if "A" in patterns and not has_imtp_reference:
+        caution_common = "Sin una referencia IMTP comparable, no conviene cerrar conclusiones sobre la base de fuerza."
+        caution_client = "Sin una referencia extra de fuerza, conviene tomar esta lectura como parcial."
+        result["phys"] = _append_unique_text(result.get("phys"), caution_common)
+        result["bio"] = _append_unique_text(result.get("bio"), caution_common)
+        result["summary_athlete"] = _append_unique_text(result.get("summary_athlete"), caution_common)
+        result["summary_client"] = _append_unique_text(result.get("summary_client"), caution_client)
+        result["summary_professional"] = _append_unique_text(result.get("summary_professional"), caution_common)
+
+    if "B" in patterns:
+        dj_context = "Esta senal conviene validarla con altura de DJ, tiempo de contacto y DRI antes de cerrarla como fortaleza reactiva."
+        if not has_dj_complete:
+            result["bio"] = _append_unique_text(result.get("bio"), dj_context)
+        result["summary_professional"] = _append_unique_text(result.get("summary_professional"), dj_context)
+        if not has_imtp_reference:
+            caution_common = "Sin una referencia IMTP comparable, no conviene cerrar conclusiones sobre la base de fuerza."
+            caution_client = "Sin una referencia extra de fuerza, conviene tomar esta lectura como parcial."
+            result["phys"] = _append_unique_text(result.get("phys"), caution_common)
+            result["summary_athlete"] = _append_unique_text(result.get("summary_athlete"), caution_common)
+            result["summary_client"] = _append_unique_text(result.get("summary_client"), caution_client)
+            result["summary_professional"] = _append_unique_text(result.get("summary_professional"), caution_common)
+
+    if "C" in patterns and _coalesced_numeric_value(row_series, "DSI") is None:
+        replacements = {"DSI probablemente elevado.": ""}
+        for field in ("phys", "bio", "summary_short", "summary_athlete", "summary_client", "summary_professional"):
+            result[field] = _replace_text_tokens(result.get(field), replacements)
+
+    if "D" in patterns and partial_battery:
+        caution_common = "La bateria actual es parcial y la interpretacion queda limitada a las variables disponibles."
+        caution_client = "Como faltan partes de la evaluacion, esta lectura queda limitada a los datos disponibles."
+        for field in ("phys", "bio", "summary_short", "summary_athlete", "summary_professional", "train"):
+            result[field] = _append_unique_text(result.get(field), caution_common)
+        result["summary_client"] = _append_unique_text(result.get("summary_client"), caution_client)
+
+    if "E" in patterns and len(patterns) > 1:
+        caution_prof = "Aunque aparezcan otras senales del perfil, la cautela por CMJ < SJ debe preservarse antes de cambiar prioridades."
+        caution_client = "Antes de sacar conclusiones mas fuertes, conviene confirmar primero la senal de CMJ frente a SJ."
+        result["summary_professional"] = _append_unique_text(result.get("summary_professional"), caution_prof)
+        result["summary_client"] = _append_unique_text(result.get("summary_client"), caution_client)
+        result["summary_athlete"] = _append_unique_text(result.get("summary_athlete"), caution_prof)
+
+
 def _default_neuromuscular_result() -> dict[str, object]:
     return {
         "profile_code": "UNCLASSIFIED",
@@ -1003,13 +1132,13 @@ def _default_neuromuscular_result() -> dict[str, object]:
         "profile_source_note": PROFILE_SOURCE_CONFIG["unknown"]["note"],
         "profile_source_dates": {},
         "profile_source_is_composite": PROFILE_SOURCE_CONFIG["unknown"]["is_composite"],
-        "phys": "Perfil equilibrado en los indices disponibles.",
-        "bio": "Sin deficits biomecanicos marcados en los tests disponibles.",
-        "train": "Continuar progresion planificada y completar la bateria faltante si hiciera falta.",
-        "summary_short": "Sin patron dominante con las reglas actuales.",
-        "summary_athlete": "Hoy no aparece un patron dominante con las reglas actuales; conviene completar o repetir mediciones antes de cambiar demasiado el foco.",
-        "summary_client": "No aparece un patron dominante con las reglas actuales; la lectura debe tomarse con cautela y conviene completar mediciones clave.",
-        "summary_professional": "La evidencia disponible no alcanza para clasificar un patron dominante con las reglas actuales; conviene completar variables clave y releer el contexto del test.",
+        "phys": "La informacion disponible no alcanza para clasificar un perfil neuromuscular estable.",
+        "bio": "No aparece un patron biomecanico dominante suficiente con los datos disponibles; conviene leerlo junto con tecnica y contexto del test.",
+        "train": "Conviene repetir o completar la bateria antes de sacar conclusiones fuertes; sostener el plan solo si carga y contexto lo respaldan.",
+        "summary_short": "La informacion disponible no alcanza para clasificar un patron estable.",
+        "summary_athlete": "Hoy la foto neuromuscular no alcanza para cerrar un patron estable; conviene completar o repetir mediciones antes de cambiar demasiado el foco.",
+        "summary_client": "Con la informacion disponible no conviene sacar conclusiones fuertes; hace falta completar o repetir mediciones clave.",
+        "summary_professional": "La evidencia disponible no alcanza para clasificar un patron dominante estable; conviene completar variables clave y releer el contexto del test.",
         "metrics": {},
         "flags": [],
         "evidence": [],
@@ -1072,6 +1201,8 @@ def build_neuromuscular_profile_result(
         imtp_z = _coalesced_numeric_value(row_series, "IMTP_N_Z")
     if imtp_value is None or imtp_z is None:
         flags.append("missing_imtp")
+    if imtp_value is not None and imtp_z is None:
+        flags.append("imtp_reference_missing")
 
     dj_required = (
         _coalesced_numeric_value(row_series, "DJ_RSI"),
@@ -1090,8 +1221,28 @@ def build_neuromuscular_profile_result(
     patterns = _pattern_matches(row_series)
     if not patterns:
         flags.append("insufficient_pattern_evidence")
+    if _profile_has_partial_battery(flags):
+        flags.append("partial_battery_caution")
+    if _pattern_has_near_threshold_evidence(row_series, patterns):
+        flags.append("near_threshold_evidence")
+        flags.append("near_threshold")
 
-    result["flags"] = flags
+    profile_source_dates = _profile_source_dates_from_row(row_series)
+    profile_source = _infer_profile_source(
+        row_series,
+        context=context,
+        profile_source_dates=profile_source_dates,
+    )
+    source_meta = PROFILE_SOURCE_CONFIG.get(profile_source, PROFILE_SOURCE_CONFIG["unknown"])
+    result["profile_source"] = profile_source
+    result["profile_source_label"] = str(source_meta["label"])
+    result["profile_source_note"] = str(source_meta["note"])
+    result["profile_source_dates"] = profile_source_dates
+    result["profile_source_is_composite"] = bool(source_meta["is_composite"])
+    if result["profile_source_is_composite"]:
+        flags.append("composite_profile_caution")
+
+    result["flags"] = list(dict.fromkeys(flags))
     result["evidence"] = _build_pattern_evidence(row_series, patterns)
 
     if patterns:
@@ -1117,35 +1268,25 @@ def build_neuromuscular_profile_result(
                 if str(metric).strip()
             )
         )
+        _apply_pattern_claim_guards(
+            result,
+            row_series,
+            patterns=patterns,
+            flags=result["flags"],
+        )
 
-    if "missing_imtp" in flags:
+    if "missing_imtp" in result["flags"]:
         result["kpi_to_track"] = list(dict.fromkeys([*result["kpi_to_track"], "IMTP_relPF"]))
-    if "missing_dj" in flags:
+    if "missing_dj" in result["flags"]:
         result["kpi_to_track"] = list(dict.fromkeys([*result["kpi_to_track"], "DJ_cm", "DJ_RSI", "DJ_tc_ms"]))
     if not result["kpi_to_track"]:
         result["kpi_to_track"] = ["CMJ_cm", "SJ_cm", "EUR", "DJ_RSI", "IMTP_relPF"]
 
-    if "insufficient_pattern_evidence" in flags or "cmj_lower_than_sj" in flags or "E" in patterns:
-        result["confidence"] = "low"
-    elif "missing_imtp" in flags and "missing_dj" in flags:
-        result["confidence"] = "low"
-    elif "missing_imtp" in flags or "missing_dj" in flags:
-        result["confidence"] = "moderate"
-    else:
-        result["confidence"] = "high"
-
-    profile_source_dates = _profile_source_dates_from_row(row_series)
-    profile_source = _infer_profile_source(
-        row_series,
-        context=context,
-        profile_source_dates=profile_source_dates,
+    result["confidence"] = _profile_confidence_from_context(
+        patterns=patterns,
+        flags=result["flags"],
+        profile_source=profile_source,
     )
-    source_meta = PROFILE_SOURCE_CONFIG.get(profile_source, PROFILE_SOURCE_CONFIG["unknown"])
-    result["profile_source"] = profile_source
-    result["profile_source_label"] = str(source_meta["label"])
-    result["profile_source_note"] = str(source_meta["note"])
-    result["profile_source_dates"] = profile_source_dates
-    result["profile_source_is_composite"] = bool(source_meta["is_composite"])
 
     return result
 
@@ -1157,10 +1298,14 @@ _DASHBOARD_CONFIDENCE_LABELS = {
 }
 
 _DASHBOARD_STRUCTURED_FLAG_MAP = {
-    "missing_imtp": {"level": "gray", "text": "IMTP pendiente"},
+    "missing_imtp": {"level": "gray", "text": "Referencia IMTP incompleta"},
+    "imtp_reference_missing": {"level": "gray", "text": "IMTP sin referencia comparable"},
     "missing_dj": {"level": "gray", "text": "DJ pendiente"},
     "cmj_lower_than_sj": {"level": "red", "text": "CMJ < SJ"},
     "insufficient_pattern_evidence": {"level": "yellow", "text": "Perfil parcial"},
+    "partial_battery_caution": {"level": "yellow", "text": "Bateria parcial"},
+    "composite_profile_caution": {"level": "yellow", "text": "Perfil compuesto"},
+    "near_threshold_evidence": {"level": "yellow", "text": "Senal cerca del umbral"},
 }
 
 
@@ -1308,14 +1453,14 @@ def build_jump_feedback_lines(row: pd.Series | dict[str, object]) -> list[str]:
                 "Revisar tecnica, fatiga acumulada o limitacion especifica del SSC lento."
             )
         else:
-            biomecanico = "Sin deficits marcados en los tests disponibles."
+            biomecanico = "No aparece un patron biomecanico dominante con los datos disponibles; conviene completar bateria y contexto."
 
         lines = [
             "Alto: sin variables > 0.5.",
             "Bajo: sin variables < -0.5.",
-            "Fisiologico: Perfil equilibrado en todos los indices evaluados.",
+            "Fisiologico: La informacion disponible no muestra una senal dominante suficiente para cerrar un perfil estable.",
             f"Biomecanico: {biomecanico}",
-            "Proximo bloque: Continuar progresion planificada.",
+            "Proximo bloque: Evitar cambios fuertes solo por este perfil aislado; repetir o completar mediciones si hace falta.",
         ]
         if "E" in patterns:
             lines.append(PATTERN_LIBRARY["E"]["note"])

@@ -1121,7 +1121,12 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
         pages = _normalized_pdf_pages(pdf)
-        pages_with_change_note = [page for page in pages if "cambios vs evaluacion anterior" in page]
+        collapsed_pages = [re.sub(r"\s+", " ", page).strip() for page in pages]
+        pages_with_change_note = [
+            page
+            for page in collapsed_pages
+            if "cambios vs evaluacion anterior" in page
+        ]
 
         self.assertLessEqual(len(pages), 9)
         self.assertEqual(len(pages_with_change_note), 1)

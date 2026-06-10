@@ -230,6 +230,7 @@ def _composite_profile_source_df() -> pd.DataFrame:
 
 def _synthetic_profile_row(**overrides) -> pd.Series:
     base = {
+        "Date": "2026-05-01",
         "SJ_cm": 32.0,
         "CMJ_cm": 34.0,
         "DJ_cm": 26.0,
@@ -297,7 +298,7 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         flags = build_jump_flag_rows(athlete_b)
         texts = [item["text"] for item in flags]
-        self.assertTrue(any("SSC deficiente" in text for text in texts))
+        self.assertTrue(any("EUR bajo" in text or "contramovimiento" in text for text in texts))
         self.assertTrue(any("requiere TTT del export" in text for text in texts))
 
         lines = build_jump_feedback_lines(athlete_b)
