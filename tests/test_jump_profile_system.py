@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import unicodedata
 
 import pandas as pd
 
@@ -37,6 +38,10 @@ from modules.jump_analysis import (
     select_primary_profile_row,
 )
 from modules.report_generator import _build_pdf_neuromuscular_profile_payload
+
+
+def _normalized_label(value: object) -> str:
+    return unicodedata.normalize("NFD", str(value)).encode("ascii", "ignore").decode("ascii").lower()
 
 
 def _chart_theme() -> dict:
@@ -1281,7 +1286,7 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertEqual(dashboard_payload["source"], "core")
         self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
-        self.assertEqual(dashboard_payload["profile_label"], pdf_payload["profile_label"])
+        self.assertEqual(_normalized_label(dashboard_payload["profile_label"]), _normalized_label(pdf_payload["profile_label"]))
         self.assertEqual(dashboard_payload["profile_source"], pdf_payload["profile_source"])
         self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
         self.assertIn("missing_imtp", dashboard_payload["flags"])
@@ -1296,7 +1301,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         pdf_payload = _build_pdf_neuromuscular_profile_payload(row)
 
         self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
-        self.assertEqual(dashboard_payload["profile_label"], pdf_payload["profile_label"])
+        self.assertEqual(_normalized_label(dashboard_payload["profile_label"]), _normalized_label(pdf_payload["profile_label"]))
         self.assertEqual(dashboard_payload["confidence"], pdf_payload["confidence"])
         self.assertEqual(dashboard_payload["profile_source"], pdf_payload["profile_source"])
         self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
@@ -1339,7 +1344,7 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertEqual(dashboard_payload["profile_code"], "E")
         self.assertEqual(dashboard_payload["profile_code"], pdf_payload["profile_code"])
-        self.assertEqual(dashboard_payload["profile_label"], pdf_payload["profile_label"])
+        self.assertEqual(_normalized_label(dashboard_payload["profile_label"]), _normalized_label(pdf_payload["profile_label"]))
         self.assertIn("cmj_lower_than_sj", dashboard_payload["flags"])
         self.assertTrue(any("CMJ < SJ" in item["text"] for item in dashboard_payload["flag_rows"]))
         self.assertTrue(any("Patron E" in line for line in dashboard_payload["feedback_lines"]))

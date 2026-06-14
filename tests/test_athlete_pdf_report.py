@@ -281,6 +281,33 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertNotIn("interpretacion integrada profesional", joined)
         self.assertNotIn("tc inv", joined)
 
+    def test_athlete_pdf_uses_compact_unclassified_profile_label_and_reading_title(self):
+        custom_payload = _structured_neuromuscular_stub(
+            profile_code=None,
+            profile_label="Sin patrón dominante",
+            metrics={},
+            flags=["insufficient_pattern_evidence"],
+            evidence=[],
+            kpi_to_track=[],
+            summary_short="La información disponible todavía no alcanza para cerrar un patrón estable.",
+            summary_athlete="La información disponible todavía no alcanza para cerrar un patrón estable.",
+        )
+
+        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            with patch.object(report_generator, "build_neuromuscular_profile_result", return_value=custom_payload):
+                pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
+
+        self.assertIsNotNone(pdf)
+        assert pdf is not None
+        joined = _collapsed_normalized_pdf_text(pdf)
+
+        self.assertIn("sin patron definido", joined)
+        self.assertIn("lectura principal", joined)
+        self.assertIn("volver a medir para confirmar", joined)
+        self.assertNotIn("sin patron dominan", joined)
+        self.assertNotIn("fortaleza principal", joined)
+        self.assertNotIn("antes de cambiar demasiado el foco", joined)
+
     def test_athlete_pdf_force_time_page_keeps_simple_language_and_accents(self):
         with patch.object(report_generator, "datetime", FixedAthleteReportDate):
             pdf = generate_visual_report_pdf(_athlete_report_state_with_force_time(), "Ana Lopez", "atleta")

@@ -1387,7 +1387,7 @@ def build_dashboard_neuromuscular_payload(
         return {
             "source": "legacy_fallback",
             "profile_code": "UNCLASSIFIED",
-            "profile_label": "Sin patron dominante",
+            "profile_label": "Sin patrón definido",
             "eur_profile": _eur_profile_from_row(row_series),
             "nm_profile_legacy": str(row_series.get("NM_Profile") or _eur_profile_from_row(row_series) or "Sin datos").strip() or "Sin datos",
             "confidence": "low",
@@ -1413,6 +1413,10 @@ def build_dashboard_neuromuscular_payload(
     high_values, low_values = _dashboard_signal_summary(row_series)
     confidence = str(profile_payload.get("confidence") or "low").strip().lower()
     payload = dict(profile_payload)
+    profile_label = str(payload.get("profile_label") or "").strip()
+    profile_code = str(payload.get("profile_code") or "").strip().upper()
+    if profile_code in {"", "UNCLASSIFIED", "NONE"} and "sin patron" in profile_label.casefold():
+        payload["profile_label"] = "Sin patrón definido"
     payload["source"] = "core"
     payload["confidence_label"] = _DASHBOARD_CONFIDENCE_LABELS.get(confidence, _DASHBOARD_CONFIDENCE_LABELS["low"])
     payload["profile_metric_value"] = _dashboard_profile_metric_value(profile_payload)

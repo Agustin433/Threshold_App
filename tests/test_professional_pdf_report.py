@@ -210,7 +210,7 @@ def _assert_professional_mother_structure(testcase: unittest.TestCase, text: str
         "cambios vs evaluacion anterior",
         "exposicion del bloque",
         "interpretacion integrada profesional",
-        "que sabemos",
+        "senales con mejor respaldo disponible",
         "que parece probable",
         "que no podemos afirmar",
         "decision practica",
@@ -1234,6 +1234,40 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("intermedio", rsi_section["location"].lower())
         self.assertIn("intermedio", rsi_section["athlete_meaning"].lower())
 
+    def test_professional_quadrant_softens_language_when_signal_is_just_above_neutral_band(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "SJ_Z": 0.80, "DJ_RSI": 1.35, "DJ_RSI_Z": 0.37},
+                ]
+            )
+        }
+
+        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        rsi_section = sections[1]
+        meaning = _normalized_story_text(rsi_section["athlete_meaning"])
+
+        self.assertIn("umbral", meaning)
+        self.assertTrue(any(token in meaning for token in ("confirm", "cercana")), meaning)
+        self.assertNotIn("buena eficiencia reactiva", meaning)
+
+    def test_professional_quadrant_does_not_treat_mid_dj_rsi_as_strong_reactive_deficit(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "SJ_Z": 0.80, "DJ_RSI": 1.70},
+                ]
+            )
+        }
+
+        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        rsi_section = sections[1]
+        meaning = _normalized_story_text(rsi_section["athlete_meaning"])
+
+        self.assertEqual(rsi_section["classification"]["x_zone"], "mid")
+        self.assertIn("fortaleza principal", meaning)
+        self.assertNotIn("rezagada", meaning)
+
     def test_professional_narrative_avoids_double_periods(self):
         state = _weekly_state_without_evaluations()
         state["jump_df"] = pd.DataFrame(
@@ -1958,6 +1992,15 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             text,
         )
 
+    def test_professional_rendered_story_uses_neutral_support_title_instead_of_good_confidence_heading(self):
+        _, raw_text = _rendered_pdf_and_raw_story_text(_professional_state_with_force_time(), "Ana Lopez", "profe")
+        text = _normalized_story_text(raw_text)
+
+        self.assertIn("senales con mejor respaldo disponible", text)
+        self.assertIn("Señales con mejor respaldo disponible", raw_text)
+        self.assertNotIn("Senales con mejor respaldo disponible", raw_text)
+        self.assertNotIn("que sabemos con buena confianza", text)
+
     def test_team_mean_for_radar_resolves_canonical_overlay_keys_from_legacy_aliases(self):
         jump_df = pd.DataFrame(
             [
@@ -2044,8 +2087,60 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("no aparece una variable claramente rezagada", visible_text)
         self.assertIn("mantener el perfil actual", visible_text)
         self.assertIn("monitorear si alguna variable empieza a separarse", visible_text)
+        self.assertNotIn("sin variables > 0.5", visible_text)
         self.assertNotIn("sin variables < -0.5", visible_text)
         self.assertNotIn("mejorar sin variables", visible_text)
+
+    def test_unclassified_professional_decisions_stay_tentative_instead_of_closed_diagnostic(self):
+        state = {
+            "jump_df": pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-05-01",
+                        "SJ_cm": 30.0,
+                        "CMJ_cm": 32.0,
+                        "DJ_cm": 24.0,
+                        "DJ_RSI": 1.05,
+                        "DJ_tc_ms": 220.0,
+                        "IMTP_relPF": 38.0,
+                        "EUR": 1.04,
+                        "SJ_Z": 0.10,
+                        "CMJ_Z": 0.10,
+                        "DJ_height_Z": 0.05,
+                        "DJ_RSI_Z": 0.10,
+                        "TC_inv_Z": 0.05,
+                        "IMTP_relPF_Z": 0.10,
+                    }
+                ]
+            )
+        }
+
+        composite_payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+        integrated = report_generator._build_professional_integrated_decision_payload(
+            state,
+            "Ana Lopez",
+            evaluation_state="available",
+            assessment_interval_warning="",
+            composite_payload=composite_payload,
+            change_payload={"declines": [], "improvements": [], "no_previous": []},
+            load_payload={"rows": [], "risk_line": "", "state": "missing"},
+            wellness_payload={"rows": [], "compatibility": "", "state": "missing"},
+            exposure_payload={"dominant": [], "low_or_absent": [], "state": "missing"},
+            training_context={"state": "missing"},
+        )
+        visible_text = _normalized_story_text(
+            " ".join(
+                [
+                    composite_payload.get("summary_line", ""),
+                    *integrated.get("good_confidence", []),
+                    *integrated.get("decision_practical", []),
+                ]
+            )
+        )
+
+        self.assertIn("prioridad operativa", visible_text)
+        self.assertTrue(any(token in visible_text for token in ("tentativa", "sin cerrar", "bateria disponible")), visible_text)
 
     def test_composite_profile_uses_structured_profile_without_parsing_summary_prefixes(self):
         state = {

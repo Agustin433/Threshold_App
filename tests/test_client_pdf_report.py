@@ -227,6 +227,34 @@ def _client_pattern_e_report_state() -> dict[str, object]:
     return state
 
 
+def _client_attention_recovery_report_state() -> dict[str, object]:
+    state = _client_report_state()
+    state["wellness_df"] = pd.DataFrame(
+        [
+            {"Athlete": "Ana Lopez", "Date": "2026-04-28", "Sueno_hs": 7.0, "Estres": 8, "Dolor": 7, "Wellness_Score": 2.8},
+            {"Athlete": "Ana Lopez", "Date": "2026-04-30", "Sueno_hs": 7.1, "Estres": 8, "Dolor": 7, "Wellness_Score": 2.7},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-01", "Sueno_hs": 6.9, "Estres": 9, "Dolor": 8, "Wellness_Score": 2.6},
+            {"Athlete": "Ana Lopez", "Date": "2026-05-04", "Sueno_hs": 7.0, "Estres": 8, "Dolor": 7, "Wellness_Score": 2.7},
+        ]
+    )
+    return state
+
+
+def _client_precaution_load_report_state() -> dict[str, object]:
+    state = _client_report_state()
+    state["acwr_dict"] = {
+        "Ana Lopez": pd.DataFrame(
+            [
+                {"Date": "2026-04-28", "sRPE_diario": 320, "ACWR_EWMA": 1.18, "Zona": "Optimo"},
+                {"Date": "2026-04-30", "sRPE_diario": 340, "ACWR_EWMA": 1.24, "Zona": "Optimo"},
+                {"Date": "2026-05-04", "sRPE_diario": 300, "ACWR_EWMA": 1.36, "Zona": "Precaucion"},
+                {"Date": "2026-05-05", "sRPE_diario": 300, "ACWR_EWMA": 1.39, "Zona": "Precaucion"},
+            ]
+        )
+    }
+    return state
+
+
 class ClientPdfReportTest(unittest.TestCase):
     def test_client_pdf_applies_threshold_visual_system_and_target_sections(self):
         with patch.object(report_generator, "datetime", FixedClientReportDate):
@@ -324,6 +352,52 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertIn("ultimos registros visibles", joined)
         self.assertIn("el promedio reciente es aceptable, pero conviene seguir de cerca la recuperacion percibida", joined)
         self.assertNotIn("sin senales grandes de alerta", joined)
+
+    def test_client_pdf_uses_actionable_confirmation_copy_without_old_defensive_phrase(self):
+        custom_payload = _structured_neuromuscular_stub(
+            profile_code=None,
+            profile_label="Sin patrón dominante",
+            metrics={},
+            flags=["insufficient_pattern_evidence"],
+            evidence=[],
+            kpi_to_track=[],
+            summary_short="La información disponible todavía no alcanza para cerrar un patrón estable.",
+            summary_client="La información disponible todavía no alcanza para cerrar un patrón estable.",
+        )
+
+        with patch.object(report_generator, "build_neuromuscular_profile_result", return_value=custom_payload):
+            pdf, story_text = _rendered_pdf_and_story_text(_client_report_state(), "Ana Lopez")
+
+        self.assertIsNotNone(pdf)
+        joined_pages = " ".join(_normalized_pdf_pages(pdf))
+        self.assertIn("mantener el bloque actual y volver a medir para confirmar", joined_pages)
+        self.assertNotIn("antes de cambiar demasiado el foco", joined_pages)
+        self.assertNotIn("antes de cambiar demasiado el foco", story_text)
+
+    def test_client_pdf_high_stress_and_pain_do_not_read_as_no_large_deviations(self):
+        pdf, story_text = _rendered_pdf_and_story_text(_client_attention_recovery_report_state(), "Ana Lopez")
+        joined_pages = " ".join(_normalized_pdf_pages(pdf))
+
+        self.assertIsNotNone(pdf)
+        self.assertIn(
+            "la recuperacion viene algo cargada: estres y dolor merecen atencion antes de subir exigencia",
+            joined_pages,
+        )
+        self.assertNotIn("sin senales grandes de alerta", joined_pages)
+        self.assertNotIn("no muestran desvios grandes", joined_pages)
+        self.assertNotIn("sin senales grandes de alerta", story_text)
+
+    def test_client_pdf_precaution_load_keeps_useful_but_not_overly_positive_wording(self):
+        pdf, story_text = _rendered_pdf_and_story_text(_client_precaution_load_report_state(), "Ana Lopez")
+        joined_pages = " ".join(_normalized_pdf_pages(pdf))
+
+        self.assertIsNotNone(pdf)
+        self.assertIn(
+            "la carga permite seguir entrenando, pero pide cuidado y mas continuidad antes de subir exigencia",
+            joined_pages,
+        )
+        self.assertNotIn("zona util para seguir construyendo con continuidad", joined_pages)
+        self.assertNotIn("zona util para seguir construyendo con continuidad", story_text)
 
     def test_client_pdf_handles_low_wellness_with_few_records_without_repeating_or_softening_alerts(self):
         pdf, story_text = _rendered_pdf_and_story_text(_client_partial_low_wellness_report_state(), "Ana Lopez")

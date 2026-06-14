@@ -252,7 +252,7 @@ class Phase1ReportingTest(unittest.TestCase):
             "acwr_dict": {},
             "mono_dict": {},
         }
-        structured_label = "Patron A - Fuerza/propulsion con SSC rapido limitado"
+        structured_label = "Patrón A - Fuerza/propulsion con SSC rápido limitado"
 
         with patch(
             "modules.report_generator.build_neuromuscular_profile_result",

@@ -112,6 +112,11 @@ PROFESSIONAL_NO_CLEAR_LAGGING_NEXT_BLOCK = (
 PROFESSIONAL_NO_CLEAR_LAGGING_MONITOR = (
     "Monitorear si alguna variable empieza a separarse del perfil en próximas evaluaciones."
 )
+PROFESSIONAL_NO_CLEAR_STRENGTH_TEXT = "No aparece una fortaleza clara por encima del umbral actual."
+PROFESSIONAL_NO_CLEAR_STRENGTH_ALT_TEXT = "No se observa una variable dominante segun el umbral actual."
+PROFESSIONAL_TENTATIVE_PRIORITY_TEXT = (
+    "Tomar esta lectura como prioridad operativa tentativa, sin cerrar todavia un perfil global con la bateria disponible."
+)
 MOJIBAKE_MARKERS = tuple(chr(code) for code in (195, 194, 226))
 
 
@@ -209,9 +214,12 @@ def _professional_visible_metric_text(value: object) -> str:
         "Pliometria": "Pliometría",
         "Isometricos": "Isométricos",
         "olimpicos": "olímpicos",
+        "senal": "señal",
+        "senales": "señales",
         "proximo": "próximo",
         "mas": "más",
         "evaluacion": "evaluación",
+        "informacion": "información",
         "adquisicion": "adquisición",
         "produccion": "producción",
         "maxima": "máxima",
@@ -225,8 +233,11 @@ def _professional_visible_metric_text(value: object) -> str:
         "indices": "índices",
         "deficits": "déficits",
         "mecanica": "mecánica",
+        "patron": "patrón",
         "expresion": "expresión",
         "progresion": "progresión",
+        "rapida": "rápida",
+        "rapido": "rápido",
         "concentrica": "concéntrica",
         "isometrica": "isométrica",
         "util": "útil",
@@ -2535,7 +2546,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
 
     def _append_full_integrated_page(target: list[object]) -> None:
         target.append(_p(integrated_decision_payload.get("title", "InterpretaciÃ³n integrada profesional"), "ProfSection"))
-        target.append(_bullet_box("QuÃ© sabemos con buena confianza", integrated_decision_payload.get("good_confidence", [])))
+        target.append(_bullet_box("Señales con mejor respaldo disponible", integrated_decision_payload.get("good_confidence", [])))
         target.append(Spacer(1, 3 * mm))
         target.append(_bullet_box("QuÃ© parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
         target.append(Spacer(1, 3 * mm))
@@ -2732,7 +2743,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
 
     def _append_full_integrated_page(target: list[object]) -> None:
         target.append(_p(integrated_decision_payload.get("title", "InterpretaciÃƒÂ³n integrada profesional"), "ProfSection"))
-        target.append(_bullet_box("QuÃƒÂ© sabemos con buena confianza", integrated_decision_payload.get("good_confidence", [])))
+        target.append(_bullet_box("Señales con mejor respaldo disponible", integrated_decision_payload.get("good_confidence", [])))
         target.append(Spacer(1, 3 * mm))
         target.append(_bullet_box("QuÃƒÂ© parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
         target.append(Spacer(1, 3 * mm))
@@ -2904,9 +2915,12 @@ def _snapshot_value(column: str, raw_value: object) -> str:
 
 
 def _short_profile_label(profile: object) -> str:
-    text = _ascii_text(profile).strip()
+    text = _professional_visible_metric_text(profile).strip()
     if not text:
         return "-"
+    normalized = _professional_normalized_text(text)
+    if any(token in normalized for token in ("sin patron", "perfil no cerrado", "unclassified", "no clasificado")):
+        return "Sin patrón definido"
     return text.split("/")[0].strip()[:18]
 
 
@@ -3212,9 +3226,10 @@ def _athlete_final_focus_blocks(
     *,
     neuromuscular_profile: dict[str, object] | None = None,
 ) -> list[dict[str, str]]:
+    primary_fallback_text = "La información disponible todavía no alcanza para cerrar un patrón estable."
     if row is None or row.empty:
         return [
-            {"title": "Fortaleza principal", "body": "Faltan datos suficientes para definir una fortaleza principal."},
+            {"title": "Lectura principal", "body": primary_fallback_text},
             {"title": "Punto a vigilar", "body": "Completar carga, wellness y evaluación para mejorar la lectura."},
             {"title": "Foco del próximo bloque", "body": "Construir continuidad y registrar datos de forma consistente."},
             {"title": "Próxima medición o revisión", "body": "Realizar una evaluación física inicial y revisar carga semanal."},
@@ -3229,6 +3244,14 @@ def _athlete_final_focus_blocks(
         gap_lines = list(neuromuscular_profile.get("flag_messages_athlete", [])) or _gaps_from_row(row, audience="atleta")
         if completion_value is not None and completion_value < 70:
             gap_lines = [f"La adherencia actual ({completion_value:.1f}%) puede limitar la lectura del bloque."] + gap_lines
+        feedback = neuromuscular_profile.get("feedback", {}) if isinstance(neuromuscular_profile.get("feedback"), dict) else {}
+        profile_code = str(neuromuscular_profile.get("profile_code") or "").strip().upper()
+        has_clear_strength = _professional_has_clear_dominant_variable(feedback)
+        primary_title = "Fortaleza principal"
+        primary_body = strength_line
+        if profile_code in {"", "UNCLASSIFIED", "NONE"} or not has_clear_strength:
+            primary_title = "Lectura principal"
+            primary_body = primary_fallback_text
         review_bits = []
         if neuromuscular_profile.get("kpi_labels"):
             review_bits.append(
@@ -3242,7 +3265,7 @@ def _athlete_final_focus_blocks(
             else "Completar evaluación física y usarla como línea base del perfil."
         )
         return [
-            {"title": "Fortaleza principal", "body": strength_line},
+            {"title": primary_title, "body": primary_body},
             {"title": "Punto a vigilar", "body": gap_lines[0] if gap_lines else PDF_MISSING_TEXT},
             {
                 "title": "Foco del próximo bloque",
@@ -3265,8 +3288,10 @@ def _athlete_final_focus_blocks(
         if _row_has_eval_data(row)
         else "Completar evaluación física y usarla como línea base del perfil."
     )
+    primary_title = "Fortaleza principal" if strengths else "Lectura principal"
+    primary_body = strengths[0] if strengths else primary_fallback_text
     return [
-        {"title": "Fortaleza principal", "body": strengths[0] if strengths else PDF_MISSING_TEXT},
+        {"title": primary_title, "body": primary_body},
         {"title": "Punto a vigilar", "body": gaps[0] if gaps else PDF_MISSING_TEXT},
         {"title": "Foco del próximo bloque", "body": f"{objective}. {next_steps[0] if next_steps else ''}".strip()},
         {"title": "Próxima medición o revisión", "body": next_review},
@@ -5135,6 +5160,30 @@ def _professional_quadrant_location(selected: dict[str, object] | None, spec: di
     return f"{x_label} {x_zone} (z={x:+.2f}) y {y_label} {y_zone} (z={y:+.2f})."
 
 
+def _professional_quadrant_axis_near_threshold(
+    classification: dict[str, object],
+    axis: str,
+    *,
+    margin: float = 0.05,
+) -> bool:
+    zone = str(classification.get(f"{axis}_zone") or "missing")
+    value = _coerce_float(classification.get(f"{axis}_z"))
+    band = _coerce_float(classification.get("neutral_band"))
+    if band is None or band <= 0:
+        band = 0.35
+    if zone not in {"high", "low"} or value is None:
+        return False
+    return abs(abs(value) - band) <= margin
+
+
+def _professional_quadrant_has_threshold_caution(
+    classification: dict[str, object],
+    *axes: str,
+) -> bool:
+    axes_to_check = axes or ("x", "y")
+    return any(_professional_quadrant_axis_near_threshold(classification, axis) for axis in axes_to_check)
+
+
 def _professional_quadrant_athlete_meaning(selected: dict[str, object] | None) -> str:
     classification = classify_neuromuscular_quadrant(
         None if selected is None else selected.get("x"),
@@ -5142,9 +5191,12 @@ def _professional_quadrant_athlete_meaning(selected: dict[str, object] | None) -
     )
     x_zone = str(classification.get("x_zone") or "missing")
     y_zone = str(classification.get("y_zone") or "missing")
+    threshold_caution = _professional_quadrant_has_threshold_caution(classification)
     if "missing" in (x_zone, y_zone):
         return "Faltan datos para interpretar la ubicación individual."
     if x_zone == "high" and y_zone == "high":
+        if threshold_caution:
+            return "El atleta se ubica en una zona favorable para ambas dimensiones, pero al menos una seÃ±al queda cerca del umbral neutral y conviene confirmarla en la prÃ³xima evaluaciÃ³n."
         return "El atleta se ubica en un perfil relativamente favorable para ambas dimensiones del cuadrante."
     if x_zone == "high" and y_zone in {"mid", "low"}:
         return "El atleta muestra mejor perfil en el eje horizontal que en el vertical; conviene atacar la dimensión rezagada."
@@ -5248,6 +5300,149 @@ def _professional_quadrant_specific_meaning(selected: dict[str, object] | None, 
     if meaning_type == "eur_cmj":
         return _professional_eur_cmj_athlete_meaning(selected)
     return _professional_quadrant_athlete_meaning(selected)
+
+
+def _professional_quadrant_athlete_meaning(selected: dict[str, object] | None) -> str:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    x_zone = str(classification.get("x_zone") or "missing")
+    y_zone = str(classification.get("y_zone") or "missing")
+    threshold_caution = _professional_quadrant_has_threshold_caution(classification)
+    if "missing" in (x_zone, y_zone):
+        return "Faltan datos para interpretar la ubicacion individual."
+    if x_zone == "high" and y_zone == "high":
+        if threshold_caution:
+            return "El atleta se ubica en una zona favorable para ambas dimensiones, pero al menos una senal queda cerca del umbral neutral y conviene confirmarla en la proxima evaluacion."
+        return "El atleta se ubica en un perfil relativamente favorable para ambas dimensiones del cuadrante."
+    if x_zone == "high" and y_zone in {"mid", "low"}:
+        if threshold_caution:
+            return "El eje horizontal ofrece una senal favorable pero cercana al umbral, mientras el vertical queda menos destacado; conviene confirmarlo antes de cerrar prioridades."
+        return "El atleta muestra mejor perfil en el eje horizontal que en el vertical; conviene atacar la dimension rezagada."
+    if y_zone == "high" and x_zone in {"mid", "low"}:
+        if threshold_caution:
+            return "El eje vertical ofrece una senal favorable pero cercana al umbral, mientras el horizontal queda menos destacado; conviene confirmarlo antes de cerrar prioridades."
+        return "El atleta muestra mejor perfil en el eje vertical que en el horizontal; conviene mejorar transferencia hacia la dimension rezagada."
+    if x_zone == "low" and y_zone == "low":
+        return "El atleta queda por debajo de la referencia en ambas dimensiones; priorizar bases antes de complejizar el bloque."
+    return "El atleta queda dentro de una zona intermedia del cuadrante; conviene leer la ubicacion como senal contextual y no como limitante absoluto."
+
+
+def _professional_cmj_imtp_athlete_meaning(selected: dict[str, object] | None) -> str:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    cmj_zone = str(classification.get("x_zone") or "missing")
+    imtp_zone = str(classification.get("y_zone") or "missing")
+    threshold_caution = _professional_quadrant_has_threshold_caution(classification)
+    if "missing" in (cmj_zone, imtp_zone):
+        return "Faltan datos para interpretar la ubicacion individual."
+    if cmj_zone == "high" and imtp_zone in {"mid", "low"}:
+        if threshold_caution:
+            return "La salida vertical luce favorable, pero la senal queda cerca del umbral o la fuerza base aparece menos destacada; conviene confirmarlo antes de cerrar una prioridad fuerte."
+        return "El perfil sugiere buena salida vertical relativa, con fuerza isometrica relativa menos destacada. Para el proximo bloque, conviene sostener potencia/salto y reforzar fuerza base sin perder expresion rapida."
+    if cmj_zone in {"mid", "low"} and imtp_zone == "high":
+        if threshold_caution:
+            return "La fuerza isometrica relativa aparece favorable pero cercana al umbral; conviene confirmar si realmente supera a la expresion vertical antes de mover el bloque."
+        return "La fuerza isometrica relativa aparece mejor que la expresion vertical. Conviene trabajar transferencia hacia salto, coordinacion de impulso y velocidad de aplicacion."
+    if cmj_zone == "high" and imtp_zone == "high":
+        if threshold_caution:
+            return "CMJ e IMTP quedan en una zona favorable, pero al menos una senal esta cerca del umbral neutral; conviene confirmarla en la proxima evaluacion."
+        return "El atleta combina buena salida vertical y fuerza isometrica relativa. El foco puede pasar por sostener capacidad y afinar transferencia especifica del deporte."
+    if cmj_zone == "low" and imtp_zone == "low":
+        return "El perfil muestra limitacion simultanea en fuerza base y salida vertical. Priorizar fuerza general, tecnica de salto y progresion de potencia."
+    return "El perfil no muestra un extremo dominante; conviene integrar fuerza base y expresion vertical segun el objetivo del bloque."
+
+
+def _professional_dri_sj_athlete_meaning(selected: dict[str, object] | None) -> str:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    dri_zone = str(classification.get("x_zone") or "missing")
+    sj_zone = str(classification.get("y_zone") or "missing")
+    dri_near = _professional_quadrant_axis_near_threshold(classification, "x")
+    sj_near = _professional_quadrant_axis_near_threshold(classification, "y")
+    zone_text = {"low": "bajo", "mid": "intermedio", "high": "alto"}
+    if "missing" in (dri_zone, sj_zone):
+        return "Faltan datos para interpretar la ubicacion individual."
+    if sj_zone == "high" and dri_zone == "high":
+        if dri_near or sj_near:
+            return "SJ alto + DRI alto: ambas senales son favorables, pero al menos una queda cerca del umbral neutral; conviene confirmarlo en la proxima evaluacion."
+        return "SJ alto + DRI alto: buen perfil concentrico y buen comportamiento reactivo en DJ."
+    if sj_zone == "high" and dri_zone == "mid":
+        return "SJ alto + DRI intermedio: la salida concentrica aparece mas destacada; el DRI no aparece como fortaleza principal."
+    if sj_zone == "high" and dri_zone == "low":
+        if dri_near:
+            return "SJ alto + DRI bajo pero cercano al umbral: la salida concentrica queda mas destacada y conviene confirmar la lectura reactiva antes de cerrar un rezago fuerte."
+        return "SJ alto + DRI bajo: la salida concentrica aparece mas destacada; el DRI queda menos destacado y conviene priorizar estrategia reactiva, contacto y tolerancia progresiva a DJ."
+    if sj_zone in {"mid", "low"} and dri_zone == "high":
+        if dri_near:
+            return "SJ menos destacado + DRI alto pero cercano al umbral: aparece una senal reactiva favorable, aunque conviene confirmarla antes de tratarla como fortaleza clara."
+        return "SJ bajo + DRI alto: buena respuesta reactiva relativa, pero falta base concentrica."
+    if sj_zone == "low" and dri_zone == "low":
+        return "SJ bajo + DRI bajo: prioridad general de fuerza base y reactividad progresiva."
+    return f"SJ {zone_text.get(sj_zone, 'intermedio')} + DRI {zone_text.get(dri_zone, 'intermedio')}: no aparece un limitante extremo; conviene integrar fuerza concentrica y reactividad segun el bloque."
+
+
+def _professional_rsi_sj_athlete_meaning(selected: dict[str, object] | None) -> str:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    rsi_zone = str(classification.get("x_zone") or "missing")
+    sj_zone = str(classification.get("y_zone") or "missing")
+    rsi_near = _professional_quadrant_axis_near_threshold(classification, "x")
+    sj_near = _professional_quadrant_axis_near_threshold(classification, "y")
+    zone_text = {"low": "bajo", "mid": "intermedio", "high": "alto"}
+    if "missing" in (rsi_zone, sj_zone):
+        return "Faltan datos para interpretar la ubicacion individual."
+    if sj_zone == "high" and rsi_zone == "high":
+        if rsi_near or sj_near:
+            return "SJ alto + DJ RSI alto: la senal es favorable, pero al menos una variable queda cerca del umbral neutral; conviene confirmarla en la proxima evaluacion."
+        return "SJ alto + DJ RSI alto: buen perfil concentrico y buena eficiencia reactiva en DJ."
+    if sj_zone == "high" and rsi_zone == "mid":
+        return "SJ alto + DJ RSI intermedio: la salida concentrica aparece mas destacada; la reactividad del DJ no aparece como fortaleza principal."
+    if sj_zone == "high" and rsi_zone == "low":
+        if rsi_near:
+            return "SJ alto + DJ RSI bajo pero cercano al umbral: la salida concentrica queda mas destacada y conviene confirmar la lectura reactiva antes de cerrar un rezago fuerte."
+        return "SJ alto + DJ RSI bajo: la salida concentrica aparece mas destacada; la reactividad del DJ queda menos destacada que la salida concentrica y conviene priorizar contacto y progresion reactiva."
+    if sj_zone in {"mid", "low"} and rsi_zone == "high":
+        if rsi_near:
+            return "SJ menos destacado + DJ RSI alto pero cercano al umbral: aparece una senal reactiva favorable, aunque conviene confirmarla antes de tratarla como fortaleza clara."
+        return "SJ bajo + DJ RSI alto: buena eficiencia reactiva relativa, pero falta base concentrica."
+    if sj_zone == "low" and rsi_zone == "low":
+        return "SJ bajo + DJ RSI bajo: prioridad general de fuerza base y eficiencia reactiva progresiva."
+    return f"SJ {zone_text.get(sj_zone, 'intermedio')} + DJ RSI {zone_text.get(rsi_zone, 'intermedio')}: no aparece un limitante extremo; conviene integrar fuerza concentrica y eficiencia reactiva segun el bloque."
+
+
+def _professional_eur_cmj_athlete_meaning(selected: dict[str, object] | None) -> str:
+    classification = classify_neuromuscular_quadrant(
+        None if selected is None else selected.get("x"),
+        None if selected is None else selected.get("y"),
+    )
+    eur_zone = str(classification.get("x_zone") or "missing")
+    cmj_zone = str(classification.get("y_zone") or "missing")
+    threshold_caution = _professional_quadrant_has_threshold_caution(classification)
+    if "missing" in (eur_zone, cmj_zone):
+        return "Faltan datos para interpretar la ubicacion individual."
+    if eur_zone == "high" and cmj_zone == "high":
+        if threshold_caution:
+            return "EUR y CMJ quedan en una zona favorable, pero al menos una senal esta cerca del umbral neutral; conviene confirmarlo antes de cerrar una lectura elastica fuerte."
+        return "El atleta presenta buen uso del contramovimiento y buen rendimiento vertical. Interpretar EUR junto con SJ para evitar sobrevalorar eficiencia elastica si el SJ cambia mucho."
+    if eur_zone == "high" and cmj_zone in {"mid", "low"}:
+        if threshold_caution:
+            return "EUR luce favorable pero cercano al umbral, con CMJ menos destacado; conviene confirmar la senal antes de concluir una ventaja elastica real."
+        return "EUR alto con CMJ menos destacado puede reflejar dependencia del contramovimiento o SJ bajo. Revisar fuerza concentrica y tecnica antes de concluir ventaja elastica real."
+    if eur_zone in {"mid", "low"} and cmj_zone == "high":
+        if threshold_caution:
+            return "CMJ luce favorable pero cercano al umbral, con EUR menos destacado; conviene confirmar la senal antes de cerrar una lectura fuerte sobre el contramovimiento."
+        return "CMJ alto con EUR menos destacado sugiere buena salida vertical, pero menor diferencia CMJ-SJ. Mantener potencia y revisar si la estrategia de contramovimiento puede optimizarse."
+    if eur_zone == "low" and cmj_zone == "low":
+        return "EUR y CMJ bajos sugieren prioridad en fuerza propulsiva, tecnica de salto y progresion de capacidades elasticas."
+    return "La relacion EUR-CMJ es intermedia; conviene leerla junto con SJ, DRI y contexto del bloque antes de cambiar prioridades."
 
 
 def _professional_wellness_high(value: float | None, scale: object) -> bool:
@@ -5507,8 +5702,8 @@ def _build_professional_quadrant_sections(
                 "classification": classification,
                 "state": state_label,
                 "message": "" if selected is not None else str(spec.get("missing_message") or "Faltan datos para ubicar al atleta en este cuadrante."),
-                "location": _professional_quadrant_location(selected, spec),
-                "athlete_meaning": _professional_quadrant_specific_meaning(selected, spec),
+                "location": _professional_visible_metric_text(_professional_quadrant_location(selected, spec)),
+                "athlete_meaning": _professional_visible_metric_text(_professional_quadrant_specific_meaning(selected, spec)),
             }
         )
     return sections
@@ -6375,6 +6570,31 @@ def _professional_contact_time_dominant_text(value: object) -> str:
     return text
 
 
+def _professional_is_no_clear_strength_text(value: object) -> bool:
+    normalized = _professional_normalized_text(value)
+    if not normalized or normalized in {"-", "sin dato", "faltan datos"}:
+        return True
+    no_strength_markers = (
+        "sin variables > 0.5",
+        "sin variables claramente por encima de la referencia",
+        "sin una cualidad claramente dominante",
+        "no aparece una fortaleza clara por encima del umbral actual",
+        "no se observa una variable dominante segun el umbral actual",
+    )
+    return any(marker in normalized for marker in no_strength_markers)
+
+
+def _professional_has_clear_dominant_variable(feedback: dict[str, object]) -> bool:
+    return not _professional_is_no_clear_strength_text(feedback.get("high", ""))
+
+
+def _professional_sanitize_dominant_signal_text(value: object) -> str:
+    text = _professional_contact_time_dominant_text(value).strip()
+    if _professional_is_no_clear_strength_text(text):
+        return PROFESSIONAL_NO_CLEAR_STRENGTH_TEXT
+    return text or PROFESSIONAL_NO_CLEAR_STRENGTH_TEXT
+
+
 def _professional_snapshot_metric(row: pd.Series | dict[str, object], *columns: str) -> float | None:
     row_series = row if isinstance(row, pd.Series) else pd.Series(row)
     for column in columns:
@@ -6441,20 +6661,20 @@ NEUROMUSCULAR_FLAG_MESSAGES = {
         "imtp_reference_missing": "Hay IMTP medido, pero falta una referencia comparable para clasificarlo mejor.",
         "missing_dj": "Todavia falta Drop Jump para leer mejor tu reactividad.",
         "cmj_lower_than_sj": "En esta medicion el CMJ no supero al SJ; conviene revisar tecnica, fatiga y calidad del gesto.",
-        "insufficient_pattern_evidence": "La foto actual todavia es parcial; conviene completar mediciones antes de cambiar demasiado el foco.",
+        "insufficient_pattern_evidence": "La foto actual todavia es parcial; conviene sostener calidad tecnica y continuidad mientras sumamos mas datos.",
         "partial_battery_caution": "La bateria actual es parcial; conviene interpretar el perfil con mas cautela.",
         "composite_profile_caution": "El perfil combina datos de fechas distintas; conviene confirmarlo con una evaluacion mas alineada.",
-        "near_threshold_evidence": "La senal cae cerca del umbral actual; conviene confirmarla antes de cambiar prioridades.",
+        "near_threshold_evidence": "La senal cae cerca del umbral actual; conviene sostener el bloque actual y volver a medir para confirmar.",
     },
     "cliente": {
         "missing_imtp": "Todavia no hay una referencia de fuerza comparable para entender mejor la base actual.",
         "imtp_reference_missing": "Hay una medicion de fuerza, pero todavia no es comparable para clasificarla bien.",
         "missing_dj": "Todavia falta una referencia reactiva para entender mejor como responde el salto.",
         "cmj_lower_than_sj": "En esta medicion el salto con contramovimiento no mejoro al salto base; conviene revisarlo en el proximo control.",
-        "insufficient_pattern_evidence": "Todavia falta informacion para definir con mas claridad que conviene priorizar.",
+        "insufficient_pattern_evidence": "Todavia falta informacion para definir con mas claridad que conviene priorizar. Mantener el bloque actual y volver a medir va a ayudar a confirmarlo.",
         "partial_battery_caution": "La evaluacion actual quedo parcial; conviene tomar esta lectura con mas cautela.",
         "composite_profile_caution": "Esta lectura mezcla datos de fechas distintas; conviene confirmarla con una evaluacion mas pareja.",
-        "near_threshold_evidence": "La senal actual queda cerca del umbral; conviene confirmarla antes de cambiar demasiado el foco.",
+        "near_threshold_evidence": "La senal actual queda cerca del umbral; conviene sostener calidad tecnica y continuidad antes de cambiar el foco.",
     },
     "profe": {
         "missing_imtp": "La referencia IMTP todavia no es comparable para cerrar mejor la lectura de fuerza base.",
@@ -6626,7 +6846,7 @@ def _neuromuscular_priority_short(profile_payload: dict[str, object]) -> str:
     if "missing_imtp" in flags:
         return "Completar la referencia de fuerza y sostener la calidad del salto actual."
     if "insufficient_pattern_evidence" in flags:
-        return "Confirmar la próxima medición antes de cambiar demasiado el foco."
+        return "Mantener el bloque actual y volver a medir para confirmar."
     return "Sostener la calidad actual y confirmar la próxima medición."
 
 
@@ -6643,7 +6863,7 @@ def _neuromuscular_priority_detailed(profile_payload: dict[str, object]) -> str:
         elif "missing_imtp" in flags:
             detail = "Completar IMTP para leer mejor la base de fuerza y no ajustar el bloque con una foto parcial."
         elif "insufficient_pattern_evidence" in flags:
-            detail = "La evidencia actual todavía es parcial; conviene completar o repetir mediciones clave antes de cambiar demasiado el foco."
+            detail = "Mantener el bloque actual, sostener calidad técnica y continuidad, y volver a medir para confirmar."
         else:
             detail = short_text
     kpi_labels = _neuromuscular_kpi_labels(profile_payload)
@@ -6664,8 +6884,8 @@ def _neuromuscular_flag_messages(profile_payload: dict[str, object], audience: s
 
 def _professional_feedback_from_structured_profile(profile_payload: dict[str, object]) -> dict[str, str]:
     feedback = {
-        "high": _professional_neuromuscular_signal_text(profile_payload, threshold=0.5) or "sin variables > 0.5.",
-        "low": _professional_neuromuscular_signal_text(profile_payload, threshold=-0.5) or "sin variables < -0.5.",
+        "high": _professional_neuromuscular_signal_text(profile_payload, threshold=0.5) or PROFESSIONAL_NO_CLEAR_STRENGTH_TEXT,
+        "low": _professional_neuromuscular_signal_text(profile_payload, threshold=-0.5) or PROFESSIONAL_NO_CLEAR_LAGGING_TEXT,
         "physiological": _professional_visible_metric_text(profile_payload.get("phys", "")),
         "biomechanical": _professional_visible_metric_text(profile_payload.get("bio", "")),
         "next_block": _professional_visible_metric_text(profile_payload.get("train", "")),
@@ -6702,7 +6922,7 @@ def _build_pdf_neuromuscular_profile_payload(
     payload = {
         "source": "core" if core_available else "legacy_fallback",
         "profile_code": str(core_payload.get("profile_code") or "UNCLASSIFIED"),
-        "profile_label": _professional_visible_metric_text(core_payload.get("profile_label") or "Sin patron dominante"),
+        "profile_label": _professional_visible_metric_text(core_payload.get("profile_label") or "Sin patrón definido"),
         "confidence": str(core_payload.get("confidence") or "low"),
         "confidence_label": NEUROMUSCULAR_CONFIDENCE_LABELS.get(str(core_payload.get("confidence") or "low"), "Baja"),
         "profile_source": str(core_payload.get("profile_source") or "unknown"),
@@ -6734,6 +6954,10 @@ def _build_pdf_neuromuscular_profile_payload(
             if str(item).strip()
         ],
     }
+    if str(payload.get("profile_code") or "").strip().upper() in {"", "UNCLASSIFIED", "NONE"}:
+        profile_label_normalized = _professional_normalized_text(payload.get("profile_label", ""))
+        if "sin patron" in profile_label_normalized or "no clasificado" in profile_label_normalized:
+            payload["profile_label"] = "Sin patrón definido"
     payload["kpi_labels"] = _neuromuscular_kpi_labels(payload)
     payload["training_priority_short"] = _neuromuscular_priority_short(payload)
     payload["training_priority_detailed"] = _neuromuscular_priority_detailed(payload)
@@ -6858,7 +7082,7 @@ def _professional_sanitize_profile_feedback(
     for key in ("physiological", "biomechanical", "next_block"):
         if key in cleaned:
             cleaned[key] = _professional_strip_scope_note(cleaned.get(key, ""))
-    cleaned["high"] = _professional_contact_time_dominant_text(cleaned.get("high", ""))
+    cleaned["high"] = _professional_sanitize_dominant_signal_text(cleaned.get("high", ""))
     has_clear_lagging = _professional_has_clear_lagging_variable(cleaned)
     next_block_normalized = _professional_normalized_text(cleaned.get("next_block", ""))
     if not has_clear_lagging:
@@ -7079,14 +7303,22 @@ def _build_professional_composite_profile_payload(
     available_metric_count = _professional_composite_metric_count(metric_table)
     state_label = "available" if available_metric_count >= PROFESSIONAL_FULL_REPORT_MIN_COMPOSITE_METRICS else "partial"
     dominant_text = _professional_strip_terminal_period(
-        feedback.get("high") or "sin variables claramente por encima de la referencia"
+        feedback.get("high") or PROFESSIONAL_NO_CLEAR_STRENGTH_TEXT
     )
+    has_clear_strength = _professional_has_clear_dominant_variable(feedback)
     has_clear_lagging = _professional_has_clear_lagging_variable(feedback)
     lagging_text = _professional_strip_terminal_period(feedback.get("low") or PROFESSIONAL_NO_CLEAR_LAGGING_TEXT)
-    if available_metric_count and has_clear_lagging:
+    profile_code = str(neuromuscular_profile.get("profile_code") or "").strip().upper()
+    if available_metric_count and has_clear_strength and has_clear_lagging:
         summary_line = f"Predominan hoy {dominant_text}. El limitante principal aparece en {lagging_text}."
-    elif available_metric_count:
+    elif available_metric_count and has_clear_strength:
         summary_line = f"Predominan hoy {dominant_text}. {PROFESSIONAL_NO_CLEAR_LAGGING_TEXT}"
+    elif available_metric_count and has_clear_lagging:
+        summary_line = f"{PROFESSIONAL_NO_CLEAR_STRENGTH_ALT_TEXT} El principal rezago aparece en {lagging_text}."
+    elif available_metric_count and profile_code in {"", "UNCLASSIFIED", "NONE"}:
+        summary_line = (
+            "Con la bateria disponible, la lectura sigue siendo tentativa: no se observa una variable dominante segun el umbral actual."
+        )
     else:
         summary_line = "No hay suficientes variables válidas para describir el perfil compuesto."
     scope_note = PROFESSIONAL_CURRENT_PROFILE_SCOPE_NOTE if assessment_count < 2 and available_metric_count else ""
@@ -7101,7 +7333,7 @@ def _build_professional_composite_profile_payload(
         "feedback": feedback,
         "neuromuscular_profile": neuromuscular_profile,
         "profile_code": neuromuscular_profile.get("profile_code", "UNCLASSIFIED"),
-        "profile_label": neuromuscular_profile.get("profile_label", "Sin patron dominante"),
+        "profile_label": neuromuscular_profile.get("profile_label", "Sin patrón definido"),
         "confidence": neuromuscular_profile.get("confidence", "low"),
         "profile_source": neuromuscular_profile.get("profile_source", "unknown"),
         "profile_source_label": neuromuscular_profile.get("profile_source_label", "Fuente no determinada"),
@@ -7697,7 +7929,10 @@ def _build_professional_integrated_decision_payload(
 
     feedback = composite_payload.get("feedback", {}) if isinstance(composite_payload.get("feedback"), dict) else {}
     has_clear_lagging = _professional_has_clear_lagging_variable(feedback)
-    high_text = _professional_strip_terminal_period(feedback.get("high") or "sin una cualidad claramente dominante")
+    has_clear_strength = _professional_has_clear_dominant_variable(feedback)
+    profile_code = str(composite_payload.get("profile_code") or "").strip().upper()
+    open_profile = profile_code in {"", "UNCLASSIFIED", "NONE"}
+    high_text = _professional_strip_terminal_period(feedback.get("high") or PROFESSIONAL_NO_CLEAR_STRENGTH_TEXT)
     low_text = _professional_strip_terminal_period(feedback.get("low") or "sin un rezago dominante")
     high_norm = _professional_normalized_text(high_text)
     load_rows = _professional_rows_map(load_payload.get("rows"))
@@ -7724,15 +7959,24 @@ def _build_professional_integrated_decision_payload(
     wellness_compatibility_norm = _professional_normalized_text(wellness_payload.get("compatibility", ""))
 
     if composite_payload.get("state") != "missing":
-        if dominant and _has_text(high_text):
+        if not has_clear_strength:
+            if open_profile:
+                good_confidence.append(
+                    "El perfil no muestra una fortaleza dominante; la prioridad operativa debe salir de las variables rezagadas y del contexto de carga/disponibilidad, sin cerrar todavia un perfil global con la bateria disponible."
+                )
+            else:
+                good_confidence.append(
+                    "El perfil no muestra una fortaleza dominante; la prioridad debe salir de las variables rezagadas y del contexto de carga/disponibilidad."
+                )
+        if has_clear_strength and dominant and _has_text(high_text):
             good_confidence.append(
                 f"El perfil actual concentra la mejor señal en {high_text} y el bloque mostró más exposición en {_professional_join_labels(dominant[:2])}; ese cruce merece sostenerse."
             )
-        elif _has_text(high_text) and _has_text(load_fact):
+        elif has_clear_strength and _has_text(high_text) and _has_text(load_fact):
             good_confidence.append(
                 f"La mejor expresión hoy aparece en {high_text} con {load_fact}; el contexto acompaña una lectura utilizable del perfil actual."
             )
-        elif _has_text(high_text):
+        elif has_clear_strength and _has_text(high_text):
             good_confidence.append(
                 f"El perfil actual concentra la mejor señal en {high_text} y no muestra un dato aislado sin apoyo del resto de la lectura."
             )
@@ -7846,9 +8090,16 @@ def _build_professional_integrated_decision_payload(
         monitor.append(
             f"Monitorear si la baja exposición en {_professional_join_labels(low_or_absent[:2])} empieza a generar una limitación futura del perfil."
         )
-    metric_recheck = _professional_join_labels(declines[:2], fallback=low_text if has_clear_lagging else high_text)
+    metric_recheck = _professional_join_labels(
+        declines[:2],
+        fallback=low_text if has_clear_lagging else (high_text if has_clear_strength else ""),
+    )
     if _has_text(metric_recheck):
         monitor.append(f"Recontrolar {metric_recheck} antes de 6-8 semanas si el contexto competitivo necesita una verificación puntual.")
+    elif not has_clear_strength:
+        monitor.append(
+            "Recontrolar si aparece una fortaleza o un rezago claro antes de 6-8 semanas si el contexto competitivo necesita una verificación puntual."
+        )
 
     return {
         "title": "InterpretaciÃ³n integrada profesional",
@@ -7883,6 +8134,9 @@ def _professional_decision_practical_lines(
     load_phrase = context["load_phrase"]
     low_label = _professional_strip_terminal_period(feedback.get("low", ""))
     low_norm = _professional_normalized_text(low_label)
+    has_clear_strength = _professional_has_clear_dominant_variable(feedback)
+    profile_code = str(composite_payload.get("profile_code") or "").strip().upper()
+    open_profile = profile_code in {"", "UNCLASSIFIED", "NONE"}
     high_label = _professional_strip_terminal_period(feedback.get("high") or composite_payload.get("summary_line") or "")
     declines = change_payload.get("declines", []) if isinstance(change_payload.get("declines"), list) else []
     improvements = change_payload.get("improvements", []) if isinstance(change_payload.get("improvements"), list) else []
@@ -7913,6 +8167,9 @@ def _professional_decision_practical_lines(
                 f"Mantener visibles los estímulos del bloque ({_professional_join_labels(dominant)}) hasta contar con la próxima evaluación."
             )
         return [_professional_visible_metric_text(line) for line in lines if _has_text(line)]
+
+    if open_profile and not has_clear_strength:
+        lines.append(PROFESSIONAL_TENTATIVE_PRIORITY_TEXT)
 
     if has_clear_lagging:
         if any(token in low_norm for token in ("dj height", "dj", "react", "dri", "contact")):
@@ -8039,7 +8296,10 @@ def _build_professional_integrated_decision_payload(
 
     feedback = composite_payload.get("feedback", {}) if isinstance(composite_payload.get("feedback"), dict) else {}
     has_clear_lagging = _professional_has_clear_lagging_variable(feedback)
-    high_text = _professional_strip_terminal_period(feedback.get("high") or "sin una cualidad claramente dominante")
+    has_clear_strength = _professional_has_clear_dominant_variable(feedback)
+    profile_code = str(composite_payload.get("profile_code") or "").strip().upper()
+    open_profile = profile_code in {"", "UNCLASSIFIED", "NONE"}
+    high_text = _professional_strip_terminal_period(feedback.get("high") or PROFESSIONAL_NO_CLEAR_STRENGTH_TEXT)
     low_text = _professional_strip_terminal_period(feedback.get("low") or "sin un rezago dominante")
     high_norm = _professional_normalized_text(high_text)
     load_rows = _professional_rows_map(load_payload.get("rows"))
@@ -8066,15 +8326,24 @@ def _build_professional_integrated_decision_payload(
     wellness_compatibility_norm = _professional_normalized_text(wellness_payload.get("compatibility", ""))
 
     if composite_payload.get("state") != "missing":
-        if dominant and _has_text(high_text):
+        if not has_clear_strength:
+            if open_profile:
+                good_confidence.append(
+                    "El perfil no muestra una fortaleza dominante; la prioridad operativa debe salir de las variables rezagadas y del contexto de carga/disponibilidad, sin cerrar todavia un perfil global con la bateria disponible."
+                )
+            else:
+                good_confidence.append(
+                    "El perfil no muestra una fortaleza dominante; la prioridad debe salir de las variables rezagadas y del contexto de carga/disponibilidad."
+                )
+        if has_clear_strength and dominant and _has_text(high_text):
             good_confidence.append(
                 f"El perfil actual concentra la mejor señal en {high_text} y el bloque mostró más exposición en {_professional_join_labels(dominant[:2])}; ese cruce merece sostenerse."
             )
-        elif _has_text(high_text) and _has_text(load_fact):
+        elif has_clear_strength and _has_text(high_text) and _has_text(load_fact):
             good_confidence.append(
                 f"La mejor expresión hoy aparece en {high_text} con {load_fact}; el contexto acompaña una lectura utilizable del perfil actual."
             )
-        elif _has_text(high_text):
+        elif has_clear_strength and _has_text(high_text):
             good_confidence.append(
                 f"El perfil actual concentra la mejor señal en {high_text} y no muestra un dato aislado sin apoyo del resto de la lectura."
             )
@@ -8111,7 +8380,7 @@ def _build_professional_integrated_decision_payload(
             probable.append("El predominio de fuerza con carga es compatible con la señal actual de salida vertical y fuerza base.")
         elif any(token in _professional_normalized_text(dominant_text) for token in ("pliometr", "aterriz", "react")) and any(token in f"{high_norm} {_professional_normalized_text(_professional_join_labels(improvements))}" for token in ("dj", "dri", "rsi", "contact", "eur")):
             probable.append("El predominio reactivo del bloque es compatible con la señal actual de reactividad y contacto.")
-        elif _has_text(high_text):
+        elif has_clear_strength and _has_text(high_text):
             probable.append(
                 f"La exposición dominante en {dominant_text} probablemente esté empujando la señal visible en {high_text}."
             )
@@ -8339,6 +8608,7 @@ def _build_professional_executive_payload(
 
     signals: list[str] = []
     feedback = composite_payload.get("feedback", {}) if isinstance(composite_payload.get("feedback"), dict) else {}
+    has_clear_strength = _professional_has_clear_dominant_variable(feedback)
     has_clear_lagging = _professional_has_clear_lagging_variable(feedback)
     high_text = _professional_strip_terminal_period(feedback.get("high", ""))
     low_text = _professional_strip_terminal_period(feedback.get("low", ""))
@@ -8349,11 +8619,17 @@ def _build_professional_executive_payload(
     dominant = exposure_payload.get("dominant", []) if isinstance(exposure_payload.get("dominant"), list) else []
     low_or_absent = exposure_payload.get("low_or_absent", []) if isinstance(exposure_payload.get("low_or_absent"), list) else []
 
-    if _has_text(high_text):
+    if has_clear_strength and _has_text(high_text):
         if has_clear_lagging and _has_text(low_text):
             signals.append(_clip_signal(f"Predominan {high_text}. Rezago principal: {low_text}."))
         else:
             signals.append(_clip_signal(f"Predominan {high_text}. Sin rezago claro."))
+    elif has_clear_lagging and _has_text(low_text):
+        signals.append(
+            _clip_signal(f"{PROFESSIONAL_NO_CLEAR_STRENGTH_ALT_TEXT} El principal rezago aparece en {low_text}.")
+        )
+    else:
+        signals.append(_clip_signal(PROFESSIONAL_NO_CLEAR_STRENGTH_ALT_TEXT))
     if improvements or declines:
         change_parts: list[str] = []
         if improvements:
@@ -11063,7 +11339,7 @@ def _generate_professional_profile_pdf_reportlab(
             _two_column(
                 [
                     _bullet_box(
-                        "Qué sabemos con buena confianza",
+                        "Señales con mejor respaldo disponible",
                         integrated_decision_payload.get("good_confidence", []),
                         width_mm=84,
                         background=palette["panel_alt"],
@@ -12442,7 +12718,7 @@ def _generate_visual_report_pdf_reportlab(
             )
         )
         story.append(Spacer(1, 4 * mm))
-        strength_block = next((block for block in final_blocks if block.get("title") == "Fortaleza principal"), {})
+        strength_block = final_blocks[0] if final_blocks else {}
         review_block = next((block for block in final_blocks if block.get("title") == "Próxima medición o revisión"), {})
         story.append(
             _build_decision_box(
@@ -12462,7 +12738,7 @@ def _generate_visual_report_pdf_reportlab(
         story.append(Spacer(1, 4 * mm))
         story.append(
             _build_note_box(
-                "Fortaleza principal",
+                str(strength_block.get("title") or "Fortaleza principal"),
                 str(strength_block.get("body") or PDF_MISSING_TEXT),
                 paragraph_builder=_p,
                 TableClass=Table,
@@ -12667,6 +12943,18 @@ def _generate_visual_report_pdf_reportlab(
                 return "Todavía hay pocos registros para sacar una conclusión firme sobre recuperación."
             mean_value = _client_wellness_mean_value()
             recent_value = _client_recent_wellness_value()
+            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
+            scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
+            sleep_mean = _coerce_float(summary.get("sleep_mean"))
+            stress_mean = _coerce_float(summary.get("stress_mean"))
+            pain_mean = _coerce_float(summary.get("pain_mean"))
+            stress_high = stress_mean is not None and _professional_wellness_high(stress_mean, scales.get("stress"))
+            pain_high = pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain"))
+            sleep_stable = sleep_mean is not None and sleep_mean >= 6.5
+            if stress_high or pain_high:
+                if sleep_stable and not _client_recent_wellness_is_low(recent_value) and mean_value is not None and mean_value >= 3.0:
+                    return "Sueño parece estable, pero estrés y dolor merecen seguimiento."
+                return "La recuperación viene algo cargada: estrés y dolor merecen atención antes de subir exigencia."
             if _client_recent_wellness_is_low(recent_value) and mean_value is not None and mean_value >= 3.0:
                 return "El promedio reciente es aceptable, pero conviene seguir de cerca la recuperación percibida."
             if mean_value is not None and mean_value < 3.0:
@@ -12702,7 +12990,7 @@ def _generate_visual_report_pdf_reportlab(
                 lines.append("La carga reciente viene exigente y conviene ordenarla con un poco más de cuidado.")
             elif "precaucion" in zone:
                 summary_parts.append("carga reciente")
-                lines.append("La carga reciente pide un poco más de cuidado para sostener continuidad.")
+                lines.append("La carga permite seguir entrenando, pero pide cuidado y más continuidad antes de subir exigencia.")
             elif "subcarga" in zone:
                 summary_parts.append("carga reciente")
                 lines.append("La carga reciente quedó baja y conviene recuperar continuidad.")
@@ -12830,7 +13118,7 @@ def _generate_visual_report_pdf_reportlab(
                     if "alto riesgo" in zone:
                         lines.append("La carga reciente viene exigente y conviene ordenarla con un poco más de cuidado.")
                     elif "precaucion" in zone:
-                        lines.append("La carga reciente pide un poco más de cuidado para sostener continuidad.")
+                        lines.append("La carga permite seguir entrenando, pero pide cuidado y más continuidad antes de subir exigencia.")
                     elif "subcarga" in zone:
                         lines.append("La carga reciente quedó baja y conviene recuperar continuidad.")
                     else:
@@ -12926,7 +13214,7 @@ def _generate_visual_report_pdf_reportlab(
 
         def _client_load_lines() -> list[str]:
             lines: list[str] = []
-            zone = _client_zone_text().casefold()
+            zone = _professional_normalized_text(_client_zone_text())
             scope = str(internal_load.get("analysis_scope") or "")
             if scope == "current_week_partial":
                 total = _coerce_float(internal_load.get("current_week_total"))
@@ -12938,7 +13226,7 @@ def _generate_visual_report_pdf_reportlab(
             elif "alto riesgo" in zone:
                 lines.append("La carga reciente viene exigente y conviene ordenar la semana para que el cuerpo la tolere mejor.")
             elif "precaucion" in zone:
-                lines.append("La carga reciente pide un poco más de cuidado para sostener el progreso sin apurarse.")
+                lines.append("La carga permite seguir entrenando, pero pide cuidado y más continuidad antes de subir exigencia.")
             elif "subcarga" in zone:
                 lines.append("La carga reciente quedó baja y puede faltar continuidad para seguir construyendo.")
             elif _row_has_load_data(focus_row):
@@ -12992,12 +13280,15 @@ def _generate_visual_report_pdf_reportlab(
                     "Con más registros vamos a poder leer mejor la tendencia.",
                 ]
             lines: list[str] = []
-            if sleep_mean is not None and sleep_mean < 6.5:
+            stress_high = stress_mean is not None and _professional_wellness_high(stress_mean, scales.get("stress"))
+            pain_high = pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain"))
+            if stress_high or pain_high:
+                if sleep_mean is not None and sleep_mean >= 6.5:
+                    lines.append("Sueño parece estable, pero estrés y dolor merecen seguimiento.")
+                else:
+                    lines.append("La recuperación viene algo cargada: estrés y dolor merecen atención antes de subir exigencia.")
+            elif sleep_mean is not None and sleep_mean < 6.5:
                 lines.append("El sueño reciente merece seguimiento para que la recuperación acompañe mejor el trabajo.")
-            if stress_mean is not None and _professional_wellness_high(stress_mean, scales.get("stress")):
-                lines.append("El estrés reciente aparece alto y conviene mirarlo junto con la carga de la semana.")
-            if pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain")):
-                lines.append("El dolor reciente merece seguimiento antes de subir demasiado la exigencia.")
             if not lines:
                 lines.append("Sueño, estrés y dolor no muestran desvíos grandes en esta ventana.")
             lines.append("La idea es usar esta información para cuidar recuperación y continuidad, no para juzgar un día aislado.")
