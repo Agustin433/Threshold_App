@@ -9,7 +9,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from modules.data_loader import prepare_raw_workouts_df
-from modules.jump_analysis import _prepare_jump_df
+from modules.jump_analysis import (
+    _prepare_jump_df,
+    build_dj_drop_height_backfill_candidates,
+    dj_drop_height_backfill_mask,
+)
 from modules.load_monitoring import calc_acwr, calc_monotony_strain
 from modules.metrics import calculate_monotony
 
@@ -100,6 +104,9 @@ DATASET_LABELS: dict[str, str] = {
     "maxes_df": "Maxes",
     "jump_df": "Evaluaciones",
 }
+
+_JUMP_DJ_CONTEXT_FIELDS = ("DJ_cm", "DJ_tc_ms", "DJ_RSI", "DJ_drop_height_cm")
+_JUMP_DRI_DEPENDENT_FIELDS = ("DJ_drop_height_cm", "DRI")
 
 ACWR_ZONES = (
     (0.00, 0.80, "Subcarga", "#4A9FD4"),
@@ -330,6 +337,41 @@ def _collapse_duplicate_rows(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFr
     return pd.DataFrame(rows)
 
 
+def _row_has_jump_dj_context(row: pd.Series | dict[str, object]) -> bool:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row)
+    for field in _JUMP_DJ_CONTEXT_FIELDS:
+        if field not in row_series.index:
+            continue
+        numeric = pd.to_numeric(pd.Series([row_series.get(field)]), errors="coerce").iloc[0]
+        if pd.notna(numeric):
+            return True
+    return False
+
+
+def _collapse_jump_duplicate_rows(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    ordered_cols = [col for col in df.columns if col not in {"_merge_order", "_merge_source"}]
+
+    for _, group in df.groupby(key_cols, dropna=False, sort=False):
+        group = group.sort_values("_merge_order")
+        merged_row: dict[str, object] = {}
+        for col in ordered_cols:
+            series = group[col]
+            non_null = series[series.notna()]
+            merged_row[col] = non_null.iloc[-1] if not non_null.empty else series.iloc[-1]
+
+        incoming_group = group[group["_merge_source"] == "incoming"] if "_merge_source" in group.columns else pd.DataFrame()
+        if not incoming_group.empty and incoming_group.apply(_row_has_jump_dj_context, axis=1).any():
+            latest_incoming = incoming_group.sort_values("_merge_order").iloc[-1]
+            for field in _JUMP_DRI_DEPENDENT_FIELDS:
+                if field in ordered_cols:
+                    merged_row[field] = latest_incoming.get(field)
+
+        rows.append(merged_row)
+
+    return pd.DataFrame(rows)
+
+
 def _dedupe_dataset_frame(df: pd.DataFrame, state_key: str) -> pd.DataFrame:
     spec = DATASET_SPECS[state_key]
     df = _normalize_frame(df, spec)
@@ -357,12 +399,20 @@ def merge_dataset(existing: pd.DataFrame, incoming: pd.DataFrame, state_key: str
     elif incoming.empty:
         merged = existing
     else:
+        existing = existing.copy()
+        incoming = incoming.copy()
+        existing["_merge_source"] = "existing"
+        incoming["_merge_source"] = "incoming"
         combined = pd.concat([existing, incoming], ignore_index=True, sort=False)
         dedupe_cols = [col for col in (spec.get("dedupe_cols") or []) if col in combined.columns]
 
         if dedupe_cols:
             combined["_merge_order"] = np.arange(len(combined))
-            merged = _collapse_duplicate_rows(combined, dedupe_cols)
+            merged = (
+                _collapse_jump_duplicate_rows(combined, dedupe_cols)
+                if state_key == "jump_df"
+                else _collapse_duplicate_rows(combined, dedupe_cols)
+            )
         else:
             merged = combined.drop_duplicates().reset_index(drop=True)
 
@@ -416,6 +466,34 @@ def overwrite_dataset(state_key: str, df: pd.DataFrame | None) -> pd.DataFrame:
 
     normalized.to_csv(path, index=False)
     return normalized
+
+
+def backfill_jump_drop_height_history(default_drop_height_cm: float = 30.0) -> dict[str, int | float]:
+    default_value = float(default_drop_height_cm)
+    if default_value <= 0:
+        raise ValueError("La altura de caida por defecto debe ser mayor a 0.")
+
+    full_df = read_full_dataset("jump_df")
+    candidates = build_dj_drop_height_backfill_candidates(full_df)
+    if candidates.empty:
+        return {
+            "updated_rows": 0,
+            "athletes": 0,
+            "default_drop_height_cm": default_value,
+        }
+
+    updated = full_df.copy()
+    mask = dj_drop_height_backfill_mask(updated)
+    updated.loc[mask, "DJ_drop_height_cm"] = default_value
+    updated = _prepare_jump_df(updated)
+    overwrite_dataset("jump_df", updated)
+
+    athletes = int(candidates["Athlete"].dropna().nunique()) if "Athlete" in candidates.columns else 0
+    return {
+        "updated_rows": int(len(candidates)),
+        "athletes": athletes,
+        "default_drop_height_cm": default_value,
+    }
 
 
 def _available_week_starts(

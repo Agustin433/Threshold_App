@@ -37,6 +37,7 @@ class AppNeuromuscularStaticTest(unittest.TestCase):
         self.assertIn("chart_radar = _bind_chart(shared_chart_radar)", source)
         self.assertIn("chart_quadrant_cmj_imtp = _bind_chart(shared_chart_quadrant_cmj_imtp)", source)
         self.assertIn("chart_quadrant_dri_sj = _bind_chart(shared_chart_quadrant_dri_sj)", source)
+        self.assertIn("chart_quadrant_rsi_sj = _bind_chart(shared_chart_quadrant_rsi_sj)", source)
 
     def test_app_prefers_shared_alias_resolution_and_eur_profile_fallbacks(self):
         source = APP_PATH.read_text(encoding="utf-8")
@@ -44,6 +45,23 @@ class AppNeuromuscularStaticTest(unittest.TestCase):
         self.assertIn('resolve_zscore as shared_resolve_zscore', source)
         self.assertIn('shared_resolve_zscore(row, canonical_field)', source)
         self.assertIn('last_row.get("EUR_Profile") or last_row.get("NM_Profile"', source)
+
+    def test_app_requires_drop_height_for_new_dj_uploads(self):
+        source = APP_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('key="eval_dj_drop_height_choice"', source)
+        self.assertIn('key="eval_dj_drop_height_custom"', source)
+        self.assertIn('record["DJ_drop_height_cm"] = manual_dj_drop_height_cm', source)
+        self.assertIn("la evaluaci", source)
+        self.assertIn("altura de ca", source)
+
+    def test_app_exposes_explicit_dj_history_backfill_controls(self):
+        source = APP_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("Mantenimiento DRI historico", source)
+        self.assertIn("Aplicar backfill DJ historico (30 cm)", source)
+        self.assertIn('key="btn_backfill_dj_drop_height"', source)
+        self.assertIn("build_dj_drop_height_backfill_candidates", source)
 
 
 if __name__ == "__main__":

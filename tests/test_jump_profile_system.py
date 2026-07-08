@@ -18,6 +18,7 @@ from modules.jump_analysis import (
     NEUROMUSCULAR_PATTERN_FIELDS,
     _prepare_jump_df,
     _records_to_jump_df,
+    build_dj_drop_height_backfill_candidates,
     build_dashboard_neuromuscular_payload,
     build_neuromuscular_profile_result,
     build_composite_profile_metric_table,
@@ -268,6 +269,49 @@ def _combined_neuromuscular_text(result: dict[str, object]) -> str:
         "profile_source_note",
     )
     return " ".join(str(result.get(field) or "") for field in fields).lower()
+
+
+class JumpBackfillHelperTest(unittest.TestCase):
+    def test_build_dj_drop_height_backfill_candidates_only_flags_missing_drop_height_rows(self):
+        eval_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-05-01",
+                    "DJ_cm": 28.0,
+                    "DJ_tc_ms": 200.0,
+                    "DJ_RSI": 1.4,
+                    "DJ_drop_height_cm": None,
+                },
+                {
+                    "Athlete": "Bruno Diaz",
+                    "Date": "2026-05-01",
+                    "DJ_cm": 27.0,
+                    "DJ_tc_ms": 210.0,
+                    "DJ_RSI": 1.29,
+                    "DJ_drop_height_cm": 40.0,
+                },
+                {
+                    "Athlete": "Carla Ruiz",
+                    "Date": "2026-05-01",
+                    "SJ_cm": 30.0,
+                },
+                {
+                    "Athlete": "Diego Perez",
+                    "Date": "2026-05-08",
+                    "DJ_cm": 26.0,
+                    "DJ_tc_ms": 205.0,
+                    "DJ_drop_height_cm": 0.0,
+                },
+            ]
+        )
+
+        candidates = build_dj_drop_height_backfill_candidates(eval_df)
+
+        self.assertEqual(len(candidates), 2)
+        self.assertEqual(candidates["Athlete"].tolist(), ["Ana Lopez", "Diego Perez"])
+        self.assertTrue(candidates["DJ_drop_height_cm"].isna().iloc[0])
+        self.assertEqual(float(candidates["DJ_drop_height_cm"].fillna(0).iloc[1]), 0.0)
 
 
 class JumpProfileSystemTest(unittest.TestCase):
@@ -594,6 +638,70 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertIn("DJ RSI", str(rsi_figure.layout.title.text))
         self.assertGreater(len(rsi_figure.data), 0)
         self.assertIn("No hay suficientes datos de DRI", str(dri_figure.layout.annotations[0].text))
+
+    def test_experimental_dri_quadrant_recomputes_dri_and_zscores_from_raw_latest_rows(self):
+        jump_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-05-01",
+                    "SJ_cm": 31.0,
+                    "CMJ_cm": 35.0,
+                    "DJ_drop_height_cm": 30.0,
+                    "DJ_cm": 27.0,
+                    "DJ_tc_ms": 210.0,
+                    "SJ_Z": 0.2,
+                    "CMJ_Z": 0.3,
+                },
+                {
+                    "Athlete": "Bruno Rey",
+                    "Date": "2026-05-01",
+                    "SJ_cm": 28.0,
+                    "CMJ_cm": 32.0,
+                    "DJ_drop_height_cm": 35.0,
+                    "DJ_cm": 24.0,
+                    "DJ_tc_ms": 240.0,
+                    "SJ_Z": -0.2,
+                    "CMJ_Z": -0.3,
+                },
+            ]
+        )
+
+        figure = chart_quadrant_exploratory(jump_df, theme=_chart_theme())
+
+        self.assertGreater(len(figure.data), 0)
+        self.assertEqual(len(list(figure.data[0].x)), 2)
+        self.assertTrue(all(pd.notna(value) for value in figure.data[0].x))
+
+    def test_chart_radar_accepts_composite_snapshot_without_reparsing_missing_date(self):
+        jump_df = _prepare_jump_df(
+            pd.DataFrame(
+                [
+                    {
+                        "Athlete": "Atleta Compuesto",
+                        "Date": "2026-04-01",
+                        "CMJ_cm": 34,
+                        "SJ_cm": 30,
+                        "DJ_drop_height_cm": 30,
+                        "DJ_cm": 26,
+                        "DJ_tc_ms": 220,
+                        "IMTP_N": 3000,
+                        "BW_kg": 80,
+                    },
+                    {
+                        "Athlete": "Atleta Compuesto",
+                        "Date": "2026-04-10",
+                        "CMJ_cm": 36,
+                        "SJ_cm": 31,
+                    },
+                ]
+            )
+        )
+
+        composite_row, _ = build_composite_profile_snapshot(jump_df)
+        figure = chart_radar(composite_row, "Atleta Compuesto", None, theme=_chart_theme())
+
+        self.assertGreater(len(figure.data), 0)
 
     def test_radar_uses_latest_valid_row_when_last_calendar_row_has_no_renderable_axes(self):
         jump_df = _prepare_jump_df(

@@ -34,6 +34,7 @@ from charts.dashboard_charts import (
     chart_quadrant_cmj_imtp as shared_chart_quadrant_cmj_imtp,
     chart_quadrant_exploratory as shared_chart_quadrant_exploratory,
     chart_quadrant_dri_sj as shared_chart_quadrant_dri_sj,
+    chart_quadrant_rsi_sj as shared_chart_quadrant_rsi_sj,
     chart_radar as shared_chart_radar,
     find_latest_valid_radar_row as shared_find_latest_valid_radar_row,
 )
@@ -54,6 +55,7 @@ from local_store import (
     DATASET_SPECS,
     HISTORY_MODE_FULL,
     RECENT_WEEKS,
+    backfill_jump_drop_height_history,
     build_load_models,
     build_weekly_summaries,
     build_dataset_summaries,
@@ -113,6 +115,7 @@ from modules.load_monitoring import build_weekly_acwr_context
 from modules.jump_analysis import (
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
+    build_dj_drop_height_backfill_candidates,
     build_composite_profile_metric_table as shared_build_composite_profile_metric_table,
     build_composite_profile_snapshot as shared_build_composite_profile_snapshot,
     build_profile_radar_row as shared_build_profile_radar_row,
@@ -147,6 +150,7 @@ from modules.remote_store import (
     _supabase_dataset_store_config,
     _supabase_evaluations_config,
     _supabase_request,
+    backfill_remote_evaluations_drop_height,
     dataset_df_to_remote_records as shared_dataset_df_to_remote_records,
     jump_df_to_db_records as shared_jump_df_to_db_records,
     load_remote_dataset as shared_load_remote_dataset,
@@ -3427,6 +3431,7 @@ chart_radar = _bind_chart(shared_chart_radar)
 chart_quadrant_cmj_imtp = _bind_chart(shared_chart_quadrant_cmj_imtp)
 chart_quadrant_exploratory = _bind_chart(shared_chart_quadrant_exploratory)
 chart_quadrant_dri_sj = _bind_chart(shared_chart_quadrant_dri_sj)
+chart_quadrant_rsi_sj = _bind_chart(shared_chart_quadrant_rsi_sj)
 chart_completion = _bind_chart(shared_chart_completion)
 chart_cmj_trend = _bind_chart(shared_chart_cmj_trend)
 chart_jump_metric_trend = _bind_chart(shared_chart_jump_metric_trend)
@@ -4585,6 +4590,8 @@ with st.sidebar:
         athlete_options = ["Escribir nuevo..."] + known_athlete_names()
         eval_file_key = f"eval_file_{st.session_state.eval_file_nonce}"
         with st.form("eval_upload_form", clear_on_submit=False):
+            dj_drop_height_choice = "No cargar"
+            dj_drop_height_custom = None
             selected_eval_athlete = st.selectbox(
                 "Atleta",
                 athlete_options,
@@ -4605,6 +4612,28 @@ with st.sidebar:
                 list(FORCEPLATE_UPLOAD_TEST_IDS),
                 key="eval_type",
             )
+            selected_forceplate_test_id = FORCEPLATE_UPLOAD_TEST_IDS.get(eval_type_label, eval_type_label)
+            show_dj_drop_height_input = selected_forceplate_test_id == "DJ"
+            dj_drop_height_choice = st.selectbox(
+                "Altura de caída DJ (cm)",
+                ["No cargar", "20", "30", "40", "45", "50", "60", "Personalizada"],
+                key="eval_dj_drop_height_choice",
+                disabled=not show_dj_drop_height_input,
+                help=(
+                    "Se usa solo para Drop Jump (DJ). "
+                    "Si el archivo no trae la altura de caída, este dato es obligatorio para calcular DRI."
+                ),
+            )
+            dj_drop_height_custom = st.number_input(
+                "Altura de caída personalizada (cm)",
+                min_value=1.0,
+                max_value=150.0,
+                step=1.0,
+                format="%.1f",
+                key="eval_dj_drop_height_custom",
+                disabled=not (show_dj_drop_height_input and dj_drop_height_choice == "Personalizada"),
+                help="Solo se usa si elegís 'Personalizada'.",
+            )
             eval_file = st.file_uploader(
                 "Archivo del test",
                 type=list(UPLOAD_CONTRACTS["forceplate"]["extensions"]),
@@ -4617,6 +4646,13 @@ with st.sidebar:
             eval_athlete = typed_eval_athlete if selected_eval_athlete == "Escribir nuevo..." else selected_eval_athlete
             eval_athlete_name = normalize_athlete_name(eval_athlete)
             eval_type = FORCEPLATE_UPLOAD_TEST_IDS.get(eval_type_label, eval_type_label)
+            manual_dj_drop_height_cm = None
+            if eval_type == "DJ":
+                if dj_drop_height_choice == "Personalizada":
+                    if dj_drop_height_custom is not None and float(dj_drop_height_custom) > 0:
+                        manual_dj_drop_height_cm = float(dj_drop_height_custom)
+                elif dj_drop_height_choice != "No cargar":
+                    manual_dj_drop_height_cm = float(dj_drop_height_choice)
             if not eval_athlete_name:
                 _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
             elif not eval_file:
@@ -4628,9 +4664,26 @@ with st.sidebar:
                         eval_type,
                         filename=getattr(eval_file, "name", None),
                     )
+                    if eval_type == "DJ":
+                        parsed_drop_height = pd.to_numeric(
+                            pd.Series([record.get("DJ_drop_height_cm")]),
+                            errors="coerce",
+                        ).iloc[0]
+                        if pd.isna(parsed_drop_height) and manual_dj_drop_height_cm is not None:
+                            record["DJ_drop_height_cm"] = manual_dj_drop_height_cm
                     metric_fields = _evaluation_metric_fields(record)
                     if not metric_fields:
                         raise ValueError("no se detectaron métricas válidas para el tipo de test seleccionado.")
+                    if eval_type == "DJ":
+                        final_drop_height = pd.to_numeric(
+                            pd.Series([record.get("DJ_drop_height_cm")]),
+                            errors="coerce",
+                        ).iloc[0]
+                        if pd.isna(final_drop_height) or float(final_drop_height) <= 0:
+                            raise ValueError(
+                                "la evaluación DJ requiere altura de caída. "
+                                "Cargala desde el archivo o completala manualmente."
+                            )
                     record["Athlete"] = eval_athlete_name
                     record["Date"] = pd.Timestamp(eval_date)
                     record["__source_file"] = getattr(eval_file, "name", "archivo")
@@ -4731,12 +4784,17 @@ with st.sidebar:
                 with st.expander("Vista previa consolidada", expanded=False):
                     preview_cols = [
                         col for col in [
-                            "Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_cm",
-                            "DJ_tc_ms", "EUR", "DRI", "IMTP_N", "NM_Profile"
+                            "Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_drop_height_cm",
+                            "DJ_cm", "DJ_tc_ms", "DJ_RSI", "DRI", "EUR", "IMTP_N", "NM_Profile"
                         ]
                         if col in preview_df.columns
                     ]
-                    preview_display = preview_df[preview_cols].rename(columns={"EUR": "EUR (ratio)"})
+                    preview_display = preview_df[preview_cols].rename(
+                        columns={
+                            "DJ_drop_height_cm": "DJ drop height (cm)",
+                            "EUR": "EUR (ratio)",
+                        }
+                    )
                     st.dataframe(
                         preview_display.sort_values(["Athlete", "Date"]),
                         use_container_width=False,
@@ -4785,6 +4843,59 @@ with st.sidebar:
                 "Podes seguir cargando, consolidando y guardando evaluaciones en local en esta maquina. "
                 "Lo que no se hara es la sincronizacion remota ni la recuperacion desde Supabase."
             )
+
+        with st.expander("Mantenimiento DRI historico", expanded=False):
+            jump_history_audit_df = read_full_dataset("jump_df")
+            dj_backfill_candidates = build_dj_drop_height_backfill_candidates(jump_history_audit_df)
+            candidate_count = len(dj_backfill_candidates)
+
+            if candidate_count == 0:
+                st.caption("No hay evaluaciones DJ historicas sin altura de caida para completar.")
+            else:
+                athlete_count = (
+                    int(dj_backfill_candidates["Athlete"].dropna().nunique())
+                    if "Athlete" in dj_backfill_candidates.columns
+                    else 0
+                )
+                target_label = "Supabase y la copia local" if supabase_evaluations_enabled() else "el historial local"
+                st.warning(
+                    f"Se detectaron {candidate_count} evaluacion(es) DJ historicas sin altura de caida "
+                    f"en {athlete_count} atleta(s). Esta accion completa 30 cm solo en esas filas "
+                    f"y recalcula DRI en {target_label}."
+                )
+                preview_cols = [
+                    col
+                    for col in ["Athlete", "Date", "DJ_cm", "DJ_tc_ms", "DJ_RSI", "DJ_drop_height_cm", "DRI"]
+                    if col in dj_backfill_candidates.columns
+                ]
+                st.dataframe(
+                    dj_backfill_candidates[preview_cols].sort_values(["Athlete", "Date"]),
+                    use_container_width=False,
+                    hide_index=True,
+                )
+
+                if st.button("Aplicar backfill DJ historico (30 cm)", key="btn_backfill_dj_drop_height"):
+                    try:
+                        if supabase_evaluations_enabled():
+                            stats = backfill_remote_evaluations_drop_height(default_drop_height_cm=30.0)
+                            st.session_state.evaluations_loaded_from_store = False
+                            hydrate_evaluations_from_store(force=True, show_success=False)
+                        else:
+                            stats = backfill_jump_drop_height_history(default_drop_height_cm=30.0)
+                            refreshed_jump_df = read_full_dataset("jump_df")
+                            st.session_state.jump_df = refreshed_jump_df if not refreshed_jump_df.empty else None
+                            mark_local_store_hydrated()
+                            rebuild_load_state(force=True)
+
+                        st.session_state.eval_sync_notice = (
+                            f"Backfill DJ historico aplicado: {stats['updated_rows']} evaluacion(es) "
+                            f"de {stats['athletes']} atleta(s) completadas con 30 cm."
+                        )
+                        st.session_state.eval_sync_notice_kind = "success"
+                    except Exception as exc:
+                        st.session_state.eval_sync_notice = f"No se pudo aplicar el backfill DJ historico: {exc}"
+                        st.session_state.eval_sync_notice_kind = "warning"
+                    st.rerun()
 
         if st.session_state.eval_sync_notice:
             notice = st.session_state.eval_sync_notice
@@ -6730,12 +6841,14 @@ elif active_main_view == "Profile":
             st.markdown("---")
             render_subsection_header("Cuadrantes grupales", "perfilado relativo con z-scores", kicker="Comparacion")
             c_q1, c_q2 = st.columns(2)
-            latest_jdf = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+            latest_jdf = shared_prepare_jump_df(
+                jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+            )
             with c_q1:
-                st.plotly_chart(chart_quadrant_dri_sj(latest_jdf), use_container_width=False, key="quad_dri_sj_profile")
+                st.plotly_chart(chart_quadrant_rsi_sj(latest_jdf), use_container_width=False, key="quad_rsi_sj_profile")
             with c_q2:
                 st.plotly_chart(chart_quadrant_cmj_imtp(latest_jdf), use_container_width=False, key="quad_cmj_imtp_profile")
-            with st.expander("DRI experimental", expanded=False):
+            with st.expander("DRI experimental (SJ vs DRI)", expanded=False):
                 st.plotly_chart(
                     chart_quadrant_exploratory(latest_jdf),
                     use_container_width=False,
@@ -6812,14 +6925,19 @@ elif active_main_view == "Team":
         st.markdown("---")
         render_subsection_header("Cuadrantes de rendimiento", "mapas comparativos de fuerza y reactividad", kicker="Comparacion")
 
-        latest = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+        latest = shared_prepare_jump_df(
+            jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+        )
         c_q1, c_q2 = st.columns(2)
         with c_q1:
             if "CMJ_cm" in latest.columns and "IMTP_N" in latest.columns:
                 st.plotly_chart(chart_quadrant_cmj_imtp(latest), use_container_width=False, key="quad_cmj_imtp_team")
         with c_q2:
+            if "DJ_RSI" in latest.columns and "SJ_cm" in latest.columns:
+                st.plotly_chart(chart_quadrant_rsi_sj(latest), use_container_width=False, key="quad_rsi_sj_team")
+        with st.expander("DRI experimental (SJ vs DRI)", expanded=False):
             if "DRI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_dri_sj(latest), use_container_width=False, key="quad_dri_sj_team")
+                st.plotly_chart(chart_quadrant_exploratory(latest), use_container_width=False, key="quad_dri_experimental_team")
 
         # Z-scores grupales
         st.markdown("---")

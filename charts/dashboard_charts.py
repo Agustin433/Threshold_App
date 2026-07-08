@@ -79,9 +79,14 @@ def _empty_state_figure(*, theme: dict, title: str, message: str, height: int = 
 def _prepare_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
-    if {"SJ_Z", "CMJ_Z"}.issubset(df.columns):
-        return df.copy()
-    return _prepare_jump_df(df)
+    frame = df.copy()
+    if "Athlete" not in frame.columns or "Date" not in frame.columns:
+        return frame
+    if "Profile_Composed" in frame.columns and frame["Profile_Composed"].fillna(False).astype(bool).any():
+        return frame
+
+    prepared = _prepare_jump_df(frame)
+    return prepared if not prepared.empty else frame
 
 
 def _dri_missing_message(df: pd.DataFrame) -> str:

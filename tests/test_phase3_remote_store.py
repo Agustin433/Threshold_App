@@ -9,6 +9,7 @@ import pandas as pd
 
 from modules.remote_store import (
     _supabase_request,
+    backfill_remote_evaluations_drop_height,
     dataset_df_to_remote_records,
     jump_df_to_db_records,
     load_remote_dataset,
@@ -175,6 +176,77 @@ class Phase3RemoteStoreTest(unittest.TestCase):
         self.assertEqual(record["imtp_time_pull_s"], 3.0)
         self.assertNotIn("rfd_100", record)
         self.assertNotIn("imtp_rfd_200_n_s", record)
+
+    def test_jump_df_to_db_records_explicitly_clears_drop_height_for_dj_rows_without_height(self):
+        eval_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-01",
+                    "DJ_cm": 28.0,
+                    "DJ_tc_ms": 200.0,
+                    "DJ_RSI": 1.4,
+                    "DJ_drop_height_cm": None,
+                    "DRI": None,
+                }
+            ]
+        )
+
+        records = jump_df_to_db_records(eval_df)
+
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record["athlete"], "Ana Lopez")
+        self.assertEqual(record["date"], "2026-04-01")
+        self.assertEqual(record["dj_cm"], 28.0)
+        self.assertEqual(record["dj_tc_ms"], 200.0)
+        self.assertEqual(record["dj_rsi"], 1.4)
+        self.assertIn("dj_drop_height_cm", record)
+        self.assertIsNone(record["dj_drop_height_cm"])
+
+    def test_backfill_remote_evaluations_drop_height_updates_only_missing_height_rows(self):
+        remote_df = pd.DataFrame(
+            [
+                {
+                    "Athlete": "Ana Lopez",
+                    "Date": "2026-04-01",
+                    "DJ_cm": 28.0,
+                    "DJ_tc_ms": 200.0,
+                    "DJ_RSI": 1.4,
+                    "DJ_drop_height_cm": None,
+                },
+                {
+                    "Athlete": "Bruno Diaz",
+                    "Date": "2026-04-01",
+                    "DJ_cm": 27.0,
+                    "DJ_tc_ms": 210.0,
+                    "DJ_RSI": 1.29,
+                    "DJ_drop_height_cm": 40.0,
+                },
+            ]
+        )
+
+        with patched_env(
+            {
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_KEY": "test-key",
+            }
+        ):
+            with patch("modules.remote_store.load_remote_evaluations_frame", return_value=remote_df):
+                with patch(
+                    "modules.remote_store.save_remote_evaluations",
+                    return_value={"enabled": True, "inserted": 0, "updated": 1, "total": 1},
+                ) as mocked_save:
+                    stats = backfill_remote_evaluations_drop_height(default_drop_height_cm=30.0)
+
+        self.assertTrue(stats["enabled"])
+        self.assertEqual(stats["updated_rows"], 1)
+        self.assertEqual(stats["athletes"], 1)
+
+        payload_df = mocked_save.call_args.args[0]
+        self.assertEqual(len(payload_df), 1)
+        self.assertEqual(payload_df.iloc[0]["Athlete"], "Ana Lopez")
+        self.assertAlmostEqual(float(payload_df.iloc[0]["DJ_drop_height_cm"]), 30.0, places=3)
 
     def test_load_remote_evaluations_preserves_new_imtp_force_time_columns(self):
         with patched_env(
