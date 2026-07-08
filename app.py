@@ -1931,7 +1931,7 @@ def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
 
 
 def _dataset_event_date(value) -> str | None:
-    if value in [None, "", "â€”", "-"]:
+    if value in [None, "", "—", "-"]:
         return None
     parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
@@ -2352,8 +2352,8 @@ def chart_acwr(acwr_df: pd.DataFrame, athlete: str) -> go.Figure:
 
     band_data = [
         (0.0, 0.8, "rgba(112,140,159,0.10)", "Subcarga"),
-        (0.8, 1.3, "rgba(111,143,120,0.10)", "Ã“ptimo"),
-        (1.3, 1.5, "rgba(196,164,100,0.12)", "PrecauciÃ³n"),
+        (0.8, 1.3, "rgba(111,143,120,0.10)", "Óptimo"),
+        (1.3, 1.5, "rgba(196,164,100,0.12)", "Precaución"),
         (1.5, 3.0, "rgba(181,107,115,0.10)", "Alto riesgo"),
     ]
     for y0, y1, color, label in band_data:
@@ -2387,7 +2387,7 @@ def chart_acwr(acwr_df: pd.DataFrame, athlete: str) -> go.Figure:
 
     fig.update_layout(
         **_DARK,
-        title=dict(text=f"<b>ACWR EWMA + sRPE Diario â€” {athlete}</b>", font=dict(size=14, color=C["navy"])),
+        title=dict(text=f"<b>ACWR EWMA + sRPE Diario — {athlete}</b>", font=dict(size=14, color=C["navy"])),
         xaxis=dict(title="Fecha", gridcolor=_GRID_SOFT, zeroline=False),
         yaxis=dict(title="ACWR EWMA", range=[0, 2.5], gridcolor=_GRID_SOFT, zeroline=False),
         yaxis2=dict(
@@ -4026,11 +4026,11 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader, source_f
             try:
                 sync_stats = save_remote_dataset(state_key, df)
                 st.session_state.datasets_loaded_from_store = False
-                remote_suffix = f" Â· Supabase: {sync_stats['upserted']} fila(s)."
+                remote_suffix = f" · Supabase: {sync_stats['upserted']} fila(s)."
             except Exception as remote_exc:
                 _push_notice(
                     "warning",
-                    f"{label} ({filename}): se guardÃ³ en local, pero no se pudo sincronizar con Supabase ({remote_exc}).",
+                    f"{label} ({filename}): se guardó en local, pero no se pudo sincronizar con Supabase ({remote_exc}).",
                 )
         visible_df = load_recent_dataset(state_key, weeks=RECENT_WEEKS)
         summary_rows = build_dataset_summaries({state_key: visible_df}, weeks=RECENT_WEEKS, keys=[state_key])

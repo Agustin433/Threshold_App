@@ -1545,7 +1545,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         rows = dict(payload["rows"])
         self.assertEqual(wellness["analysis_week_label"], "27/04/2026 - 03/05/2026")
-        self.assertEqual(rows["DÃ­as con registro"], "3")
+        self.assertEqual(rows["Días con registro"], "3")
         self.assertNotEqual(rows["Wellness score"], PDF_MISSING_TEXT)
 
     def test_quality_detail_caps_wellness_coverage_over_one_hundred(self):

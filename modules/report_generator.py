@@ -255,7 +255,7 @@ def _professional_visible_metric_text(value: object) -> str:
 
 
 PROFESSIONAL_COMPOSITE_PROFILE_NOTE = (
-    "Perfil compuesto: usa el Ãºltimo dato vÃ¡lido disponible por variable; no todas las "
+    "Perfil compuesto: usa el último dato válido disponible por variable; no todas las "
     "variables necesariamente provienen de la misma fecha."
 )
 PROFESSIONAL_CURRENT_PROFILE_SCOPE_NOTE = (
@@ -1062,7 +1062,7 @@ def safe_value(value: object, fallback: str = PDF_MISSING_TEXT) -> str:
     except (TypeError, ValueError):
         pass
     text = str(value).strip()
-    if text in {"", "-", "—", "â€”", "nan", "NaN", "None", "<NA>", "NaT", "Sin dato", "sin dato"}:
+    if text in {"", "-", "—", "—", "nan", "NaN", "None", "<NA>", "NaT", "Sin dato", "sin dato"}:
         return fallback
     return text
 
@@ -1484,7 +1484,7 @@ def build_executive_summary_df(
         row["Wellness 3d"] = _recent_wellness_mean(state, athlete)
         profile_row = jump_summary_row
         if profile_row is not None:
-            row["Fecha evaluaciÃ³n"] = pd.to_datetime(profile_row["Date"]).strftime("%d/%m/%Y")
+            row["Fecha evaluación"] = pd.to_datetime(profile_row["Date"]).strftime("%d/%m/%Y")
             row["CMJ cm"] = _round_or_none(profile_row.get("CMJ_cm"), 1)
             row["CMJ vs BL %"] = _cmj_delta_vs_baseline(state, athlete)
             row[EUR_RATIO_LABEL] = _round_or_none(profile_row.get("EUR"), 3)
@@ -2380,7 +2380,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
                     [
                         _p("Reporte madre profesional orientado a toma de decisiones.", "ProfBody"),
                         _p(
-                            "Prioriza perfil actual, cambios relevantes, contexto de carga y decisiÃ³n sugerida para el prÃ³ximo bloque.",
+                            "Prioriza perfil actual, cambios relevantes, contexto de carga y decisión sugerida para el próximo bloque.",
                             "ProfMuted",
                         ),
                     ]
@@ -2389,11 +2389,11 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
                 _p(executive_payload.get("title", "Resumen ejecutivo profesional"), "ProfSection"),
                 _executive_summary_table(executive_payload),
                 Spacer(1, 4 * mm),
-                _bullet_box("SeÃ±ales clave", executive_payload.get("signals", [])),
+                _bullet_box("Señales clave", executive_payload.get("signals", [])),
                 Spacer(1, 4 * mm),
                 _box(
                     [
-                        _p("DecisiÃ³n sugerida", "ProfCardTitle"),
+                        _p("Decisión sugerida", "ProfCardTitle"),
                         _p(executive_payload.get("decision_suggested", PDF_MISSING_TEXT), "ProfBody"),
                     ],
                     padding=6,
@@ -2421,24 +2421,24 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
                 [
                     f"Variable dominante: {feedback.get('high', PDF_MISSING_TEXT)}",
                     f"Variable rezagada: {feedback.get('low', PDF_MISSING_TEXT)}",
-                    f"Lectura fisiolÃ³gica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
-                    f"Lectura biomecÃ¡nica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
-                    f"Implicancia para prÃ³ximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
+                    f"Lectura fisiológica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
+                    f"Lectura biomecánica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
+                    f"Implicancia para próximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
                 ],
             )
         )
 
     def _append_full_change_page(target: list[object]) -> None:
-        target.append(_p(change_payload.get("title", "Cambios vs evaluaciÃ³n anterior"), "ProfSection"))
+        target.append(_p(change_payload.get("title", "Cambios vs evaluación anterior"), "ProfSection"))
         if change_payload.get("state") == "missing":
             target.append(_collapsed_box(str(change_payload.get("message") or PROFESSIONAL_NO_EVOLUTION_TEXT)))
             return
         target.append(_dataframe_table(change_payload.get("display_table"), col_widths_mm=[34, 18, 18, 18, 18, 32, 36]))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("SÃ­ntesis de cambios", change_payload.get("summary_lines", [])))
+        target.append(_bullet_box("Síntesis de cambios", change_payload.get("summary_lines", [])))
         if not _professional_any_quadrant_ready(quadrant_sections):
             target.append(Spacer(1, 3 * mm))
-            target.append(_box([_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicaciÃ³n Ãºtil en esta exportaciÃ³n.", "ProfMuted")], padding=5))
+            target.append(_box([_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicación útil en esta exportación.", "ProfMuted")], padding=5))
 
     def _append_full_quadrants_page(target: list[object]) -> None:
         target.append(_p("Relaciones de perfil / cuadrantes", "ProfSection"))
@@ -2453,23 +2453,23 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
             target.append(Spacer(1, 4 * mm))
 
     def _append_full_isometrics_page(target: list[object]) -> None:
-        target.append(_p(isometric_payload.get("title", "IsomÃ©tricos y force-time avanzado"), "ProfSection"))
+        target.append(_p(isometric_payload.get("title", "Isométricos y force-time avanzado"), "ProfSection"))
         if isometric_payload.get("state") == "missing":
-            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isomÃ©tricos.")))
+            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isométricos.")))
             return
-        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "AsimetrÃ­a"}]
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "Asimetría"}]
         if imtp_priority:
             target.append(_p("IMTP principal", "ProfCardTitle"))
             target.append(_mini_cards_table(imtp_priority))
         if isometric_payload.get("iso_available"):
             target.append(Spacer(1, 3 * mm))
             target.append(_p("ISO Push Hip-Hamstring Bilateral", "ProfCardTitle"))
-            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "AsimetrÃ­a"}]
+            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "Asimetría"}]
             if iso_priority:
                 target.append(_mini_cards_table(iso_priority))
             if isometric_payload.get("iso_notes"):
                 target.append(Spacer(1, 2 * mm))
-                target.append(_bullet_box("Lectura prÃ¡ctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
+                target.append(_bullet_box("Lectura práctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
         if isometric_payload.get("force_time_available"):
             target.append(Spacer(1, 3 * mm))
             draw_force_time_test_block(
@@ -2522,9 +2522,9 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         target.append(_bullet_box("Lectura de disponibilidad", note_lines, style_name="ProfMuted"))
 
     def _append_full_exposure_page(target: list[object]) -> None:
-        target.append(_p(exposure_payload.get("title", "ExposiciÃ³n del bloque / contenido entrenado"), "ProfSection"))
+        target.append(_p(exposure_payload.get("title", "Exposición del bloque / contenido entrenado"), "ProfSection"))
         if exposure_payload.get("state") == "missing":
-            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposiciÃ³n.")))
+            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposición.")))
             return
         chart_image = _exposure_chart_image()
         if chart_image is not None:
@@ -2538,30 +2538,30 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
                 [
                     str(exposure_payload.get("summary_line") or ""),
                     str(exposure_payload.get("context_link") or ""),
-                    f"EstÃ­mulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}.",
+                    f"Estímulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}.",
                 ],
                 style_name="ProfMuted",
             )
         )
 
     def _append_full_integrated_page(target: list[object]) -> None:
-        target.append(_p(integrated_decision_payload.get("title", "InterpretaciÃ³n integrada profesional"), "ProfSection"))
+        target.append(_p(integrated_decision_payload.get("title", "Interpretación integrada profesional"), "ProfSection"))
         target.append(_bullet_box("Señales con mejor respaldo disponible", integrated_decision_payload.get("good_confidence", [])))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃ© parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
+        target.append(_bullet_box("Qué parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃ© no podemos afirmar todavÃ­a", integrated_decision_payload.get("unknown", []), style_name="ProfMuted"))
+        target.append(_bullet_box("Qué no podemos afirmar todavía", integrated_decision_payload.get("unknown", []), style_name="ProfMuted"))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("DecisiÃ³n prÃ¡ctica", integrated_decision_payload.get("decision_practical", [])))
+        target.append(_bullet_box("Decisión práctica", integrated_decision_payload.get("decision_practical", [])))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃ© monitorear en el prÃ³ximo bloque", integrated_decision_payload.get("monitor", []), style_name="ProfMuted"))
+        target.append(_bullet_box("Qué monitorear en el próximo bloque", integrated_decision_payload.get("monitor", []), style_name="ProfMuted"))
 
     def _append_full_action_plan_page(target: list[object]) -> None:
-        target.append(_p(action_plan_payload.get("title", "PrÃ³ximos pasos y limitaciones metodolÃ³gicas"), "ProfSection"))
+        target.append(_p(action_plan_payload.get("title", "Próximos pasos y limitaciones metodológicas"), "ProfSection"))
         for label in ["Mantener", "Ajustar", "Monitorear", "Medir"]:
             target.append(_bullet_box(label, action_plan_payload.get("actions", {}).get(label, [])))
             target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("Limitaciones metodolÃ³gicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
+        target.append(_bullet_box("Limitaciones metodológicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
 
     def _append_full_executive_page(target: list[object]) -> None:
         target.extend(
@@ -2573,7 +2573,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
                     [
                         _p("Reporte madre profesional orientado a toma de decisiones.", "ProfBody"),
                         _p(
-                            "Prioriza perfil actual, cambios relevantes, contexto de carga y decisiÃƒÂ³n sugerida para el prÃƒÂ³ximo bloque.",
+                            "Prioriza perfil actual, cambios relevantes, contexto de carga y decisión sugerida para el próximo bloque.",
                             "ProfMuted",
                         ),
                     ]
@@ -2582,11 +2582,11 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
                 _p(executive_payload.get("title", "Resumen ejecutivo profesional"), "ProfSection"),
                 _executive_summary_table(executive_payload),
                 Spacer(1, 4 * mm),
-                _bullet_box("SeÃƒÂ±ales clave", executive_payload.get("signals", [])),
+                _bullet_box("Señales clave", executive_payload.get("signals", [])),
                 Spacer(1, 4 * mm),
                 _box(
                     [
-                        _p("DecisiÃƒÂ³n sugerida", "ProfCardTitle"),
+                        _p("Decisión sugerida", "ProfCardTitle"),
                         _p(executive_payload.get("decision_suggested", PDF_MISSING_TEXT), "ProfBody"),
                     ],
                     padding=6,
@@ -2614,24 +2614,24 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
                 [
                     f"Variable dominante: {feedback.get('high', PDF_MISSING_TEXT)}",
                     f"Variable rezagada: {feedback.get('low', PDF_MISSING_TEXT)}",
-                    f"Lectura fisiolÃƒÂ³gica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
-                    f"Lectura biomecÃƒÂ¡nica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
-                    f"Implicancia para prÃƒÂ³ximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
+                    f"Lectura fisiológica: {feedback.get('physiological', PDF_MISSING_TEXT)}",
+                    f"Lectura biomecánica: {feedback.get('biomechanical', PDF_MISSING_TEXT)}",
+                    f"Implicancia para próximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
                 ],
             )
         )
 
     def _append_full_change_page(target: list[object]) -> None:
-        target.append(_p(change_payload.get("title", "Cambios vs evaluaciÃƒÂ³n anterior"), "ProfSection"))
+        target.append(_p(change_payload.get("title", "Cambios vs evaluación anterior"), "ProfSection"))
         if change_payload.get("state") == "missing":
             target.append(_collapsed_box(str(change_payload.get("message") or PROFESSIONAL_NO_EVOLUTION_TEXT)))
             return
         target.append(_dataframe_table(change_payload.get("display_table"), col_widths_mm=[34, 18, 18, 18, 18, 32, 36]))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("SÃƒÂ­ntesis de cambios", change_payload.get("summary_lines", [])))
+        target.append(_bullet_box("Síntesis de cambios", change_payload.get("summary_lines", [])))
         if not _professional_any_quadrant_ready(quadrant_sections):
             target.append(Spacer(1, 3 * mm))
-            target.append(_box([_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicaciÃƒÂ³n ÃƒÂºtil en esta exportaciÃƒÂ³n.", "ProfMuted")], padding=5))
+            target.append(_box([_p("Relaciones de perfil / cuadrantes: datos insuficientes para una ubicación útil en esta exportación.", "ProfMuted")], padding=5))
 
     def _append_full_quadrants_page(target: list[object]) -> None:
         target.append(_p("Relaciones de perfil / cuadrantes", "ProfSection"))
@@ -2646,23 +2646,23 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
             target.append(Spacer(1, 4 * mm))
 
     def _append_full_isometrics_page(target: list[object]) -> None:
-        target.append(_p(isometric_payload.get("title", "IsomÃƒÂ©tricos y force-time avanzado"), "ProfSection"))
+        target.append(_p(isometric_payload.get("title", "Isométricos y force-time avanzado"), "ProfSection"))
         if isometric_payload.get("state") == "missing":
-            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isomÃƒÂ©tricos.")))
+            target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isométricos.")))
             return
-        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "AsimetrÃƒÂ­a"}]
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "Asimetría"}]
         if imtp_priority:
             target.append(_p("IMTP principal", "ProfCardTitle"))
             target.append(_mini_cards_table(imtp_priority))
         if isometric_payload.get("iso_available"):
             target.append(Spacer(1, 3 * mm))
             target.append(_p("ISO Push Hip-Hamstring Bilateral", "ProfCardTitle"))
-            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "AsimetrÃƒÂ­a"}]
+            iso_priority = [row for row in isometric_payload.get("iso_rows", []) if row[0] in {"Peak Force", "Force Avg", "Time to Peak", "Asimetría"}]
             if iso_priority:
                 target.append(_mini_cards_table(iso_priority))
             if isometric_payload.get("iso_notes"):
                 target.append(Spacer(1, 2 * mm))
-                target.append(_bullet_box("Lectura prÃƒÂ¡ctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
+                target.append(_bullet_box("Lectura práctica del test complementario", isometric_payload.get("iso_notes", [])[:3], style_name="ProfMuted"))
         if isometric_payload.get("force_time_available"):
             target.append(Spacer(1, 3 * mm))
             draw_force_time_test_block(
@@ -2715,9 +2715,9 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         target.append(_bullet_box("Lectura de disponibilidad", note_lines, style_name="ProfMuted"))
 
     def _append_full_exposure_page(target: list[object]) -> None:
-        target.append(_p(exposure_payload.get("title", "ExposiciÃƒÂ³n del bloque / contenido entrenado"), "ProfSection"))
+        target.append(_p(exposure_payload.get("title", "Exposición del bloque / contenido entrenado"), "ProfSection"))
         if exposure_payload.get("state") == "missing":
-            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposiciÃƒÂ³n.")))
+            target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposición.")))
             return
         chart_image = _exposure_chart_image()
         if chart_image is not None:
@@ -2731,7 +2731,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         ]
         if exposure_payload.get("low_or_absent"):
             exposure_lines.append(
-                f"EstÃƒÂ­mulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}."
+                f"Estímulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}."
             )
         target.append(
             _bullet_box(
@@ -2742,23 +2742,23 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         )
 
     def _append_full_integrated_page(target: list[object]) -> None:
-        target.append(_p(integrated_decision_payload.get("title", "InterpretaciÃƒÂ³n integrada profesional"), "ProfSection"))
+        target.append(_p(integrated_decision_payload.get("title", "Interpretación integrada profesional"), "ProfSection"))
         target.append(_bullet_box("Señales con mejor respaldo disponible", integrated_decision_payload.get("good_confidence", [])))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃƒÂ© parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
+        target.append(_bullet_box("Qué parece probable", integrated_decision_payload.get("probable", []), style_name="ProfMuted"))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃƒÂ© no podemos afirmar todavÃƒÂ­a", integrated_decision_payload.get("unknown", []), style_name="ProfMuted"))
+        target.append(_bullet_box("Qué no podemos afirmar todavía", integrated_decision_payload.get("unknown", []), style_name="ProfMuted"))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("DecisiÃƒÂ³n prÃƒÂ¡ctica", integrated_decision_payload.get("decision_practical", [])))
+        target.append(_bullet_box("Decisión práctica", integrated_decision_payload.get("decision_practical", [])))
         target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("QuÃƒÂ© monitorear en el prÃƒÂ³ximo bloque", integrated_decision_payload.get("monitor", []), style_name="ProfMuted"))
+        target.append(_bullet_box("Qué monitorear en el próximo bloque", integrated_decision_payload.get("monitor", []), style_name="ProfMuted"))
 
     def _append_full_action_plan_page(target: list[object]) -> None:
-        target.append(_p(action_plan_payload.get("title", "PrÃƒÂ³ximos pasos y limitaciones metodolÃƒÂ³gicas"), "ProfSection"))
+        target.append(_p(action_plan_payload.get("title", "Próximos pasos y limitaciones metodológicas"), "ProfSection"))
         for label in ["Mantener", "Ajustar", "Monitorear", "Medir"]:
             target.append(_bullet_box(label, action_plan_payload.get("actions", {}).get(label, [])))
             target.append(Spacer(1, 3 * mm))
-        target.append(_bullet_box("Limitaciones metodolÃƒÂ³gicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
+        target.append(_bullet_box("Limitaciones metodológicas", action_plan_payload.get("limitations", []), style_name="ProfMuted"))
 
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -5196,7 +5196,7 @@ def _professional_quadrant_athlete_meaning(selected: dict[str, object] | None) -
         return "Faltan datos para interpretar la ubicación individual."
     if x_zone == "high" and y_zone == "high":
         if threshold_caution:
-            return "El atleta se ubica en una zona favorable para ambas dimensiones, pero al menos una seÃ±al queda cerca del umbral neutral y conviene confirmarla en la prÃ³xima evaluaciÃ³n."
+            return "El atleta se ubica en una zona favorable para ambas dimensiones, pero al menos una señal queda cerca del umbral neutral y conviene confirmarla en la próxima evaluación."
         return "El atleta se ubica en un perfil relativamente favorable para ambas dimensiones del cuadrante."
     if x_zone == "high" and y_zone in {"mid", "low"}:
         return "El atleta muestra mejor perfil en el eje horizontal que en el vertical; conviene atacar la dimensión rezagada."
@@ -7368,7 +7368,7 @@ def _build_professional_change_payload(
     empty_table = pd.DataFrame(columns=["Variable", "Actual", "Anterior", "Delta abs", "Delta %", "Threshold", "Senal"])
     if history.empty or assessment_count < 2:
         return {
-            "title": "Cambios vs evaluaciÃ³n anterior",
+            "title": "Cambios vs evaluación anterior",
             "state": "missing",
             "message": PROFESSIONAL_NO_EVOLUTION_TEXT,
             "delta_df": pd.DataFrame(),
@@ -7403,7 +7403,7 @@ def _build_professional_change_payload(
     if improvements:
         summary_lines.append(f"Mejoras relevantes: {_professional_join_labels(improvements)}.")
     if declines:
-        summary_lines.append(f"CaÃ­das relevantes: {_professional_join_labels(declines)}.")
+        summary_lines.append(f"Caídas relevantes: {_professional_join_labels(declines)}.")
     if no_change:
         summary_lines.append(f"Sin cambio relevante: {_professional_join_labels(no_change)}.")
     if no_previous:
@@ -7413,7 +7413,7 @@ def _build_professional_change_payload(
 
     state_label = "available" if not display_table.empty else "partial"
     return {
-        "title": "Cambios vs evaluaciÃ³n anterior",
+        "title": "Cambios vs evaluación anterior",
         "state": state_label,
         "message": "" if not display_table.empty else PROFESSIONAL_NO_EVOLUTION_TEXT,
         "delta_df": delta_df,
@@ -7486,7 +7486,7 @@ def _build_professional_isometric_payload(
         ),
         ("Force Avg", _professional_number_text(imtp_summary.get("avg_force_n"), digits=0, unit="N")),
         ("Time to Peak", _professional_number_text(imtp_summary.get("time_to_peak_s"), digits=2, unit="s")),
-        ("AsimetrÃ­a", _professional_number_text(imtp_summary.get("absolute_asymmetry_pct"), digits=1, unit="%")),
+        ("Asimetría", _professional_number_text(imtp_summary.get("absolute_asymmetry_pct"), digits=1, unit="%")),
         ("Lado dominante", _professional_force_side_label(imtp_asymmetry.get("stronger_side"))),
     ]
     imtp_rows = [(label, value) for label, value in imtp_rows if value != PDF_MISSING_TEXT]
@@ -7495,7 +7495,7 @@ def _build_professional_isometric_payload(
         ("Peak Force", _professional_number_text(iso_summary.get("peak_force_n"), digits=0, unit="N")),
         ("Force Avg", _professional_number_text(iso_summary.get("avg_force_n"), digits=0, unit="N")),
         ("Time to Peak", _professional_number_text(iso_summary.get("time_to_peak_s"), digits=2, unit="s")),
-        ("AsimetrÃ­a", _professional_number_text(iso_summary.get("absolute_asymmetry_pct"), digits=1, unit="%")),
+        ("Asimetría", _professional_number_text(iso_summary.get("absolute_asymmetry_pct"), digits=1, unit="%")),
         ("Lado dominante", _professional_force_side_label(iso_asymmetry.get("stronger_side"))),
     ]
     iso_rows = [(label, value) for label, value in iso_rows if value != PDF_MISSING_TEXT]
@@ -7513,9 +7513,9 @@ def _build_professional_isometric_payload(
 
     has_isometric_data = bool(imtp_rows or iso_rows or imtp_payload.get("has_valid_force_time") or iso_payload.get("has_valid_force_time"))
     return {
-        "title": "IsomÃ©tricos y force-time avanzado",
+        "title": "Isométricos y force-time avanzado",
         "state": "available" if has_isometric_data else "missing",
-        "message": "" if has_isometric_data else "Faltan datos isomÃ©tricos vÃ¡lidos para esta secciÃ³n.",
+        "message": "" if has_isometric_data else "Faltan datos isométricos válidos para esta sección.",
         "imtp_rows": imtp_rows,
         "iso_rows": iso_rows,
         "imtp_notes": imtp_notes[:4],
@@ -7622,15 +7622,15 @@ def _build_professional_load_tolerance_payload(
 
     risk_line = "Faltan datos para valorar la tolerancia de carga."
     if str(internal_load.get("analysis_scope") or "") == "current_week_partial":
-        risk_line = "La semana actual sigue abierta; usar el acumulado parcial solo como seÃ±al operativa."
+        risk_line = "La semana actual sigue abierta; usar el acumulado parcial solo como señal operativa."
     elif acwr_value is not None and acwr_value > 1.5:
-        risk_line = "La carga reciente luce alta y con riesgo de acumulaciÃ³n; revisar densidad, calendario y tolerancia."
+        risk_line = "La carga reciente luce alta y con riesgo de acumulación; revisar densidad, calendario y tolerancia."
     elif monotony_value is not None and monotony_value > 2.0:
-        risk_line = "La carga reciente parece homogÃ©nea y con riesgo de acumulaciÃ³n por monotonÃ­a."
+        risk_line = "La carga reciente parece homogénea y con riesgo de acumulación por monotonía."
     elif acwr_value is not None and acwr_value < 0.8:
-        risk_line = "La carga reciente luce baja/subdosificada respecto a la carga crÃ³nica."
+        risk_line = "La carga reciente luce baja/subdosificada respecto a la carga crónica."
     elif weekly_change_pct is not None and weekly_change_pct > 10:
-        risk_line = "La carga reciente estÃ¡ en ascenso y conviene corroborar su tolerancia con wellness y disponibilidad."
+        risk_line = "La carga reciente está en ascenso y conviene corroborar su tolerancia con wellness y disponibilidad."
     elif any(value is not None for value in (acwr_value, monotony_value, strain_value)):
         risk_line = "ACWR, monotonía y strain disponibles: lectura conservadora compatible con control de carga si el wellness y la calidad de sesión acompañan."
     elif weekly_total is not None:
@@ -7643,7 +7643,7 @@ def _build_professional_load_tolerance_payload(
         ("Sesiones registradas", safe_value(internal_load.get("sessions_registered"))),
         ("ACWR EWMA", _professional_number_text(acwr_value, digits=2)),
         ("Zona ACWR", acwr_zone),
-        ("MonotonÃ­a", _professional_number_text(monotony_value, digits=2)),
+        ("Monotonía", _professional_number_text(monotony_value, digits=2)),
         ("Strain", _professional_number_text(strain_value, digits=0)),
     ]
     available_rows = [(label, value) for label, value in rows if value != PDF_MISSING_TEXT]
@@ -7700,10 +7700,10 @@ def _build_professional_wellness_availability_payload(
 
     rows = [
         ("Wellness score", score_label),
-        ("SueÃ±o", _with_scale(summary.get("sleep_mean"), "sleep")),
-        ("EstrÃ©s", _with_scale(summary.get("stress_mean"), "stress")),
+        ("Sueño", _with_scale(summary.get("sleep_mean"), "sleep")),
+        ("Estrés", _with_scale(summary.get("stress_mean"), "stress")),
         ("Dolor", _with_scale(summary.get("pain_mean"), "pain")),
-        ("DÃ­as con registro", days_with_record),
+        ("Días con registro", days_with_record),
         ("Adherencia formal", safe_value(completion.get("value"))),
     ]
     available_rows = [(label, value) for label, value in rows if value != PDF_MISSING_TEXT]
@@ -7715,7 +7715,7 @@ def _build_professional_wellness_availability_payload(
     sleep_mean = _coerce_float(summary.get("sleep_mean"))
     compatibility = "Faltan datos suficientes para cruzar wellness, disponibilidad y carga."
     if wellness_context.get("state") == "partial":
-        compatibility = "Datos parciales de wellness/disponibilidad: usar la lectura como seÃ±al preliminar y no como tendencia cerrada."
+        compatibility = "Datos parciales de wellness/disponibilidad: usar la lectura como señal preliminar y no como tendencia cerrada."
     elif wellness_context.get("state") == "available" and load_state == "missing":
         compatibility = "Wellness/disponibilidad disponible, pero sin carga interna reciente conviene usarlo solo como contexto parcial."
     elif weekly_change_pct is not None and weekly_change_pct > 10 and (
@@ -7723,7 +7723,7 @@ def _build_professional_wellness_availability_payload(
         or _professional_wellness_high(pain_mean, scales.get("pain"))
         or (sleep_mean is not None and sleep_mean < 6.5)
     ):
-        compatibility = "Carga alta con wellness/disponibilidad menos favorables: conviene aumentar la vigilancia del prÃ³ximo microciclo."
+        compatibility = "Carga alta con wellness/disponibilidad menos favorables: conviene aumentar la vigilancia del próximo microciclo."
     elif wellness_context.get("state") == "available":
         compatibility = "Carga estable + wellness/disponibilidad relativamente estables: lectura compatible con tolerancia del bloque."
 
@@ -7731,7 +7731,7 @@ def _build_professional_wellness_availability_payload(
     return {
         "title": "Wellness, disponibilidad y adherencia",
         "state": "available" if available_rows else "missing",
-        "message": "" if available_rows else "Faltan datos de wellness/disponibilidad para este perÃ­odo.",
+        "message": "" if available_rows else "Faltan datos de wellness/disponibilidad para este período.",
         "rows": available_rows,
         "compatibility": compatibility,
         "quality_note": str(quality_note or ""),
@@ -7752,10 +7752,10 @@ def _build_professional_exposure_payload(
         prepared = prepare_raw_workouts_df(state.get("raw_df"))
     if prepared is None or prepared.empty:
         return {
-            "title": "ExposiciÃ³n del bloque / contenido entrenado",
+            "title": "Exposición del bloque / contenido entrenado",
             "state": "missing",
-            "message": "Faltan raw workouts suficientes para resumir la exposiciÃ³n del bloque.",
-            "table": pd.DataFrame(columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"]),
+            "message": "Faltan raw workouts suficientes para resumir la exposición del bloque.",
+            "table": pd.DataFrame(columns=["Estímulo", "Dosis", "Sesiones", "Ejercicios clave"]),
             "active_groups": [],
             "dominant": [],
             "secondary": [],
@@ -7768,10 +7768,10 @@ def _build_professional_exposure_payload(
     athlete_df = prepared[_professional_athlete_mask(prepared[athlete_col], athlete)].copy() if athlete_col is not None else prepared.copy()
     if athlete_df.empty:
         return {
-            "title": "ExposiciÃ³n del bloque / contenido entrenado",
+            "title": "Exposición del bloque / contenido entrenado",
             "state": "missing",
             "message": "No hay raw workouts visibles para este atleta.",
-            "table": pd.DataFrame(columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"]),
+            "table": pd.DataFrame(columns=["Estímulo", "Dosis", "Sesiones", "Ejercicios clave"]),
             "active_groups": [],
             "dominant": [],
             "secondary": [],
@@ -7785,10 +7785,10 @@ def _build_professional_exposure_payload(
     athlete_df = athlete_df[~invalid & ~untagged].copy()
     if athlete_df.empty:
         return {
-            "title": "ExposiciÃ³n del bloque / contenido entrenado",
+            "title": "Exposición del bloque / contenido entrenado",
             "state": "missing",
-            "message": "No hay raw workouts clasificados para resumir la exposiciÃ³n del bloque.",
-            "table": pd.DataFrame(columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"]),
+            "message": "No hay raw workouts clasificados para resumir la exposición del bloque.",
+            "table": pd.DataFrame(columns=["Estímulo", "Dosis", "Sesiones", "Ejercicios clave"]),
             "active_groups": [],
             "dominant": [],
             "secondary": [],
@@ -7827,7 +7827,7 @@ def _build_professional_exposure_payload(
             dose_text = _professional_number_text(value_sum, digits=0, unit=str(spec["unit"])) if value_sum is not None else PDF_MISSING_TEXT
             rows.append(
                 {
-                    "EstÃ­mulo": str(spec["title"]),
+                    "Estímulo": str(spec["title"]),
                     "Dosis": dose_text,
                     "Sesiones": str(sessions) if sessions > 0 else PDF_MISSING_TEXT,
                     "Ejercicios clave": _professional_join_labels(top_exercises),
@@ -7853,22 +7853,22 @@ def _build_professional_exposure_payload(
 
     change_payload = change_payload or {}
     improved_labels = " ".join(change_payload.get("improvements", []))
-    context_link = "La exposiciÃ³n visible ayuda a contextualizar el perfil actual, pero no reemplaza la lectura de calidad del dato."
+    context_link = "La exposición visible ayuda a contextualizar el perfil actual, pero no reemplaza la lectura de calidad del dato."
     dominant_text = _professional_join_labels(dominant, fallback="")
     if dominant_text and "Fuerza con carga" in dominant_text and any(token in improved_labels for token in ("CMJ", "SJ", "IMTP")):
-        context_link = "El bloque tuvo predominio de fuerza con carga y es compatible con la seÃ±al actual de fuerza/salida vertical."
+        context_link = "El bloque tuvo predominio de fuerza con carga y es compatible con la señal actual de fuerza/salida vertical."
     elif dominant_text and "Pliometría y aterrizajes" in dominant_text and any(token in improved_labels for token in ("DRI", "RSI", "Contact")):
-        context_link = "El bloque tuvo predominio reactivo y es compatible con la seÃ±al actual de reactividad/contacto."
+        context_link = "El bloque tuvo predominio reactivo y es compatible con la señal actual de reactividad/contacto."
     elif dominant_text and "Movilidad y prehab" in dominant_text:
         context_link = "El bloque visible parece orientado a soporte/prehab; conviene no sobreinterpretar cambios como respuesta a un bloque principal de rendimiento."
 
     summary_line = ""
     if dominant:
-        summary_line = f"EstÃ­mulos dominantes: {_professional_join_labels(dominant)}."
+        summary_line = f"Estímulos dominantes: {_professional_join_labels(dominant)}."
         if secondary:
-            summary_line = f"{summary_line} EstÃ­mulos secundarios: {_professional_join_labels(secondary)}."
+            summary_line = f"{summary_line} Estímulos secundarios: {_professional_join_labels(secondary)}."
 
-    table = pd.DataFrame(rows, columns=["EstÃ­mulo", "Dosis", "Sesiones", "Ejercicios clave"])
+    table = pd.DataFrame(rows, columns=["Estímulo", "Dosis", "Sesiones", "Ejercicios clave"])
     if not table.empty:
         table = table.apply(lambda column: column.map(_professional_visible_metric_text))
     if not table.empty:
@@ -7877,9 +7877,9 @@ def _build_professional_exposure_payload(
     context_link = _professional_visible_metric_text(context_link)
     state_label = "available" if len(rows) >= 2 else "partial" if rows else "missing"
     return {
-        "title": "ExposiciÃ³n del bloque / contenido entrenado",
+        "title": "Exposición del bloque / contenido entrenado",
         "state": state_label,
-        "message": "" if rows else "Faltan raw workouts suficientes para resumir la exposiciÃ³n del bloque.",
+        "message": "" if rows else "Faltan raw workouts suficientes para resumir la exposición del bloque.",
         "table": table,
         "active_groups": active_titles,
         "dominant": dominant,
@@ -8050,16 +8050,16 @@ def _build_professional_integrated_decision_payload(
     load_risk_text = str(load_payload.get("risk_line") or "").casefold()
     wellness_risk_text = str(wellness_payload.get("compatibility") or "").casefold()
     if "riesgo" in load_risk_text or "vigilancia" in wellness_risk_text or "menos favorables" in wellness_risk_text:
-        decision_practical.append("Ajustar densidad/volumen del prÃ³ximo microciclo y sostener solo el estÃ­mulo prioritario hasta confirmar tolerancia.")
+        decision_practical.append("Ajustar densidad/volumen del próximo microciclo y sostener solo el estímulo prioritario hasta confirmar tolerancia.")
     elif has_clear_lagging and "fuerza" in low_text:
-        decision_practical.append("Mantener la cualidad dominante y priorizar fuerza base/transferencia en el prÃ³ximo bloque.")
+        decision_practical.append("Mantener la cualidad dominante y priorizar fuerza base/transferencia en el próximo bloque.")
     elif has_clear_lagging and any(token in low_text for token in ("dj height", "dj", "react", "dri", "contact")):
         decision_practical.append("Sostener la base actual y priorizar la progresión reactiva para mejorar la expresión en DJ, con foco en calidad de contacto, stiffness y tolerancia progresiva.")
     else:
         decision_practical.append("Sostener la cualidad mejor expresada y traducir la variable rezagada a una prioridad concreta de entrenamiento.")
 
     if change_payload.get("declines"):
-        decision_practical.append("Confirmar la seÃ±al en la siguiente ventana antes de atribuirla por completo a adaptaciÃ³n o fatiga.")
+        decision_practical.append("Confirmar la señal en la siguiente ventana antes de atribuirla por completo a adaptación o fatiga.")
     if not has_clear_lagging:
         decision_practical = [
             line
@@ -8069,7 +8069,7 @@ def _build_professional_integrated_decision_payload(
         decision_practical.append("Sostener el perfil actual, consolidar calidad técnica y monitorear evolución sin abrir nuevos focos innecesarios.")
 
     if exposure_payload.get("dominant"):
-        decision_practical.append(f"Usar como base del siguiente bloque los estÃ­mulos dominantes ya visibles: {_professional_join_labels(exposure_payload.get('dominant', []))}.")
+        decision_practical.append(f"Usar como base del siguiente bloque los estímulos dominantes ya visibles: {_professional_join_labels(exposure_payload.get('dominant', []))}.")
 
     if declines:
         monitor.append(
@@ -8102,7 +8102,7 @@ def _build_professional_integrated_decision_payload(
         )
 
     return {
-        "title": "InterpretaciÃ³n integrada profesional",
+        "title": "Interpretación integrada profesional",
         "state": "available",
         "good_confidence": list(dict.fromkeys([line for line in good_confidence if line.strip()]))[:4],
         "probable": list(dict.fromkeys([line for line in probable if line.strip()]))[:3],
@@ -8541,34 +8541,34 @@ def _build_professional_action_plan_payload(
         "limitations": limitations,
     }
     maintain = [
-        "Mantener la cualidad dominante actual sin perder calidad tÃ©cnica ni variabilidad del microciclo.",
+        "Mantener la cualidad dominante actual sin perder calidad técnica ni variabilidad del microciclo.",
     ]
     if feedback.get("next_block"):
         maintain.append(f"Mantener como referencia del bloque: {feedback.get('next_block')}")
 
     adjust = []
     if feedback.get("low"):
-        adjust.append(f"Ajustar el prÃ³ximo bloque para priorizar {feedback.get('low')}.")
+        adjust.append(f"Ajustar el próximo bloque para priorizar {feedback.get('low')}.")
     adjust.extend(integrated_payload.get("decision_practical", [])[:2])
     if change_payload.get("declines"):
-        adjust.append(f"Ajustar carga y prioridades si persisten las caÃ­das en {_professional_join_labels(change_payload.get('declines', []))}.")
+        adjust.append(f"Ajustar carga y prioridades si persisten las caídas en {_professional_join_labels(change_payload.get('declines', []))}.")
 
     monitor = list(integrated_payload.get("monitor", [])[:3])
     measure = [
-        "Medir nuevamente el perfil fÃ­sico en 6-8 semanas para comparar cambios de bloque.",
-        "Medir en la prÃ³xima ventana las variables clave del objetivo principal y completar datos faltantes si los hubiera.",
+        "Medir nuevamente el perfil físico en 6-8 semanas para comparar cambios de bloque.",
+        "Medir en la próxima ventana las variables clave del objetivo principal y completar datos faltantes si los hubiera.",
     ]
     if str(evaluation_state).strip().lower() == "partial":
-        measure.append("Medir y completar la baterÃ­a faltante antes de cerrar conclusiones mÃ¡s fuertes.")
+        measure.append("Medir y completar la batería faltante antes de cerrar conclusiones más fuertes.")
 
     limitations = [
-        "Las evaluaciones se interpretan como perfilado fÃ­sico cada 6-8 semanas, no como readiness semanal.",
-        "El sRPE es una estimaciÃ³n prÃ¡ctica de carga interna y debe cruzarse con contexto, wellness y criterio profesional.",
-        "Si el intervalo entre evaluaciones es corto o faltan registros, la lectura debe ser mÃ¡s conservadora.",
-        "El RSI se interpreta aquÃ­ como Ã­ndice reactivo y no como velocidad lineal.",
+        "Las evaluaciones se interpretan como perfilado físico cada 6-8 semanas, no como readiness semanal.",
+        "El sRPE es una estimación práctica de carga interna y debe cruzarse con contexto, wellness y criterio profesional.",
+        "Si el intervalo entre evaluaciones es corto o faltan registros, la lectura debe ser más conservadora.",
+        "El RSI se interpreta aquí como índice reactivo y no como velocidad lineal.",
     ]
     return {
-        "title": "PrÃ³ximos pasos y limitaciones metodolÃ³gicas",
+        "title": "Próximos pasos y limitaciones metodológicas",
         "actions": {
             "Mantener": list(dict.fromkeys([line for line in maintain if line.strip()]))[:2],
             "Ajustar": list(dict.fromkeys([line for line in adjust if line.strip()]))[:3],
@@ -8681,8 +8681,8 @@ def _build_professional_executive_payload(
         wellness_payload,
         assessment_interval_warning,
     )
-    confidence_detail = "Sin seÃ±ales metodolÃ³gicas fuertes de cautela." if confidence == "Alta" else (
-        "Lectura Ãºtil, pero todavÃ­a condicionada por cobertura parcial o por el contexto de mediciÃ³n."
+    confidence_detail = "Sin señales metodológicas fuertes de cautela." if confidence == "Alta" else (
+        "Lectura útil, pero todavía condicionada por cobertura parcial o por el contexto de medición."
         if confidence == "Media"
         else "La lectura requiere mucha prudencia por cobertura parcial o falta de continuidad."
     )
