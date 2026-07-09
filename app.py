@@ -1497,27 +1497,6 @@ def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     ) from first_error
 
 
-def _legacy_parse_raw_workouts_unused(file) -> pd.DataFrame:
-    df = _read_csv_with_fallback(file)
-    df.columns = [c.strip().strip('"') for c in df.columns]
-    df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
-    df["Result"] = pd.to_numeric(df["Result"], errors="coerce")
-    df["Reps"]   = pd.to_numeric(df["Reps"],   errors="coerce")
-    # DEPRECATED: legacy raw volume metric kept only as reference.
-    df["Volume_Load"] = df["Result"] * df["Reps"]
-    df["Category"] = df["Tags"].map(TAG_CATEGORIES).fillna("Sin categoría")
-    return df.dropna(subset=["Assigned Date"])
-
-
-def _legacy_parse_maxes_health_unused(file) -> pd.DataFrame:
-    df = _read_csv_with_fallback(file)
-    df.columns = [c.strip().strip('"') for c in df.columns]
-    df["Added Date"] = pd.to_datetime(df["Added Date"], errors="coerce")
-    df["Max Value"] = pd.to_numeric(df["Max Value"], errors="coerce")
-    df["Athlete"] = df["First Name"] + " " + df["Last Name"]
-    return df
-
-
 # ════════════════════════════════════════════════════════════════════
 # PARSERS — Archivos de plataforma de fuerza (formato transpuesto)
 # Formato: References | Rep 1 | Rep 2 | ...
@@ -1745,15 +1724,6 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     return weekly
 
 
-# Historical reference only. Active neuromuscular calculations live in
-# modules.jump_analysis and the public names below are rebound to shared helpers.
-def _legacy_calc_eur_percentage_unused(df: pd.DataFrame) -> pd.DataFrame:
-    """DEPRECATED: legacy EUR percentage formula, kept only for historical reference."""
-    if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
-        df["EUR"] = ((df["CMJ_cm"] - df["SJ_cm"]) / df["SJ_cm"]) * 100
-    return df
-
-
 def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
     """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
     return shared_calc_dri(df)
@@ -1762,83 +1732,6 @@ def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
 def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
     """Legacy compatibility wrapper. Neuromuscular logic lives in modules.jump_analysis."""
     return shared_calc_zscores(df)
-
-
-def _legacy_calc_eur_from_records_unused(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    DEPRECATED: legacy EUR percentage formula grouped by athlete/date.
-    EUR = (CMJ_cm - SJ_cm) / SJ_cm × 100.
-
-    Si no hay datos de SJ, no crashea — EUR queda como NaN.
-    Se puede completar después agregando el test SJ y reprocesando.
-    """
-    # Caso 1: CMJ y SJ ya están como columnas en el mismo df
-    if "CMJ_cm" in df.columns and "SJ_cm" in df.columns:
-        mask = df["CMJ_cm"].notna() & df["SJ_cm"].notna() & (df["SJ_cm"] != 0)
-        df.loc[mask, "EUR"] = (
-            (df.loc[mask, "CMJ_cm"] - df.loc[mask, "SJ_cm"])
-            / df.loc[mask, "SJ_cm"] * 100
-        ).round(2)
-        return df
-
-    # Caso 2: CMJ y SJ en filas separadas (test_type column)
-    if "test_type" not in df.columns:
-        return df  # sin info de tipo de test, no se puede calcular
-
-    has_cmj_col = "CMJ_cm" in df.columns
-    has_sj_col  = "SJ_cm"  in df.columns
-
-    # Extraer filas CMJ — solo si la columna existe
-    cmj_rows = pd.DataFrame()
-    if has_cmj_col:
-        cmj_mask = df["test_type"] == "CMJ"
-        if cmj_mask.any():
-            cmj_rows = df.loc[cmj_mask, ["Athlete", "Date", "CMJ_cm"]].dropna(subset=["CMJ_cm"])
-
-    # Extraer filas SJ — solo si la columna existe
-    sj_rows = pd.DataFrame()
-    if has_sj_col:
-        sj_mask = df["test_type"] == "SJ"
-        if sj_mask.any():
-            sj_rows = df.loc[sj_mask, ["Athlete", "Date", "SJ_cm"]].dropna(subset=["SJ_cm"])
-
-    # Calcular EUR solo si tenemos ambos
-    if not cmj_rows.empty and not sj_rows.empty:
-        merged = cmj_rows.merge(sj_rows, on=["Athlete", "Date"], how="inner")
-        if not merged.empty and (merged["SJ_cm"] != 0).any():
-            merged["EUR"] = (
-                (merged["CMJ_cm"] - merged["SJ_cm"]) / merged["SJ_cm"] * 100
-            ).round(2)
-            df = df.merge(
-                merged[["Athlete", "Date", "EUR"]],
-                on=["Athlete", "Date"], how="left"
-            )
-
-    # Si EUR no existe todavía, crear columna vacía
-    if "EUR" not in df.columns:
-        df["EUR"] = np.nan
-
-    return df
-
-
-def _legacy_calc_nm_profile_unused(df: pd.DataFrame) -> pd.DataFrame:
-    """DEPRECATED: neuromuscular profile thresholds for legacy EUR percentage."""
-    if "EUR" not in df.columns or "DRI" not in df.columns:
-        return df
-    conditions = [
-        (df["EUR"] >= 20) & (df["DRI"] >= 1.5),
-        (df["EUR"] >= 20) & (df["DRI"] <  1.5),
-        (df["EUR"] <  20) & (df["DRI"] >= 1.5),
-        (df["EUR"] <  20) & (df["DRI"] <  1.5),
-    ]
-    labels = [
-        "Reactivo-Elastico",
-        "Elastico / CEA-Lento",
-        "Reactivo / Poca Base 🟠",
-        "Fuerza-Concentrica",
-    ]
-    df["NM_Profile"] = np.select(conditions, labels, default="Sin datos")
-    return df
 
 
 def parse_raw_workouts(file) -> pd.DataFrame:
@@ -2290,62 +2183,6 @@ _LEGEND = dict(
     font=dict(size=9, color=C["gray"]),
 )
 
-def _legacy_chart_acwr_unused(acwr_df: pd.DataFrame, athlete: str) -> go.Figure:
-    fig = go.Figure()
-
-    # Bandas de zona
-    band_data = [
-        (0.0,  0.8,  "rgba(112,140,159,0.10)", "Subcarga"),
-        (0.8,  1.3,  "rgba(111,143,120,0.10)", "Óptimo"),
-        (1.3,  1.5,  "rgba(196,164,100,0.12)", "Precaución"),
-        (1.5,  3.0,  "rgba(181,107,115,0.10)", "Alto riesgo"),
-    ]
-    for y0, y1, color, label in band_data:
-        fig.add_hrect(y0=y0, y1=y1, fillcolor=color, layer="below",
-                      line_width=0,
-                      annotation_text=label,
-                      annotation_position="right",
-                      annotation_font=dict(size=9, color=C["muted"]))
-
-    # sRPE diario (barras)
-    fig.add_trace(go.Bar(
-        x=acwr_df["Date"],
-        y=acwr_df["sRPE_diario"],
-        name="sRPE diario",
-        marker_color="rgba(112,140,159,0.35)",
-        yaxis="y2",
-        hovertemplate="%{x|%d/%m}<br>sRPE: %{y:.0f} UA<extra></extra>",
-    ))
-
-
-    # ACWR EWMA
-    fig.add_trace(go.Scatter(
-        x=acwr_df["Date"], y=acwr_df["ACWR_EWMA"],
-        name="ACWR EWMA", mode="lines",
-        line=dict(color=C["steel"], width=3),
-        hovertemplate="%{x|%d/%m}<br>ACWR EWMA: %{y:.2f}<extra></extra>",
-    ))
-
-    # Legacy trace removed
-    fig.add_trace(go.Scatter(
-        name="Legacy hidden", mode="lines",
-        hovertemplate="%{x|%d/%m}<br>Legacy hidden: %{y:.2f}<extra></extra>",
-    ))
-
-    fig.update_layout(
-        **_DARK,
-        title=dict(text=f"<b>ACWR EWMA + sRPE Diario — {athlete}</b>",
-                   font=dict(size=14, color=C["navy"])),
-        xaxis=dict(title="Fecha", gridcolor=_GRID_SOFT, zeroline=False),
-        yaxis=dict(title="ACWR EWMA", range=[0, 2.5], gridcolor=_GRID_SOFT, zeroline=False),
-        yaxis2=dict(title="sRPE (UA)", overlaying="y", side="right",
-                    range=[0, acwr_df["sRPE_diario"].max() * 4],
-                    showgrid=False, color=C["muted"]),
-        legend=_LEGEND,
-        height=420,
-    )
-    return fig
-
 
 def chart_acwr(acwr_df: pd.DataFrame, athlete: str) -> go.Figure:
     fig = go.Figure()
@@ -2519,34 +2356,6 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str) -> go.Figure:
     return fig
 
 
-def _legacy_chart_maxes_trend_unused(maxes_df: pd.DataFrame, exercise: str) -> go.Figure:
-    d = maxes_df[maxes_df["Exercise Name"] == exercise].sort_values("Added Date")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=d["Added Date"], y=d["Max Value"],
-        mode="lines+markers",
-        line=dict(color=C["steel"], width=2.5),
-        marker=dict(size=8, color=C["steel"],
-                    line=dict(color=C["card"], width=1)),
-        hovertemplate="%{x|%d/%m/%Y}<br>%{y} kg<extra></extra>",
-    ))
-    # Anotación del último max
-    if not d.empty:
-        last = d.iloc[-1]
-        fig.add_annotation(x=last["Added Date"], y=last["Max Value"],
-                           text=f"<b>{last['Max Value']:.0f} kg</b>",
-                           showarrow=True, arrowhead=2,
-                           font=dict(color=C["yellow"], size=12),
-                           arrowcolor=C["yellow"])
-
-    fig.update_layout(**_DARK, height=320,
-                      title=dict(text=f"<b>Progresión MAX — {exercise}</b>",
-                                 font=dict(color=C["navy"], size=13)),
-                      xaxis=dict(title="Fecha", gridcolor=_GRID_SOFT, zeroline=False),
-                      yaxis=dict(title="kg", gridcolor=_GRID_SOFT, zeroline=False))
-    return fig
-
-
 def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str) -> go.Figure:
     """
     Si el dataset tiene columna Athlete:
@@ -2596,180 +2405,6 @@ def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str) -> go.Figure:
         yaxis=dict(title="kg", gridcolor=_GRID_SOFT, zeroline=False),
         legend=_LEGEND,
     )
-    return fig
-
-
-# Historical reference only. Active neuromuscular radar logic is rebound below
-# from charts.dashboard_charts.
-def _legacy_chart_radar_unused(df_row: pd.Series, athlete: str,
-                               team_mean: dict = None) -> go.Figure:
-    cats = ["CMJ\nAltura", "SJ\nF.Concéntrica", "DJ\nReactividad",
-            "EUR\nRatio", "DRI\nÍnd. Reactivo", "IMTP\nF.Máxima"]
-    z_keys = ["CMJ_Z", "SJ_Z", "DJtc_Z", "EUR_Z", "DRI_Z", "IMTP_Z"]
-
-    vals = [float(df_row.get(k, 0) or 0) for k in z_keys]
-    vals_c = vals + [vals[0]]
-    cats_c = cats + [cats[0]]
-
-    fig = go.Figure()
-
-    # ±1 SD referencia
-    fig.add_trace(go.Scatterpolar(
-        r=[1]*len(cats_c), theta=cats_c,
-        fill="toself", fillcolor="rgba(112,140,159,0.08)",
-        line=dict(color=_REFERENCE_LINE, dash="dot", width=1),
-        name="±1σ Grupo", hoverinfo="skip",
-    ))
-
-    if team_mean:
-        tm = [float(team_mean.get(k, 0) or 0) for k in z_keys]
-        tm_c = tm + [tm[0]]
-        fig.add_trace(go.Scatterpolar(
-            r=tm_c, theta=cats_c,
-            fill="toself", fillcolor="rgba(112,140,159,0.10)",
-            line=dict(color=C["gray"], width=1.5, dash="dash"),
-            name="Media Equipo",
-        ))
-
-    fig.add_trace(go.Scatterpolar(
-        r=vals_c, theta=cats_c,
-        fill="toself", fillcolor="rgba(13,60,94,0.16)",
-        line=dict(color=C["steel"], width=2.5),
-        name=athlete,
-        hovertemplate="<b>%{theta}</b><br>Z: %{r:.2f}σ<extra></extra>",
-    ))
-
-    fig.update_layout(
-        **_DARK,
-        polar=dict(
-            radialaxis=dict(range=[-3, 3], tickvals=[-2,-1,0,1,2],
-                            ticktext=["−2σ","−1σ","Media","+1σ","+2σ"],
-                            gridcolor=_GRID,
-                            linecolor=_REFERENCE_LINE,
-                            tickfont=dict(size=8, color=C["gray"])),
-            angularaxis=dict(tickfont=dict(size=10, color=C["white"]),
-                             gridcolor=_GRID),
-            bgcolor=C["card"],
-        ),
-        legend=dict(font=dict(size=9), bgcolor="rgba(254, 254, 254, 0.92)", bordercolor=C["border"], borderwidth=1),
-        title=dict(text=f"<b>Perfil Neuromuscular — {athlete}</b>",
-                   font=dict(color=C["navy"], size=13), x=0.5),
-        height=480,
-    )
-    return fig
-
-
-# Historical reference only. Active quadrant logic is rebound below from
-# charts.dashboard_charts.
-def _legacy_chart_quadrant_cmj_imtp_unused(df: pd.DataFrame) -> go.Figure:
-    d = df.dropna(subset=["CMJ_cm", "IMTP_N", "Athlete"])
-    if d.empty:
-        return go.Figure()
-
-    cmj_med  = d["CMJ_cm"].median()
-    imtp_med = d["IMTP_N"].median()
-
-    def quad(row):
-        h = row["CMJ_cm"] >= cmj_med
-        v = row["IMTP_N"] >= imtp_med
-        if h and v:     return "Q1 — Élite"
-        if not h and v: return "Q2 — Alta F.Máx"
-        if h and not v: return "Q4 — Explosivo"
-        return "Q3 — Déficit General"
-
-    d = d.copy()
-    d["Quad"] = d.apply(quad, axis=1)
-
-    cmap = {"Q1 — Élite": C["steel"], "Q2 — Alta F.Máx": C["yellow"],
-            "Q4 — Explosivo": C["orange"], "Q3 — Déficit General": C["red"]}
-
-    fig = go.Figure()
-    fig.add_vline(x=cmj_med, line_dash="dash", line_color=_REFERENCE_LINE,
-                  annotation_text=f"Med CMJ {cmj_med:.1f}cm",
-                  annotation_font=dict(color=C["gray"], size=9))
-    fig.add_hline(y=imtp_med, line_dash="dash", line_color=_REFERENCE_LINE,
-                  annotation_text=f"Med IMTP {imtp_med:.0f}N",
-                  annotation_font=dict(color=C["gray"], size=9))
-
-    for q, color in cmap.items():
-        sub = d[d["Quad"] == q]
-        if sub.empty: continue
-        fig.add_trace(go.Scatter(
-            x=sub["CMJ_cm"], y=sub["IMTP_N"],
-            mode="markers+text",
-            marker=dict(size=13, color=color, line=dict(color=C["card"], width=1.5)),
-            text=sub["Athlete"].str.split().str[0],
-            textposition="top center",
-            textfont=dict(size=9, color=C["gray"]),
-            name=q,
-            hovertemplate=(
-                "<b>%{text}</b><br>CMJ: %{x:.1f} cm<br>"
-                "IMTP: %{y:.0f} N<extra></extra>"),
-        ))
-
-    fig.update_layout(**_DARK, height=500,
-                      title=dict(text="<b>Cuadrante CMJ × IMTP — Potencia / Fuerza Máxima</b>",
-                                 font=dict(color=C["navy"], size=13)),
-                      xaxis=dict(title="CMJ (cm)", gridcolor=_GRID_SOFT, zeroline=False),
-                      yaxis=dict(title="IMTP (N)", gridcolor=_GRID_SOFT, zeroline=False),
-                      legend=_LEGEND)
-    return fig
-
-
-def _legacy_chart_quadrant_dri_sj_unused(df: pd.DataFrame) -> go.Figure:
-    d = df.dropna(subset=["DRI", "SJ_cm", "Athlete"])
-    if d.empty:
-        return go.Figure()
-
-    dri_med = d["DRI"].median()
-    sj_med  = d["SJ_cm"].median()
-
-    def quad(row):
-        h = row["DRI"] >= dri_med
-        v = row["SJ_cm"] >= sj_med
-        if h and v:     return "Q1 — Potencia + Reactividad"
-        if not h and v: return "Q2 — Fuerza sin Reactividad"
-        if h and not v: return "Q4 — Reactivo sin Base"
-        return "Q3 — Déficit General"
-
-    d = d.copy()
-    d["Quad"] = d.apply(quad, axis=1)
-
-    cmap = {"Q1 — Potencia + Reactividad": C["green"],
-            "Q2 — Fuerza sin Reactividad": C["yellow"],
-            "Q4 — Reactivo sin Base":      C["orange"],
-            "Q3 — Déficit General":        C["red"]}
-
-    fig = go.Figure()
-    fig.add_vline(x=dri_med, line_dash="dash", line_color=_REFERENCE_LINE,
-                  annotation_text=f"Med DRI {dri_med:.2f}",
-                  annotation_font=dict(color=C["gray"], size=9))
-    fig.add_hline(y=sj_med, line_dash="dash", line_color=_REFERENCE_LINE,
-                  annotation_text=f"Med SJ {sj_med:.1f}cm",
-                  annotation_font=dict(color=C["gray"], size=9))
-
-    for q, color in cmap.items():
-        sub = d[d["Quad"] == q]
-        if sub.empty: continue
-        fig.add_trace(go.Scatter(
-            x=sub["DRI"], y=sub["SJ_cm"],
-            mode="markers+text",
-            marker=dict(size=13, color=color, line=dict(color=C["card"], width=1.5)),
-            text=sub["Athlete"].str.split().str[0],
-            textposition="top center",
-            textfont=dict(size=9, color=C["gray"]),
-            name=q,
-            hovertemplate=(
-                "<b>%{text}</b><br>DRI: %{x:.2f}<br>"
-                "SJ: %{y:.1f} cm<extra></extra>"),
-        ))
-
-    fig.update_layout(**_DARK, height=500,
-                      title=dict(text="<b>Cuadrante DRI × SJ — CEA Reactivo / Concéntrico</b>",
-                                 font=dict(color=C["navy"], size=13)),
-                      xaxis=dict(title="DRI (u.a.)", gridcolor=_GRID_SOFT, zeroline=False),
-                      yaxis=dict(title="SJ (cm)", gridcolor=_GRID_SOFT, zeroline=False),
-                      legend=_LEGEND)
     return fig
 
 

@@ -28,12 +28,9 @@ class AppNeuromuscularStaticTest(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, source)
 
-    def test_legacy_neuromuscular_chart_definitions_are_isolated(self):
+    def test_neuromuscular_charts_bind_shared_implementations(self):
         source = APP_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("def _legacy_chart_radar_unused", source)
-        self.assertIn("def _legacy_chart_quadrant_cmj_imtp_unused", source)
-        self.assertIn("def _legacy_chart_quadrant_dri_sj_unused", source)
         self.assertIn("chart_radar = _bind_chart(shared_chart_radar)", source)
         self.assertIn("chart_quadrant_cmj_imtp = _bind_chart(shared_chart_quadrant_cmj_imtp)", source)
         self.assertIn("chart_quadrant_dri_sj = _bind_chart(shared_chart_quadrant_dri_sj)", source)
