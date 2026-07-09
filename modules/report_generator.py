@@ -1040,6 +1040,19 @@ def _round_or_none(value, digits: int = 1):
     return round(float(value), digits)
 
 
+def _round_numeric_columns(frame: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
+    """Round only numeric columns, leaving datetime/other dtypes untouched.
+
+    ``DataFrame.round`` warns (and no-ops) on datetime columns, so exports that
+    carry a ``Date``/``Semana`` column emit a noisy UserWarning. Restricting the
+    rounding to numeric columns keeps the same numeric output without the noise.
+    """
+    numeric_cols = frame.select_dtypes(include="number").columns
+    if len(numeric_cols) == 0:
+        return frame
+    return frame.round({col: decimals for col in numeric_cols})
+
+
 def _coerce_float(value) -> float | None:
     if value in [None, "", "—", "-"]:
         return None
@@ -2055,7 +2068,7 @@ def build_report_sheets(
                 tmp["Athlete"] = athlete
                 acwr_rows.append(tmp)
             if acwr_rows:
-                sheets["ACWR_sRPE"] = pd.concat(acwr_rows, ignore_index=True).round(2)
+                sheets["ACWR_sRPE"] = _round_numeric_columns(pd.concat(acwr_rows, ignore_index=True))
                 included_sections.append("ACWR EWMA + sRPE")
 
         if include_mono and mono_dict:
@@ -2067,14 +2080,14 @@ def build_report_sheets(
                 tmp["Athlete"] = athlete
                 mono_rows.append(tmp)
             if mono_rows:
-                sheets["Monotonia_Strain"] = pd.concat(mono_rows, ignore_index=True).round(2)
+                sheets["Monotonia_Strain"] = _round_numeric_columns(pd.concat(mono_rows, ignore_index=True))
                 included_sections.append("Monotonia + Strain")
 
         if include_wellness and state.get("wellness_df") is not None:
             df = state["wellness_df"]
             if effective_athlete != "Todos" and "Athlete" in df.columns:
                 df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
-            sheets["Wellness"] = df.round(2)
+            sheets["Wellness"] = _round_numeric_columns(df)
             if not df.empty:
                 included_sections.append("Wellness")
 
@@ -2096,7 +2109,7 @@ def build_report_sheets(
                 )
             if effective_athlete != "Todos" and "Athlete" in df.columns:
                 df = df[df["Athlete"].astype(str).str.strip() == effective_athlete]
-            sheets["Evaluaciones_Saltos"] = df.round(2)
+            sheets["Evaluaciones_Saltos"] = _round_numeric_columns(df)
             if not df.empty:
                 included_sections.append("Evaluaciones")
 
