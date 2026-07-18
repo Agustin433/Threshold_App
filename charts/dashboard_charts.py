@@ -76,12 +76,12 @@ def _empty_state_figure(*, theme: dict, title: str, message: str, height: int = 
     return fig
 
 
-def _prepare_frame(df: pd.DataFrame) -> pd.DataFrame:
+def _prepare_frame(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
     if {"SJ_Z", "CMJ_Z"}.issubset(df.columns):
         return df.copy()
-    return _prepare_jump_df(df)
+    return _prepare_jump_df(df, profile_df=profile_df)
 
 
 def _dri_missing_message(df: pd.DataFrame) -> str:
@@ -379,9 +379,9 @@ def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme
     return fig
 
 
-def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
+def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataFrame | None = None) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
-    source_data = _prepare_frame(df)
+    source_data = _prepare_frame(df, profile_df=profile_df)
     data = source_data.copy()
     data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
     if not data.empty:
@@ -455,9 +455,9 @@ def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
     return fig
 
 
-def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
+def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataFrame | None = None) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
-    source_data = _prepare_frame(df)
+    source_data = _prepare_frame(df, profile_df=profile_df)
     data = source_data.copy()
     data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
     if not data.empty:

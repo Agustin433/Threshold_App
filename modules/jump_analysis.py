@@ -2290,7 +2290,7 @@ def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(merged_rows)
 
 
-def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
+def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """Normalize the unified evaluations table and recompute derived metrics."""
     if jump_df is None or jump_df.empty:
         return pd.DataFrame()
@@ -2324,7 +2324,7 @@ def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
     result = calc_dsi(result)
     result = calc_imtp_rel_pf(result)
     result = calc_jump_momentum(result)
-    result = calc_zscores(result)
+    result = calc_zscores(result, profile_df=profile_df)
     result = calc_nm_profile(result)
 
     for column, digits in (

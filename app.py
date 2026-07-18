@@ -7141,7 +7141,7 @@ elif active_main_view == "Profile":
                 st.caption(f"📊 {profile_cohort_info['cohort_label']}")
             c_q1, c_q2 = st.columns(2)
             with c_q1:
-                st.plotly_chart(chart_quadrant_dri_sj(latest_jdf), use_container_width=False, key="quad_dri_sj_profile")
+                st.plotly_chart(chart_quadrant_dri_sj(latest_jdf, profile_df=profile_df_for_profile_cohort), use_container_width=False, key="quad_dri_sj_profile")
             with c_q2:
                 st.plotly_chart(chart_quadrant_cmj_imtp(latest_jdf), use_container_width=False, key="quad_cmj_imtp_profile")
             with st.expander("DRI experimental", expanded=False):
@@ -7244,7 +7244,7 @@ elif active_main_view == "Team":
                 st.plotly_chart(chart_quadrant_cmj_imtp(latest), use_container_width=False, key="quad_cmj_imtp_team")
         with c_q2:
             if "DRI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_dri_sj(latest), use_container_width=False, key="quad_dri_sj_team")
+                st.plotly_chart(chart_quadrant_dri_sj(latest, profile_df=profile_df_for_team_cohort), use_container_width=False, key="quad_dri_sj_team")
 
         # Z-scores grupales
         st.markdown("---")
