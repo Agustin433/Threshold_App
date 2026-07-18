@@ -46,6 +46,90 @@ def isolated_store():
 
 
 class Phase2HistoryTest(unittest.TestCase):
+    def test_jump_dataset_merge_does_not_preserve_old_drop_height_when_incoming_dj_lacks_it(self):
+        with isolated_store() as (local_store, _tmp_root):
+            local_store.save_dataset(
+                "jump_df",
+                pd.DataFrame(
+                    [
+                        {
+                            "Athlete": "Ana Lopez",
+                            "Date": "2026-05-01",
+                            "DJ_cm": 28.0,
+                            "DJ_tc_ms": 200.0,
+                            "DJ_drop_height_cm": 40.0,
+                            "DRI": 1.72,
+                        }
+                    ]
+                ),
+            )
+
+            local_store.save_dataset(
+                "jump_df",
+                pd.DataFrame(
+                    [
+                        {
+                            "Athlete": "Ana Lopez",
+                            "Date": "2026-05-01",
+                            "DJ_cm": 29.0,
+                            "DJ_tc_ms": 190.0,
+                            "DJ_drop_height_cm": None,
+                            "DRI": None,
+                        }
+                    ]
+                ),
+            )
+
+            loaded = local_store.read_full_dataset("jump_df")
+
+            self.assertEqual(len(loaded), 1)
+            row = loaded.iloc[0]
+            self.assertAlmostEqual(float(row["DJ_cm"]), 29.0, places=3)
+            self.assertAlmostEqual(float(row["DJ_tc_ms"]), 190.0, places=3)
+            self.assertTrue(pd.isna(row.get("DJ_drop_height_cm")))
+            self.assertTrue(pd.isna(row.get("DRI")))
+
+    def test_backfill_jump_drop_height_history_sets_default_only_for_missing_dj_rows(self):
+        with isolated_store() as (local_store, _tmp_root):
+            local_store.overwrite_dataset(
+                "jump_df",
+                pd.DataFrame(
+                    [
+                        {
+                            "Athlete": "Ana Lopez",
+                            "Date": "2026-05-01",
+                            "DJ_cm": 28.0,
+                            "DJ_tc_ms": 200.0,
+                            "DJ_drop_height_cm": None,
+                        },
+                        {
+                            "Athlete": "Bruno Diaz",
+                            "Date": "2026-05-01",
+                            "DJ_cm": 27.0,
+                            "DJ_tc_ms": 210.0,
+                            "DJ_drop_height_cm": 40.0,
+                        },
+                        {
+                            "Athlete": "Carla Ruiz",
+                            "Date": "2026-05-01",
+                            "SJ_cm": 31.0,
+                        },
+                    ]
+                ),
+            )
+
+            stats = local_store.backfill_jump_drop_height_history(default_drop_height_cm=30.0)
+            loaded = local_store.read_full_dataset("jump_df").sort_values(["Athlete", "Date"]).reset_index(drop=True)
+
+            self.assertEqual(stats["updated_rows"], 1)
+            self.assertEqual(stats["athletes"], 1)
+
+            ana_row = loaded.loc[loaded["Athlete"] == "Ana Lopez"].iloc[0]
+            bruno_row = loaded.loc[loaded["Athlete"] == "Bruno Diaz"].iloc[0]
+            self.assertAlmostEqual(float(ana_row["DJ_drop_height_cm"]), 30.0, places=3)
+            self.assertFalse(pd.isna(ana_row.get("DRI")))
+            self.assertAlmostEqual(float(bruno_row["DJ_drop_height_cm"]), 40.0, places=3)
+
     def test_ensure_prepared_raw_workouts_skips_rebuild_when_raw_version_is_unchanged(self):
         import modules.page_state as page_state_module
 

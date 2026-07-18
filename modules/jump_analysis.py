@@ -267,6 +267,16 @@ COMPOSITE_PROFILE_DIRECTIONS = {
     "IMTP_N": "higher_is_better",
 }
 
+DJ_DROP_HEIGHT_BACKFILL_COLUMNS = (
+    "Athlete",
+    "Date",
+    "DJ_drop_height_cm",
+    "DJ_cm",
+    "DJ_tc_ms",
+    "DJ_RSI",
+    "DRI",
+)
+
 ZSCORE_ALIAS_GROUPS = (
     ("DJ_height_Z", "DJ_Z"),
     ("TC_inv_Z", "DJtc_Z"),
@@ -735,6 +745,43 @@ def calc_dj_rsi(df: pd.DataFrame) -> pd.DataFrame:
         mask = dj_height_m.notna() & dj_tc_s.notna() & (dj_tc_s > 0)
         df.loc[mask, "DJ_RSI"] = (dj_height_m.loc[mask] / dj_tc_s.loc[mask]).round(3)
     return df
+
+
+def dj_drop_height_backfill_mask(df: pd.DataFrame | None) -> pd.Series:
+    if df is None:
+        return pd.Series(dtype=bool)
+    if df.empty:
+        return pd.Series(False, index=df.index, dtype=bool)
+    if not {"DJ_cm", "DJ_tc_ms"}.issubset(df.columns):
+        return pd.Series(False, index=df.index, dtype=bool)
+
+    dj_height_cm = _numeric_series(df, "DJ_cm")
+    dj_tc_ms = _numeric_series(df, "DJ_tc_ms")
+    raw_dj_mask = dj_height_cm.notna() & dj_tc_ms.notna()
+
+    if "DJ_drop_height_cm" not in df.columns:
+        return raw_dj_mask
+
+    drop_height_cm = _numeric_series(df, "DJ_drop_height_cm")
+    return raw_dj_mask & (drop_height_cm.isna() | (drop_height_cm <= 0))
+
+
+def build_dj_drop_height_backfill_candidates(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=list(DJ_DROP_HEIGHT_BACKFILL_COLUMNS))
+
+    mask = dj_drop_height_backfill_mask(df)
+    candidate_cols = [col for col in DJ_DROP_HEIGHT_BACKFILL_COLUMNS if col in df.columns]
+    candidates = df.loc[mask, candidate_cols].copy()
+
+    for col in DJ_DROP_HEIGHT_BACKFILL_COLUMNS:
+        if col not in candidates.columns:
+            candidates[col] = np.nan
+
+    if "Date" in candidates.columns:
+        candidates["Date"] = pd.to_datetime(candidates["Date"], errors="coerce").dt.normalize()
+
+    return candidates[list(DJ_DROP_HEIGHT_BACKFILL_COLUMNS)].reset_index(drop=True)
 
 
 def calc_dri(df: pd.DataFrame) -> pd.DataFrame:

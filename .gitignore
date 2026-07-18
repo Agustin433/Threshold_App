@@ -11,3 +11,6 @@ data/store/*.csv
 !data/store/.gitkeep
 .DS_Store
 .vscode/
+.pytest_cache/
+.test_tmp/
+tmp*/

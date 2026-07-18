@@ -15,10 +15,16 @@ import streamlit as st
 
 from local_store import DATASET_SPECS, normalize_athlete_name
 from modules.data_loader import EVALUATION_DB_COLUMN_MAP, EVALUATION_PERSIST_COLUMNS, SUPABASE_EVALUATIONS_TABLE
-from modules.jump_analysis import _prepare_jump_df
+from modules.jump_analysis import (
+    _prepare_jump_df,
+    build_dj_drop_height_backfill_candidates,
+    dj_drop_height_backfill_mask,
+)
 
 SUPABASE_DATASETS_TABLE = "dataset_rows"
 REMOTE_DATASET_KEYS = ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df"]
+_JUMP_DJ_CONTEXT_FIELDS = ("DJ_cm", "DJ_tc_ms", "DJ_RSI", "DJ_drop_height_cm")
+_JUMP_DJ_CLEAR_FIELDS = ("DJ_drop_height_cm",)
 
 
 def _get_secret_or_env(name: str, default=None):
@@ -119,6 +125,17 @@ def _json_safe_value(value):
     return value
 
 
+def _row_has_jump_dj_context(row: pd.Series | dict[str, object]) -> bool:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row)
+    for field in _JUMP_DJ_CONTEXT_FIELDS:
+        if field not in row_series.index:
+            continue
+        numeric = pd.to_numeric(pd.Series([row_series.get(field)]), errors="coerce").iloc[0]
+        if pd.notna(numeric):
+            return True
+    return False
+
+
 def _dataset_event_date(value) -> str | None:
     parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
@@ -179,13 +196,17 @@ def jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
     records: list[dict] = []
     for _, row in df.iterrows():
         record: dict[str, object] = {}
+        has_dj_context = _row_has_jump_dj_context(row)
         for app_col in EVALUATION_PERSIST_COLUMNS:
             if app_col not in row.index:
                 continue
             value = row[app_col]
+            db_col = EVALUATION_DB_COLUMN_MAP[app_col]
+            if has_dj_context and app_col in _JUMP_DJ_CLEAR_FIELDS and pd.isna(value):
+                record[db_col] = None
+                continue
             if pd.isna(value):
                 continue
-            db_col = EVALUATION_DB_COLUMN_MAP[app_col]
             if app_col == "Date":
                 record[db_col] = pd.Timestamp(value).date().isoformat()
             elif app_col == "Athlete":
@@ -296,6 +317,43 @@ def save_remote_evaluations(df: pd.DataFrame) -> dict[str, int | bool]:
         "inserted": inserted,
         "updated": updated,
         "total": inserted + updated,
+    }
+
+
+def backfill_remote_evaluations_drop_height(default_drop_height_cm: float = 30.0) -> dict[str, int | float | bool]:
+    default_value = float(default_drop_height_cm)
+    if default_value <= 0:
+        raise ValueError("La altura de caida por defecto debe ser mayor a 0.")
+    if not supabase_evaluations_enabled():
+        return {
+            "enabled": False,
+            "updated_rows": 0,
+            "athletes": 0,
+            "remote_writes": 0,
+            "default_drop_height_cm": default_value,
+        }
+
+    frame = load_remote_evaluations_frame()
+    candidates = build_dj_drop_height_backfill_candidates(frame)
+    if candidates.empty:
+        return {
+            "enabled": True,
+            "updated_rows": 0,
+            "athletes": 0,
+            "remote_writes": 0,
+            "default_drop_height_cm": default_value,
+        }
+
+    updates = frame.loc[dj_drop_height_backfill_mask(frame)].copy()
+    updates["DJ_drop_height_cm"] = default_value
+    sync_stats = save_remote_evaluations(updates)
+    athletes = int(candidates["Athlete"].dropna().nunique()) if "Athlete" in candidates.columns else 0
+    return {
+        "enabled": True,
+        "updated_rows": int(len(candidates)),
+        "athletes": athletes,
+        "remote_writes": int(sync_stats.get("total", 0)),
+        "default_drop_height_cm": default_value,
     }
 
 

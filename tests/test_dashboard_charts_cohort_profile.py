@@ -1,15 +1,15 @@
 """Regression + gap coverage for threading `profile_df` through the chart-prep
 layer (`_prepare_jump_df` -> `_prepare_frame` -> chart_quadrant_dri_sj/rsi_sj).
 
-Context: app.py's Profile/Team views already recompute cohort-aware z-scores
-via `shared_calc_zscores(latest_jdf, profile_df=...)` before handing the frame
-to the quadrant charts. Today that survives only because `_prepare_frame`'s
-existing shortcut (`{"SJ_Z", "CMJ_Z"}.issubset(df.columns)`) returns the frame
-as-is whenever those columns are already present -- it never re-derives them.
-None of `_prepare_jump_df`, `_prepare_frame`, `chart_quadrant_dri_sj` or
-`chart_quadrant_rsi_sj` currently accept a `profile_df` parameter at all, so
-any caller that needs cohort-aware z-scores recomputed *inside* this layer
-(i.e. when the shortcut does not apply) has no way to ask for it.
+Context: app.py's Profile/Team views recompute cohort-aware z-scores via
+`shared_calc_zscores(latest_jdf, profile_df=...)`, then pass that same
+`profile_df` into the quadrant chart functions so `_prepare_frame` can
+recompute correctly (via `_prepare_jump_df`) whenever it decides the frame
+isn't already fully processed (no `Profile_Composed` flag). `_prepare_frame`
+has no shortcut based on which Z columns are already present -- it always
+re-derives everything unless the frame is a composite snapshot -- so any
+caller passing raw or partially-processed data needs `profile_df` threaded
+through to get cohort-aware results instead of the population-wide fallback.
 """
 
 from __future__ import annotations
@@ -55,34 +55,6 @@ class PrepareJumpDfAcceptsProfileDfTest(unittest.TestCase):
         expected_ana = _expected_z(handball_sj, 30)
         actual_ana = result.loc[result["Athlete"] == "Ana Lopez", "SJ_Z"].iloc[0]
         self.assertAlmostEqual(actual_ana, expected_ana, places=2)
-
-
-class PrepareFrameShortcutRegressionTest(unittest.TestCase):
-    """Case 2 (plan): today's actual safe path -- no `profile_df` kwarg involved
-    at all, matching how app.py really calls these functions today. Expected
-    to pass both before and after the fix (the shortcut itself never changes).
-    """
-
-    def test_prepare_frame_shortcut_preserves_precomputed_cohort_zscore(self):
-        jump_df, profile_df = _build_two_cohort_frames()
-        # Simulate what app.py already does before reaching the chart: compute
-        # cohort-aware z-scores up front via calc_zscores(profile_df=...).
-        from modules.jump_analysis import calc_zscores
-
-        precomputed = calc_zscores(jump_df.copy(), profile_df=profile_df)
-        handball_sj = [30, 32, 34]
-        expected_ana = _expected_z(handball_sj, 30)
-        precomputed_ana = precomputed.loc[precomputed["Athlete"] == "Ana Lopez", "SJ_Z"].iloc[0]
-        self.assertAlmostEqual(precomputed_ana, expected_ana, places=2)
-
-        # _prepare_frame is called exactly like app.py -> chart_quadrant_dri_sj
-        # calls it today: no profile_df kwarg at all.
-        result = _prepare_frame(precomputed.copy())
-
-        actual_ana = result.loc[result["Athlete"] == "Ana Lopez", "SJ_Z"].iloc[0]
-        self.assertAlmostEqual(actual_ana, expected_ana, places=2)
-        # The shortcut must return the frame untouched, not recomputed.
-        self.assertTrue(result.equals(precomputed))
 
 
 class PrepareFrameWithoutShortcutTest(unittest.TestCase):
