@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from modules.athlete_profile import ATHLETE_PROFILE_COLUMNS
 from modules.data_loader import prepare_raw_workouts_df
 from modules.jump_analysis import _prepare_jump_df
 from modules.load_monitoring import calc_acwr, calc_monotony_strain
@@ -88,6 +89,13 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
         "athlete_col": "Athlete",
         "dedupe_cols": ["Athlete", "Date"],
     },
+    "athlete_profile_df": {
+        "filename": "athlete_profiles.csv",
+        "date_col": "Fecha_actualizacion",
+        "athlete_col": "Athlete",
+        "dedupe_cols": ["Athlete"],
+        "allow_missing_date": True,
+    },
 }
 
 DATASET_LABELS: dict[str, str] = {
@@ -99,6 +107,7 @@ DATASET_LABELS: dict[str, str] = {
     "session_notes_df": "Opt-outs / Notes",
     "maxes_df": "Maxes",
     "jump_df": "Evaluaciones",
+    "athlete_profile_df": "Perfil de atleta",
 }
 
 ACWR_ZONES = (
@@ -398,6 +407,38 @@ def save_dataset(state_key: str, df: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def upsert_athlete_profile(profile: dict[str, object]) -> pd.DataFrame:
+    """Upsert a single athlete profile row by Athlete, replacing the full row.
+
+    Unlike `save_dataset`/`merge_dataset`, this does not merge field-by-field:
+    an existing row for the same athlete is dropped entirely and replaced by
+    the incoming profile, so cleared fields are actually cleared.
+    """
+    athlete_norm = normalize_athlete_name(profile.get("Athlete"))
+    if not athlete_norm:
+        raise ValueError("El nombre del atleta es obligatorio para guardar el perfil.")
+
+    _ensure_store_dir()
+
+    row: dict[str, object] = {column: profile.get(column) for column in ATHLETE_PROFILE_COLUMNS}
+    row["Athlete"] = athlete_norm
+    row["Fecha_actualizacion"] = pd.Timestamp.now()
+    new_row_df = pd.DataFrame([row], columns=ATHLETE_PROFILE_COLUMNS)
+
+    existing = read_full_dataset("athlete_profile_df")
+    if existing is None or existing.empty:
+        merged = new_row_df
+    else:
+        existing = existing.reindex(columns=ATHLETE_PROFILE_COLUMNS)
+        keep_mask = existing["Athlete"].map(normalize_athlete_name) != athlete_norm
+        merged = pd.concat([existing.loc[keep_mask], new_row_df], ignore_index=True, sort=False)
+
+    merged = merged.reindex(columns=ATHLETE_PROFILE_COLUMNS).sort_values("Athlete").reset_index(drop=True)
+    merged.to_csv(_dataset_path("athlete_profile_df"), index=False)
+    persist_athlete_names([athlete_norm])
+    return merged
+
+
 def overwrite_dataset(state_key: str, df: pd.DataFrame | None) -> pd.DataFrame:
     _ensure_store_dir()
     path = _dataset_path(state_key)
@@ -541,9 +582,10 @@ def load_dataset_for_history_mode(
 def load_recent_state(weeks: int = RECENT_WEEKS) -> dict[str, pd.DataFrame | None]:
     state: dict[str, pd.DataFrame | None] = {}
     for state_key in DATASET_SPECS:
-        if state_key == "jump_df":
-            # Evaluations are sparse historical checkpoints, so trimming them to
-            # the recent daily-data window hides valid tests after rehydration.
+        if state_key in ("jump_df", "athlete_profile_df"):
+            # Evaluations are sparse historical checkpoints and athlete profiles
+            # are a per-athlete upsert table, so trimming either to the recent
+            # daily-data window would hide valid records after rehydration.
             df = read_full_dataset(state_key)
         else:
             df = load_recent_dataset(state_key, weeks=weeks)

@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
+from modules.athlete_profile import missing_profile_fields
+
 
 DATASET_CONFIG = (
     ("rpe_df", "RPE + Tiempo", ("Date",)),
@@ -483,4 +485,66 @@ def compute_data_quality_report(
         "raw_classification_summary": raw_classification_summary,
         "athlete_summary": athlete_summary,
         "alerts": alerts,
+    }
+
+
+def compute_profile_coverage(
+    athlete_profile_df: pd.DataFrame | None,
+    known_athletes: list[str] | None,
+) -> dict[str, object]:
+    """Coverage of `known_athletes` against `athlete_profile_df`.
+
+    An athlete counts as "complete" only if it has a profile row AND that row
+    has no missing required fields (Contexto, Nivel, Objetivo_primario).
+    """
+    known = sorted({str(name).strip() for name in (known_athletes or []) if str(name).strip()})
+    total_athletes = len(known)
+
+    profile_by_athlete: dict[str, pd.Series] = {}
+    if athlete_profile_df is not None and not athlete_profile_df.empty and "Athlete" in athlete_profile_df.columns:
+        for _, row in athlete_profile_df.iterrows():
+            name = str(row.get("Athlete", "")).strip()
+            if name:
+                profile_by_athlete[name] = row
+
+    rows: list[dict[str, object]] = []
+    with_complete_profile = 0
+
+    for athlete in known:
+        row = profile_by_athlete.get(athlete)
+        if row is None:
+            rows.append({
+                "Atleta": athlete,
+                "Tiene perfil": "No",
+                "Campos faltantes": "Perfil no creado",
+                "Contexto": "-",
+                "Nivel": "-",
+                "Objetivo": "-",
+            })
+            continue
+
+        missing = missing_profile_fields(row)
+        if missing:
+            rows.append({
+                "Atleta": athlete,
+                "Tiene perfil": "Si",
+                "Campos faltantes": ", ".join(missing),
+                "Contexto": row.get("Contexto") or "-",
+                "Nivel": row.get("Nivel") or "-",
+                "Objetivo": row.get("Objetivo_primario") or "-",
+            })
+        else:
+            with_complete_profile += 1
+
+    coverage_pct = round((with_complete_profile / total_athletes) * 100, 1) if total_athletes else 0.0
+    missing_or_incomplete = pd.DataFrame(
+        rows,
+        columns=["Atleta", "Tiene perfil", "Campos faltantes", "Contexto", "Nivel", "Objetivo"],
+    )
+
+    return {
+        "coverage_pct": coverage_pct,
+        "total_athletes": total_athletes,
+        "with_complete_profile": with_complete_profile,
+        "missing_or_incomplete": missing_or_incomplete,
     }
