@@ -76,17 +76,16 @@ def _empty_state_figure(*, theme: dict, title: str, message: str, height: int = 
     return fig
 
 
-def _prepare_frame(df: pd.DataFrame) -> pd.DataFrame:
+def _prepare_frame(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
-    frame = df.copy()
-    if "Athlete" not in frame.columns or "Date" not in frame.columns:
-        return frame
-    if "Profile_Composed" in frame.columns and frame["Profile_Composed"].fillna(False).astype(bool).any():
-        return frame
+    if "Athlete" not in df.columns or "Date" not in df.columns:
+        return df.copy()
+    if "Profile_Composed" in df.columns and df["Profile_Composed"].fillna(False).astype(bool).any():
+        return df.copy()
 
-    prepared = _prepare_jump_df(frame)
-    return prepared if not prepared.empty else frame
+    prepared = _prepare_jump_df(df, profile_df=profile_df)
+    return prepared if not prepared.empty else df.copy()
 
 
 def _dri_missing_message(df: pd.DataFrame) -> str:
@@ -384,9 +383,9 @@ def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme
     return fig
 
 
-def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
+def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataFrame | None = None) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
-    source_data = _prepare_frame(df)
+    source_data = _prepare_frame(df, profile_df=profile_df)
     data = source_data.copy()
     data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
     if not data.empty:
@@ -460,9 +459,9 @@ def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
     return fig
 
 
-def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict) -> go.Figure:
+def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataFrame | None = None) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
-    source_data = _prepare_frame(df)
+    source_data = _prepare_frame(df, profile_df=profile_df)
     data = source_data.copy()
     data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
     if not data.empty:

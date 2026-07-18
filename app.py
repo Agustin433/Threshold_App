@@ -70,6 +70,18 @@ from local_store import (
     persist_athlete_names,
     rename_athlete_in_store,
     save_dataset,
+    upsert_athlete_profile,
+)
+from modules.athlete_profile import (
+    CONTEXTO_OPTIONS,
+    NIVEL_OPTIONS,
+    OBJETIVO_OPTIONS,
+    get_comparison_cohort,
+    parse_secondary_objectives,
+    secondary_objective_options,
+    serialize_secondary_objectives,
+    suggest_objective_from_text,
+    validate_profile_fields,
 )
 from modules.data_loader import (
     EVALUATION_DB_COLUMN_MAP as SHARED_EVALUATION_DB_COLUMN_MAP,
@@ -89,7 +101,7 @@ from modules.data_loader import (
     parse_session_notes_pdf as shared_parse_session_notes_pdf,
     parse_xlsx_questionnaire as shared_parse_xlsx_questionnaire,
 )
-from modules.data_quality import compute_data_quality_report
+from modules.data_quality import compute_data_quality_report, compute_profile_coverage
 from modules.history_mode import history_mode_caption, render_history_mode_selector
 from modules.page_state import (
     build_report_preview_signature,
@@ -3085,7 +3097,8 @@ APP_RERUN_STARTED_AT = time.perf_counter()
 def init_state():
     # Valores por defecto None
     none_keys = ["rpe_df", "wellness_df", "completion_df", "rep_load_df",
-                 "raw_df", "session_notes_df", "maxes_df", "jump_df", "acwr_dict", "mono_dict", "prepared_raw_df"]
+                 "raw_df", "session_notes_df", "maxes_df", "jump_df", "athlete_profile_df",
+                 "acwr_dict", "mono_dict", "prepared_raw_df"]
     for k in none_keys:
         if k not in st.session_state:
             st.session_state[k] = None
@@ -3143,6 +3156,12 @@ def init_state():
         st.session_state.performance_debug_timings = {}
     if "performance_debug_artifacts" not in st.session_state:
         st.session_state.performance_debug_artifacts = {}
+    if "athlete_profile_form_nonce" not in st.session_state:
+        st.session_state.athlete_profile_form_nonce = 0
+    if "athlete_profile_prefill_name" not in st.session_state:
+        st.session_state.athlete_profile_prefill_name = ""
+    if "athlete_profile_expanded" not in st.session_state:
+        st.session_state.athlete_profile_expanded = False
 
 
 init_state()
@@ -4085,6 +4104,171 @@ with st.sidebar:
 
     _flush_notices()
 
+    # ── Perfiles de atleta: banner de pendientes + alta/edicion ──
+    detected_profile_athletes = collect_athlete_names(
+        st.session_state.rpe_df, st.session_state.jump_df, st.session_state.raw_df,
+    )
+    existing_profile_athletes = set()
+    profile_df_state = st.session_state.athlete_profile_df
+    if profile_df_state is not None and not profile_df_state.empty and "Athlete" in profile_df_state.columns:
+        existing_profile_athletes = set(profile_df_state["Athlete"].dropna().map(normalize_athlete_name))
+    athletes_missing_profile = sorted(set(detected_profile_athletes) - existing_profile_athletes)
+
+    if athletes_missing_profile:
+        st.warning(f"⚠️ {len(athletes_missing_profile)} atleta(s) sin perfil completo. Completar ahora →")
+        missing_profile_pick = st.selectbox(
+            "Atleta a completar",
+            athletes_missing_profile,
+            key="missing_profile_pick",
+        )
+        if st.button("Completar ahora →", key="btn_complete_missing_profile"):
+            st.session_state.athlete_profile_prefill_name = missing_profile_pick
+            st.session_state.athlete_profile_expanded = True
+            st.session_state.athlete_profile_form_nonce += 1
+            st.rerun()
+
+    with st.expander("➕ Nuevo atleta / editar perfil", expanded=st.session_state.athlete_profile_expanded):
+        profile_nonce = st.session_state.athlete_profile_form_nonce
+        profile_prefill_name = st.session_state.athlete_profile_prefill_name
+        profile_athlete_options = ["Escribir nuevo..."] + known_athlete_names()
+        profile_default_index = (
+            profile_athlete_options.index(profile_prefill_name)
+            if profile_prefill_name in profile_athlete_options
+            else 0
+        )
+
+        with st.form(f"athlete_profile_form_{profile_nonce}", clear_on_submit=True):
+            selected_profile_athlete = st.selectbox(
+                "Nombre del atleta",
+                profile_athlete_options,
+                index=profile_default_index,
+                key=f"profile_athlete_select_{profile_nonce}",
+            )
+            typed_profile_athlete = st.text_input(
+                "Nombre (solo si elegis 'Escribir nuevo...')",
+                key=f"profile_athlete_text_{profile_nonce}",
+                placeholder="Ej: Mariano Diaz Romero",
+            )
+            profile_birth_date = st.date_input(
+                "Fecha de nacimiento",
+                key=f"profile_birth_{profile_nonce}",
+                value=None,
+            )
+            profile_height_cm = st.number_input(
+                "Altura (cm)",
+                key=f"profile_height_{profile_nonce}",
+                min_value=0.0,
+                max_value=250.0,
+                value=0.0,
+                step=0.5,
+                help="Dejar en 0 si no se conoce.",
+            )
+            profile_weight_kg = st.number_input(
+                "Peso (kg)",
+                key=f"profile_weight_{profile_nonce}",
+                min_value=0.0,
+                max_value=300.0,
+                value=0.0,
+                step=0.5,
+                help="Dejar en 0 si no se conoce.",
+            )
+            profile_contexto = st.radio(
+                "Contexto",
+                CONTEXTO_OPTIONS,
+                key=f"profile_contexto_{profile_nonce}",
+                horizontal=True,
+            )
+            profile_deporte = st.text_input(
+                "Deporte / Actividad",
+                key=f"profile_deporte_{profile_nonce}",
+                placeholder="Ej: Handball, Futbol, Running",
+            )
+            profile_nivel = st.selectbox(
+                "Nivel",
+                NIVEL_OPTIONS,
+                key=f"profile_nivel_{profile_nonce}",
+            )
+            profile_objetivo_primario = st.selectbox(
+                "Objetivo primario",
+                OBJETIVO_OPTIONS,
+                key=f"profile_objetivo_primario_{profile_nonce}",
+            )
+            profile_objetivos_secundarios = st.multiselect(
+                "Objetivos secundarios",
+                secondary_objective_options(profile_objetivo_primario),
+                key=f"profile_objetivo_secundarios_{profile_nonce}",
+            )
+            profile_show_otro = (
+                profile_objetivo_primario == "Otro" or "Otro" in profile_objetivos_secundarios
+            )
+            profile_objetivo_otro_texto = ""
+            if profile_show_otro:
+                profile_objetivo_otro_texto = st.text_input(
+                    "Contanos mas sobre el objetivo",
+                    key=f"profile_objetivo_otro_{profile_nonce}",
+                    placeholder="Texto libre",
+                    help="La sugerencia automatica de objetivo se muestra despues de guardar.",
+                )
+            profile_es_rtp = st.checkbox(
+                "Esta en proceso de RTP?",
+                key=f"profile_es_rtp_{profile_nonce}",
+                value=False,
+            )
+            profile_submitted = st.form_submit_button("Guardar perfil")
+
+        if profile_submitted:
+            profile_athlete_raw = (
+                typed_profile_athlete if selected_profile_athlete == "Escribir nuevo..." else selected_profile_athlete
+            )
+            profile_athlete_name = normalize_athlete_name(profile_athlete_raw)
+            secondary_selection = [
+                option for option in profile_objetivos_secundarios if option != profile_objetivo_primario
+            ]
+            profile_payload = {
+                "Athlete": profile_athlete_name,
+                "Fecha_nacimiento": profile_birth_date.isoformat() if profile_birth_date else None,
+                "Altura_cm": profile_height_cm or None,
+                "Peso_kg": profile_weight_kg or None,
+                "Contexto": profile_contexto,
+                "Deporte": profile_deporte.strip() if profile_deporte else None,
+                "Nivel": profile_nivel,
+                "Objetivo_primario": profile_objetivo_primario,
+                "Objetivos_secundarios": serialize_secondary_objectives(secondary_selection),
+                "Objetivo_otro_texto": profile_objetivo_otro_texto.strip() if profile_objetivo_otro_texto else None,
+                "Es_RTP": bool(profile_es_rtp),
+            }
+            profile_validation_errors = validate_profile_fields(profile_payload)
+            if profile_validation_errors:
+                for profile_error in profile_validation_errors:
+                    _push_notice("warning", f"Perfil de atleta: {profile_error}")
+            else:
+                try:
+                    merged_profiles = upsert_athlete_profile(profile_payload)
+                    st.session_state.athlete_profile_df = None if merged_profiles.empty else merged_profiles
+                    profile_suggestion = suggest_objective_from_text(profile_objetivo_otro_texto)
+                    summary_bits = [
+                        f"Contexto: {profile_contexto}",
+                        f"Nivel: {profile_nivel}",
+                        f"Objetivo: {profile_objetivo_primario}",
+                    ]
+                    if profile_es_rtp:
+                        summary_bits.append("RTP activo")
+                    profile_message = (
+                        f"Perfil guardado para {profile_athlete_name} ({'; '.join(summary_bits)})."
+                    )
+                    if profile_suggestion and profile_suggestion != profile_objetivo_primario:
+                        profile_message += (
+                            f" Sugerencia segun el texto libre: '{profile_suggestion}' "
+                            "(podes editar el perfil para aplicarla)."
+                        )
+                    _push_notice("success", profile_message)
+                    st.session_state.athlete_profile_prefill_name = ""
+                    st.session_state.athlete_profile_expanded = False
+                    st.session_state.athlete_profile_form_nonce += 1
+                    st.rerun()
+                except ValueError as profile_exc:
+                    _push_notice("error", f"Perfil de atleta: {profile_exc}")
+
     if supabase_dataset_store_enabled():
         st.caption("Historial TeamBuildr conectado a Supabase.")
         if st.button("Sincronizar datasets TeamBuildr", key="btn_sync_remote_datasets"):
@@ -4224,9 +4408,39 @@ with st.sidebar:
         st.caption("Subi archivos .xlsx exportados por la plataforma de fuerza.")
         athlete_options = ["Escribir nuevo..."] + known_athlete_names()
         eval_file_key = f"eval_file_{st.session_state.eval_file_nonce}"
+        # "Tipo de test" vive fuera del form a proposito: adentro de un
+        # st.form, Streamlit no reejecuta el script hasta el submit, asi que
+        # el campo condicional de altura de caida nunca llegaba a mostrarse
+        # cuando el coach elegia "DJ". Afuera del form, el selectbox dispara
+        # un rerun inmediato y el campo aparece/desaparece en el acto.
+        eval_type_label = st.selectbox(
+            "Tipo de test",
+            list(FORCEPLATE_UPLOAD_TEST_IDS),
+            key="eval_type",
+        )
+        dj_drop_height_choice = "No cargar"
+        dj_drop_height_custom = None
+        if eval_type_label == "DJ":
+            dj_drop_height_choice = st.selectbox(
+                "Altura de caída DJ (cm)",
+                ["No cargar", "20", "30", "40", "45", "50", "60", "Personalizada"],
+                key="eval_dj_drop_height_choice",
+                help=(
+                    "Se usa solo para Drop Jump (DJ). "
+                    "Si el archivo no trae la altura de caída, este dato es obligatorio para calcular DRI."
+                ),
+            )
+            if dj_drop_height_choice == "Personalizada":
+                dj_drop_height_custom = st.number_input(
+                    "Altura de caída personalizada (cm)",
+                    min_value=1.0,
+                    max_value=150.0,
+                    step=1.0,
+                    format="%.1f",
+                    key="eval_dj_drop_height_custom",
+                    help="Solo se usa si elegís 'Personalizada'.",
+                )
         with st.form("eval_upload_form", clear_on_submit=False):
-            dj_drop_height_choice = "No cargar"
-            dj_drop_height_custom = None
             selected_eval_athlete = st.selectbox(
                 "Atleta",
                 athlete_options,
@@ -4241,33 +4455,6 @@ with st.sidebar:
                 "Fecha de evaluación",
                 key="eval_date",
                 value=pd.Timestamp.today(),
-            )
-            eval_type_label = st.selectbox(
-                "Tipo de test",
-                list(FORCEPLATE_UPLOAD_TEST_IDS),
-                key="eval_type",
-            )
-            selected_forceplate_test_id = FORCEPLATE_UPLOAD_TEST_IDS.get(eval_type_label, eval_type_label)
-            show_dj_drop_height_input = selected_forceplate_test_id == "DJ"
-            dj_drop_height_choice = st.selectbox(
-                "Altura de caída DJ (cm)",
-                ["No cargar", "20", "30", "40", "45", "50", "60", "Personalizada"],
-                key="eval_dj_drop_height_choice",
-                disabled=not show_dj_drop_height_input,
-                help=(
-                    "Se usa solo para Drop Jump (DJ). "
-                    "Si el archivo no trae la altura de caída, este dato es obligatorio para calcular DRI."
-                ),
-            )
-            dj_drop_height_custom = st.number_input(
-                "Altura de caída personalizada (cm)",
-                min_value=1.0,
-                max_value=150.0,
-                step=1.0,
-                format="%.1f",
-                key="eval_dj_drop_height_custom",
-                disabled=not (show_dj_drop_height_input and dj_drop_height_choice == "Personalizada"),
-                help="Solo se usa si elegís 'Personalizada'.",
             )
             eval_file = st.file_uploader(
                 "Archivo del test",
@@ -4826,6 +5013,22 @@ def render_decision_panel():
             return "Precaucion"
         return "Alto riesgo"
 
+    def _zone_from_acwr_rtp(value: object) -> str:
+        # Umbral mas conservador para atletas en proceso de RTP (Es_RTP == True).
+        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        if pd.isna(numeric):
+            return "Sin datos"
+        if numeric < 0.8:
+            return "Baja carga"
+        if numeric <= 1.1:
+            return "Optima"
+        if numeric <= 1.3:
+            return "Precaucion"
+        return "Alto riesgo"
+
+    def _is_rtp_flag(value: object) -> bool:
+        return bool(value) and str(value).strip().lower() not in {"false", "nan", "none", "0", ""}
+
     def _zone_color(label: str) -> str:
         return {
             "Baja carga": "#4A9FD4",
@@ -4909,6 +5112,87 @@ def render_decision_panel():
     if prepared_raw_df is None:
         prepared_raw_df = pd.DataFrame()
 
+    # ── Filtro de Contexto (Club / Gimnasio), aplicado antes de que los
+    # bloques procesen los datos. "Todos" no filtra nada. ──
+    profile_df_decision = st.session_state.athlete_profile_df
+    decision_contexto = st.selectbox(
+        "Contexto",
+        ["Todos", "Club", "Gimnasio"],
+        key="decision_contexto_filter",
+    )
+    athletes_registry_decision = known_athlete_names()
+    allowed_athletes_decision: set[str] | None = None
+    athletes_with_profile_row: set[str] = set()
+    if profile_df_decision is not None and not profile_df_decision.empty and "Athlete" in profile_df_decision.columns:
+        athletes_with_profile_row = set(profile_df_decision["Athlete"].dropna())
+    if decision_contexto != "Todos":
+        contexto_athletes: set[str] = set()
+        if (
+            profile_df_decision is not None
+            and not profile_df_decision.empty
+            and {"Athlete", "Contexto"}.issubset(profile_df_decision.columns)
+        ):
+            contexto_athletes = set(
+                profile_df_decision.loc[profile_df_decision["Contexto"] == decision_contexto, "Athlete"].dropna()
+            )
+        allowed_athletes_decision = contexto_athletes
+        unprofiled_count = len(set(athletes_registry_decision) - athletes_with_profile_row)
+        if unprofiled_count:
+            st.caption(
+                f"⚠️ {unprofiled_count} atleta(s) sin perfil no se muestran en este filtro. "
+                "Ver 'Todos' o completar su perfil."
+            )
+        athletes_registry_decision = [a for a in athletes_registry_decision if a in allowed_athletes_decision]
+
+    def _filter_athletes_decision(df: pd.DataFrame) -> pd.DataFrame:
+        if allowed_athletes_decision is None or df is None or df.empty or "Athlete" not in df.columns:
+            return df
+        return df[df["Athlete"].isin(allowed_athletes_decision)].copy()
+
+    weekly_load = _filter_athletes_decision(weekly_load)
+    weekly_wellness = _filter_athletes_decision(weekly_wellness)
+    weekly_external = _filter_athletes_decision(weekly_external)
+    jump_df = _filter_athletes_decision(jump_df)
+
+    rtp_athletes: set[str] = set()
+    athlete_objetivo_lookup: dict[str, str] = {}
+    if profile_df_decision is not None and not profile_df_decision.empty and "Athlete" in profile_df_decision.columns:
+        if "Es_RTP" in profile_df_decision.columns:
+            rtp_mask = profile_df_decision["Es_RTP"].apply(_is_rtp_flag)
+            rtp_athletes = set(profile_df_decision.loc[rtp_mask, "Athlete"].dropna())
+        if "Objetivo_primario" in profile_df_decision.columns:
+            athlete_objetivo_lookup = dict(
+                zip(profile_df_decision["Athlete"], profile_df_decision["Objetivo_primario"].fillna(""))
+            )
+    INFORMATIVE_DEV_OBJECTIVES = {"Hipertrofia", "Recomposición corporal"}
+
+    def _dev_card_note(athlete: str) -> str | None:
+        if athlete in rtp_athletes:
+            return "🔶 RTP — priorizar criterio clínico sobre perfil neuromuscular"
+        if athlete_objetivo_lookup.get(athlete, "") in INFORMATIVE_DEV_OBJECTIVES:
+            return "Perfil neuromuscular informativo — objetivo no es rendimiento reactivo"
+        if athlete not in athletes_with_profile_row:
+            return "⚠️ Sin perfil — clasificación basada solo en datos neuromusculares"
+        return None
+
+    def _dispatch_dev_card(
+        athlete: str,
+        natural_bucket: str,
+        card: dict[str, object],
+        eur_value_for_tiebreak: object,
+        base_rows: list[dict[str, object]],
+        power_rows: list[dict[str, object]],
+        complete_rows: list[dict[str, object]],
+    ) -> None:
+        target_bucket = natural_bucket
+        if athlete in rtp_athletes and natural_bucket == "power":
+            eur_numeric = pd.to_numeric(pd.Series([eur_value_for_tiebreak]), errors="coerce").iloc[0]
+            target_bucket = "complete" if pd.notna(eur_numeric) and eur_numeric >= 1.0 else "base"
+        note = _dev_card_note(athlete)
+        if note:
+            card = card | {"details": [*card.get("details", []), note]}
+        {"base": base_rows, "power": power_rows, "complete": complete_rows}[target_bucket].append(card)
+
     week_candidates: list[pd.Timestamp] = []
     week_label_flags: dict[pd.Timestamp, bool] = {}
     for frame in [weekly_load, weekly_wellness, weekly_external, weekly_team]:
@@ -4979,14 +5263,21 @@ def render_decision_panel():
             on="Athlete",
             how="left",
         )
-        risk_df["Zona"] = risk_df["ACWR_EWMA_last"].apply(_zone_from_acwr)
+        risk_df["Zona"] = risk_df.apply(
+            lambda row: _zone_from_acwr_rtp(row["ACWR_EWMA_last"])
+            if row["Athlete"] in rtp_athletes
+            else _zone_from_acwr(row["ACWR_EWMA_last"]),
+            axis=1,
+        )
         risk_df["delta_sRPE"] = risk_df["weekly_sRPE"] - risk_df["weekly_sRPE_prev"].fillna(0)
         risk_df["delta_sRPE_text"] = risk_df["delta_sRPE"].map(lambda value: f"{value:+.0f}")
         risk_df["zone_rank"] = risk_df["Zona"].map(zone_order).fillna(-1)
         risk_df = risk_df.sort_values(["zone_rank", "ACWR_EWMA_last", "strain"], ascending=[False, False, False])
         risk_display = pd.DataFrame(
             {
-                "Atleta": risk_df["Athlete"],
+                "Atleta": risk_df["Athlete"].map(
+                    lambda name: f"{name}  🔶 RTP" if name in rtp_athletes else name
+                ),
                 "sRPE semana": risk_df["weekly_sRPE"].round(0).astype(int),
                 "ACWR EWMA": risk_df["ACWR_EWMA_last"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
                 "Monotonia": risk_df.apply(
@@ -5106,14 +5397,20 @@ def render_decision_panel():
                 or (pd.notna(eur_value) and eur_value < 1.0)
                 or (pd.notna(imtp_relpf_z) and imtp_relpf_z < -0.5)
             ):
-                base_rows.append(
+                _dispatch_dev_card(
+                    athlete,
+                    "base",
                     card_base | {
                         "details": [
                             f"EUR: {eur_value:.3f}" if pd.notna(eur_value) else "EUR: -",
                             f"IMTP relPF: {imtp_relpf:.2f} N/kg" if pd.notna(imtp_relpf) else "IMTP relPF: -",
                             f"Dias desde ultima evaluacion: {days_since}",
                         ]
-                    }
+                    },
+                    eur_value,
+                    base_rows,
+                    power_rows,
+                    complete_rows,
                 )
             elif (
                 nm_profile == "Mixto"
@@ -5124,23 +5421,35 @@ def render_decision_panel():
             ):
                 sj_value = pd.to_numeric(pd.Series([last_row.get("SJ_cm")]), errors="coerce").iloc[0]
                 dj_value = pd.to_numeric(pd.Series([last_row.get("DJ_RSI")]), errors="coerce").iloc[0]
-                power_rows.append(
+                _dispatch_dev_card(
+                    athlete,
+                    "power",
                     card_base | {
                         "details": [
                             f"SJ: {sj_value:.1f} cm" if pd.notna(sj_value) else "SJ: -",
                             f"DJ RSI: {dj_value:.2f} m/s" if pd.notna(dj_value) else "DJ RSI: -",
                             f"Perfil NM: {nm_profile}",
                         ]
-                    }
+                    },
+                    eur_value,
+                    base_rows,
+                    power_rows,
+                    complete_rows,
                 )
             elif nm_profile == "Reactivo" and pd.notna(eur_value) and eur_value >= 1.10 and not has_drop:
-                complete_rows.append(
+                _dispatch_dev_card(
+                    athlete,
+                    "complete",
                     card_base | {
                         "details": [
                             f"EUR: {eur_value:.3f}",
                             f"Ultima senal SWC: {signal_summary}",
                         ]
-                    }
+                    },
+                    eur_value,
+                    base_rows,
+                    power_rows,
+                    complete_rows,
                 )
             else:
                 fallback_card = card_base | {
@@ -5151,11 +5460,11 @@ def render_decision_panel():
                     ]
                 }
                 if nm_profile == "Base de Fuerza":
-                    base_rows.append(fallback_card)
+                    _dispatch_dev_card(athlete, "base", fallback_card, eur_value, base_rows, power_rows, complete_rows)
                 elif nm_profile == "Mixto":
-                    power_rows.append(fallback_card)
+                    _dispatch_dev_card(athlete, "power", fallback_card, eur_value, base_rows, power_rows, complete_rows)
                 elif nm_profile == "Reactivo":
-                    complete_rows.append(fallback_card)
+                    _dispatch_dev_card(athlete, "complete", fallback_card, eur_value, base_rows, power_rows, complete_rows)
 
         col_dev_1, col_dev_2, col_dev_3 = st.columns(3)
         with col_dev_1:
@@ -5421,7 +5730,7 @@ def render_decision_panel():
         st.dataframe(ranking_styler, use_container_width=True, hide_index=True)
 
     render_subsection_header("Evaluaciones pendientes", "quien lleva mas de 30 dias sin test", kicker="Bloque 8")
-    athletes_registry = known_athlete_names()
+    athletes_registry = athletes_registry_decision
     if jump_df is None or jump_df.empty:
         st.caption("Sin evaluaciones cargadas.")
     else:
@@ -6037,6 +6346,20 @@ elif active_main_view == "Load":
         else:
             st.success("✅ Sin alertas de calidad activas.")
 
+        st.markdown("**Bloque D - Perfiles de atleta**")
+        profile_coverage = compute_profile_coverage(st.session_state.athlete_profile_df, athletes_list)
+        profile_total = profile_coverage["total_athletes"]
+        profile_complete = profile_coverage["with_complete_profile"]
+        profile_pct = profile_coverage["coverage_pct"]
+        if not profile_total:
+            st.caption("Sin atletas detectados todavia.")
+        else:
+            st.caption(f"{profile_complete} de {profile_total} atletas con perfil completo ({profile_pct:.1f}%)")
+            if profile_pct >= 100:
+                st.success("✅ Todos los atletas tienen perfil completo.")
+            else:
+                st.dataframe(profile_coverage["missing_or_incomplete"], use_container_width=True, hide_index=True)
+
 
 # ─────────────────────────────────────────────────────────────────────
 # TAB: EVALUACIONES
@@ -6385,6 +6708,65 @@ elif active_main_view == "Profile":
         with st.expander("Opciones de visualizacion", expanded=True):
             ath_p = st.selectbox("Atleta", sorted(athletes_all) or ["Sin atleta"], key="sel_profile")
 
+        st.markdown("### 🧾 Perfil")
+        profile_df_state = st.session_state.athlete_profile_df
+        athlete_profile_row = None
+        if profile_df_state is not None and not profile_df_state.empty and "Athlete" in profile_df_state.columns:
+            matching_profile_rows = profile_df_state[profile_df_state["Athlete"] == ath_p]
+            if not matching_profile_rows.empty:
+                athlete_profile_row = matching_profile_rows.iloc[-1]
+
+        if athlete_profile_row is not None:
+            birth_date = pd.to_datetime(athlete_profile_row.get("Fecha_nacimiento"), errors="coerce")
+            if pd.notna(birth_date):
+                edad_text = f"{int((pd.Timestamp.today().normalize() - birth_date).days // 365.25)} años"
+            else:
+                edad_text = "No especificado"
+
+            altura_cm = pd.to_numeric(pd.Series([athlete_profile_row.get("Altura_cm")]), errors="coerce").iloc[0]
+            peso_perfil_kg = pd.to_numeric(pd.Series([athlete_profile_row.get("Peso_kg")]), errors="coerce").iloc[0]
+            secondary_objectives = parse_secondary_objectives(athlete_profile_row.get("Objetivos_secundarios"))
+            es_rtp_value = athlete_profile_row.get("Es_RTP")
+            is_rtp = bool(es_rtp_value) and str(es_rtp_value).strip().lower() not in {"false", "nan", "none", "0", ""}
+
+            profile_display_fields = [
+                ("Contexto", str(athlete_profile_row.get("Contexto") or "No especificado")),
+                ("Deporte", str(athlete_profile_row.get("Deporte") or "").strip() or "No especificado"),
+                ("Nivel", str(athlete_profile_row.get("Nivel") or "No especificado")),
+                ("Edad", edad_text),
+            ]
+            if pd.notna(altura_cm) and altura_cm > 0:
+                profile_display_fields.append(("Altura", f"{altura_cm:.0f} cm"))
+            if pd.notna(peso_perfil_kg) and peso_perfil_kg > 0:
+                profile_display_fields.append(("Peso (perfil)", f"{peso_perfil_kg:.1f} kg"))
+            profile_display_fields.append(
+                ("Objetivo primario", str(athlete_profile_row.get("Objetivo_primario") or "No especificado"))
+            )
+            if secondary_objectives:
+                profile_display_fields.append(("Objetivos secundarios", ", ".join(secondary_objectives)))
+
+            profile_display_cols = st.columns(3)
+            for field_idx, (field_label, field_value) in enumerate(profile_display_fields):
+                with profile_display_cols[field_idx % 3]:
+                    st.markdown(f"**{field_label}**")
+                    st.write(field_value)
+
+            if is_rtp:
+                st.markdown(
+                    "<span style='background-color:#C4A464;color:#1D1B16;padding:2px 10px;"
+                    "border-radius:12px;font-size:0.85em;font-weight:600;'>🔶 RTP</span>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.warning("Este atleta no tiene perfil cargado.")
+            if st.button("Completar perfil →", key="btn_complete_profile_from_athlete_view"):
+                st.session_state.athlete_profile_prefill_name = ath_p
+                st.session_state.athlete_profile_expanded = True
+                st.session_state.athlete_profile_form_nonce += 1
+                st.rerun()
+
+        st.markdown("---")
+
         athlete_jump_history = pd.DataFrame()
         last_j = None
         radar_row = None
@@ -6475,12 +6857,19 @@ elif active_main_view == "Profile":
         if jdf is not None and len(jdf["Athlete"].unique()) > 1:
             st.markdown("---")
             render_subsection_header("Cuadrantes grupales", "perfilado relativo con z-scores", kicker="Comparacion")
-            c_q1, c_q2 = st.columns(2)
-            latest_jdf = shared_prepare_jump_df(
-                jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+            latest_jdf = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+            profile_df_for_profile_cohort = st.session_state.athlete_profile_df
+            latest_jdf = shared_calc_zscores(latest_jdf, profile_df=profile_df_for_profile_cohort)
+            profile_cohort_info = get_comparison_cohort(
+                ath_p, latest_jdf, profile_df_for_profile_cohort,
             )
+            if profile_cohort_info["is_fallback"]:
+                st.warning(f"⚠️ {profile_cohort_info['cohort_label']}")
+            else:
+                st.caption(f"📊 {profile_cohort_info['cohort_label']}")
+            c_q1, c_q2 = st.columns(2)
             with c_q1:
-                st.plotly_chart(chart_quadrant_rsi_sj(latest_jdf), use_container_width=False, key="quad_rsi_sj_profile")
+                st.plotly_chart(chart_quadrant_rsi_sj(latest_jdf, profile_df=profile_df_for_profile_cohort), use_container_width=False, key="quad_rsi_sj_profile")
             with c_q2:
                 st.plotly_chart(chart_quadrant_cmj_imtp(latest_jdf), use_container_width=False, key="quad_cmj_imtp_profile")
             with st.expander("DRI experimental (SJ vs DRI)", expanded=False):
@@ -6560,23 +6949,38 @@ elif active_main_view == "Team":
         st.markdown("---")
         render_subsection_header("Cuadrantes de rendimiento", "mapas comparativos de fuerza y reactividad", kicker="Comparacion")
 
-        latest = shared_prepare_jump_df(
-            jdf.sort_values("Date").groupby("Athlete").last().reset_index()
-        )
+        latest = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+        profile_df_for_team_cohort = st.session_state.athlete_profile_df
+        latest = shared_calc_zscores(latest, profile_df=profile_df_for_team_cohort)
+
+        team_cohort_rows = [
+            {
+                "Atleta": team_athlete,
+                "Cohorte": get_comparison_cohort(
+                    team_athlete, latest, profile_df_for_team_cohort,
+                )["cohort_label"],
+            }
+            for team_athlete in sorted(latest["Athlete"].dropna().unique())
+        ]
+        with st.expander("📊 Cohortes de comparacion", expanded=False):
+            st.caption("Cada atleta se compara contra su cohorte de Deporte + Nivel cuando hay muestra suficiente.")
+            st.dataframe(pd.DataFrame(team_cohort_rows), use_container_width=True, hide_index=True)
+
         c_q1, c_q2 = st.columns(2)
         with c_q1:
             if "CMJ_cm" in latest.columns and "IMTP_N" in latest.columns:
                 st.plotly_chart(chart_quadrant_cmj_imtp(latest), use_container_width=False, key="quad_cmj_imtp_team")
         with c_q2:
             if "DJ_RSI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_rsi_sj(latest), use_container_width=False, key="quad_rsi_sj_team")
+                st.plotly_chart(chart_quadrant_rsi_sj(latest, profile_df=profile_df_for_team_cohort), use_container_width=False, key="quad_rsi_sj_team")
         with st.expander("DRI experimental (SJ vs DRI)", expanded=False):
             if "DRI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_exploratory(latest), use_container_width=False, key="quad_dri_experimental_team")
+                st.plotly_chart(chart_quadrant_dri_sj(latest, profile_df=profile_df_for_team_cohort), use_container_width=False, key="quad_dri_experimental_team")
 
         # Z-scores grupales
         st.markdown("---")
         render_subsection_header("Ranking por Z-scores", "lectura comparativa entre atletas y variables", kicker="Ranking")
+        st.caption("📊 Z-scores por cohorte de Deporte + Nivel — ver detalle en 'Cohortes de comparacion' arriba.")
         z_specs = [
             ("CMJ", "CMJ_Z"),
             ("SJ", "SJ_Z"),

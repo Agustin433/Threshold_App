@@ -7,6 +7,7 @@ import math
 import numpy as np
 import pandas as pd
 
+from modules.athlete_profile import get_comparison_cohort
 from modules.data_loader import _normalize_legacy_imtp_rfd_aliases_frame
 
 # Ref1: Normative data EFL 2025 - professional male soccer.
@@ -625,6 +626,53 @@ def _dataset_fallback_z(values: pd.Series, *, invert: bool = False) -> pd.Series
     return (-z if invert else z).astype(float)
 
 
+def build_cohort_cache(
+    frame: pd.DataFrame,
+    profile_df: pd.DataFrame | None,
+    *,
+    min_cohort_size: int = 3,
+) -> dict[str, dict[str, object]]:
+    """Resolve each athlete's comparison cohort once, reused across every metric."""
+    cache: dict[str, dict[str, object]] = {}
+    if frame is None or frame.empty or "Athlete" not in frame.columns:
+        return cache
+    for athlete in frame["Athlete"].dropna().unique():
+        cache[athlete] = get_comparison_cohort(athlete, frame, profile_df, min_cohort_size=min_cohort_size)
+    return cache
+
+
+def _cohort_z(
+    frame: pd.DataFrame,
+    values: pd.Series,
+    cohort_cache: dict[str, dict[str, object]],
+    *,
+    invert: bool = False,
+) -> pd.Series:
+    zscores = pd.Series(np.nan, index=values.index, dtype=float)
+    if "Athlete" not in frame.columns:
+        return zscores
+
+    for athlete, idx in pd.DataFrame({"athlete": frame["Athlete"]}).groupby("athlete").groups.items():
+        if pd.isna(athlete):
+            continue
+        cohort_info = cohort_cache.get(athlete)
+        if not cohort_info:
+            continue
+        cohort_df = cohort_info.get("cohort_df")
+        if cohort_df is None or cohort_df.empty:
+            continue
+        cohort_values = values.reindex(cohort_df.index).dropna()
+        if len(cohort_values) < 2:
+            continue
+        std = float(cohort_values.std(ddof=0))
+        if std <= 0:
+            continue
+        mean = float(cohort_values.mean())
+        z = (values.loc[idx] - mean) / std
+        zscores.loc[idx] = -z if invert else z
+    return zscores
+
+
 def _external_z(values: pd.Series, metric_key: str | None) -> pd.Series:
     if metric_key is None or metric_key not in EXTERNAL_BENCHMARKS:
         return pd.Series(np.nan, index=values.index, dtype=float)
@@ -643,16 +691,20 @@ def _resolve_zscore(
     invert: bool = False,
     internal_min_count: int = 2,
     allow_dataset_fallback: bool = True,
+    cohort_cache: dict[str, dict[str, object]] | None = None,
 ) -> pd.Series:
     values = _numeric_series(frame, metric_col)
     athlete_series = frame["Athlete"] if "Athlete" in frame.columns else None
     external = _external_z(values, benchmark_key)
     internal = _group_internal_z(values, athlete_series, invert=invert, min_count=internal_min_count)
-    dataset = (
-        _dataset_fallback_z(values, invert=invert)
-        if allow_dataset_fallback
-        else pd.Series(np.nan, index=values.index, dtype=float)
-    )
+    if not allow_dataset_fallback:
+        dataset = pd.Series(np.nan, index=values.index, dtype=float)
+    elif cohort_cache is not None:
+        # Cohort-aware population fallback (Deporte+Nivel peers) replaces the
+        # plain whole-dataset fallback when a profile_df was supplied upstream.
+        dataset = _cohort_z(frame, values, cohort_cache, invert=invert)
+    else:
+        dataset = _dataset_fallback_z(values, invert=invert)
 
     if benchmark_key is not None:
         resolved = external
@@ -808,8 +860,14 @@ def calc_jump_momentum(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
-    """Neuromuscular z-scores with external-first and internal fallback logic."""
+def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Neuromuscular z-scores with external-first and internal fallback logic.
+
+    `profile_df` is optional. When provided, the population fallback used for
+    metrics without an external benchmark compares each athlete against their
+    Deporte+Nivel cohort (see `modules.athlete_profile.get_comparison_cohort`)
+    instead of the whole dataset. When omitted, behavior is unchanged.
+    """
     zscore_specs = (
         ("SJ_cm", "SJ_Z", None, False),
         ("CMJ_cm", "CMJ_Z", "CMJ_cm", False),
@@ -825,12 +883,15 @@ def calc_zscores(df: pd.DataFrame) -> pd.DataFrame:
         ("IMTP_N", "IMTP_N_Z", "IMTP_N", False),
     )
 
+    cohort_cache = build_cohort_cache(df, profile_df) if profile_df is not None else None
+
     for metric_col, z_col, benchmark_key, invert in zscore_specs:
         computed_z = _resolve_zscore(
             df,
             metric_col,
             benchmark_key=benchmark_key,
             invert=invert,
+            cohort_cache=cohort_cache,
         )
         df[z_col] = computed_z.combine_first(_coalesced_numeric_series(df, z_col)).round(2)
 
@@ -2276,7 +2337,7 @@ def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(merged_rows)
 
 
-def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
+def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """Normalize the unified evaluations table and recompute derived metrics."""
     if jump_df is None or jump_df.empty:
         return pd.DataFrame()
@@ -2310,7 +2371,7 @@ def _prepare_jump_df(jump_df: pd.DataFrame) -> pd.DataFrame:
     result = calc_dsi(result)
     result = calc_imtp_rel_pf(result)
     result = calc_jump_momentum(result)
-    result = calc_zscores(result)
+    result = calc_zscores(result, profile_df=profile_df)
     result = calc_nm_profile(result)
 
     for column, digits in (
