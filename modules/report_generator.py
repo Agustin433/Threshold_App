@@ -15,6 +15,13 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from local_store import build_weekly_summaries
+from modules.athlete_profile import (
+    get_comparison_cohort,
+    is_rtp_flag,
+    missing_profile_fields,
+    parse_secondary_objectives,
+    profile_age_text,
+)
 from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
 from modules.jump_analysis import (
@@ -3753,6 +3760,215 @@ def _build_insight_pages(
     return pages
 
 
+def _resolve_athlete_profile_row(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+) -> pd.Series | None:
+    profile_df = state.get("athlete_profile_df")
+    if profile_df is None or profile_df.empty or "Athlete" not in profile_df.columns:
+        return None
+    matches = profile_df[profile_df["Athlete"].astype(str).str.strip() == str(athlete).strip()]
+    if matches.empty:
+        return None
+    return matches.iloc[-1]
+
+
+def _build_athlete_profile_insight(
+    state: dict[str, pd.DataFrame | None],
+    effective_athlete: str,
+) -> dict[str, object] | None:
+    if effective_athlete == "Todos":
+        return None
+    profile_df = state.get("athlete_profile_df")
+    if profile_df is None or profile_df.empty:
+        return None
+
+    row = _resolve_athlete_profile_row(state, effective_athlete)
+    if row is None:
+        return {
+            "title": "Perfil del atleta",
+            "state": "missing",
+            "summary": f"⚠️ Perfil incompleto - {effective_athlete} todavía no tiene un perfil cargado.",
+            "focuses": [
+                "Completar el perfil del atleta para habilitar comparaciones por cohorte y narrativa por objetivo.",
+            ],
+        }
+
+    missing_fields = missing_profile_fields(row)
+    is_rtp = is_rtp_flag(row.get("Es_RTP"))
+
+    if missing_fields:
+        return {
+            "title": "Perfil del atleta",
+            "state": "incomplete",
+            "summary": f"⚠️ Perfil incompleto - falta: {', '.join(missing_fields)}.",
+            "focuses": [f"Completar {campo} en el perfil del atleta." for campo in missing_fields],
+            "missing_fields": missing_fields,
+            "is_rtp": is_rtp,
+        }
+
+    contexto = str(row.get("Contexto") or "").strip() or "No especificado"
+    deporte = str(row.get("Deporte") or "").strip() or "No especificado"
+    nivel = str(row.get("Nivel") or "").strip() or "No especificado"
+    objetivo_primario = str(row.get("Objetivo_primario") or "").strip() or "No especificado"
+    edad_text = profile_age_text(row.get("Fecha_nacimiento"))
+
+    focuses = [
+        f"Edad: {edad_text}",
+        f"Contexto: {contexto}",
+        f"Deporte: {deporte}",
+        f"Nivel: {nivel}",
+        f"Objetivo primario: {objetivo_primario}",
+    ]
+    secondary = parse_secondary_objectives(row.get("Objetivos_secundarios"))
+    if secondary:
+        shown = secondary[:3]
+        remainder = len(secondary) - len(shown)
+        secondary_text = ", ".join(shown)
+        if remainder > 0:
+            secondary_text += f", +{remainder} más"
+        focuses.append(f"Objetivos secundarios: {secondary_text}")
+    if is_rtp:
+        focuses.append("RTP: en proceso de rehabilitación/retorno deportivo.")
+
+    return {
+        "title": "Perfil del atleta",
+        "state": "complete",
+        "summary": f"Perfil completo de {effective_athlete}: {objetivo_primario}.",
+        "focuses": focuses,
+        "is_rtp": is_rtp,
+    }
+
+
+_ASYMMETRY_COLUMN_SUFFIX = "_asym_pct"
+
+
+def _latest_athlete_jump_row(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+) -> pd.Series | None:
+    jump_df = state.get("jump_df")
+    if jump_df is None or jump_df.empty or "Athlete" not in jump_df.columns:
+        return None
+    matches = jump_df[jump_df["Athlete"].astype(str).str.strip() == str(athlete).strip()]
+    if matches.empty:
+        return None
+    if "Date" in matches.columns:
+        matches = matches.sort_values("Date")
+    return matches.iloc[-1]
+
+
+def _asymmetry_priority_metrics(jump_row: pd.Series | None) -> list[str]:
+    if jump_row is None:
+        return []
+    metrics = [
+        str(column)
+        for column in jump_row.index
+        if str(column).endswith(_ASYMMETRY_COLUMN_SUFFIX) and pd.notna(jump_row.get(column))
+    ]
+    return sorted(metrics)
+
+
+def _resolve_objective_guidance(
+    state: dict[str, pd.DataFrame | None],
+    effective_athlete: str,
+    audience: str = "profe",
+) -> dict[str, object]:
+    row = _resolve_athlete_profile_row(state, effective_athlete)
+    if row is None:
+        return {"active": False}
+
+    objetivo = str(row.get("Objetivo_primario") or "").strip()
+    if not objetivo:
+        return {"active": False}
+
+    is_rtp = is_rtp_flag(row.get("Es_RTP"))
+    jump_row = _latest_athlete_jump_row(state, effective_athlete)
+    guidance: dict[str, object] = {"active": False}
+
+    if objetivo == "Fuerza máxima":
+        imtp_relpf = jump_row.get("IMTP_relPF") if jump_row is not None else None
+        if jump_row is not None and pd.notna(imtp_relpf):
+            if audience == "cliente":
+                anchor = (
+                    f"Tu nivel de fuerza máxima hoy está en {imtp_relpf:.0f}, "
+                    "en línea con el objetivo que estamos trabajando."
+                )
+            else:
+                anchor = f"IMTP relPF {imtp_relpf:.1f} N/kg ancla la lectura de fuerza máxima de este bloque."
+        else:
+            if audience == "cliente":
+                anchor = "Todavía no tenemos una medición reciente de fuerza máxima para anclar el objetivo."
+            else:
+                anchor = "Sin IMTP relPF reciente disponible - priorizar la próxima evaluación de fuerza máxima."
+        guidance = {"active": True, "anchor_sentence": anchor}
+
+    elif objetivo in {"Hipertrofia", "Recomposición corporal"}:
+        guidance = {
+            "active": True,
+            "suppress_nm_profile": True,
+            "priority_metrics": ["sessions_count", "wellness_compliance"],
+            "summary": "El objetivo prioriza adherencia y volumen de entrenamiento antes que el perfil neuromuscular.",
+        }
+
+    elif objetivo == "Resistencia física":
+        guidance = {
+            "active": True,
+            "limitation_note": (
+                "Este reporte no incluye métricas específicas de resistencia cardiovascular; "
+                "las evaluaciones de salto y fuerza son solo un proxy parcial de este objetivo."
+            ),
+        }
+
+    elif objetivo == "Salud general y calidad de vida":
+        guidance = {
+            "active": True,
+            "plain_language": True,
+            "summary": "El foco es bienestar general: esta lectura evita terminología técnica.",
+        }
+
+    elif objetivo == "Rendimiento deportivo específico":
+        guidance = {"active": False}
+
+    if objetivo == "Prevención de lesiones" or is_rtp:
+        asymmetry_metrics = _asymmetry_priority_metrics(jump_row)
+        priority = list(guidance.get("priority_metrics") or [])
+        for metric in asymmetry_metrics:
+            if metric not in priority:
+                priority.append(metric)
+        if "wellness_compliance" not in priority:
+            priority.append("wellness_compliance")
+        guidance["active"] = True
+        guidance["priority_metrics"] = priority
+
+    return guidance
+
+
+RTP_CLINICAL_DISCLAIMER = (
+    "⚕️ Este atleta se encuentra en proceso de rehabilitación/retorno deportivo. "
+    "La interpretación prioriza criterio clínico sobre el perfil neuromuscular estándar."
+)
+
+
+def _rtp_clinical_note(profile_row: pd.Series | None) -> str | None:
+    """Disclaimer clínico fijo. Se muestra siempre que Es_RTP=True,
+    independiente del Objetivo_primario. No se genera dinámicamente."""
+    if profile_row is None or not is_rtp_flag(profile_row.get("Es_RTP", False)):
+        return None
+    return RTP_CLINICAL_DISCLAIMER
+
+
+def _quadrant_cohort_footnote(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+) -> str | None:
+    cohort = get_comparison_cohort(
+        athlete, state.get("jump_df"), state.get("athlete_profile_df"), min_cohort_size=3
+    )
+    label = cohort.get("cohort_label")
+    return f"Comparación: {label}" if label else None
+
+
 def generate_module_insights(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
@@ -3824,6 +4040,10 @@ def generate_module_insights(
             "focuses": overview_focuses,
         }
     }
+
+    athlete_profile_insight = _build_athlete_profile_insight(state, effective_athlete)
+    if athlete_profile_insight is not None:
+        insights["athlete_profile"] = athlete_profile_insight
 
     operational_notes = _session_notes_for_scope(state, effective_athlete, days=42, max_rows=4)
     if not operational_notes.empty:
@@ -4228,6 +4448,11 @@ def _audience_blocks(
         operational = insights.get("operational_context")
         if operational:
             blocks.insert(2, operational)
+        athlete_profile_block = insights.get("athlete_profile")
+        if athlete_profile_block:
+            blocks.insert(0, athlete_profile_block)
+        if insights.get("athlete_profile", {}).get("is_rtp"):
+            blocks.insert(1, {"title": "Nota clínica RTP", "summary": RTP_CLINICAL_DISCLAIMER, "focuses": []})
         return blocks
 
     strengths = _strengths_from_row(row, audience=audience)
@@ -4295,6 +4520,11 @@ def _audience_blocks(
         operational = insights.get("operational_context")
         if operational:
             blocks.insert(-1, operational)
+        athlete_profile_block = insights.get("athlete_profile")
+        if athlete_profile_block:
+            blocks.insert(0, athlete_profile_block)
+        if insights.get("athlete_profile", {}).get("is_rtp"):
+            blocks.insert(1, {"title": "Nota clínica RTP", "summary": RTP_CLINICAL_DISCLAIMER, "focuses": []})
         return blocks
 
     if eval_available:
@@ -4361,6 +4591,11 @@ def _audience_blocks(
     operational = insights.get("operational_context")
     if operational:
         blocks.insert(-1, operational)
+    athlete_profile_block = insights.get("athlete_profile")
+    if athlete_profile_block:
+        blocks.insert(0, athlete_profile_block)
+    if insights.get("athlete_profile", {}).get("is_rtp"):
+        blocks.insert(1, {"title": "Nota clínica RTP", "summary": RTP_CLINICAL_DISCLAIMER, "focuses": []})
     return blocks
 
 
@@ -10914,6 +11149,24 @@ def _generate_professional_profile_pdf_reportlab(
             )
         )
         target.append(Spacer(1, 5 * mm))
+        athlete_profile_row = _resolve_athlete_profile_row(state, report_athlete)
+        athlete_profile_insight = _build_athlete_profile_insight(state, report_athlete)
+        athlete_objective_guidance = _resolve_objective_guidance(state, report_athlete, audience="profe")
+        athlete_rtp_note = _rtp_clinical_note(athlete_profile_row)
+        if athlete_profile_insight is not None and athlete_profile_insight.get("summary"):
+            target.append(_p(athlete_profile_insight["summary"], "ProfBody"))
+        if athlete_objective_guidance.get("active"):
+            guidance_text = (
+                athlete_objective_guidance.get("anchor_sentence")
+                or athlete_objective_guidance.get("limitation_note")
+                or athlete_objective_guidance.get("summary")
+            )
+            if guidance_text:
+                target.append(_p(guidance_text, "ProfBody"))
+        if athlete_rtp_note:
+            target.append(_p(athlete_rtp_note, "ProfBody"))
+        if athlete_profile_insight is not None or athlete_objective_guidance.get("active") or athlete_rtp_note:
+            target.append(Spacer(1, 3 * mm))
         target.append(
             _page_header(
                 executive_payload.get("title", "Resumen ejecutivo profesional"),
@@ -11114,11 +11367,15 @@ def _generate_professional_profile_pdf_reportlab(
             return
         if len(panels) == 1:
             target.append(panels[0])
-            return
-        target.append(_two_column(panels[0], panels[1], left_width_mm=84, right_width_mm=90))
-        if len(panels) > 2:
-            target.append(Spacer(1, 3 * mm))
-            target.append(_two_column(panels[2], "", left_width_mm=84, right_width_mm=90))
+        else:
+            target.append(_two_column(panels[0], panels[1], left_width_mm=84, right_width_mm=90))
+            if len(panels) > 2:
+                target.append(Spacer(1, 3 * mm))
+                target.append(_two_column(panels[2], "", left_width_mm=84, right_width_mm=90))
+        cohort_footnote = _quadrant_cohort_footnote(state, report_athlete)
+        if cohort_footnote:
+            target.append(Spacer(1, 2 * mm))
+            target.append(_p(cohort_footnote, "ProfMuted"))
 
     def _append_full_isometrics_page(target: list[object]) -> None:
         target.append(
@@ -12293,6 +12550,31 @@ def _generate_visual_report_pdf_reportlab(
             _draw_threshold_header(canvas_obj, doc_obj, palette=palette, mm_unit=mm, label="")
             _draw_threshold_footer(canvas_obj, doc_obj, palette=palette, mm_unit=mm)
 
+        athlete_profile_row = _resolve_athlete_profile_row(state, effective_athlete)
+        athlete_profile_insight = _build_athlete_profile_insight(state, effective_athlete)
+        athlete_objective_guidance = _resolve_objective_guidance(state, effective_athlete, audience="atleta")
+        athlete_rtp_note = _rtp_clinical_note(athlete_profile_row)
+
+        athlete_profile_extra_blocks: list[object] = []
+        if athlete_profile_insight is not None:
+            if athlete_profile_insight.get("state") == "complete" and athlete_profile_row is not None:
+                profile_line = f"Perfil: {str(athlete_profile_row.get('Objetivo_primario') or '').strip()}"
+            else:
+                profile_line = str(athlete_profile_insight.get("summary") or "")
+            guidance_text = None
+            if athlete_objective_guidance.get("active"):
+                guidance_text = (
+                    athlete_objective_guidance.get("anchor_sentence")
+                    or athlete_objective_guidance.get("limitation_note")
+                    or athlete_objective_guidance.get("summary")
+                )
+            if guidance_text:
+                profile_line = f"{profile_line} - {guidance_text}"
+            if profile_line:
+                athlete_profile_extra_blocks.append(_p(profile_line, "ReportMuted"))
+        if athlete_rtp_note:
+            athlete_profile_extra_blocks.append(_p(athlete_rtp_note, "ReportBody"))
+
         cover_intro = Table(
             [[
                 _build_note_box(
@@ -12333,6 +12615,7 @@ def _generate_visual_report_pdf_reportlab(
                 _p(effective_athlete, "ReportTitle"),
                 _p(f"Fecha: {datetime.now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
                 Spacer(1, 4 * mm),
+                *athlete_profile_extra_blocks,
                 cover_intro,
                 Spacer(1, 5 * mm),
                 _metric_cards_table(_athlete_cover_cards()),
@@ -13379,6 +13662,27 @@ def _generate_visual_report_pdf_reportlab(
             ]
         client_focus = _client_focus_label()
 
+        client_profile_row = _resolve_athlete_profile_row(state, effective_athlete)
+        client_profile_insight = _build_athlete_profile_insight(state, effective_athlete)
+        client_objective_guidance = _resolve_objective_guidance(state, effective_athlete, audience="cliente")
+        client_rtp_note = _rtp_clinical_note(client_profile_row)
+
+        client_profile_extra_blocks: list[object] = []
+        if client_profile_insight is not None and client_profile_insight.get("summary"):
+            client_profile_extra_blocks.append(_p(client_profile_insight["summary"], "ReportMuted"))
+        if client_objective_guidance.get("active"):
+            guidance_text = (
+                client_objective_guidance.get("anchor_sentence")
+                or client_objective_guidance.get("limitation_note")
+                or client_objective_guidance.get("summary")
+            )
+            if guidance_text:
+                client_profile_extra_blocks.append(_p(guidance_text, "ReportBody"))
+        if client_rtp_note:
+            client_profile_extra_blocks.append(_p(client_rtp_note, "ReportBody"))
+        if client_profile_extra_blocks:
+            client_profile_extra_blocks.append(Spacer(1, 3 * mm))
+
         cover_intro = Table(
             [[
                 _build_note_box(
@@ -13419,6 +13723,7 @@ def _generate_visual_report_pdf_reportlab(
                 _p(effective_athlete, "ReportTitle"),
                 _p(f"Fecha: {datetime.now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
                 Spacer(1, 4 * mm),
+                *client_profile_extra_blocks,
                 cover_intro,
                 Spacer(1, 5 * mm),
                 _client_cover_cards_table(client_cards),

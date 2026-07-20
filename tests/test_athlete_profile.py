@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import modules.athlete_profile as athlete_profile
 from modules.athlete_profile import (
     OBJETIVO_OPTIONS,
     get_comparison_cohort,
@@ -361,6 +362,57 @@ class GetComparisonCohortTest(unittest.TestCase):
         self.assertEqual(result["cohort_level"], "general")
         self.assertTrue(result["is_fallback"])
         self.assertTrue(result["cohort_df"].equals(jump_df))
+
+
+class IsRtpFlagTest(unittest.TestCase):
+    """Bloque 4: is_rtp_flag debe ser una extraccion 1:1 de la closure
+    _is_rtp_flag ya existente en app.py (Panel de Decision, linea
+    5029-5030, y el inline identico de la vista Profile, linea 6730).
+    Casos verificados mano a mano contra ambas antes de escribir este test.
+    """
+
+    def test_true_bool_is_rtp(self):
+        self.assertTrue(athlete_profile.is_rtp_flag(True))
+
+    def test_false_bool_is_not_rtp(self):
+        self.assertFalse(athlete_profile.is_rtp_flag(False))
+
+    def test_false_string_is_not_rtp(self):
+        self.assertFalse(athlete_profile.is_rtp_flag("False"))
+
+    def test_nan_string_is_not_rtp(self):
+        self.assertFalse(athlete_profile.is_rtp_flag("nan"))
+
+    def test_zero_string_is_not_rtp(self):
+        self.assertFalse(athlete_profile.is_rtp_flag("0"))
+
+    def test_empty_string_is_not_rtp(self):
+        self.assertFalse(athlete_profile.is_rtp_flag(""))
+
+    def test_none_is_not_rtp(self):
+        self.assertFalse(athlete_profile.is_rtp_flag(None))
+
+    def test_true_string_is_rtp(self):
+        self.assertTrue(athlete_profile.is_rtp_flag("True"))
+
+
+class ProfileAgeTextTest(unittest.TestCase):
+    """Bloque 4: profile_age_text debe ser una extraccion 1:1 del calculo
+    inline ya existente en la vista Profile de app.py (linea 6720-6724).
+    """
+
+    def test_valid_birth_date_returns_years_text(self):
+        birth_date = (pd.Timestamp.today().normalize() - pd.Timedelta(days=365.25 * 20)).strftime("%Y-%m-%d")
+        self.assertEqual(athlete_profile.profile_age_text(birth_date), "20 años")
+
+    def test_none_returns_no_especificado(self):
+        self.assertEqual(athlete_profile.profile_age_text(None), "No especificado")
+
+    def test_nat_returns_no_especificado(self):
+        self.assertEqual(athlete_profile.profile_age_text(pd.NaT), "No especificado")
+
+    def test_invalid_string_returns_no_especificado(self):
+        self.assertEqual(athlete_profile.profile_age_text("no es una fecha"), "No especificado")
 
 
 if __name__ == "__main__":

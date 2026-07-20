@@ -30,6 +30,7 @@ REPORT_DATASET_KEYS = [
     "session_notes_df",
     "maxes_df",
     "jump_df",
+    "athlete_profile_df",
 ]
 MODEL_SESSION_KEYS = ["acwr_dict", "mono_dict"]
 SESSION_KEYS = [*DATASET_SESSION_KEYS, *MODEL_SESSION_KEYS]
