@@ -246,6 +246,23 @@ def get_comparison_cohort(
     }
 
 
+def is_rtp_flag(value: object) -> bool:
+    """True solo si value representa Es_RTP activo. Extraccion 1:1 de la
+    closure _is_rtp_flag (app.py, Panel de Decision) y del inline identico
+    en la vista Profile de app.py."""
+    return bool(value) and str(value).strip().lower() not in {"false", "nan", "none", "0", ""}
+
+
+def profile_age_text(fecha_nacimiento: object) -> str:
+    """Edad legible desde Fecha_nacimiento, o 'No especificado'. Extraccion
+    1:1 del calculo inline ya existente en la vista Profile de app.py."""
+    birth_date = pd.to_datetime(fecha_nacimiento, errors="coerce")
+    if pd.isna(birth_date):
+        return "No especificado"
+    years = int((pd.Timestamp.today().normalize() - birth_date).days // 365.25)
+    return f"{years} años"
+
+
 def validate_profile_fields(profile: Mapping[str, object]) -> list[str]:
     """Minimal validation before saving a profile. Returns a list of error messages."""
     errors: list[str] = []
