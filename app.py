@@ -122,9 +122,11 @@ from modules.alerts import (
     build_alert_feed,
     select_executive_alerts,
 )
-from modules.metrics import calculate_completion_rate, calculate_monotony, summarize_completion_by_group
-from modules.load_monitoring import build_weekly_acwr_context
+from modules.metrics import calculate_completion_rate, summarize_completion_by_group
+from modules.load_monitoring import MONOTONY_HIGH, build_weekly_acwr_context
 from modules.jump_analysis import (
+    available_sources as jump_available_sources,
+    filter_by_source as filter_jump_by_source,
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
     build_dj_drop_height_backfill_candidates,
@@ -176,6 +178,7 @@ from modules.report_generator import (
     REPORT_AUDIENCE_OPTIONS,
     REPORT_SHEET_ORDER,
     REPORT_SHEET_EXPORT_NAMES,
+    WELLNESS_SCORE_UNIT,
     build_report_executive_sheet,
     build_report_sheets,
     collect_report_athletes,
@@ -331,14 +334,9 @@ C = {
     "border_bright": "rgba(13,60,94,0.18)",
 }
 
-ACWR_ZONES = {
-    (0.00, 0.80): ("Subcarga",     C["blue"]),
-    (0.80, 1.30): ("Óptimo",       C["green"]),
-    (1.30, 1.50): ("Precaución",   C["yellow"]),
-    (1.50, 9.99): ("Alto riesgo",  C["red"]),
-}
-
-MONOTONY_HIGH = 2.0
+# El dict local `ACWR_ZONES` quedo eliminado: no lo consumia nadie y sus
+# limites no coincidian con los canonicos. `MONOTONY_HIGH` ahora se importa de
+# modules.load_monitoring en vez de redefinirse aca.
 
 # Tags → categorías de movimiento (tus etiquetas reales de Teambuildr)
 TAG_CATEGORIES = {
@@ -1686,54 +1684,11 @@ def parse_jump_eval(file) -> pd.DataFrame:
 # CALCULATIONS
 # ════════════════════════════════════════════════════════════════════
 
-def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
-    """ACWR EWMA canonico. Mantiene la columna clasica solo como referencia legacy."""
-    daily = pd.Series(srpe_series.values, index=dates).sort_index()
-    daily = daily.resample("D").sum().fillna(0)
-
-    result = pd.DataFrame({"Date": daily.index, "sRPE_diario": daily.values})
-
-    # Clásico
-    # DEPRECATED: referencia legacy para inspeccion historica, no para producto.
-    result["Aguda_7d"]   = result["sRPE_diario"].rolling(7,  min_periods=1).mean()
-    result["Cronica_28d"] = result["sRPE_diario"].rolling(28, min_periods=1).mean()
-    result["ACWR_Classic"] = np.where(
-        result["Cronica_28d"] > 0,
-        result["Aguda_7d"] / result["Cronica_28d"], 0)
-
-    # EWMA (Williams et al. 2017)
-    result["EWMA_Aguda"]   = result["sRPE_diario"].ewm(alpha=0.28, adjust=False).mean()
-    result["EWMA_Cronica"] = result["sRPE_diario"].ewm(alpha=0.07, adjust=False).mean()
-    result["ACWR_EWMA"] = np.where(
-        result["EWMA_Cronica"] > 0,
-        result["EWMA_Aguda"] / result["EWMA_Cronica"], 0)
-
-    result["ACWR"] = result["ACWR_EWMA"]
-    result["Zona"] = result["ACWR"].apply(_classify_acwr)
-    result["Zona_Color"] = result["ACWR"].apply(lambda x: _acwr_color(x))
-    return result
-
-
-def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
-    """Foster 2001: Monotonía y Strain semanal."""
-    daily = srpe_daily.copy()
-    daily["Date"] = pd.to_datetime(daily["Date"], errors="coerce")
-    daily["sRPE_diario"] = pd.to_numeric(daily["sRPE_diario"], errors="coerce")
-    daily = daily.dropna(subset=["Date", "sRPE_diario"])
-    if daily.empty:
-        return pd.DataFrame(columns=["Semana", "Carga_Total", "Media", "SD", "Monotonia", "Monotony_Status", "Monotony_Warning", "Strain", "Alerta"])
-
-    series = daily.set_index("Date")["sRPE_diario"]
-    weekly = series.resample("W").agg(["sum", "mean"]).reset_index()
-    weekly.columns = ["Semana", "Carga_Total", "Media"]
-    weekly["SD"] = series.resample("W").apply(lambda s: float(pd.Series(s).std(ddof=0)))
-    monotony_by_week = {week: calculate_monotony(group) for week, group in series.resample("W")}
-    weekly["Monotonia"] = weekly["Semana"].map(lambda week: monotony_by_week[week].value)
-    weekly["Monotony_Status"] = weekly["Semana"].map(lambda week: monotony_by_week[week].method)
-    weekly["Monotony_Warning"] = weekly["Semana"].map(lambda week: monotony_by_week[week].warning)
-    weekly["Strain"] = weekly["Carga_Total"] * weekly["Monotonia"]
-    weekly["Alerta"] = weekly["Monotonia"] > MONOTONY_HIGH
-    return weekly
+# `calc_acwr` y `calc_monotony_strain` vivian aca duplicadas. Estaban muertas:
+# el runtime siempre paso por `local_store.build_load_models`, que usa las de
+# `modules.load_monitoring`. La copia local ademas tenia alphas y un umbral de
+# zona distintos, y era la fuente de que el mismo ACWR se clasificara diferente
+# segun la superficie. Fuente unica de verdad: modules/load_monitoring.py.
 
 
 def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
@@ -2539,19 +2494,10 @@ def _wellness_score(sueno, estres, dolor):
     return score
 
 
-def _classify_acwr(v: float) -> str:
-    if v == 0:           return "Sin carga"
-    if v < 0.8:          return "Subcarga"
-    if v <= 1.3:         return "Óptimo"
-    if v <= 1.5:         return "Precaución"
-    return "Alto riesgo"
-
-
-def _acwr_color(v: float) -> str:
-    z = _classify_acwr(v)
-    return {"Sin carga": C["gray"], "Subcarga": C["blue"],
-            "Óptimo": C["green"], "Precaución": C["yellow"],
-            "Alto riesgo": C["red"]}.get(z, C["gray"])
+# `_classify_acwr` y `_acwr_color` locales quedaron eliminadas. Clasificaban
+# ACWR=0 como "Sin carga", una categoria que no existia en ninguna otra
+# superficie. Para clasificar una zona usar `classify_acwr_zone` de
+# modules.load_monitoring.
 
 
 def _alert(msg, level="g"):
@@ -3693,42 +3639,9 @@ def _format_week_label(week_start: object, *, is_current_week: bool = False, tod
     return f"{week_start_ts:%d/%m} - {week_end_ts:%d/%m}"
 
 
-def _run_dataset_job(label: str, state_key: str, filename: str, loader, source_file=None) -> bool:
-    should_skip, file_hash = _processed_file_status(source_file)
-    if should_skip:
-        return False
-    try:
-        df = loader()
-        if df is None or df.empty:
-            raise ValueError("se leyó el archivo, pero no produjo registros válidos.")
-        incoming_rows = len(df)
-        save_dataset(state_key, df)
-        remote_suffix = ""
-        if supabase_dataset_store_enabled() and state_key in REMOTE_DATASET_KEYS:
-            try:
-                sync_stats = save_remote_dataset(state_key, df)
-                st.session_state.datasets_loaded_from_store = False
-                remote_suffix = f" · Supabase: {sync_stats['upserted']} fila(s)."
-            except Exception as remote_exc:
-                _push_notice(
-                    "warning",
-                    f"{label} ({filename}): se guardó en local, pero no se pudo sincronizar con Supabase ({remote_exc}).",
-                )
-        visible_df = load_recent_dataset(state_key, weeks=RECENT_WEEKS)
-        summary_rows = build_dataset_summaries({state_key: visible_df}, weeks=RECENT_WEEKS, keys=[state_key])
-        if summary_rows:
-            row = summary_rows[0]
-            _push_notice(
-                "success",
-                f"{label} ({filename}): {row['Registros']} registro(s) visibles · {row['Ventana activa']}.",
-            )
-        else:
-            _push_notice("success", f"{label} ({filename}) procesado correctamente.")
-        _mark_file_as_processed(file_hash)
-        return True
-    except Exception as exc:
-        _push_notice("error", f"{label} ({filename}): {exc}")
-        return False
+# `_run_dataset_job` estaba definido dos veces; esta era la copia muerta,
+# pisada en tiempo de import por la definicion de mas abajo (la viva
+# reporta filas leidas y atletas). Se conserva una sola.
 
 
 def _run_questionnaire_raw_job(filename: str, loader, source_file=None) -> bool:
@@ -6144,7 +6057,11 @@ if active_main_view == "Overview":
         "Cargar RPE/sRPE para lectura semanal de carga."
     )
 
-    wellness_value = _overview_number(current_team.get("team_wellness_mean"), digits=1)
+    # La unidad va explicita: el score es 0-30 (tres componentes de 0-10) y sin
+    # el sufijo un "18.9" pelado no dice contra que techo se lee.
+    wellness_value = _overview_number(
+        current_team.get("team_wellness_mean"), digits=1, suffix=f" {WELLNESS_SCORE_UNIT}"
+    )
     wellness_days = 0
     if not weekly_wellness_current.empty and "wellness_days" in weekly_wellness_current.columns:
         wellness_days = int(pd.to_numeric(weekly_wellness_current["wellness_days"], errors="coerce").fillna(0).sum())

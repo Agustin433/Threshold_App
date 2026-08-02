@@ -123,9 +123,16 @@ VARIABLE_META: dict[str, dict[str, object]] = {
         "fmt": "{:.2f}",
         "enabled_default": True,
     },
+    # EUR y DSI son cocientes, no cualidades: pueden subir porque bajo el
+    # denominador. EUR = CMJ/SJ sube si cae el SJ; DSI = CMJ_PF/IMTP_N sube si
+    # cae la fuerza isometrica. Marcarlos "higher_is_better" hacia que el motor
+    # temporal reportara "mejora relevante" ante una perdida real. Por eso van
+    # como context_dependent: se informa la magnitud del cambio, no un juicio
+    # de mejora o caida.
     "EUR": {
         "label": "EUR (ratio)",
         "higher_is_better": True,
+        "direction": "context_dependent",
         "fallback_pct": 2.0,
         "fmt": "{:.3f}",
         "enabled_default": True,
@@ -133,6 +140,7 @@ VARIABLE_META: dict[str, dict[str, object]] = {
     "DSI": {
         "label": "DSI",
         "higher_is_better": True,
+        "direction": "context_dependent",
         "fallback_pct": 3.0,
         "fmt": "{:.2f}",
         "enabled_default": False,
@@ -151,7 +159,23 @@ TEMPORAL_SIGNAL_BADGES = {
     "caida relevante": "↓ caida relevante",
     "sin cambio relevante": "~ sin cambio relevante",
     "sin dato anterior": "— sin dato anterior",
+    # Para ratios: se informa que hubo un cambio relevante sin calificarlo,
+    # porque el signo por si solo no distingue mejora de perdida.
+    "cambio relevante sin direccion": "± cambio relevante — leer numerador y denominador",
+    "sin cambio relevante sin direccion": "~ sin cambio relevante",
 }
+
+
+def _variable_direction(meta: dict[str, object]) -> str:
+    """Direccion interpretativa de una variable temporal.
+
+    Cae a `higher_is_better`/`lower_is_better` para mantener el comportamiento
+    de las variables simples; `context_dependent` es el caso de los cocientes.
+    """
+    declared = str(meta.get("direction") or "").strip()
+    if declared:
+        return declared
+    return "higher_is_better" if bool(meta.get("higher_is_better")) else "lower_is_better"
 
 BASELINE_MIN_VALID = 3
 BASELINE_METHOD = "Promedio primeras 3 mediciones validas"
@@ -159,6 +183,7 @@ BASELINE_SIGNAL_BADGES = {
     "mejora vs baseline": "+ mejora vs baseline",
     "caida vs baseline": "- caida vs baseline",
     "sin cambio vs baseline": "~ sin cambio vs baseline",
+    "cambio vs baseline sin direccion": "± cambio vs baseline — leer numerador y denominador",
     "baseline insuficiente": "baseline insuficiente",
     "sin dato actual": "sin dato actual",
 }
@@ -1879,7 +1904,14 @@ def compute_swc_delta(
 
             if pd.notna(threshold_abs):
                 threshold_abs = float(threshold_abs)
-                if bool(meta["higher_is_better"]):
+                direction = _variable_direction(meta)
+                if direction == "context_dependent":
+                    signal = (
+                        "cambio relevante sin direccion"
+                        if abs(delta_abs) > threshold_abs
+                        else "sin cambio relevante sin direccion"
+                    )
+                elif direction == "higher_is_better":
                     if delta_abs > threshold_abs:
                         signal = "mejora relevante"
                     elif delta_abs < -threshold_abs:
@@ -2076,7 +2108,14 @@ def compute_baseline_delta(
                 if float(baseline_value) > 0:
                     delta_pct = (delta_abs / float(baseline_value)) * 100
 
-                if bool(meta["higher_is_better"]):
+                direction = _variable_direction(meta)
+                if direction == "context_dependent":
+                    signal = (
+                        "cambio vs baseline sin direccion"
+                        if delta_abs != 0
+                        else "sin cambio vs baseline"
+                    )
+                elif direction == "higher_is_better":
                     if delta_abs > 0:
                         signal = "mejora vs baseline"
                     elif delta_abs < 0:
