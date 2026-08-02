@@ -2667,6 +2667,34 @@ def render_quality_alert_chip(message: str, tone: str = "warning"):
     )
 
 
+def render_evaluation_source_selector(key: str, jump_df: pd.DataFrame | None) -> str:
+    """Selector de fuente para las superficies que agregan por plantel.
+
+    Overview, Decision, Team y Reports recorren a todos los atletas. Si el
+    plantel se mide con dos metodos, promediarlos daria un numero que no
+    describe a nadie, asi que cada superficie muestra una fuente por vez.
+    El default es plataforma por ser la medicion de referencia.
+
+    Cuando solo hay una fuente cargada no se dibuja nada: no hay decision que
+    tomar y el control seria ruido.
+    """
+    present = jump_available_sources(jump_df)
+    if len(present) <= 1:
+        return present[0] if present else DEFAULT_SOURCE
+
+    default_index = present.index(SOURCE_PLATFORM) if SOURCE_PLATFORM in present else 0
+    selected = st.radio(
+        "Fuente de evaluaciones",
+        present,
+        index=default_index,
+        format_func=lambda value: SOURCE_LABELS[value],
+        horizontal=True,
+        key=key,
+        help="Las fuentes no se promedian entre si. Se muestra una por vez.",
+    )
+    return selected or present[default_index]
+
+
 def render_product_alert_feed(alerts: list[dict[str, object]], max_items: int | None = None, empty_text: str = "Sin alertas activas."):
     displayed = list(alerts or [])
     if max_items is not None:
@@ -3959,10 +3987,80 @@ def _pending_upload_rows(uploaded_files: dict[str, object]) -> list[dict[str, st
     return rows
 
 
+# Campos que el coach puede cargar a mano por tipo de test, en el orden en que
+# se muestran. Cada entrada es (campo canonico, etiqueta, unidad, minimo,
+# maximo, paso). Los nombres de campo son los mismos que produce el parser de
+# plataforma a proposito: el record manual entra por el mismo pipeline y las
+# metricas derivadas (EUR, DJ_RSI, DRI, Jump_Momentum) se calculan solas.
+MANUAL_EVALUATION_FIELDS: dict[str, tuple[tuple[str, str, str, float, float, float], ...]] = {
+    "CMJ": (
+        ("CMJ_cm", "Altura CMJ", "cm", 1.0, 100.0, 0.1),
+    ),
+    "SJ": (
+        ("SJ_cm", "Altura SJ", "cm", 1.0, 100.0, 0.1),
+    ),
+    "DJ": (
+        ("DJ_cm", "Altura DJ", "cm", 1.0, 100.0, 0.1),
+        ("DJ_tc_ms", "Tiempo de contacto", "ms", 50.0, 1000.0, 1.0),
+    ),
+    "IMTP": (
+        ("IMTP_N", "Fuerza pico IMTP", "N", 100.0, 10000.0, 10.0),
+    ),
+    "iso_push_hamstring": (
+        ("ISO_HAM_N", "Fuerza pico ISO Push", "N", 100.0, 10000.0, 10.0),
+    ),
+}
+
+# Tests cuya altura puede cargarse como tiempo de vuelo. MyJump2 y las
+# alfombras de contacto entregan ese dato de forma nativa.
+MANUAL_FLIGHT_TIME_FIELDS: dict[str, tuple[str, str]] = {
+    "CMJ": ("CMJ_cm", "CMJ_flight_ms"),
+    "SJ": ("SJ_cm", "SJ_flight_ms"),
+    "DJ": ("DJ_cm", "DJ_flight_ms"),
+}
+
+
+def _build_manual_evaluation_record(
+    test_type: str,
+    values: dict[str, float | None],
+    *,
+    source: str,
+    device: str | None = None,
+) -> dict[str, object]:
+    """Arma un record de evaluacion manual con la misma forma que el parser.
+
+    `parse_forceplate_file` devuelve un dict plano de campo canonico a valor;
+    `_records_to_jump_df` descarta las claves `_reps`/`__*`. Por eso un record
+    escrito a mano es indistinguible de uno parseado y recorre exactamente el
+    mismo pipeline de consolidacion y calculo.
+    """
+    record: dict[str, object] = {
+        "test_type": str(test_type or "").strip().upper(),
+        "Source": normalize_source(source),
+    }
+    if device:
+        record["Device"] = str(device).strip()
+    for field, value in values.items():
+        if value is None:
+            continue
+        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        if pd.isna(numeric) or float(numeric) <= 0:
+            continue
+        record[field] = float(numeric)
+    return record
+
+
 def _evaluation_metric_fields(record: dict[str, object]) -> list[str]:
     fields: list[str] = []
     for key, value in record.items():
-        if key in {"Athlete", "Date", "test_type"} or key.startswith("__") or key.endswith("_reps"):
+        # Source/Device son identidad de la medicion, no metricas: si contaran
+        # aca, un record sin ningun valor real pasaria la validacion de
+        # "no se detectaron metricas validas".
+        if (
+            key in {"Athlete", "Date", "Source", "Device", "test_type"}
+            or key.startswith("__")
+            or key.endswith("_reps")
+        ):
             continue
         if value is None:
             continue
@@ -3972,39 +4070,57 @@ def _evaluation_metric_fields(record: dict[str, object]) -> list[str]:
     return sorted(fields)
 
 
-def _evaluation_record_signature(record: dict[str, object]) -> tuple[str, pd.Timestamp | None, str]:
+def _evaluation_record_signature(
+    record: dict[str, object],
+) -> tuple[str, pd.Timestamp | None, str, str]:
+    """Identidad de un test pendiente en la cola.
+
+    La fuente forma parte de la firma: sin ella, agregar un CMJ de alfombra
+    para un atleta y fecha que ya tienen un CMJ de plataforma reemplazaria el
+    pendiente en vez de sumarse como medicion independiente.
+    """
     athlete = normalize_athlete_name(record.get("Athlete"))
     record_date = pd.to_datetime(record.get("Date"), errors="coerce")
     normalized_date = None if pd.isna(record_date) else record_date.normalize()
-    return athlete, normalized_date, str(record.get("test_type", "")).strip().upper()
+    return (
+        athlete,
+        normalized_date,
+        str(record.get("test_type", "")).strip().upper(),
+        normalize_source(record.get("Source")),
+    )
 
 
-def _evaluation_day_signature(record: dict[str, object]) -> tuple[str, pd.Timestamp | None]:
-    athlete, record_date, _ = _evaluation_record_signature(record)
-    return athlete, record_date
+def _evaluation_day_signature(record: dict[str, object]) -> tuple[str, pd.Timestamp | None, str]:
+    athlete, record_date, _, source = _evaluation_record_signature(record)
+    return athlete, record_date, source
 
 
 def _pending_evaluation_impact(record: dict[str, object], pending_records: list[dict], history_df: pd.DataFrame | None) -> str:
-    athlete, record_date, test_type = _evaluation_record_signature(record)
+    athlete, record_date, test_type, source = _evaluation_record_signature(record)
     if not athlete or record_date is None:
         return "Incompleto"
 
     same_day_pending = sum(
         1
         for item in pending_records
-        if _evaluation_day_signature(item) == (athlete, record_date)
+        if _evaluation_day_signature(item) == (athlete, record_date, source)
     )
     same_test_pending = sum(
         1
         for item in pending_records
-        if _evaluation_record_signature(item) == (athlete, record_date, test_type)
+        if _evaluation_record_signature(item) == (athlete, record_date, test_type, source)
     )
 
     history_match = False
     if history_df is not None and not history_df.empty and {"Athlete", "Date"}.issubset(history_df.columns):
         athlete_series = history_df["Athlete"].astype(str).str.strip().str.title()
         date_series = pd.to_datetime(history_df["Date"], errors="coerce").dt.normalize()
-        history_match = bool(((athlete_series == athlete) & (date_series == record_date)).any())
+        match_mask = (athlete_series == athlete) & (date_series == record_date)
+        # Solo actualiza historial si la fila existente es de la misma fuente:
+        # una toma de alfombra no "actualiza" una de plataforma, convive con ella.
+        if "Source" in history_df.columns:
+            match_mask &= history_df["Source"].map(normalize_source) == source
+        history_match = bool(match_mask.any())
 
     if same_test_pending > 1:
         return "Duplica test pendiente"
@@ -4028,6 +4144,7 @@ def _pending_evaluation_rows(pending_records: list[dict], history_df: pd.DataFra
                 "Atleta": record.get("Athlete", "Sin atleta"),
                 "Fecha": record_date.strftime("%d/%m/%Y") if not pd.isna(record_date) else "Sin fecha",
                 "Test": record.get("test_type", "-"),
+                "Fuente": SOURCE_LABELS[normalize_source(record.get("Source"))],
                 "Estado": _pending_evaluation_impact(record, pending_records, history_df),
                 "Archivo": record.get("__source_file", "archivo"),
                 "Metricas": record.get("__metric_count", "-"),
@@ -4038,16 +4155,19 @@ def _pending_evaluation_rows(pending_records: list[dict], history_df: pd.DataFra
 
 
 def _pending_evaluation_group_rows(pending_records: list[dict], history_df: pd.DataFrame | None) -> list[dict[str, object]]:
-    grouped: dict[tuple[str, str], dict[str, object]] = {}
+    grouped: dict[tuple[str, str, str], dict[str, object]] = {}
     for record in pending_records:
-        athlete, record_date = _evaluation_day_signature(record)
+        athlete, record_date, source = _evaluation_day_signature(record)
         date_text = record_date.strftime("%d/%m/%Y") if record_date is not None else "Sin fecha"
-        key = (athlete or "Sin atleta", date_text)
+        # La fuente entra en la clave del resumen para que no se muestre como
+        # una sola bateria lo que en realidad son dos mediciones separadas.
+        key = (athlete or "Sin atleta", date_text, source)
         row = grouped.setdefault(
             key,
             {
                 "Atleta": athlete or "Sin atleta",
                 "Fecha": date_text,
+                "Fuente": SOURCE_LABELS[source],
                 "Tests": [],
                 "Pendientes": 0,
                 "Metricas": 0,
@@ -4413,11 +4533,31 @@ with st.sidebar:
         # el campo condicional de altura de caida nunca llegaba a mostrarse
         # cuando el coach elegia "DJ". Afuera del form, el selectbox dispara
         # un rerun inmediato y el campo aparece/desaparece en el acto.
+        eval_type_options = (
+            list(FORCEPLATE_UPLOAD_TEST_IDS)
+            if eval_source == SOURCE_PLATFORM
+            else [label for label in FORCEPLATE_UPLOAD_TEST_IDS if label in {"CMJ", "SJ", "DJ"}]
+        )
         eval_type_label = st.selectbox(
             "Tipo de test",
-            list(FORCEPLATE_UPLOAD_TEST_IDS),
-            key="eval_type",
+            eval_type_options,
+            key=f"eval_type_{eval_source}",
         )
+        eval_type_id = FORCEPLATE_UPLOAD_TEST_IDS.get(eval_type_label, eval_type_label)
+        manual_height_mode = "Altura (cm)"
+        if eval_entry_mode == "Manual" and eval_type_id in MANUAL_FLIGHT_TIME_FIELDS:
+            manual_height_mode = st.radio(
+                "Cargar la altura como",
+                ["Altura (cm)", "Tiempo de vuelo (ms)"],
+                horizontal=True,
+                key=f"eval_height_mode_{eval_type_id}",
+                help=(
+                    "Las alfombras de contacto y MyJump2 entregan tiempo de vuelo. "
+                    "Se convierte con h = g·t²/8, que es la misma fórmula que usan "
+                    "esos dispositivos internamente."
+                ),
+            )
+
         dj_drop_height_choice = "No cargar"
         dj_drop_height_custom = None
         if eval_type_label == "DJ":
@@ -4427,7 +4567,8 @@ with st.sidebar:
                 key="eval_dj_drop_height_choice",
                 help=(
                     "Se usa solo para Drop Jump (DJ). "
-                    "Si el archivo no trae la altura de caída, este dato es obligatorio para calcular DRI."
+                    "Es obligatoria para calcular DRI: en carga manual siempre, "
+                    "y en carga por archivo cuando el export no la trae."
                 ),
             )
             if dj_drop_height_choice == "Personalizada":
@@ -4456,11 +4597,51 @@ with st.sidebar:
                 key="eval_date",
                 value=pd.Timestamp.today(),
             )
-            eval_file = st.file_uploader(
-                "Archivo del test",
-                type=list(UPLOAD_CONTRACTS["forceplate"]["extensions"]),
-                key=eval_file_key,
-            )
+
+            eval_file = None
+            manual_values: dict[str, float | None] = {}
+            if eval_entry_mode == "Archivo":
+                eval_file = st.file_uploader(
+                    "Archivo del test",
+                    type=list(UPLOAD_CONTRACTS["forceplate"]["extensions"]),
+                    key=eval_file_key,
+                )
+            else:
+                use_flight_time = manual_height_mode == "Tiempo de vuelo (ms)"
+                height_field = MANUAL_FLIGHT_TIME_FIELDS.get(eval_type_id, ("", ""))[0]
+                for field, label, unit, min_v, max_v, step in MANUAL_EVALUATION_FIELDS.get(eval_type_id, ()):
+                    if use_flight_time and field == height_field:
+                        manual_values["__flight_ms"] = st.number_input(
+                            f"Tiempo de vuelo {eval_type_label} (ms)",
+                            min_value=100.0,
+                            max_value=1500.0,
+                            value=None,
+                            step=1.0,
+                            format="%.0f",
+                            key=f"eval_manual_flight_{eval_type_id}",
+                            placeholder="Ej: 520",
+                        )
+                        continue
+                    manual_values[field] = st.number_input(
+                        f"{label} ({unit})",
+                        min_value=min_v,
+                        max_value=max_v,
+                        value=None,
+                        step=step,
+                        format="%.1f" if step < 1 else "%.0f",
+                        key=f"eval_manual_{field}",
+                    )
+                manual_values["BW_kg"] = st.number_input(
+                    "Peso corporal (kg) — opcional",
+                    min_value=20.0,
+                    max_value=250.0,
+                    value=None,
+                    step=0.1,
+                    format="%.1f",
+                    key=f"eval_manual_bw_{eval_type_id}",
+                    help="Habilita Jump Momentum y, con IMTP, la fuerza relativa.",
+                )
+
             add_eval_submitted = st.form_submit_button("Agregar evaluacion")
 
         if add_eval_submitted:
@@ -4475,17 +4656,47 @@ with st.sidebar:
                         manual_dj_drop_height_cm = float(dj_drop_height_custom)
                 elif dj_drop_height_choice != "No cargar":
                     manual_dj_drop_height_cm = float(dj_drop_height_choice)
+            manual_entry = eval_entry_mode == "Manual"
+            if manual_entry:
+                flight_ms = manual_values.pop("__flight_ms", None)
+                if flight_ms is not None:
+                    height_field = MANUAL_FLIGHT_TIME_FIELDS.get(eval_type, ("", ""))
+                    converted_cm = flight_time_to_height_cm(flight_ms)
+                    if converted_cm is not None:
+                        manual_values[height_field[0]] = converted_cm
+                        # Se guarda tambien el dato crudo: la altura es derivada
+                        # y conviene poder auditar de donde salio.
+                        manual_values[height_field[1]] = float(flight_ms)
+                has_manual_metric = any(
+                    value is not None and float(value) > 0
+                    for key, value in manual_values.items()
+                    if key != "BW_kg"
+                )
+
             if not eval_athlete_name:
                 _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
-            elif not eval_file:
+            elif not manual_entry and not eval_file:
                 _push_notice("warning", "Evaluaciones individuales: subi el archivo del test.")
+            elif manual_entry and not has_manual_metric:
+                _push_notice(
+                    "warning",
+                    f"Evaluaciones individuales: cargá al menos un valor de {eval_type_label}.",
+                )
             else:
                 try:
-                    record = parse_forceplate_file(
-                        eval_file.read(),
-                        eval_type,
-                        filename=getattr(eval_file, "name", None),
-                    )
+                    if manual_entry:
+                        record = _build_manual_evaluation_record(
+                            eval_type,
+                            manual_values,
+                            source=eval_source,
+                            device=eval_device,
+                        )
+                    else:
+                        record = parse_forceplate_file(
+                            eval_file.read(),
+                            eval_type,
+                            filename=getattr(eval_file, "name", None),
+                        )
                     if eval_type == "DJ":
                         parsed_drop_height = pd.to_numeric(
                             pd.Series([record.get("DJ_drop_height_cm")]),
@@ -4508,7 +4719,11 @@ with st.sidebar:
                             )
                     record["Athlete"] = eval_athlete_name
                     record["Date"] = pd.Timestamp(eval_date)
-                    record["__source_file"] = getattr(eval_file, "name", "archivo")
+                    record["__source_file"] = (
+                        f"manual · {eval_device}" if manual_entry and eval_device
+                        else "carga manual" if manual_entry
+                        else getattr(eval_file, "name", "archivo")
+                    )
                     record["__metric_fields"] = metric_fields
                     record["__metric_count"] = len(metric_fields)
                     persist_athlete_names([eval_athlete_name])
@@ -4548,16 +4763,15 @@ with st.sidebar:
                     _push_notice(
                         "success",
                         (
-                            f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): "
-                            f"{action_label} para {eval_athlete_name} con {len(metric_fields)} métricas{impact_suffix}"
+                            f"Evaluación {eval_type} · {SOURCE_LABELS[normalize_source(eval_source)]} "
+                            f"({record['__source_file']}): {action_label} para {eval_athlete_name} "
+                            f"con {len(metric_fields)} métricas{impact_suffix}"
                         ),
                     )
                     st.session_state.eval_file_nonce += 1
                 except Exception as exc:
-                    _push_notice(
-                        "error",
-                        f"Evaluación {eval_type} ({getattr(eval_file, 'name', 'archivo')}): {exc}",
-                    )
+                    origin = "carga manual" if manual_entry else getattr(eval_file, "name", "archivo")
+                    _push_notice("error", f"Evaluación {eval_type} ({origin}): {exc}")
 
         if "eval_records" in st.session_state and st.session_state.eval_records:
             pending_records = st.session_state.eval_records
@@ -4572,7 +4786,9 @@ with st.sidebar:
             )
             pending_days = len(
                 {
-                    _evaluation_day_signature(record)
+                    # Solo (atleta, fecha): la metrica cuenta fechas activas,
+                    # no tomas, asi que la fuente no entra aca.
+                    _evaluation_day_signature(record)[:2]
                     for record in pending_records
                     if _evaluation_day_signature(record)[0] and _evaluation_day_signature(record)[1] is not None
                 }
@@ -5106,7 +5322,10 @@ def render_decision_panel():
     weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
     weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))
     weekly_team = _normalize_weekly_frame(weekly_summaries.get("weekly_team", pd.DataFrame()))
-    jump_df = st.session_state.jump_df
+    decision_eval_source = render_evaluation_source_selector(
+        "decision_eval_source", st.session_state.jump_df
+    )
+    jump_df = filter_jump_by_source(st.session_state.jump_df, decision_eval_source)
     raw_df_state = st.session_state.raw_df
     prepared_raw_df = ensure_prepared_raw_workouts(ensure_base_state=False)
     if prepared_raw_df is None:
@@ -5827,7 +6046,10 @@ if active_main_view == "Overview":
     rdf = st.session_state.rpe_df
     wdf = st.session_state.wellness_df
     maxes_df = st.session_state.maxes_df
-    jdf = st.session_state.jump_df
+    overview_eval_source = render_evaluation_source_selector(
+        "overview_eval_source", st.session_state.jump_df
+    )
+    jdf = filter_jump_by_source(st.session_state.jump_df, overview_eval_source)
     cdf = st.session_state.completion_df
     rldf = st.session_state.rep_load_df
     raw_df_state = st.session_state.raw_df
@@ -6381,10 +6603,11 @@ elif active_main_view == "Evaluations":
         fecha_max = fechas.max().strftime("%d/%m/%Y") if not fechas.empty else "—"
 
         render_module_header(
-            "Evaluaciones",
+            eval_view_title,
             f"{n_j} jugadores · {n_r} registros · {fecha_min} → {fecha_max}",
             kicker="Modulo",
         )
+        st.caption(SOURCE_DESCRIPTIONS[active_eval_source])
 
         # ── Sub-tabs ──────────────────────────────────────────────────
         athletes_eval = sorted(jdf["Athlete"].dropna().unique())
@@ -6888,7 +7111,10 @@ elif active_main_view == "Profile":
 elif active_main_view == "Team":
     render_module_header("Team Dashboard", "comparacion · clasificacion · ranking grupal", kicker="Modulo")
 
-    jdf  = st.session_state.jump_df
+    team_eval_source = render_evaluation_source_selector(
+        "team_eval_source", st.session_state.jump_df
+    )
+    jdf  = filter_jump_by_source(st.session_state.jump_df, team_eval_source)
     rdf  = st.session_state.rpe_df
 
     # ── Tabla de carga grupal ──────────────────────────────────────
@@ -7072,6 +7298,14 @@ elif active_main_view == "Reports":
 
     ensure_load_state(ensure_base_state=False)
     report_state = _current_report_state_snapshot()
+    # Un mismo reporte nunca mezcla metodos de medicion: el snapshot se recorta
+    # a la fuente elegida antes de construir hojas, PDF y resumen ejecutivo.
+    report_eval_source = render_evaluation_source_selector(
+        "report_eval_source", st.session_state.jump_df
+    )
+    report_state["jump_df"] = filter_jump_by_source(
+        report_state.get("jump_df"), report_eval_source
+    )
     report_athlete = "Todos"
 
     col_r1, col_r2 = st.columns(2)

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from modules.athlete_profile import ATHLETE_PROFILE_COLUMNS
 from modules.data_loader import prepare_raw_workouts_df
+from modules.evaluation_sources import DEFAULT_SOURCE, normalize_source
 from modules.jump_analysis import (
     _prepare_jump_df,
     build_dj_drop_height_backfill_candidates,
@@ -91,7 +92,11 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
         "filename": "evaluations_history.csv",
         "date_col": "Date",
         "athlete_col": "Athlete",
-        "dedupe_cols": ["Athlete", "Date"],
+        # Source particiona el dataset: sin el, una medicion de plataforma y
+        # una de MyJump2/alfombra del mismo dia colapsan en una sola fila y una
+        # pisa a la otra en silencio.
+        "source_col": "Source",
+        "dedupe_cols": ["Athlete", "Date", "Source"],
     },
     "athlete_profile_df": {
         "filename": "athlete_profiles.csv",
@@ -300,7 +305,18 @@ def _normalize_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
     result = df.copy()
     athlete_col = spec.get("athlete_col")
     date_col = spec.get("date_col")
+    source_col = spec.get("source_col")
     allow_missing_date = bool(spec.get("allow_missing_date"))
+
+    # Punto de paso unico: toda lectura y escritura del store atraviesa esta
+    # funcion, asi que canonicalizar aca garantiza que Source nunca llegue
+    # vacio ni con alias a la capa de dedup o de calculo. El historial previo
+    # a esta columna queda como plataforma, que es su origen real.
+    if source_col:
+        if source_col in result.columns:
+            result[source_col] = result[source_col].map(normalize_source)
+        else:
+            result[source_col] = DEFAULT_SOURCE
 
     if athlete_col and athlete_col in result.columns:
         result[athlete_col] = result[athlete_col].map(normalize_athlete_name)
@@ -321,10 +337,13 @@ def _sort_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
     sort_cols = []
     athlete_col = spec.get("athlete_col")
     date_col = spec.get("date_col")
+    source_col = spec.get("source_col")
     if athlete_col and athlete_col in df.columns:
         sort_cols.append(athlete_col)
     if date_col and date_col in df.columns:
         sort_cols.append(date_col)
+    if source_col and source_col in df.columns:
+        sort_cols.append(source_col)
     if sort_cols:
         df = df.sort_values(sort_cols)
     return df.reset_index(drop=True)

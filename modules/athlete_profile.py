@@ -6,6 +6,8 @@ from collections.abc import Iterable, Mapping
 
 import pandas as pd
 
+from modules.evaluation_sources import normalize_source
+
 
 CONTEXTO_OPTIONS: tuple[str, ...] = ("Club", "Gimnasio")
 
@@ -151,15 +153,29 @@ def get_comparison_cohort(
     jump_df: pd.DataFrame | None,
     profile_df: pd.DataFrame | None,
     min_cohort_size: int = 3,
+    source: str | None = None,
 ) -> dict[str, object]:
     """Resolve which peer group to compare `athlete` against for internal z-scores.
 
     Tries Deporte+Nivel first, falls back to Nivel only, then to the full
     dataset if neither reaches `min_cohort_size` athletes with evaluations.
     Never raises: missing/empty inputs resolve to a "general" fallback.
+
+    `source` restringe la cohorte a un unico metodo de medicion. El tamano de
+    cohorte se cuenta despues de ese filtro, asi que una muestra que solo
+    alcanza el minimo mezclando dispositivos cae al fallback en vez de
+    producir una comparacion invalida.
     """
     athlete_name = str(athlete).strip() if athlete is not None else ""
     safe_jump_df = jump_df if jump_df is not None else pd.DataFrame()
+    if (
+        source is not None
+        and not safe_jump_df.empty
+        and "Source" in safe_jump_df.columns
+    ):
+        safe_jump_df = safe_jump_df[
+            safe_jump_df["Source"].map(normalize_source) == normalize_source(source)
+        ]
 
     if (
         safe_jump_df.empty

@@ -9,6 +9,26 @@ import pandas as pd
 
 from modules.athlete_profile import get_comparison_cohort
 from modules.data_loader import _normalize_legacy_imtp_rfd_aliases_frame
+from modules.evaluation_sources import (
+    DEFAULT_SOURCE,
+    SOURCE_ORDER,
+    SOURCE_PLATFORM,
+    normalize_source,
+)
+
+# Columnas de la tabla de evaluaciones que NO son metricas numericas. Se
+# listan explicitamente porque `_prepare_jump_df` convierte a numerico todo lo
+# que no este aca, y una columna de texto olvidada se transformaria en NaN
+# silenciosamente.
+NON_NUMERIC_EVALUATION_COLUMNS = {
+    "Athlete",
+    "Date",
+    "Source",
+    "Device",
+    "NM_Profile",
+    "EUR_Profile",
+    "EUR_based_profile",
+}
 
 # Ref1: Normative data EFL 2025 - professional male soccer.
 # External z-scores below are orientative, not normative, for other sports.
@@ -358,6 +378,31 @@ EUR_PROFILE_THRESHOLDS = (
 )
 
 
+def filter_by_source(frame: pd.DataFrame | None, source: str | None) -> pd.DataFrame:
+    """Recorta un frame de evaluaciones a una unica fuente de medicion.
+
+    Con `source=None` devuelve el frame tal cual. Un frame sin columna
+    `Source` se considera historico y por lo tanto de plataforma.
+    """
+    if frame is None or frame.empty or source is None:
+        return frame if frame is not None else pd.DataFrame()
+
+    target = normalize_source(source)
+    if "Source" not in frame.columns:
+        return frame if target == DEFAULT_SOURCE else frame.iloc[0:0]
+    return frame[frame["Source"].map(normalize_source) == target]
+
+
+def available_sources(frame: pd.DataFrame | None) -> list[str]:
+    """Fuentes presentes en el frame, en orden canonico."""
+    if frame is None or frame.empty:
+        return []
+    if "Source" not in frame.columns:
+        return [DEFAULT_SOURCE]
+    present = set(frame["Source"].map(normalize_source).dropna())
+    return [source for source in SOURCE_ORDER if source in present]
+
+
 def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame.columns:
         return pd.Series(np.nan, index=frame.index, dtype=float)
@@ -594,12 +639,27 @@ def _group_internal_z(
     *,
     invert: bool = False,
     min_count: int = 2,
+    source_series: pd.Series | None = None,
 ) -> pd.Series:
+    """Z intra-atleta. Se agrupa por (atleta, fuente), nunca solo por atleta.
+
+    Un cambio de dispositivo dentro de la serie temporal de un atleta mueve la
+    media y el desvio, y el salto de metodo se leeria como cambio real de
+    rendimiento. Separar por fuente hace que cada dispositivo tenga su propia
+    referencia interna.
+    """
     zscores = pd.Series(np.nan, index=values.index, dtype=float)
     if athlete_series is None:
         return zscores
 
-    grouped = pd.DataFrame({"value": values, "athlete": athlete_series})
+    if source_series is None:
+        group_keys = athlete_series
+    else:
+        group_keys = (
+            athlete_series.astype(str) + "\x1f" + source_series.map(normalize_source).astype(str)
+        ).where(athlete_series.notna())
+
+    grouped = pd.DataFrame({"value": values, "athlete": group_keys})
     for athlete, idx in grouped.groupby("athlete").groups.items():
         if pd.isna(athlete):
             continue
@@ -615,7 +675,24 @@ def _group_internal_z(
     return zscores
 
 
-def _dataset_fallback_z(values: pd.Series, *, invert: bool = False) -> pd.Series:
+def _dataset_fallback_z(
+    values: pd.Series,
+    *,
+    invert: bool = False,
+    source_series: pd.Series | None = None,
+) -> pd.Series:
+    """Fallback poblacional sin perfil. Se calcula por fuente, no sobre todo.
+
+    Sin `profile_df` no hay cohorte Deporte+Nivel y se compara contra el
+    dataset entero; aun asi ese dataset no debe mezclar metodos de medicion.
+    """
+    if source_series is not None and source_series.nunique(dropna=False) > 1:
+        result = pd.Series(np.nan, index=values.index, dtype=float)
+        for _, idx in values.groupby(source_series.map(normalize_source)).groups.items():
+            subset = values.loc[idx]
+            result.loc[idx] = _dataset_fallback_z(subset, invert=invert)
+        return result
+
     valid = values.dropna()
     if len(valid) < 2:
         return pd.Series(np.nan, index=values.index, dtype=float)
@@ -637,6 +714,10 @@ def build_cohort_cache(
     if frame is None or frame.empty or "Athlete" not in frame.columns:
         return cache
     for athlete in frame["Athlete"].dropna().unique():
+        # La cohorte se resuelve sobre el frame completo; `_cohort_z` recorta
+        # despues por fuente fila a fila. Asi un atleta medido con los dos
+        # metodos conserva una sola identidad de cohorte (Deporte+Nivel) y no
+        # se fragmenta la etiqueta que se muestra al usuario.
         cache[athlete] = get_comparison_cohort(athlete, frame, profile_df, min_cohort_size=min_cohort_size)
     return cache
 
@@ -652,7 +733,14 @@ def _cohort_z(
     if "Athlete" not in frame.columns:
         return zscores
 
-    for athlete, idx in pd.DataFrame({"athlete": frame["Athlete"]}).groupby("athlete").groups.items():
+    source_series = (
+        frame["Source"].map(normalize_source)
+        if "Source" in frame.columns
+        else pd.Series(DEFAULT_SOURCE, index=frame.index)
+    )
+
+    group_cols = {"athlete": frame["Athlete"], "source": source_series}
+    for (athlete, row_source), idx in pd.DataFrame(group_cols).groupby(["athlete", "source"]).groups.items():
         if pd.isna(athlete):
             continue
         cohort_info = cohort_cache.get(athlete)
@@ -661,7 +749,13 @@ def _cohort_z(
         cohort_df = cohort_info.get("cohort_df")
         if cohort_df is None or cohort_df.empty:
             continue
-        cohort_values = values.reindex(cohort_df.index).dropna()
+        # La cohorte se restringe a la misma fuente: una poblacion mixta de
+        # plataforma y tiempo de vuelo tiene un desvio inflado por la
+        # diferencia de metodo, no por variabilidad real entre atletas.
+        cohort_index = cohort_df.index
+        cohort_source = source_series.reindex(cohort_index)
+        cohort_index = cohort_index[(cohort_source == row_source).fillna(False)]
+        cohort_values = values.reindex(cohort_index).dropna()
         if len(cohort_values) < 2:
             continue
         std = float(cohort_values.std(ddof=0))
@@ -673,14 +767,25 @@ def _cohort_z(
     return zscores
 
 
-def _external_z(values: pd.Series, metric_key: str | None) -> pd.Series:
+def _external_z(
+    values: pd.Series,
+    metric_key: str | None,
+    source_series: pd.Series | None = None,
+) -> pd.Series:
     if metric_key is None or metric_key not in EXTERNAL_BENCHMARKS:
         return pd.Series(np.nan, index=values.index, dtype=float)
     benchmark = EXTERNAL_BENCHMARKS[metric_key]
     sd = float(benchmark["sd"])
     if sd <= 0:
         return pd.Series(np.nan, index=values.index, dtype=float)
-    return ((values - float(benchmark["mean"])) / sd).astype(float)
+    external = ((values - float(benchmark["mean"])) / sd).astype(float)
+    if source_series is None:
+        return external
+    # Los benchmarks son de plataforma (altura por impulso-momento). Aplicarlos
+    # a datos de tiempo de vuelo agrega un sesgo sistematico, asi que las filas
+    # no-plataforma quedan sin z externo y caen al fallback interno/cohorte.
+    platform_mask = source_series.map(normalize_source) == SOURCE_PLATFORM
+    return external.where(platform_mask)
 
 
 def _resolve_zscore(
@@ -695,8 +800,19 @@ def _resolve_zscore(
 ) -> pd.Series:
     values = _numeric_series(frame, metric_col)
     athlete_series = frame["Athlete"] if "Athlete" in frame.columns else None
-    external = _external_z(values, benchmark_key)
-    internal = _group_internal_z(values, athlete_series, invert=invert, min_count=internal_min_count)
+    source_series = (
+        frame["Source"].map(normalize_source)
+        if "Source" in frame.columns
+        else pd.Series(DEFAULT_SOURCE, index=frame.index)
+    )
+    external = _external_z(values, benchmark_key, source_series)
+    internal = _group_internal_z(
+        values,
+        athlete_series,
+        invert=invert,
+        min_count=internal_min_count,
+        source_series=source_series,
+    )
     if not allow_dataset_fallback:
         dataset = pd.Series(np.nan, index=values.index, dtype=float)
     elif cohort_cache is not None:
@@ -704,12 +820,12 @@ def _resolve_zscore(
         # plain whole-dataset fallback when a profile_df was supplied upstream.
         dataset = _cohort_z(frame, values, cohort_cache, invert=invert)
     else:
-        dataset = _dataset_fallback_z(values, invert=invert)
+        dataset = _dataset_fallback_z(values, invert=invert, source_series=source_series)
 
-    if benchmark_key is not None:
-        resolved = external
-    else:
-        resolved = internal.combine_first(dataset)
+    # El benchmark externo sigue teniendo prioridad donde aplica, pero ahora
+    # solo cubre filas de plataforma. Las de tiempo de vuelo caen al fallback
+    # interno/cohorte en vez de quedar sin z.
+    resolved = external.combine_first(internal).combine_first(dataset)
 
     return resolved.where(values.notna())
 
@@ -1658,10 +1774,35 @@ def _default_temporal_variables(athlete_df: pd.DataFrame, variables: list[str] |
     return selected
 
 
+def _restrict_history_to_current_source(
+    working_df: pd.DataFrame,
+    current_ts: pd.Timestamp,
+    source: str | None = None,
+) -> pd.DataFrame:
+    """Deja en la serie temporal solo las mediciones de una misma fuente.
+
+    Comparar la toma actual contra una anterior hecha con otro dispositivo
+    convierte el sesgo de metodo en una senal de cambio. Por defecto se toma
+    la fuente de la medicion actual; `source` permite fijarla explicitamente.
+    """
+    if working_df.empty or "Source" not in working_df.columns:
+        return working_df
+
+    normalized = working_df["Source"].map(normalize_source)
+    if source is not None:
+        return working_df[normalized == normalize_source(source)]
+
+    at_current = working_df[normalized.reindex(working_df.index).notna() & (working_df["Date"] == current_ts)]
+    reference_row = at_current.iloc[-1] if not at_current.empty else working_df.iloc[-1]
+    current_source = normalize_source(reference_row.get("Source"))
+    return working_df[normalized == current_source]
+
+
 def compute_swc_delta(
     athlete_df: pd.DataFrame,
     current_date,
     variables: list[str] | None = None,
+    source: str | None = None,
 ) -> pd.DataFrame:
     columns = [
         "Variable",
@@ -1685,6 +1826,10 @@ def compute_swc_delta(
     working_df["Date"] = pd.to_datetime(working_df["Date"], errors="coerce").dt.normalize()
     current_ts = pd.Timestamp(current_date).normalize()
     working_df = working_df[working_df["Date"].notna() & (working_df["Date"] <= current_ts)].sort_values("Date")
+    if working_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    working_df = _restrict_history_to_current_source(working_df, current_ts, source)
     if working_df.empty:
         return pd.DataFrame(columns=columns)
 
@@ -1858,6 +2003,7 @@ def compute_baseline_delta(
     athlete_df: pd.DataFrame,
     current_date,
     variables: list[str] | None = None,
+    source: str | None = None,
 ) -> pd.DataFrame:
     columns = [
         "Variable",
@@ -1881,6 +2027,13 @@ def compute_baseline_delta(
     working_df["Date"] = pd.to_datetime(working_df["Date"], errors="coerce").dt.normalize()
     current_ts = pd.Timestamp(current_date).normalize()
     working_df = working_df[working_df["Date"].notna() & (working_df["Date"] <= current_ts)].sort_values("Date")
+    if working_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    # El baseline son las primeras 3 mediciones validas. Si esas 3 fueran de
+    # plataforma y la actual de alfombra, todo delta posterior seria sesgo de
+    # dispositivo etiquetado como cambio de rendimiento.
+    working_df = _restrict_history_to_current_source(working_df, current_ts, source)
     if working_df.empty:
         return pd.DataFrame(columns=columns)
 
@@ -2305,20 +2458,32 @@ def choose_secondary_quadrant_x_spec(df: pd.DataFrame) -> tuple[str, str]:
 
 
 def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
+    """Fusiona tests del mismo atleta, fecha y fuente en una fila.
+
+    La fuente entra en la clave: un CMJ de plataforma y un CMJ de MyJump2 del
+    mismo dia son dos mediciones distintas del mismo fenomeno, no dos partes
+    de una misma bateria. Fusionarlos haria que una pise a la otra.
+    """
     if jump_df.empty or not {"Athlete", "Date"}.issubset(jump_df.columns):
         return jump_df
-    if not jump_df.duplicated(subset=["Athlete", "Date"]).any():
+
+    key_cols = ["Athlete", "Date"]
+    if "Source" in jump_df.columns:
+        key_cols.append("Source")
+
+    if not jump_df.duplicated(subset=key_cols).any():
         return jump_df
 
     merged_rows: list[dict[str, object]] = []
-    grouped = jump_df.sort_values(["Athlete", "Date"]).groupby(["Athlete", "Date"], sort=False, dropna=False)
-    for (_, _), group in grouped:
-        merged_row: dict[str, object] = {
-            "Athlete": group.iloc[-1]["Athlete"],
-            "Date": group.iloc[-1]["Date"],
-        }
+    grouped = jump_df.sort_values(key_cols).groupby(key_cols, sort=False, dropna=False)
+    for _, group in grouped:
+        merged_row: dict[str, object] = {key: group.iloc[-1][key] for key in key_cols}
+        if "Device" in group.columns:
+            device_values = group["Device"].dropna()
+            if not device_values.empty:
+                merged_row["Device"] = device_values.iloc[-1]
         for column in group.columns:
-            if column in {"Athlete", "Date", "NM_Profile", "EUR_Profile", "EUR_based_profile"}:
+            if column in key_cols or column in NON_NUMERIC_EVALUATION_COLUMNS:
                 continue
 
             numeric_values = pd.to_numeric(group[column], errors="coerce")
@@ -2348,11 +2513,18 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
         result["Athlete"] = result["Athlete"].astype(str).str.strip().str.title()
     if "Date" in result.columns:
         result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
+    # Source siempre presente y canonico antes de cualquier calculo: todo lo
+    # que sigue lo usa como clave de particion.
+    result["Source"] = (
+        result["Source"].map(normalize_source)
+        if "Source" in result.columns
+        else DEFAULT_SOURCE
+    )
 
     numeric_cols = [
         col
         for col in result.columns
-        if col not in {"Athlete", "Date", "NM_Profile", "EUR_Profile", "EUR_based_profile"}
+        if col not in NON_NUMERIC_EVALUATION_COLUMNS
     ]
     for col in numeric_cols:
         result[col] = pd.to_numeric(result[col], errors="coerce")
