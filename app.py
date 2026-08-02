@@ -359,352 +359,9 @@ TAG_CATEGORIES = {
 # CSS
 # ════════════════════════════════════════════════════════════════════
 
-_LEGACY_DARK_CSS = """
-<style>
-  /* ── FONTS ─────────────────────────────────────────────────────── */
-  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;600;700;800&family=Barlow:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
-
-  /* ── RESET & BASE ───────────────────────────────────────────────── */
-  html, body, [class*="css"], .stApp {
-    background-color: #000000 !important;
-    color: #F0F4F8;
-    font-family: 'Barlow', sans-serif;
-    font-weight: 400;
-    letter-spacing: 0.01em;
-  }
-
-  /* ── TYPOGRAPHY ─────────────────────────────────────────────────── */
-  h1 {
-    font-family: 'Barlow Condensed', sans-serif !important;
-    font-weight: 800 !important;
-    font-size: 2.2rem !important;
-    letter-spacing: 0.08em !important;
-    text-transform: uppercase !important;
-    color: #FFFFFF !important;
-    line-height: 1 !important;
-    padding-bottom: 4px !important;
-    border-bottom: none !important;
-  }
-  h2 {
-    font-family: 'Barlow Condensed', sans-serif !important;
-    font-weight: 700 !important;
-    font-size: 1.0rem !important;
-    letter-spacing: 0.16em !important;
-    text-transform: uppercase !important;
-    color: #5A7A9A !important;
-    border-bottom: 1px solid rgba(42,95,142,0.15) !important;
-    padding-bottom: 8px !important;
-    margin-top: 28px !important;
-  }
-  h3 {
-    font-family: 'Barlow Condensed', sans-serif !important;
-    font-weight: 600 !important;
-    font-size: 0.85rem !important;
-    letter-spacing: 0.14em !important;
-    text-transform: uppercase !important;
-    color: #5A6A7A !important;
-  }
-  p, li, span, div {
-    font-family: 'Barlow', sans-serif !important;
-  }
-
-  /* ── SIDEBAR ────────────────────────────────────────────────────── */
-  [data-testid="stSidebar"] {
-    background: #000000 !important;
-    border-right: 1px solid rgba(42,95,142,0.15) !important;
-  }
-  [data-testid="stSidebar"] * {
-    color: #8899A8 !important;
-  }
-  [data-testid="stSidebar"] h1, 
-  [data-testid="stSidebar"] h2,
-  [data-testid="stSidebar"] .stMarkdown strong {
-    color: #F0F4F8 !important;
-  }
-
-  /* ── METRIC CARDS ───────────────────────────────────────────────── */
-  [data-testid="metric-container"] {
-    background: #0C1524 !important;
-    border: 1px solid rgba(42,95,142,0.2) !important;
-    border-top: 2px solid #1B3D72 !important;
-    border-radius: 4px !important;
-    padding: 18px 20px !important;
-    transition: border-color 0.2s ease;
-  }
-  [data-testid="metric-container"]:hover {
-    border-color: rgba(42,95,142,0.5) !important;
-    border-top-color: #2A5F8E !important;
-  }
-  /* Label */
-  [data-testid="metric-container"] > div:first-child {
-    font-family: 'Barlow Condensed', sans-serif !important;
-    font-size: 10px !important;
-    font-weight: 700 !important;
-    letter-spacing: 0.18em !important;
-    text-transform: uppercase !important;
-    color: #5A6A7A !important;
-  }
-  /* Value */
-  [data-testid="metric-container"] > div:nth-child(2) {
-    font-family: 'DM Mono', monospace !important;
-    font-size: 1.9rem !important;
-    font-weight: 500 !important;
-    color: #FFFFFF !important;
-    line-height: 1.1 !important;
-  }
-  /* Delta */
-  [data-testid="metric-container"] [data-testid="stMetricDelta"] {
-    font-family: 'DM Mono', monospace !important;
-    font-size: 0.78rem !important;
-  }
-
-  /* ── TABS ───────────────────────────────────────────────────────── */
-  .stTabs [data-baseweb="tab-list"] {
-    background: transparent !important;
-    border-bottom: 1px solid rgba(42,95,142,0.2) !important;
-    gap: 0px !important;
-  }
-  .stTabs [data-baseweb="tab"] {
-    font-family: 'Barlow Condensed', sans-serif !important;
-    font-size: 11px !important;
-    font-weight: 700 !important;
-    letter-spacing: 0.14em !important;
-    text-transform: uppercase !important;
-    color: #5A6A7A !important;
-    background: transparent !important;
-    border: none !important;
-    padding: 12px 20px !important;
-    border-bottom: 2px solid transparent !important;
-    transition: all 0.15s ease;
-  }
-  .stTabs [data-baseweb="tab"]:hover {
-    color: #F0F4F8 !important;
-    background: rgba(27,61,114,0.08) !important;
-  }
-  .stTabs [aria-selected="true"] {
-    color: #FFFFFF !important;
-    border-bottom: 2px solid #2A5F8E !important;
-    background: transparent !important;
-  }
-  .stTabs [data-baseweb="tab-panel"] {
-    padding-top: 24px !important;
-  }
-
-  /* ── DATAFRAME / TABLE ──────────────────────────────────────────── */
-  .stDataFrame {
-    background: #0C1524 !important;
-    border: 1px solid rgba(42,95,142,0.15) !important;
-    border-radius: 4px !important;
-  }
-  .stDataFrame th {
-    font-family: 'Barlow Condensed', sans-serif !important;
-    font-size: 10px !important;
-    letter-spacing: 0.14em !important;
-    text-transform: uppercase !important;
-    color: #5A6A7A !important;
-    background: #080E18 !important;
-    border-bottom: 1px solid rgba(42,95,142,0.2) !important;
-  }
-  .stDataFrame td {
-    font-family: 'DM Mono', monospace !important;
-    font-size: 12px !important;
-    color: #C8D8E8 !important;
-  }
-
-  /* ── SELECTBOX / INPUTS ─────────────────────────────────────────── */
-  .stSelectbox > div > div,
-  .stTextInput > div > div,
-  .stDateInput > div > div {
-    background: #0C1524 !important;
-    border: 1px solid rgba(42,95,142,0.3) !important;
-    border-radius: 4px !important;
-    color: #F0F4F8 !important;
-    font-family: 'Barlow', sans-serif !important;
-  }
-  .stSelectbox > div > div:focus-within,
-  .stTextInput > div > div:focus-within {
-    border-color: #2A5F8E !important;
-    box-shadow: 0 0 0 1px rgba(42,95,142,0.4) !important;
-  }
-
-  /* ── FILE UPLOADER ──────────────────────────────────────────────── */
-  [data-testid="stFileUploader"] {
-    background: #080E18 !important;
-    border: 1px dashed rgba(42,95,142,0.3) !important;
-    border-radius: 4px !important;
-    transition: border-color 0.2s;
-  }
-  [data-testid="stFileUploader"]:hover {
-    border-color: rgba(42,95,142,0.6) !important;
-  }
-  [data-testid="stFileUploader"] * {
-    font-family: 'Barlow', sans-serif !important;
-    font-size: 12px !important;
-    color: #5A6A7A !important;
-  }
-
-  /* ── BUTTONS ────────────────────────────────────────────────────── */
-  .stButton > button {
-    background: #1B3D72 !important;
-    color: #FFFFFF !important;
-    border: 1px solid rgba(42,95,142,0.4) !important;
-    border-radius: 3px !important;
-    font-family: 'Barlow Condensed', sans-serif !important;
-    font-weight: 700 !important;
-    font-size: 11px !important;
-    letter-spacing: 0.14em !important;
-    text-transform: uppercase !important;
-    padding: 8px 24px !important;
-    transition: all 0.15s ease;
-  }
-  .stButton > button:hover {
-    background: #2A5F8E !important;
-    border-color: #2A5F8E !important;
-    box-shadow: 0 0 20px rgba(42,95,142,0.25) !important;
-  }
-  .stButton > button:active {
-    background: #1B3D72 !important;
-    transform: scale(0.98);
-  }
-
-  /* ── RADIO & CHECKBOX ───────────────────────────────────────────── */
-  .stRadio label, .stCheckbox label {
-    font-family: 'Barlow', sans-serif !important;
-    font-size: 13px !important;
-    color: #8899A8 !important;
-  }
-  .stRadio [data-testid="stMarkdownContainer"] p,
-  .stCheckbox [data-testid="stMarkdownContainer"] p {
-    font-family: 'Barlow', sans-serif !important;
-  }
-
-  /* ── ALERT BOXES ────────────────────────────────────────────────── */
-  .alert-r {
-    background: rgba(217,79,79,0.06);
-    border-left: 3px solid #D94F4F;
-    padding: 12px 16px;
-    border-radius: 2px;
-    margin: 8px 0;
-    font-size: 13px;
-    font-family: 'Barlow', sans-serif;
-    color: #F0F4F8;
-  }
-  .alert-y {
-    background: rgba(232,200,74,0.06);
-    border-left: 3px solid #E8C84A;
-    padding: 12px 16px;
-    border-radius: 2px;
-    margin: 8px 0;
-    font-size: 13px;
-    font-family: 'Barlow', sans-serif;
-    color: #F0F4F8;
-  }
-  .alert-g {
-    background: rgba(79,201,126,0.06);
-    border-left: 3px solid #4FC97E;
-    padding: 12px 16px;
-    border-radius: 2px;
-    margin: 8px 0;
-    font-size: 13px;
-    font-family: 'Barlow', sans-serif;
-    color: #F0F4F8;
-  }
-  .alert-b {
-    background: rgba(42,95,142,0.08);
-    border-left: 3px solid #2A5F8E;
-    padding: 12px 16px;
-    border-radius: 2px;
-    margin: 8px 0;
-    font-size: 13px;
-    font-family: 'Barlow', sans-serif;
-    color: #F0F4F8;
-  }
-
-  /* ── EXPANDER ───────────────────────────────────────────────────── */
-  .streamlit-expanderHeader {
-    font-family: 'Barlow Condensed', sans-serif !important;
-    font-size: 11px !important;
-    font-weight: 700 !important;
-    letter-spacing: 0.14em !important;
-    text-transform: uppercase !important;
-    color: #5A6A7A !important;
-    background: transparent !important;
-    border: 1px solid rgba(42,95,142,0.15) !important;
-    border-radius: 3px !important;
-  }
-  .streamlit-expanderContent {
-    border: 1px solid rgba(42,95,142,0.1) !important;
-    border-top: none !important;
-    background: #080E18 !important;
-  }
-
-  /* ── DIVIDER ────────────────────────────────────────────────────── */
-  hr {
-    border: none !important;
-    border-top: 1px solid rgba(42,95,142,0.12) !important;
-    margin: 24px 0 !important;
-  }
-
-  /* ── SPINNER ────────────────────────────────────────────────────── */
-  .stSpinner > div {
-    border-top-color: #2A5F8E !important;
-  }
-
-  /* ── SUCCESS / WARNING / ERROR ──────────────────────────────────── */
-  .stSuccess {
-    background: rgba(79,201,126,0.06) !important;
-    border: 1px solid rgba(79,201,126,0.2) !important;
-    border-radius: 3px !important;
-    font-family: 'Barlow', sans-serif !important;
-  }
-  .stWarning {
-    background: rgba(232,200,74,0.06) !important;
-    border: 1px solid rgba(232,200,74,0.2) !important;
-    border-radius: 3px !important;
-    font-family: 'Barlow', sans-serif !important;
-  }
-  .stError {
-    background: rgba(217,79,79,0.06) !important;
-    border: 1px solid rgba(217,79,79,0.2) !important;
-    border-radius: 3px !important;
-    font-family: 'Barlow', sans-serif !important;
-  }
-
-  /* ── CAPTION / SMALL TEXT ───────────────────────────────────────── */
-  .stCaption, small, caption {
-    font-family: 'Barlow', sans-serif !important;
-    font-size: 11px !important;
-    color: #3A4A5A !important;
-    letter-spacing: 0.04em !important;
-  }
-
-  /* ── SCROLLBAR ──────────────────────────────────────────────────── */
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
-  ::-webkit-scrollbar-track { background: #000000; }
-  ::-webkit-scrollbar-thumb { background: #1B3D72; border-radius: 2px; }
-  ::-webkit-scrollbar-thumb:hover { background: #2A5F8E; }
-
-  /* ── PLOTLY CHART CONTAINER ─────────────────────────────────────── */
-  .stPlotlyChart {
-    border: 1px solid rgba(42,95,142,0.1) !important;
-    border-radius: 4px !important;
-    background: #0C1524 !important;
-  }
-
-  /* ── MAIN CONTENT PADDING ───────────────────────────────────────── */
-  .main .block-container {
-    padding-top: 28px !important;
-    padding-bottom: 40px !important;
-    max-width: 1400px !important;
-  }
-
-  /* ── SIDEBAR CAPTION ────────────────────────────────────────────── */
-  [data-testid="stSidebar"] .stCaption {
-    color: #2A3A4A !important;
-    font-size: 10px !important;
-  }
-</style>
-"""
+# `_LEGACY_DARK_CSS` quedo eliminado: eran ~345 lineas de CSS de un tema
+# oscuro anterior que nunca se inyectaban (la hoja viva se aplica mas
+# abajo con st.markdown). Historial en git si hace falta recuperarlo.
 
 st.markdown("""
 <style>
@@ -857,14 +514,83 @@ st.markdown("""
   [data-testid="stSidebar"] [data-testid="stFileUploader"] * {
     color: rgba(254, 254, 254, 0.82) !important;
   }
+  /* ── Contraste del sidebar ────────────────────────────────────────
+     El sidebar es un gradiente navy. La regla `[data-testid="stSidebar"] *`
+     pone tinta clara, pero dos familias de elementos se le escapaban:
+
+     1. Los widgets que Streamlit pinta con fondo claro propio (botones y el
+        boton "Browse files" del uploader). El contenedor recibia tinta de
+        marca pero el <span> interno seguia heredando blanco, asi que el texto
+        quedaba blanco sobre boton blanco. Por eso hace falta el `*`.
+     2. Los labels de widgets, que en Streamlit 1.56 traen su propia tinta
+        oscura con mayor especificidad y quedaban casi negros sobre el navy.
+
+     Ambas se resuelven declarando explicitamente la tinta segun el fondo
+     real sobre el que cae cada elemento. */
+
+  /* Sobre el gradiente navy -> tinta clara. */
+  [data-testid="stSidebar"] label,
+  [data-testid="stSidebar"] label *,
+  [data-testid="stSidebar"] [data-testid="stWidgetLabel"],
+  [data-testid="stSidebar"] [data-testid="stWidgetLabel"] *,
+  [data-testid="stSidebar"] [data-testid="stAlert"],
+  [data-testid="stSidebar"] [data-testid="stAlert"] *,
+  [data-testid="stSidebar"] [data-testid="stExpander"] summary,
+  [data-testid="stSidebar"] [data-testid="stExpander"] summary * {
+    color: var(--sidebar-ink) !important;
+  }
+  /* Los labels de radio, toggle y campos traen tinta oscura propia con mayor
+     especificidad que la regla general, y quedaban casi negros sobre el navy
+     (1.09:1). Se los ancla por testid del widget para ganar la cascada. */
+  [data-testid="stSidebar"] [data-testid="stRadio"] *,
+  [data-testid="stSidebar"] [data-testid="stCheckbox"] *,
+  [data-testid="stSidebar"] [data-testid="stToggle"] *,
+  [data-testid="stSidebar"] [data-testid="stTextInput"] label *,
+  [data-testid="stSidebar"] [data-testid="stNumberInput"] label *,
+  [data-testid="stSidebar"] [data-testid="stDateInput"] label *,
+  [data-testid="stSidebar"] [data-testid="stSelectbox"] label *,
+  [data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"],
+  [data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] * {
+    color: var(--sidebar-ink) !important;
+  }
+  /* Streamlit inyecta sus estilos despues de este bloque, asi que con igual
+     especificidad e `!important` gana el suyo. Se sube la especificidad
+     apuntando al <p> final dentro del label del widget. */
+  [data-testid="stSidebar"] [data-testid="stWidgetLabel"] [data-testid="stMarkdownContainer"] p,
+  [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p,
+  [data-testid="stSidebar"] [data-testid="stCheckbox"] [data-testid="stMarkdownContainer"] p {
+    color: var(--sidebar-ink) !important;
+  }
+  /* El dropzone del uploader trae fondo claro solido propio, sobre el que la
+     tinta clara del sidebar era ilegible (1.07:1). Se lo alinea con el fondo
+     navy en vez de invertir la tinta, para no romper la lectura del bloque. */
+  [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+    background: rgba(10, 26, 40, 0.55) !important;
+    border: 1px dashed rgba(254, 254, 254, 0.22) !important;
+  }
+
+  /* Sobre fondo claro propio -> tinta de marca. El `*` es lo que faltaba:
+     sin el, el texto del boton quedaba blanco sobre blanco (1.00:1). */
   [data-testid="stSidebar"] .stButton > button,
-  [data-testid="stSidebar"] .stDownloadButton > button {
+  [data-testid="stSidebar"] .stButton > button *,
+  [data-testid="stSidebar"] .stDownloadButton > button,
+  [data-testid="stSidebar"] .stDownloadButton > button *,
+  [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button,
+  [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button *,
+  [data-testid="stSidebar"] [data-testid="stFileUploader"] button,
+  [data-testid="stSidebar"] [data-testid="stFileUploader"] button * {
     background: #FEFEFE !important;
     color: var(--brand) !important;
-    border: 1px solid rgba(254, 254, 254, 0.12) !important;
+    border-color: rgba(13, 60, 94, 0.18) !important;
   }
   [data-testid="stSidebar"] .stButton > button:hover,
-  [data-testid="stSidebar"] .stDownloadButton > button:hover {
+  [data-testid="stSidebar"] .stButton > button:hover *,
+  [data-testid="stSidebar"] .stDownloadButton > button:hover,
+  [data-testid="stSidebar"] .stDownloadButton > button:hover *,
+  [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button:hover,
+  [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button:hover *,
+  [data-testid="stSidebar"] [data-testid="stFileUploader"] button:hover,
+  [data-testid="stSidebar"] [data-testid="stFileUploader"] button:hover * {
     background: #E7EDF2 !important;
     color: var(--brand) !important;
   }
@@ -966,9 +692,9 @@ st.markdown("""
   }
   .module-kicker {
     font-family: 'Barlow Condensed', sans-serif;
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     font-weight: 700;
-    letter-spacing: 0.24em;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--muted) !important;
     margin-bottom: 0.26rem;
@@ -1014,8 +740,8 @@ st.markdown("""
   }
   .sidebar-brand-caption {
     font-family: 'Barlow Condensed', sans-serif;
-    font-size: 10px;
-    letter-spacing: 0.18em;
+    font-size: 12px;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: #B7C2CB !important;
   }
@@ -1025,9 +751,9 @@ st.markdown("""
   }
   .subsection-kicker {
     font-family: 'Barlow Condensed', sans-serif;
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     font-weight: 700;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--muted) !important;
     margin-bottom: 0.2rem;
@@ -1141,9 +867,9 @@ st.markdown("""
   }
   [data-testid="metric-container"] > div:first-child {
     font-family: 'Barlow Condensed', sans-serif !important;
-    font-size: 0.66rem !important;
+    font-size: 0.75rem !important;
     font-weight: 700 !important;
-    letter-spacing: 0.18em !important;
+    letter-spacing: 0.14em !important;
     text-transform: uppercase !important;
     color: var(--muted) !important;
   }
@@ -2673,7 +2399,7 @@ def render_product_alert_feed(alerts: list[dict[str, object]], max_items: int | 
   padding:0.8rem 0.95rem;
   margin:0 0 0.55rem 0;
 ">
-  <div style="font-size:0.68rem;letter-spacing:0.12em;text-transform:uppercase;color:{text_color};font-weight:750;">
+  <div style="font-size:0.75rem;letter-spacing:0.10em;text-transform:uppercase;color:{text_color};font-weight:750;">
     {html.escape(category)} | {html.escape(severity.upper())} | Prioridad {priority} | {html.escape(athlete)}
   </div>
   <div style="font-size:0.98rem;font-weight:760;color:#221F20;margin-top:0.25rem;">{title}</div>
@@ -2719,7 +2445,7 @@ def render_report_note(title: str, summary: str, focuses: list[str] | None = Non
   box-shadow:0 1px 0 rgba(13,60,94,0.04);
   margin:0.25rem 0 0.8rem 0;
 ">
-  <div style="font-size:0.68rem;letter-spacing:0.16em;text-transform:uppercase;color:#708C9F;margin-bottom:0.4rem;">{html.escape(kicker)}</div>
+  <div style="font-size:0.75rem;letter-spacing:0.12em;text-transform:uppercase;color:#708C9F;margin-bottom:0.4rem;">{html.escape(kicker)}</div>
   <div style="font-size:1rem;font-weight:700;color:#221F20;margin-bottom:0.45rem;">{html.escape(title)}</div>
   <div style="font-size:0.92rem;line-height:1.6;color:#221F20;">{html.escape(summary)}</div>
   {focus_html}
@@ -2772,7 +2498,7 @@ def render_jump_feedback(lines: list[str], *, kicker: str = "Devolucion automati
   box-shadow:0 1px 0 rgba(13,60,94,0.04);
   margin:0.25rem 0 0.8rem 0;
 ">
-  <div style="font-size:0.68rem;letter-spacing:0.16em;text-transform:uppercase;color:#708C9F;margin-bottom:0.4rem;">{html.escape(kicker)}</div>
+  <div style="font-size:0.75rem;letter-spacing:0.12em;text-transform:uppercase;color:#708C9F;margin-bottom:0.4rem;">{html.escape(kicker)}</div>
   {body}
 </div>
 """,
@@ -3549,7 +3275,7 @@ def render_overview_card(title: str, value: str, detail: str, tone: str = "neutr
   min-height:126px;
   margin-bottom:0.85rem;
 ">
-  <div style="font-family:'Barlow Condensed',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:{C["muted"]};margin-bottom:0.42rem;">{html.escape(title)}</div>
+  <div style="font-family:'Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:{C["muted"]};margin-bottom:0.42rem;">{html.escape(title)}</div>
   <div style="font-family:'DM Mono',monospace;font-size:1.55rem;line-height:1.08;color:{C["white"]};margin-bottom:0.48rem;">{html.escape(str(value))}</div>
   <div style="font-size:0.86rem;line-height:1.45;color:{C["gray"]};">{html.escape(detail)}</div>
 </div>
