@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "app.py"
-LOAD_PAGE_PATH = ROOT / "pages" / "01_load_monitoring.py"
-TEAM_PAGE_PATH = ROOT / "pages" / "04_team_dashboard.py"
+LOAD_PAGE_PATH = ROOT / "app.py"
+TEAM_PAGE_PATH = ROOT / "app.py"
 
 
 class P2P9SemanticParityStaticTest(unittest.TestCase):
@@ -49,7 +49,9 @@ class P2P9SemanticParityStaticTest(unittest.TestCase):
         self.assertIn("build_weekly_summaries(", source)
         self.assertIn("weekly_load", source)
         self.assertIn("weekly_team", source)
-        self.assertIn("Estado semanal de carga del equipo", source)
+        # El encabezado exacto era copy de la pagina pages/04 ya eliminada;
+        # lo que importa es que Team siga consumiendo el modelo semanal.
+        self.assertIn("weekly_wellness", source)
 
     def test_app_weekly_normalizer_is_available_to_all_tabs(self):
         source = APP_PATH.read_text(encoding="utf-8")

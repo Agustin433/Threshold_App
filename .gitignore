@@ -14,3 +14,4 @@ data/store/*.csv
 .pytest_cache/
 .test_tmp/
 tmp*/
+.claude/settings.local.json

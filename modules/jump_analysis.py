@@ -48,7 +48,6 @@ EXTERNAL_BENCHMARKS: dict[str, dict[str, float]] = {
     "DJ_RSI": {"mean": 1.71, "excellent": 2.68},
     "IMTP_N": {"mean": 3031.0, "excellent": 4678.0},
     "IMTP_relPF": {"mean": 37.39, "excellent": 53.43},
-    "mRSI": {"mean": 0.56, "excellent": 0.93},
 }
 
 for _benchmark in EXTERNAL_BENCHMARKS.values():
@@ -66,7 +65,6 @@ METRIC_LABELS = {
     "IMTP_N": "IMTP",
     "EUR": "EUR",
     "DSI": "DSI",
-    "mRSI": "mRSI",
     "Jump_Momentum": "Jump Momentum",
     "CMJ_rel_impulse": "Impulso Relativo Propulsivo",
 }
@@ -288,7 +286,6 @@ RADAR_NO_DJ_AXES = (
     ("SJ", "SJ_cm", "cm", "SJ_Z"),
     ("CMJ", "CMJ_cm", "cm", "CMJ_Z"),
     ("IMTP relPF", "IMTP_relPF", "N/kg", "IMTP_relPF_Z"),
-    ("mRSI", "mRSI", "m/s", "mRSI_Z"),
 )
 
 COMPOSITE_PROFILE_METRICS = (
@@ -355,9 +352,6 @@ COMPOSITE_PROFILE_SUPPORT_FIELDS = (
     "DJ_RSI_Z",
     "TC_inv_Z",
     "DSI",
-    "mRSI",
-    "TTT_s",
-    "TTT_ms",
     "Jump_Momentum",
     "Jump_Momentum_Z",
     "CMJ_rel_impulse",
@@ -394,7 +388,6 @@ PROFILE_SOURCE_DATE_FIELDS = (
     ("EUR", ("EUR",)),
     ("IMTP_relPF", ("IMTP_relPF", "IMTP_N")),
     ("DSI", ("DSI",)),
-    ("mRSI", ("mRSI",)),
 )
 
 EUR_PROFILE_THRESHOLDS = (
@@ -952,21 +945,11 @@ def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def calc_mrsi(df: pd.DataFrame) -> pd.DataFrame:
-    """mRSI / RSImod in m/s, using CMJ height and real time-to-takeoff in seconds."""
-    if "TTT_s" in df.columns:
-        ttt_s = _numeric_series(df, "TTT_s")
-    elif "TTT_ms" in df.columns:
-        ttt_s = (_numeric_series(df, "TTT_ms") / 1000).round(3)
-        df["TTT_s"] = ttt_s
-    else:
-        return df
-
-    if "CMJ_cm" in df.columns:
-        cmj_height_m = _numeric_series(df, "CMJ_cm") / 100
-        mask = cmj_height_m.notna() & ttt_s.notna() & (ttt_s > 0)
-        df.loc[mask, "mRSI"] = (cmj_height_m.loc[mask] / ttt_s.loc[mask]).round(3)
-    return df
+# `calc_mrsi` quedo eliminada junto con la metrica. Requeria `TTT_s`/`TTT_ms`
+# (time to takeoff), que ningun parser producia ni el esquema persistia, asi
+# que mRSI y mRSI_Z fueron siempre NaN y el radar caia invariablemente por la
+# rama "TTT no disponible". Para reintroducir RSImod hay que capturar TTT
+# primero: la metrica sin ese dato no es calculable.
 
 
 def calc_dsi(df: pd.DataFrame) -> pd.DataFrame:
@@ -1017,7 +1000,6 @@ def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd
         ("DRI", "DRI_Z", None, False),
         ("DJ_tc_ms", "TC_inv_Z", None, True),
         ("IMTP_relPF", "IMTP_relPF_Z", "IMTP_relPF", False),
-        ("mRSI", "mRSI_Z", "mRSI", False),
         ("Jump_Momentum", "Jump_Momentum_Z", None, False),
         ("EUR", "EUR_Z", None, False),
         ("DSI", "DSI_Z", None, False),
@@ -1083,7 +1065,6 @@ def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tupl
     row_series = row if isinstance(row, pd.Series) else pd.Series(row)
     has_imtp = pd.notna(row_series.get("IMTP_relPF"))
     has_dj = pd.notna(row_series.get("DJ_cm")) and pd.notna(row_series.get("DJ_RSI"))
-    has_mrsi = pd.notna(row_series.get("mRSI"))
 
     notes: list[str] = []
     if has_dj and has_imtp:
@@ -1094,9 +1075,6 @@ def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tupl
     elif has_imtp:
         axes = list(RADAR_NO_DJ_AXES)
         notes.append("DJ no disponible")
-        if not has_mrsi:
-            axes = [axis for axis in axes if axis[1] != "mRSI"]
-            notes.append("TTT no disponible")
     else:
         axes = list(RADAR_NO_IMTP_AXES[:2])
         notes.append("Perfil parcial")
@@ -1117,32 +1095,29 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
         else:
             flags.append({"level": "red", "text": "EUR bajo: posible bajo aporte del contramovimiento; validar tecnica y fatiga"})
 
+    # DSI no es una metrica de calidad sino un indicador de direccion de
+    # entrenamiento (Sheppard et al.; Comfort et al.). Un DSI alto no es "bueno":
+    # señala que la fuerza maxima queda corta respecto a la expresion balistica.
+    # Un DSI bajo tampoco es "malo": señala superavit de fuerza con deficit
+    # balistico. Antes se pintaba verde el alto y rojo el bajo, lo que invertia
+    # la recomendacion practica. Ahora se muestra en gris con la lectura.
     dsi = pd.to_numeric(pd.Series([row_series.get("DSI")]), errors="coerce").iloc[0]
     if pd.notna(dsi):
-        if dsi >= 1.0:
-            flags.append({"level": "green", "text": "DSI alto: relacion dinamica/isometrica elevada; interpretar con IMTP y CMJ"})
-        elif dsi >= 0.8:
-            flags.append({"level": "yellow", "text": "DSI intermedio: interpretar con IMTP y CMJ"})
+        if dsi >= 0.80:
+            flags.append({
+                "level": "gray",
+                "text": "DSI alto: buena expresion balistica relativa; priorizar fuerza maxima",
+            })
+        elif dsi >= 0.60:
+            flags.append({
+                "level": "gray",
+                "text": "DSI intermedio: fuerza y expresion balistica equilibradas",
+            })
         else:
-            flags.append({"level": "red", "text": "DSI bajo: relacion dinamica/isometrica reducida; interpretar con IMTP y CMJ"})
-
-    has_real_ttt = False
-    for ttt_col in ("TTT_s", "TTT_ms"):
-        ttt_value = pd.to_numeric(pd.Series([row_series.get(ttt_col)]), errors="coerce").iloc[0]
-        if pd.notna(ttt_value) and ttt_value > 0:
-            has_real_ttt = True
-            break
-
-    mrsi = pd.to_numeric(pd.Series([row_series.get("mRSI")]), errors="coerce").iloc[0]
-    if not has_real_ttt:
-        flags.append({"level": "gray", "text": "mRSI — requiere TTT del export"})
-    elif pd.notna(mrsi):
-        if mrsi >= 0.70:
-            flags.append({"level": "green", "text": "mRSI alto: eficiencia temporal del CMJ; no equivalente a DJ RSI"})
-        elif mrsi >= 0.45:
-            flags.append({"level": "yellow", "text": "mRSI intermedio: leer junto con CMJ y el protocolo aplicado"})
-        else:
-            flags.append({"level": "red", "text": "mRSI bajo: eficiencia temporal del CMJ a validar con el protocolo aplicado"})
+            flags.append({
+                "level": "gray",
+                "text": "DSI bajo: superavit de fuerza con deficit balistico; priorizar trabajo balistico/potencia",
+            })
 
     return flags
 
@@ -2578,7 +2553,6 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
     result = calc_eur(result)
     result = calc_dj_rsi(result)
     result = calc_dri(result)
-    result = calc_mrsi(result)
     result = calc_dsi(result)
     result = calc_imtp_rel_pf(result)
     result = calc_jump_momentum(result)
@@ -2589,33 +2563,39 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
         ("EUR", 3),
         ("DJ_RSI", 3),
         ("DRI", 3),
-        ("mRSI", 3),
         ("DSI", 3),
         ("IMTP_relPF", 2),
         ("Jump_Momentum", 1),
     ):
         _round_column(result, column, digits)
 
-    return result.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+    return result.sort_values(["Athlete", "Date", "Source"]).reset_index(drop=True)
 
 
 def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
-    """Consolidate individual test records into one row per athlete/date."""
+    """Consolidate individual test records into one row per athlete/date/source."""
     if not records:
         return pd.DataFrame()
 
-    rows: dict[tuple[str, pd.Timestamp], dict[str, object]] = {}
+    rows: dict[tuple[str, pd.Timestamp, str], dict[str, object]] = {}
     for record in records:
         athlete = str(record.get("Athlete", "")).strip().title()
         date = pd.to_datetime(record.get("Date"), errors="coerce")
         if not athlete or pd.isna(date):
             continue
 
-        key = (athlete, date.normalize())
-        row = rows.setdefault(key, {"Athlete": athlete, "Date": date.normalize()})
+        # La fuente forma parte de la clave de consolidacion: tests de
+        # dispositivos distintos no se agrupan en una misma fila aunque
+        # compartan atleta y fecha.
+        source = normalize_source(record.get("Source"))
+        key = (athlete, date.normalize(), source)
+        row = rows.setdefault(
+            key,
+            {"Athlete": athlete, "Date": date.normalize(), "Source": source},
+        )
         for field, value in record.items():
             if (
-                field in {"Athlete", "Date", "test_type"}
+                field in {"Athlete", "Date", "Source", "test_type"}
                 or field.endswith("_reps")
                 or field.startswith("__")
             ):

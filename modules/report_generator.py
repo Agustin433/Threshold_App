@@ -288,10 +288,9 @@ PROFESSIONAL_METRIC_DIRECTIONS = {
     "RSI": "higher_is_better",
     "Contact Time": "lower_is_better",
     "EUR": "context_dependent",
-    "mRSI": "higher_is_better",
     "IMTP": "higher_is_better",
 }
-PROFESSIONAL_EVOLUTION_PRIORITY = ("CMJ", "SJ", "DJ", "IMTP", "EUR", "Contact Time", "RSI", "mRSI")
+PROFESSIONAL_EVOLUTION_PRIORITY = ("CMJ", "SJ", "DJ", "IMTP", "EUR", "Contact Time", "RSI")
 PROFESSIONAL_NO_EVALUATION_TEXT = (
     "Faltan datos de evaluación para este atleta en el período seleccionado.\n"
     "Este reporte se genera con la información disponible de entrenamiento, carga interna y wellness.\n"
@@ -361,15 +360,6 @@ PROFESSIONAL_PDF_METRICS = (
         "direction": PROFESSIONAL_METRIC_DIRECTIONS["EUR"],
     },
     {
-        "title": "mRSI",
-        "value_cols": ("mRSI",),
-        "z_cols": ("mRSI_Z",),
-        "unit": "mrsi_index",
-        "digits": 3,
-        "higher_is_better": True,
-        "direction": PROFESSIONAL_METRIC_DIRECTIONS["mRSI"],
-    },
-    {
         "title": "IMTP",
         "value_cols": ("IMTP_N", "IMTP_relPF"),
         "z_cols": ("IMTP_N_Z", "IMTP_Z", "IMTP_relPF_Z"),
@@ -386,7 +376,6 @@ PROFESSIONAL_TE_REFERENCES = {
     "DJ_RSI": {"value": 0.031, "unit": "m/s"},
     "DRI": {"value": 0.05, "unit": "dri_index"},
     "DJ_tc_ms": {"value": 4.0, "unit": "ms"},
-    "mRSI": {"value": 0.05, "unit": "mRSI"},
     "EUR": {"value": 0.021, "unit": "ratio"},
     "IMTP_N": {"value": 30.0, "unit": "N"},
 }
@@ -554,7 +543,6 @@ def _professional_metric_te_reference(spec: dict[str, object], value_col: str) -
         "RSI": "DJ_RSI",
         "Contact Time": "DJ_tc_ms",
         "EUR": "EUR",
-        "mRSI": "mRSI",
         "IMTP": "IMTP_N",
     }
     fallback_key = title_fallback.get(title)
@@ -4941,8 +4929,6 @@ def _professional_metric_display_unit(spec: dict[str, object], value_col: str) -
         return "Índice RSI"
     if unit == "dri_index":
         return "Índice DRI"
-    if unit == "mrsi_index":
-        return "Índice mRSI"
     if unit == "ratio":
         return "Ratio"
     if title == "IMTP" and value_col == "IMTP_relPF":
@@ -4956,8 +4942,6 @@ def _professional_metric_delta_unit(spec: dict[str, object], value_col: str) -> 
         return "unidades RSI"
     if unit == "dri_index":
         return "unidades DRI"
-    if unit == "mrsi_index":
-        return "unidades mRSI"
     return unit
 
 
@@ -4975,7 +4959,7 @@ def _format_professional_metric_value(value: object, spec: dict[str, object], va
     digits = _professional_metric_digits(spec, value_col)
     unit = _professional_metric_unit(spec, value_col)
     rendered = f"{numeric:.{digits}f}"
-    if unit and unit not in {"ratio", "rsi_index", "mrsi_index"}:
+    if unit and unit not in {"ratio", "rsi_index"}:
         return f"{rendered} {unit}"
     return rendered
 
@@ -5152,8 +5136,7 @@ def _professional_metric_interpretation(
         ),
         "RSI": "RSI debe leerse junto con DJ/DRI y Contact Time; no usarlo como conclusión aislada.",
         "Contact Time": "Contact Time debe leerse junto con DJ/DRI y RSI; un cambio aislado no define por sí solo el perfil reactivo.",
-        "mRSI": "mRSI aporta contexto reactivo y conviene leerlo junto con CMJ, DJ y el protocolo aplicado.",
-    }
+        }
     note = contextual_notes.get(title, "")
     if base_message and note:
         return f"{base_message} {note}"
@@ -6642,7 +6625,6 @@ PROFESSIONAL_NEUROMUSCULAR_SIGNAL_ORDER = (
 PROFESSIONAL_NEUROMUSCULAR_SUPPORT_METRICS = (
     ("DJ_RSI", "DJ RSI", "m/s", ("DJ_RSI_Z",), "higher_is_better"),
     ("DSI", "DSI", "", ("DSI_Z",), "higher_is_better"),
-    ("mRSI", "mRSI", "m/s", ("mRSI_Z",), "higher_is_better"),
     ("IMTP_N", "IMTP", "N", ("IMTP_N_Z",), "higher_is_better"),
 )
 
@@ -6657,7 +6639,6 @@ NEUROMUSCULAR_KPI_LABELS = {
     "IMTP_relPF": "IMTP relPF",
     "IMTP_N": "IMTP",
     "DSI": "DSI",
-    "mRSI": "mRSI",
 }
 
 NEUROMUSCULAR_PRIORITY_SHORT_TEXT = {
@@ -8947,7 +8928,7 @@ def _build_professional_next_steps(evaluation_state: str) -> list[str]:
         ]
     if clean == "partial":
         return [
-            "Completar métricas faltantes, especialmente mRSI o DRI si corresponde.",
+            "Completar métricas faltantes, especialmente DRI si corresponde.",
             "Repetir evaluación en 6-8 semanas antes de cerrar conclusiones más fuertes.",
             "Mantener misma entrada en calor, protocolo y condiciones para comparar mejor.",
             "Usar carga interna y wellness solo para regular el corto plazo; no reemplazan el perfil físico.",
@@ -10363,7 +10344,7 @@ def _generate_professional_profile_pdf_reportlab(
         if missing_metric_titles:
             target.append(Spacer(1, 3 * mm))
             target.append(_box([_p(f"Métricas no disponibles: {', '.join(missing_metric_titles)}.", "ProfMuted")]))
-        if any(card.get("title") in {"RSI", "mRSI"} for card in available_cards):
+        if any(card.get("title") == "RSI" for card in available_cards):
             target.append(Spacer(1, 3 * mm))
             target.append(_box([_p(f"Nota metodológica: {PROFESSIONAL_RSI_METHOD_NOTE}", "ProfMuted")], padding=5))
 

@@ -471,7 +471,7 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
     if data.empty:
         return _empty_state_figure(
             theme=theme,
-            title="<b>Cuadrante Principal - SJ z vs DRI z</b>",
+            title="<b>Cuadrante DRI (experimental) - SJ z vs DRI z</b>",
             message=_dri_missing_message(source_data),
             height=500,
         )
@@ -527,7 +527,7 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
     fig.update_layout(
         **layout,
         height=500,
-        title=dict(text="<b>Cuadrante Principal - SJ z vs DRI z</b>", font=dict(color=colors["navy"], size=13)),
+        title=dict(text="<b>Cuadrante DRI (experimental) - SJ z vs DRI z</b>", font=dict(color=colors["navy"], size=13)),
         xaxis=dict(title="DRI z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
         yaxis=dict(title="SJ z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
         legend=legend,

@@ -52,13 +52,24 @@ class AppNeuromuscularStaticTest(unittest.TestCase):
         self.assertIn("la evaluaci", source)
         self.assertIn("altura de ca", source)
 
-    def test_app_exposes_explicit_dj_history_backfill_controls(self):
-        source = APP_PATH.read_text(encoding="utf-8")
+    def test_dj_history_backfill_helpers_stay_available(self):
+        """El expander de backfill se retiro; los helpers siguen disponibles.
 
-        self.assertIn("Mantenimiento DRI historico", source)
-        self.assertIn("Aplicar backfill DJ historico (30 cm)", source)
-        self.assertIn('key="btn_backfill_dj_drop_height"', source)
-        self.assertIn("build_dj_drop_height_backfill_candidates", source)
+        El backfill de altura de caida ya se aplico y hoy devuelve 0
+        candidatos, asi que el control dejo de tener funcion en la UI. Lo que
+        no debe perderse es la capacidad de detectar historial DJ sin altura
+        si reaparece.
+        """
+        from modules.jump_analysis import (
+            build_dj_drop_height_backfill_candidates,
+            dj_drop_height_backfill_mask,
+        )
+
+        source = APP_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("Aplicar backfill DJ historico (30 cm)", source)
+        self.assertNotIn('key="btn_backfill_dj_drop_height"', source)
+        self.assertTrue(callable(build_dj_drop_height_backfill_candidates))
+        self.assertTrue(callable(dj_drop_height_backfill_mask))
 
 
 if __name__ == "__main__":

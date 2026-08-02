@@ -102,7 +102,20 @@ from modules.data_loader import (
     parse_xlsx_questionnaire as shared_parse_xlsx_questionnaire,
 )
 from modules.data_quality import compute_data_quality_report, compute_profile_coverage
+from modules.evaluation_sources import (
+    DEFAULT_SOURCE,
+    SOURCE_DESCRIPTIONS,
+    SOURCE_DEVICES,
+    SOURCE_LABELS,
+    SOURCE_NONPLATFORM,
+    SOURCE_ORDER,
+    SOURCE_PLATFORM,
+    SOURCE_VIEW_LABELS,
+    flight_time_to_height_cm,
+    normalize_source,
+)
 from modules.history_mode import history_mode_caption, render_history_mode_selector
+from modules.history_view import render_history_manager
 from modules.page_state import (
     build_report_preview_signature,
     current_report_state_version,
@@ -2572,7 +2585,7 @@ def render_force_time_detail_block(
         if left_right_chart is None:
             _alert("Sin datos suficientes para comparar fuerza maxima entre lados.", "b")
         else:
-            st.plotly_chart(left_right_chart, use_container_width=False)
+            st.plotly_chart(left_right_chart, width='content')
     with asymmetry_text_col:
         stronger_side = asymmetry_summary.get("stronger_side")
         weaker_side = asymmetry_summary.get("weaker_side")
@@ -2592,14 +2605,14 @@ def render_force_time_detail_block(
         if force_time_chart is None:
             _alert("Sin datos suficientes para mostrar el perfil force-time por puntos exportados.", "b")
         else:
-            st.plotly_chart(force_time_chart, use_container_width=False)
+            st.plotly_chart(force_time_chart, width='content')
         st.caption("Perfil force-time por puntos exportados: 50, 100, 150, 200, 250 ms y Peak Force.")
     with profile_right:
         rfd_chart = make_rfd_points_chart(rfd_points)
         if rfd_chart is None:
             _alert("Sin datos suficientes para mostrar RFD por ventanas exportadas.", "b")
         else:
-            st.plotly_chart(rfd_chart, use_container_width=False)
+            st.plotly_chart(rfd_chart, width='content')
         st.caption(
             "RFD = tasa de desarrollo de fuerza. Sin un TE o umbral de confiabilidad propio, "
             "conviene leerla con cautela y como apoyo descriptivo."
@@ -2630,7 +2643,7 @@ def render_jump_temporal_delta_table(delta_df: pd.DataFrame):
         return styles
 
     styler = display_df.style.apply(_style_signal, subset=["Senal"])
-    st.dataframe(styler, use_container_width=False, hide_index=True)
+    st.dataframe(styler, width='content', hide_index=True)
 
 
 def render_jump_baseline_delta_table(baseline_df: pd.DataFrame):
@@ -2656,7 +2669,7 @@ def render_jump_baseline_delta_table(baseline_df: pd.DataFrame):
         return styles
 
     styler = display_df.style.apply(_style_signal, subset=["Senal"])
-    st.dataframe(styler, use_container_width=False, hide_index=True)
+    st.dataframe(styler, width='content', hide_index=True)
 
 
 def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
@@ -3050,8 +3063,8 @@ def _render_performance_debug_panel(panel_placeholder, active_view: str) -> None
     with panel_placeholder.container():
         with st.expander("Diagnóstico de rendimiento", expanded=False):
             st.caption("Observación pasiva: no fuerza recomputaciones ni genera reportes por sí sola.")
-            st.dataframe(pd.DataFrame(state_rows), use_container_width=True, hide_index=True)
-            st.dataframe(pd.DataFrame(timing_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(state_rows), width='stretch', hide_index=True)
+            st.dataframe(pd.DataFrame(timing_rows), width='stretch', hide_index=True)
 
 
 def _active_dataset_rows(keys: list[str] | None = None) -> list[dict[str, object]]:
@@ -4067,7 +4080,7 @@ with st.sidebar:
             with st.expander("Fechas y ventana activa", expanded=False):
                 st.dataframe(
                     pd.DataFrame(dataset_rows)[["Dataset", "Registros", "Atletas", "Ultima fecha", "Ventana activa"]],
-                    use_container_width=False,
+                    width='content',
                     hide_index=True,
                 )
 
@@ -4084,87 +4097,98 @@ with st.sidebar:
         with st.expander("Ver formatos esperados", expanded=False):
             st.dataframe(
                 pd.DataFrame(_upload_contract_rows()),
-                use_container_width=False,
+                width='content',
                 hide_index=True,
             )
 
+        # Uploaders retirados y por que:
+        # - RPE + Wellness .xlsx: el Questionnaire Raw CSV cubre las dos fuentes
+        #   en un solo archivo y ambos caminos eran mutuamente excluyentes, lo
+        #   que obligaba a un checkbox de confirmacion y a logica de conflicto.
+        # - Rep/Load Report: 0 filas en el historial, nunca se uso. La fuente
+        #   oficial de carga externa es Raw Data Report - Workouts.
+        # - Opt-outs / Session Notes PDF: 0 filas en el historial.
+        # Los parsers siguen en modules/data_loader.py por si hay que reponer
+        # alguno; lo que se saca es la superficie de carga.
         f_questionnaire_raw = st.file_uploader(
-            "Questionnaire Raw CSV (recomendado)",
+            "Questionnaire Raw CSV (RPE + Wellness)",
             type=list(UPLOAD_CONTRACTS["questionnaire_raw"]["extensions"]),
             key="u_questionnaire_raw",
-            help="Export raw de cuestionarios desde TeamBuildr. Reemplaza los dos archivos xlsx por uno solo.",
+            help="Export raw de cuestionarios desde TeamBuildr. Trae RPE y Wellness en un solo archivo.",
         )
-        f_rpe = st.file_uploader("RPE + Tiempo (questionnaire-report.xlsx)",
-                                  type=list(UPLOAD_CONTRACTS["rpe"]["extensions"]), key="u_rpe")
-        f_wellness = st.file_uploader("Wellness 3Q (questionnaire-report_wellness.xlsx)",
-                                       type=list(UPLOAD_CONTRACTS["wellness"]["extensions"]), key="u_wellness")
         f_completion = st.file_uploader("Completion Report (.csv)",
                                          type=list(UPLOAD_CONTRACTS["completion"]["extensions"]), key="u_comp")
-        f_rep_load = st.file_uploader(
-            "Rep/Load Report (legacy opcional)",
-            type=list(UPLOAD_CONTRACTS["rep_load"]["extensions"]),
-            key="u_rl",
-            help="Fuente legacy. Usar Raw Data Report - Workouts como fuente recomendada para carga externa y analisis por estimulo.",
-        )
         f_raw = st.file_uploader("Raw Data Report – Workouts (.csv) - fuente oficial",
                                   type=list(UPLOAD_CONTRACTS["raw_workouts"]["extensions"]),
                                   key="u_raw",
-                                  help="Fuente oficial/recomendada para carga externa, volumen por estimulo y Load Monitoring.")
-        f_session_notes = st.file_uploader("Opt-outs / Session Notes PDF (.pdf)",
-                                            type=list(UPLOAD_CONTRACTS["session_notes"]["extensions"]), key="u_session_notes")
+                                  help="Fuente oficial para carga externa, volumen por estimulo y Load Monitoring.")
         f_maxes = st.file_uploader("Raw Data Report – Maxes (.csv)",
                                     type=list(UPLOAD_CONTRACTS["maxes"]["extensions"]), key="u_maxes")
         _sync_processed_upload_state(
             {
                 "questionnaire_raw": f_questionnaire_raw,
-                "rpe": f_rpe,
-                "wellness": f_wellness,
                 "completion": f_completion,
-                "rep_load": f_rep_load,
                 "raw_workouts": f_raw,
-                "session_notes": f_session_notes,
                 "maxes": f_maxes,
             }
         )
         pending_dataset_rows = _pending_upload_rows(
             {
                 "questionnaire_raw": f_questionnaire_raw,
-                "rpe": f_rpe,
-                "wellness": f_wellness,
                 "completion": f_completion,
-                "rep_load": f_rep_load,
                 "raw_workouts": f_raw,
-                "session_notes": f_session_notes,
                 "maxes": f_maxes,
             }
         )
-        questionnaire_replacement_needed = bool(
-            f_questionnaire_raw
-            and st.session_state.questionnaire_upload_source != "raw_csv"
-            and (
-                (st.session_state.rpe_df is not None and not st.session_state.rpe_df.empty)
-                or (st.session_state.wellness_df is not None and not st.session_state.wellness_df.empty)
-            )
-        )
-        if questionnaire_replacement_needed:
-            st.warning(
-                "El raw CSV va a reemplazar los datasets actuales de RPE y Wellness cargados en esta sesion."
-            )
-            confirm_questionnaire_raw_replace = st.checkbox(
-                "Confirmo reemplazar RPE + Wellness por Questionnaire Raw CSV",
-                key="confirm_questionnaire_raw_replace",
-            )
-        else:
-            confirm_questionnaire_raw_replace = True
         if pending_dataset_rows:
             st.caption(f"{len(pending_dataset_rows)} archivo(s) listo(s) para procesar")
             st.dataframe(
                 pd.DataFrame(pending_dataset_rows),
-                use_container_width=False,
+                width='content',
                 hide_index=True,
             )
         st.markdown("**Evaluaciones de Saltos e IMTP**")
-        st.caption("Subi archivos .xlsx exportados por la plataforma de fuerza.")
+        # Igual que "Tipo de test", estos controles viven fuera del st.form
+        # porque cambian que campos se muestran y necesitan disparar el rerun
+        # en el acto.
+        eval_source = st.radio(
+            "Fuente de medición",
+            list(SOURCE_ORDER),
+            format_func=lambda value: SOURCE_LABELS[value],
+            horizontal=True,
+            key="eval_source",
+            help=(
+                "Plataforma mide la altura por impulso-momento; MyJump2 y las "
+                "alfombras la derivan del tiempo de vuelo. Los dos métodos no "
+                "son intercambiables, por eso se guardan y analizan por separado."
+            ),
+        )
+        st.caption(SOURCE_DESCRIPTIONS[eval_source])
+
+        eval_device = None
+        if eval_source == SOURCE_PLATFORM:
+            eval_entry_mode = st.radio(
+                "Modo de carga",
+                ["Archivo", "Manual"],
+                horizontal=True,
+                key="eval_entry_mode",
+            )
+        else:
+            # No hay export de plataforma para estos dispositivos: la carga es
+            # siempre manual.
+            eval_entry_mode = "Manual"
+            eval_device = st.selectbox(
+                "Dispositivo",
+                list(SOURCE_DEVICES[SOURCE_NONPLATFORM]),
+                key="eval_device_nonplatform",
+                help="Solo trazabilidad. No cambia los cálculos.",
+            )
+
+        if eval_entry_mode == "Archivo":
+            st.caption("Subi archivos .xlsx exportados por la plataforma de fuerza.")
+        else:
+            st.caption("Cargá los valores a mano. Las métricas derivadas se calculan solas.")
+
         athlete_options = ["Escribir nuevo..."] + known_athlete_names()
         eval_file_key = f"eval_file_{st.session_state.eval_file_nonce}"
         # "Tipo de test" vive fuera del form a proposito: adentro de un
@@ -4450,18 +4474,18 @@ with st.sidebar:
 
             if grouped_rows:
                 st.caption("Resumen por atleta y fecha")
-                st.dataframe(pd.DataFrame(grouped_rows), use_container_width=False, hide_index=True)
+                st.dataframe(pd.DataFrame(grouped_rows), width='content', hide_index=True)
 
             if detail_rows:
                 with st.expander("Detalle de la cola", expanded=duplicate_tests > 0):
-                    st.dataframe(pd.DataFrame(detail_rows), use_container_width=False, hide_index=True)
+                    st.dataframe(pd.DataFrame(detail_rows), width='content', hide_index=True)
 
             preview_df = _records_to_jump_df(pending_records)
             if not preview_df.empty:
                 with st.expander("Vista previa consolidada", expanded=False):
                     preview_cols = [
                         col for col in [
-                            "Athlete", "Date", "CMJ_cm", "SJ_cm", "DJ_drop_height_cm",
+                            "Athlete", "Date", "Source", "CMJ_cm", "SJ_cm", "DJ_drop_height_cm",
                             "DJ_cm", "DJ_tc_ms", "DJ_RSI", "DRI", "EUR", "IMTP_N", "NM_Profile"
                         ]
                         if col in preview_df.columns
@@ -4472,9 +4496,13 @@ with st.sidebar:
                             "EUR": "EUR (ratio)",
                         }
                     )
+                    if "Source" in preview_display.columns:
+                        preview_display["Source"] = preview_display["Source"].map(
+                            lambda value: SOURCE_LABELS[normalize_source(value)]
+                        )
                     st.dataframe(
                         preview_display.sort_values(["Athlete", "Date"]),
-                        use_container_width=False,
+                        width='content',
                         hide_index=True,
                     )
 
@@ -4521,58 +4549,11 @@ with st.sidebar:
                 "Lo que no se hara es la sincronizacion remota ni la recuperacion desde Supabase."
             )
 
-        with st.expander("Mantenimiento DRI historico", expanded=False):
-            jump_history_audit_df = read_full_dataset("jump_df")
-            dj_backfill_candidates = build_dj_drop_height_backfill_candidates(jump_history_audit_df)
-            candidate_count = len(dj_backfill_candidates)
-
-            if candidate_count == 0:
-                st.caption("No hay evaluaciones DJ historicas sin altura de caida para completar.")
-            else:
-                athlete_count = (
-                    int(dj_backfill_candidates["Athlete"].dropna().nunique())
-                    if "Athlete" in dj_backfill_candidates.columns
-                    else 0
-                )
-                target_label = "Supabase y la copia local" if supabase_evaluations_enabled() else "el historial local"
-                st.warning(
-                    f"Se detectaron {candidate_count} evaluacion(es) DJ historicas sin altura de caida "
-                    f"en {athlete_count} atleta(s). Esta accion completa 30 cm solo en esas filas "
-                    f"y recalcula DRI en {target_label}."
-                )
-                preview_cols = [
-                    col
-                    for col in ["Athlete", "Date", "DJ_cm", "DJ_tc_ms", "DJ_RSI", "DJ_drop_height_cm", "DRI"]
-                    if col in dj_backfill_candidates.columns
-                ]
-                st.dataframe(
-                    dj_backfill_candidates[preview_cols].sort_values(["Athlete", "Date"]),
-                    use_container_width=False,
-                    hide_index=True,
-                )
-
-                if st.button("Aplicar backfill DJ historico (30 cm)", key="btn_backfill_dj_drop_height"):
-                    try:
-                        if supabase_evaluations_enabled():
-                            stats = backfill_remote_evaluations_drop_height(default_drop_height_cm=30.0)
-                            st.session_state.evaluations_loaded_from_store = False
-                            hydrate_evaluations_from_store(force=True, show_success=False)
-                        else:
-                            stats = backfill_jump_drop_height_history(default_drop_height_cm=30.0)
-                            refreshed_jump_df = read_full_dataset("jump_df")
-                            st.session_state.jump_df = refreshed_jump_df if not refreshed_jump_df.empty else None
-                            mark_local_store_hydrated()
-                            rebuild_load_state(force=True)
-
-                        st.session_state.eval_sync_notice = (
-                            f"Backfill DJ historico aplicado: {stats['updated_rows']} evaluacion(es) "
-                            f"de {stats['athletes']} atleta(s) completadas con 30 cm."
-                        )
-                        st.session_state.eval_sync_notice_kind = "success"
-                    except Exception as exc:
-                        st.session_state.eval_sync_notice = f"No se pudo aplicar el backfill DJ historico: {exc}"
-                        st.session_state.eval_sync_notice_kind = "warning"
-                    st.rerun()
+        # El expander "Mantenimiento DRI historico" quedo eliminado: el
+        # backfill de altura de caida ya se aplico y hoy devuelve 0
+        # candidatos. Los helpers (`build_dj_drop_height_backfill_candidates`,
+        # `backfill_jump_drop_height_history`) siguen disponibles por si
+        # reaparece historial DJ sin altura.
 
         if st.session_state.eval_sync_notice:
             notice = st.session_state.eval_sync_notice
@@ -4589,56 +4570,12 @@ with st.sidebar:
             st.session_state.upload_feedback = []
             processed_any = False
             with st.spinner("Procesando..."):
-                questionnaire_conflict = bool(f_questionnaire_raw and (f_rpe or f_wellness))
-                if questionnaire_conflict:
-                    _push_notice(
-                        "warning",
-                        "Usa Questionnaire Raw CSV o los dos archivos xlsx de cuestionarios, no ambos en el mismo procesamiento.",
-                    )
-                elif f_questionnaire_raw:
-                    if confirm_questionnaire_raw_replace:
-                        processed_any = _run_questionnaire_raw_job(
-                            getattr(f_questionnaire_raw, "name", "questionnaire_raw.csv"),
-                            lambda: parse_questionnaire_raw_csv(f_questionnaire_raw),
-                            source_file=f_questionnaire_raw,
-                        ) or processed_any
-                    else:
-                        _push_notice(
-                            "warning",
-                            "Questionnaire Raw CSV: confirma el reemplazo de RPE + Wellness para continuar.",
-                        )
-                if f_rpe:
-                    if not questionnaire_conflict and not f_questionnaire_raw:
-                        rpe_processed = _run_dataset_job(
-                            "RPE + Tiempo",
-                            "rpe_df",
-                            getattr(f_rpe, "name", "questionnaire-report.xlsx"),
-                            lambda: parse_xlsx_questionnaire(
-                                f_rpe.read(),
-                                mode="rpe",
-                                filename=getattr(f_rpe, "name", None),
-                            ),
-                            source_file=f_rpe,
-                        )
-                        if rpe_processed:
-                            st.session_state.questionnaire_upload_source = "xlsx"
-                        processed_any = rpe_processed or processed_any
-                if f_wellness:
-                    if not questionnaire_conflict and not f_questionnaire_raw:
-                        wellness_processed = _run_dataset_job(
-                            "Wellness 3Q",
-                            "wellness_df",
-                            getattr(f_wellness, "name", "questionnaire-report_wellness.xlsx"),
-                            lambda: parse_xlsx_questionnaire(
-                                f_wellness.read(),
-                                mode="wellness",
-                                filename=getattr(f_wellness, "name", None),
-                            ),
-                            source_file=f_wellness,
-                        )
-                        if wellness_processed:
-                            st.session_state.questionnaire_upload_source = "xlsx"
-                        processed_any = wellness_processed or processed_any
+                if f_questionnaire_raw:
+                    processed_any = _run_questionnaire_raw_job(
+                        getattr(f_questionnaire_raw, "name", "questionnaire_raw.csv"),
+                        lambda: parse_questionnaire_raw_csv(f_questionnaire_raw),
+                        source_file=f_questionnaire_raw,
+                    ) or processed_any
                 if f_completion:
                     processed_any = _run_dataset_job(
                         "Completion Report",
@@ -4647,14 +4584,6 @@ with st.sidebar:
                         lambda: parse_completion_report(f_completion),
                         source_file=f_completion,
                     ) or processed_any
-                if f_rep_load:
-                    processed_any = _run_dataset_job(
-                        "Rep/Load Report (legacy opcional)",
-                        "rep_load_df",
-                        getattr(f_rep_load, "name", "rep_load.csv"),
-                        lambda: parse_rep_load_report(f_rep_load),
-                        source_file=f_rep_load,
-                    ) or processed_any
                 if f_raw:
                     processed_any = _run_dataset_job(
                         "Raw Workouts (fuente oficial)",
@@ -4662,14 +4591,6 @@ with st.sidebar:
                         getattr(f_raw, "name", "raw_workouts.csv"),
                         lambda: parse_raw_workouts(f_raw),
                         source_file=f_raw,
-                    ) or processed_any
-                if f_session_notes:
-                    processed_any = _run_dataset_job(
-                        "Opt-outs / Session Notes",
-                        "session_notes_df",
-                        getattr(f_session_notes, "name", "session_notes.pdf"),
-                        lambda: parse_session_notes_pdf(f_session_notes),
-                        source_file=f_session_notes,
                     ) or processed_any
                 if f_maxes:
                     processed_any = _run_dataset_job(
@@ -4754,7 +4675,7 @@ with st.sidebar:
                 st.caption("Posibles nombres duplicados o muy parecidos:")
                 st.dataframe(
                     pd.DataFrame(conflicts),
-                    use_container_width=False,
+                    width='content',
                     hide_index=True,
                 )
             else:
@@ -5155,7 +5076,7 @@ def render_decision_panel():
             .apply(lambda series: _style_palette(series, zone_palette), subset=["Zona"])
             .apply(_style_signed, subset=["Delta sRPE"])
         )
-        st.dataframe(risk_styler, use_container_width=True, hide_index=True)
+        st.dataframe(risk_styler, width='stretch', hide_index=True)
 
     render_subsection_header("Variacion semanal", "como vienen vs semana anterior", kicker="Bloque 2")
     if current_load.empty:
@@ -5197,7 +5118,7 @@ def render_decision_panel():
             yaxis_title="Atleta",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         )
-        st.plotly_chart(fig_variation, use_container_width=True, key="decision_variation")
+        st.plotly_chart(fig_variation, width='stretch', key="decision_variation")
 
         risk_count = int(variation_df["Zona"].isin(["Precaucion", "Alto riesgo"]).sum())
         avg_current = float(variation_df["weekly_sRPE"].mean()) if not variation_df.empty else 0.0
@@ -5376,7 +5297,7 @@ def render_decision_panel():
                 else:
                     style_frame.loc[idx, label] = "background-color: rgba(217,79,79,0.18); color:#8A2F2F; font-weight:700;"
         heatmap_styler = heatmap_df.style.apply(lambda _frame: style_frame, axis=None)
-        st.dataframe(heatmap_styler, use_container_width=True, hide_index=True)
+        st.dataframe(heatmap_styler, width='stretch', hide_index=True)
 
         for column in category_columns:
             above_count = 0
@@ -5434,7 +5355,7 @@ def render_decision_panel():
             .apply(lambda series: _style_palette(series, status_palette), subset=["Estado"])
             .apply(_style_signed, subset=["Delta sesiones"])
         )
-        st.dataframe(attendance_styler, use_container_width=True, hide_index=True)
+        st.dataframe(attendance_styler, width='stretch', hide_index=True)
 
     render_subsection_header("Wellness + carga", "quien llega mal esta semana", kicker="Bloque 6")
     if current_load.empty or current_wellness.empty:
@@ -5488,7 +5409,7 @@ def render_decision_panel():
                 xaxis_title="sRPE semanal",
                 yaxis_title="Wellness medio",
             )
-            st.plotly_chart(fig_scatter, use_container_width=True, key="decision_wellness_scatter")
+            st.plotly_chart(fig_scatter, width='stretch', key="decision_wellness_scatter")
 
             ratio_df = scatter_df.copy()
             ratio_df["wellness_load_ratio"] = np.where(
@@ -5505,7 +5426,7 @@ def render_decision_panel():
                     "Ratio wellness/carga": ratio_df["wellness_load_ratio"].map(lambda value: f"{value:.4f}" if pd.notna(value) else "-"),
                 }
             )
-            st.dataframe(ratio_display, use_container_width=True, hide_index=True)
+            st.dataframe(ratio_display, width='stretch', hide_index=True)
 
     render_subsection_header("Ranking de ejecucion registrada", "quien sostiene mas trabajo visible en Raw Workouts", kicker="Bloque 7")
     if current_load.empty:
@@ -5585,7 +5506,7 @@ def render_decision_panel():
             }
         )
         ranking_styler = ranking_display.style.apply(_style_signed, subset=["Tendencia carga"])
-        st.dataframe(ranking_styler, use_container_width=True, hide_index=True)
+        st.dataframe(ranking_styler, width='stretch', hide_index=True)
 
     render_subsection_header("Evaluaciones pendientes", "quien lleva mas de 30 dias sin test", kicker="Bloque 8")
     athletes_registry = athletes_registry_decision
@@ -5634,19 +5555,28 @@ def render_decision_panel():
         pending_df = pd.DataFrame(pending_rows).sort_values("_sort", ascending=False)
         pending_display = pending_df[["Atleta", "Ultima evaluacion", "Dias sin test", "Ultimo NM_Profile", "Prioridad"]]
         pending_styler = pending_display.style.apply(lambda series: _style_palette(series, status_palette), subset=["Prioridad"])
-        st.dataframe(pending_styler, use_container_width=True, hide_index=True)
+        st.dataframe(pending_styler, width='stretch', hide_index=True)
 
 
 render_brand_cover()
+
+# Las dos vistas de evaluaciones comparten implementacion y difieren solo en
+# la fuente que consumen. Duplicar el render seria imposible de mantener en
+# sincronia; el aislamiento real ya vive en la capa de datos.
+EVALUATION_VIEW_SOURCES = {
+    "Análisis Plataforma": SOURCE_PLATFORM,
+    "Análisis No-Plataforma": SOURCE_NONPLATFORM,
+}
 
 MAIN_SURFACE_OPTIONS = [
     "Overview",
     "Decision",
     "Load",
-    "Evaluations",
+    *EVALUATION_VIEW_SOURCES,
     "Profile",
     "Team",
     "Reports",
+    "Historial",
 ]
 default_main_view = st.session_state.get("main_surface_view", MAIN_SURFACE_OPTIONS[0])
 if default_main_view not in MAIN_SURFACE_OPTIONS:
@@ -5750,7 +5680,7 @@ if active_main_view == "Overview":
     if dataset_rows:
         st.dataframe(
             pd.DataFrame(dataset_rows)[["Dataset", "Registros", "Atletas", "Ultima fecha", "Ventana activa"]],
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
         )
     if _overview_loaded(rldf):
@@ -6004,7 +5934,7 @@ elif active_main_view == "Load":
                 )
                 st.plotly_chart(
                     chart_weekly_acwr_context(weekly_acwr_context, athlete_sel),
-                    use_container_width=False,
+                    width='content',
                     key="weekly_acwr_context_main",
                 )
 
@@ -6017,7 +5947,7 @@ elif active_main_view == "Load":
                     )
                     st.plotly_chart(
                         chart_weekly_strain(weekly_load_athlete, athlete_sel),
-                        use_container_width=False,
+                        width='content',
                         key="weekly_strain_main",
                     )
                 with c_weekly_well:
@@ -6028,7 +5958,7 @@ elif active_main_view == "Load":
                     )
                     st.plotly_chart(
                         chart_weekly_wellness(weekly_wellness_athlete, athlete_sel),
-                        use_container_width=False,
+                        width='content',
                         key="weekly_wellness_main",
                     )
 
@@ -6048,7 +5978,7 @@ elif active_main_view == "Load":
                     )
                     st.plotly_chart(
                         chart_weekly_external(weekly_external_athlete, athlete_sel),
-                        use_container_width=False,
+                        width='content',
                         key="weekly_external_main",
                     )
 
@@ -6086,7 +6016,7 @@ elif active_main_view == "Load":
                     ]
                     team_display = team_display.rename(columns=rename_map)
                     available_cols = [column for column in display_cols if column in team_display.columns]
-                    st.dataframe(team_display[available_cols], use_container_width=True, hide_index=True)
+                    st.dataframe(team_display[available_cols], width='stretch', hide_index=True)
         elif acwr_df is None:
             st.warning("Sin datos diarios de ACWR EWMA para este atleta; revisa la vista semanal si hay fuentes parciales.")
         else:
@@ -6143,12 +6073,12 @@ elif active_main_view == "Load":
 
             # Gráfico ACWR
             render_subsection_header("Tendencia de carga", "acwr ewma diario con contexto de sRPE", kicker="Analisis")
-            st.plotly_chart(chart_acwr(acwr_df, athlete_sel), use_container_width=False, key="acwr_main")
+            st.plotly_chart(chart_acwr(acwr_df, athlete_sel), width='content', key="acwr_main")
 
             c_mono, c_well = st.columns(2)
             with c_mono:
                 render_subsection_header("Monotonia y strain", "variabilidad semanal de la carga interna", kicker="Microciclo")
-                st.plotly_chart(chart_monotony_strain(mono_df), use_container_width=False, key="monotony_main")
+                st.plotly_chart(chart_monotony_strain(mono_df), width='content', key="monotony_main")
             with c_well:
                 if wdf is not None:
                     athletes_w = (
@@ -6159,7 +6089,7 @@ elif active_main_view == "Load":
                     w_sel = st.selectbox("Atleta wellness", athletes_w, key="sel_wellness")
                     w_sub = wdf[wdf["Athlete"] == w_sel].sort_values("Date")
                     render_subsection_header("Wellness", "seguimiento de recuperacion y percepcion diaria", kicker="Recuperacion")
-                    st.plotly_chart(chart_wellness(w_sub, w_sel), use_container_width=False, key="wellness_main")
+                    st.plotly_chart(chart_wellness(w_sub, w_sel), width='content', key="wellness_main")
                 else:
                     _alert("Cargá questionnaire-report_wellness.xlsx para ver wellness.", "b")
 
@@ -6168,7 +6098,7 @@ elif active_main_view == "Load":
                 display_cols = ["Date", "RPE", "Duration_min", "sRPE"]
                 disp = sub_rpe[[c for c in display_cols if c in sub_rpe.columns]].sort_values("Date", ascending=False)
                 st.dataframe(disp.style.format({"RPE": "{:.1f}", "sRPE": "{:.0f}", "Duration_min": "{:.0f}"}),
-                             use_container_width=False, hide_index=True)
+                             width='content', hide_index=True)
 
             # Volumen por patrón
             if raw_df_state is not None:
@@ -6184,24 +6114,24 @@ elif active_main_view == "Load":
                     [athlete_sel]
                 ) or [athlete_sel]
                 ath_raw = st.selectbox("Atleta", athletes_raw, key="sel_raw_vol")
-                st.plotly_chart(chart_volume_by_tag(prepared_raw_df, ath_raw), use_container_width=False, key="volume_tag")
+                st.plotly_chart(chart_volume_by_tag(prepared_raw_df, ath_raw), width='content', key="volume_tag")
 
     with st.expander("📋 Calidad de datos", expanded=False):
         st.markdown("**Bloque A - Cobertura por dataset**")
-        st.dataframe(dataset_summary, use_container_width=True, hide_index=True)
+        st.dataframe(dataset_summary, width='stretch', hide_index=True)
         if not raw_category_breakdown.empty:
             classified_pct = raw_classification_summary.get("classified_pct", 0.0)
             untagged_pct = raw_classification_summary.get("untagged_pct", 0.0)
             st.caption(
                 f"Raw workouts: {classified_pct:.1f}% clasificado · {untagged_pct:.1f}% untagged"
             )
-            st.dataframe(raw_category_breakdown, use_container_width=True, hide_index=True)
+            st.dataframe(raw_category_breakdown, width='stretch', hide_index=True)
 
         st.markdown("**Bloque B - Cobertura por atleta**")
         if athlete_summary.empty:
             st.caption("Sin datos suficientes para calcular cobertura.")
         else:
-            st.dataframe(athlete_summary, use_container_width=True, hide_index=True)
+            st.dataframe(athlete_summary, width='stretch', hide_index=True)
 
         st.markdown("**Bloque C - Alertas de calidad**")
         if alerts:
@@ -6223,19 +6153,40 @@ elif active_main_view == "Load":
             if profile_pct >= 100:
                 st.success("✅ Todos los atletas tienen perfil completo.")
             else:
-                st.dataframe(profile_coverage["missing_or_incomplete"], use_container_width=True, hide_index=True)
+                st.dataframe(profile_coverage["missing_or_incomplete"], width='stretch', hide_index=True)
 
 
 # ─────────────────────────────────────────────────────────────────────
 # TAB: EVALUACIONES
 # ─────────────────────────────────────────────────────────────────────
-elif active_main_view == "Evaluations":
-    jdf = st.session_state.jump_df
+elif active_main_view in EVALUATION_VIEW_SOURCES:
+    active_eval_source = EVALUATION_VIEW_SOURCES[active_main_view]
+    # El recorte por fuente pasa aca y no en cada consumidor: todo lo que sigue
+    # ve un frame de un unico metodo de medicion.
+    jdf = filter_jump_by_source(st.session_state.jump_df, active_eval_source)
+    eval_view_title = SOURCE_VIEW_LABELS[active_eval_source]
+    # IMTP e ISO Push requieren celda de carga: no existen fuera de plataforma.
+    eval_view_metrics = (
+        "cmj · sj · dj · eur · dri · imtp"
+        if active_eval_source == SOURCE_PLATFORM
+        else "cmj · sj · dj · eur · dri"
+    )
 
     if jdf is None or jdf.empty:
-        st.caption("Este modulo usa solo evaluaciones individuales.")
-        render_module_header("Evaluaciones", "cmj · sj · dj · eur · dri · imtp", kicker="Modulo")
-        _alert("Carga tests individuales de CMJ, SJ, DJ o IMTP desde el sidebar y presiona Procesar todo.", "b")
+        st.caption(SOURCE_DESCRIPTIONS[active_eval_source])
+        render_module_header(eval_view_title, eval_view_metrics, kicker="Modulo")
+        if active_eval_source == SOURCE_PLATFORM:
+            _alert(
+                "Carga tests de CMJ, SJ, DJ o IMTP desde el sidebar con fuente "
+                "Plataforma y presiona Procesar todo.",
+                "b",
+            )
+        else:
+            _alert(
+                "Todavia no hay evaluaciones de MyJump2 ni de alfombra de contacto. "
+                "Cargalas a mano desde el sidebar eligiendo fuente No-Plataforma.",
+                "b",
+            )
     else:
         # ── Header del módulo ──
         jdf = jdf.copy().sort_values("Date")
@@ -6400,7 +6351,7 @@ elif active_main_view == "Evaluations":
         detail_cols = [c for c in detail_df.columns if not c.endswith("_reps")]
         st.dataframe(
             detail_df[detail_cols].rename(columns={"EUR": "EUR (ratio)"}),
-            use_container_width=False,
+            width='content',
             hide_index=True,
         )
 
@@ -6452,7 +6403,7 @@ elif active_main_view == "Evaluations":
                     },
                 ]
             )
-            st.dataframe(detection_rows, use_container_width=False, hide_index=True)
+            st.dataframe(detection_rows, width='content', hide_index=True)
             iso_columns = iso_ham_force_time_presence.get("available_columns") or []
             if iso_columns:
                 st.caption("ISO_HAM detectadas: " + ", ".join(str(column) for column in iso_columns))
@@ -6477,20 +6428,20 @@ elif active_main_view == "Evaluations":
             with c_eval_1:
                 st.plotly_chart(
                     chart_composite_profile_radar(current_profile_row, athlete_sel),
-                    use_container_width=False,
+                    width='content',
                     key="ev_radar_individual",
                 )
             with c_eval_2:
                 render_subsection_header("Lectura por variable actual", "perfil compuesto con orden fijo por variable", kicker="Lectura")
                 st.dataframe(
                     build_composite_profile_metric_table(current_profile_row),
-                    use_container_width=False,
+                    width='content',
                     hide_index=True,
                 )
             with st.expander("Origen por variable", expanded=False):
                 st.dataframe(
                     current_profile_sources,
-                    use_container_width=False,
+                    width='content',
                     hide_index=True,
                 )
             render_jump_flag_chips(current_profile_flag_rows)
@@ -6509,7 +6460,7 @@ elif active_main_view == "Evaluations":
             if "CMJ_cm" in hist_j.columns and pd.to_numeric(hist_j["CMJ_cm"], errors="coerce").notna().sum() >= 2:
                 st.plotly_chart(
                     chart_cmj_trend(jdf, athlete_sel),
-                    use_container_width=False,
+                    width='content',
                     key="ev_hist_cmj",
                 )
             else:
@@ -6518,7 +6469,7 @@ elif active_main_view == "Evaluations":
             if "EUR" in hist_j.columns and pd.to_numeric(hist_j["EUR"], errors="coerce").notna().sum() >= 2:
                 st.plotly_chart(
                     chart_jump_metric_trend(jdf, athlete_sel, "EUR"),
-                    use_container_width=False,
+                    width='content',
                     key="ev_hist_eur",
                 )
             else:
@@ -6529,7 +6480,7 @@ elif active_main_view == "Evaluations":
             if "DJ_RSI" in hist_j.columns and pd.to_numeric(hist_j["DJ_RSI"], errors="coerce").notna().sum() >= 2:
                 st.plotly_chart(
                     chart_jump_metric_trend(jdf, athlete_sel, "DJ_RSI"),
-                    use_container_width=False,
+                    width='content',
                     key="ev_hist_dj_rsi",
                 )
             else:
@@ -6538,7 +6489,7 @@ elif active_main_view == "Evaluations":
             if "DJ_cm" in hist_j.columns and pd.to_numeric(hist_j["DJ_cm"], errors="coerce").notna().sum() >= 2:
                 st.plotly_chart(
                     chart_jump_metric_trend(jdf, athlete_sel, "DJ_cm"),
-                    use_container_width=False,
+                    width='content',
                     key="ev_hist_dj",
                 )
             else:
@@ -6548,19 +6499,22 @@ elif active_main_view == "Evaluations":
             display_cols = [c for c in hist_j.columns if not c.endswith("_reps")]
             st.dataframe(
                 hist_j[display_cols].rename(columns={"EUR": "EUR (ratio)"}).sort_values("Date", ascending=False),
-                use_container_width=False,
+                width='content',
                 hide_index=True,
             )
 
 elif active_main_view == "Profile":
     render_module_header("Perfil del Atleta", "radar · cuadrantes · kpis individuales", kicker="Modulo")
 
-    jdf  = st.session_state.jump_df
+    profile_eval_source = render_evaluation_source_selector(
+        "profile_eval_source", st.session_state.jump_df
+    )
+    jdf  = filter_jump_by_source(st.session_state.jump_df, profile_eval_source)
     rdf  = st.session_state.rpe_df
     wdf  = st.session_state.wellness_df
     maxes_df = st.session_state.maxes_df
 
-    if jdf is None and rdf is None and maxes_df is None:
+    if (jdf is None or jdf.empty) and rdf is None and maxes_df is None:
         _alert("Carga al menos los archivos de evaluaciones o RPE para ver el perfil.", "b")
     else:
         # Unificar lista de atletas
@@ -6649,7 +6603,7 @@ elif active_main_view == "Profile":
         with col_radar:
             if radar_row is not None:
                 st.plotly_chart(chart_radar(radar_row, ath_p, None),
-                                use_container_width=False, key="radar_profile")
+                                width='content', key="radar_profile")
             else:
                 _alert("Sin datos de evaluaciones para este atleta. El radar requiere datos de saltos.", "b")
 
@@ -6694,11 +6648,11 @@ elif active_main_view == "Profile":
                         rows_kpi.append({"KPI": label, "Valor": f"{last_j[col]:{fmt}} {unit}".strip()})
                 if rows_kpi:
                     st.dataframe(pd.DataFrame(rows_kpi), hide_index=True,
-                                 use_container_width=False)
+                                 width='content')
                 st.dataframe(
                     build_jump_metric_table(last_j),
                     hide_index=True,
-                    use_container_width=False,
+                    width='content',
                 )
 
                 eur_based_profile = last_j.get("EUR_Profile") or last_j.get("NM_Profile")
@@ -6715,37 +6669,21 @@ elif active_main_view == "Profile":
                         max_ex = st.selectbox("Ejercicio maximo", exercises_ath, key="sel_profile_max_ex")
                         st.plotly_chart(
                             chart_maxes_trend(maxes_ath, max_ex),
-                            use_container_width=False,
+                            width='content',
                             key="profile_max_trend",
                         )
 
-        # Cuadrantes (solo si hay datos grupales)
+        # Los cuadrantes grupales vivian tambien aca, duplicados exactamente
+        # respecto de Team y sobre el mismo frame. Son una lectura comparativa
+        # entre atletas, asi que quedan solo en Team; Profile se queda con la
+        # lectura individual (radar, KPIs, deltas). Ademas el expander "DRI
+        # experimental" llamaba a una funcion distinta que el de Team bajo el
+        # mismo titulo, mostrando informacion diferente segun la vista.
         if jdf is not None and len(jdf["Athlete"].unique()) > 1:
             st.markdown("---")
-            render_subsection_header("Cuadrantes grupales", "perfilado relativo con z-scores", kicker="Comparacion")
-            latest_jdf = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
-            profile_df_for_profile_cohort = st.session_state.athlete_profile_df
-            latest_jdf = shared_calc_zscores(latest_jdf, profile_df=profile_df_for_profile_cohort)
-            profile_cohort_info = get_comparison_cohort(
-                ath_p, latest_jdf, profile_df_for_profile_cohort,
+            st.caption(
+                "Los cuadrantes comparativos entre atletas estan en la vista Team."
             )
-            if profile_cohort_info["is_fallback"]:
-                st.warning(f"⚠️ {profile_cohort_info['cohort_label']}")
-            else:
-                st.caption(f"📊 {profile_cohort_info['cohort_label']}")
-            c_q1, c_q2 = st.columns(2)
-            with c_q1:
-                st.plotly_chart(chart_quadrant_rsi_sj(latest_jdf, profile_df=profile_df_for_profile_cohort), use_container_width=False, key="quad_rsi_sj_profile")
-            with c_q2:
-                st.plotly_chart(chart_quadrant_cmj_imtp(latest_jdf), use_container_width=False, key="quad_cmj_imtp_profile")
-            with st.expander("DRI experimental (SJ vs DRI)", expanded=False):
-                st.plotly_chart(
-                    chart_quadrant_exploratory(latest_jdf),
-                    use_container_width=False,
-                    key="quad_dri_experimental_profile",
-                )
-        elif jdf is not None:
-            _alert("Los gráficos de cuadrante requieren datos de múltiples atletas para comparar.", "b")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -6789,7 +6727,7 @@ elif active_main_view == "Team":
                 return [colors.get(v, "") if col == "Zona" else "" for col, v in row.items()]
 
             st.dataframe(team_table.style.apply(color_zona, axis=1),
-                         use_container_width=False, hide_index=True)
+                         width='content', hide_index=True)
 
         team_note = generate_module_insights(dict(st.session_state), "Todos").get("team")
         if team_note:
@@ -6809,7 +6747,7 @@ elif active_main_view == "Team":
             ex_team = st.selectbox("Ejercicio", exercises_team, key="sel_team_max_ex")
             st.plotly_chart(
                 chart_maxes_trend(maxes_df_team, ex_team),
-                use_container_width=False,
+                width='content',
                 key="team_max_trend"
             )
 
@@ -6833,18 +6771,18 @@ elif active_main_view == "Team":
         ]
         with st.expander("📊 Cohortes de comparacion", expanded=False):
             st.caption("Cada atleta se compara contra su cohorte de Deporte + Nivel cuando hay muestra suficiente.")
-            st.dataframe(pd.DataFrame(team_cohort_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(team_cohort_rows), width='stretch', hide_index=True)
 
         c_q1, c_q2 = st.columns(2)
         with c_q1:
             if "CMJ_cm" in latest.columns and "IMTP_N" in latest.columns:
-                st.plotly_chart(chart_quadrant_cmj_imtp(latest), use_container_width=False, key="quad_cmj_imtp_team")
+                st.plotly_chart(chart_quadrant_cmj_imtp(latest), width='content', key="quad_cmj_imtp_team")
         with c_q2:
             if "DJ_RSI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_rsi_sj(latest, profile_df=profile_df_for_team_cohort), use_container_width=False, key="quad_rsi_sj_team")
+                st.plotly_chart(chart_quadrant_rsi_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_rsi_sj_team")
         with st.expander("DRI experimental (SJ vs DRI)", expanded=False):
             if "DRI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_dri_sj(latest, profile_df=profile_df_for_team_cohort), use_container_width=False, key="quad_dri_experimental_team")
+                st.plotly_chart(chart_quadrant_dri_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_dri_experimental_team")
 
         # Z-scores grupales
         st.markdown("---")
@@ -6885,7 +6823,7 @@ elif active_main_view == "Team":
             fig_heat.update_layout(**_DARK, height=max(300, len(rank_df)*45+80),
                                    title=dict(text="<b>Heatmap Z-scores — Evaluación Grupal</b>",
                                               font=dict(color=C["navy"], size=13)))
-            st.plotly_chart(fig_heat, use_container_width=False, key="zscores_heatmap")
+            st.plotly_chart(fig_heat, width='content', key="zscores_heatmap")
     else:
         if jdf is None:
             _alert("Cargá datos de evaluaciones para ver el team dashboard de rendimiento.", "b")
@@ -6917,7 +6855,7 @@ elif active_main_view == "Team":
                 st.caption(history_mode_caption(completion_team_view, mode=completion_history_mode, date_col="Date"))
                 st.plotly_chart(
                     chart_completion(completion_team_view, athlete_label=completion_sel_team),
-                    use_container_width=False,
+                    width='content',
                     key="completion_team",
                 )
             elif not completion_team_detail.empty:
@@ -6928,7 +6866,7 @@ elif active_main_view == "Team":
                 detail_cols = [column for column in ["Athlete", "Assigned", "Completed", "Pct"] if column in completion_team_detail.columns]
                 st.dataframe(
                     completion_team_detail[detail_cols],
-                    use_container_width=False,
+                    width='content',
                     hide_index=True,
                 )
 
@@ -7082,7 +7020,7 @@ elif active_main_view == "Reports":
         profile_note = report_insights.get("profile")
 
         if isinstance(executive_df, pd.DataFrame) and not executive_df.empty:
-            st.dataframe(executive_df, use_container_width=True, hide_index=True)
+            st.dataframe(executive_df, width='stretch', hide_index=True)
         else:
             st.caption("La vista previa no encontró bloques ejecutivos para la selección actual.")
 
@@ -7182,7 +7120,7 @@ elif active_main_view == "Reports":
 
     if export_ready and isinstance(cached_export_payload, dict):
         st.caption("Paquete exportable listo para descargar")
-        st.dataframe(cached_export_payload["export_rows_df"], use_container_width=True, hide_index=True)
+        st.dataframe(cached_export_payload["export_rows_df"], width='stretch', hide_index=True)
         dl_1, dl_2 = st.columns(2)
         with dl_1:
             st.download_button(
@@ -7227,6 +7165,17 @@ elif active_main_view == "Reports":
         st.caption("Volumen disponible solo como fallback Rep/Load legacy; Raw Workouts sigue siendo la fuente oficial.")
     elif st.session_state.rep_load_df is not None:
         st.caption("Rep/Load (legacy opcional) disponible, no requerido si Raw Workouts esta cargado.")
+
+# ─────────────────────────────────────────────────────────────────────
+# TAB: HISTORIAL
+# ─────────────────────────────────────────────────────────────────────
+elif active_main_view == "Historial":
+    render_module_header(
+        "Gestion de Historial",
+        "revisar, descargar, recortar y sincronizar el historial persistido",
+        kicker="Modulo",
+    )
+    render_history_manager()
 
 record_performance_debug_timing(
     "active_view_render_s",

@@ -348,7 +348,9 @@ class JumpProfileSystemTest(unittest.TestCase):
         flags = build_jump_flag_rows(athlete_b)
         texts = [item["text"] for item in flags]
         self.assertTrue(any("EUR bajo" in text or "contramovimiento" in text for text in texts))
-        self.assertTrue(any("requiere TTT del export" in text for text in texts))
+        # mRSI se elimino: requeria TTT, que ningun parser producia. Ya no debe
+        # aparecer ningun flag suyo ni el aviso de dato faltante.
+        self.assertFalse(any("TTT" in text or "mRSI" in text for text in texts))
 
         lines = build_jump_feedback_lines(athlete_b)
         self.assertGreaterEqual(len(lines), 5)
@@ -1739,21 +1741,17 @@ class JumpProfileSystemTest(unittest.TestCase):
             result,
         )
 
-    def test_jump_flag_rows_keep_contextual_language_for_eur_dsi_and_mrsi(self):
+    def test_jump_flag_rows_keep_contextual_language_for_eur_and_dsi(self):
         green_flags = build_jump_flag_rows(
             _synthetic_profile_row(
                 EUR=1.12,
                 DSI=1.02,
-                mRSI=0.72,
-                TTT_s=0.55,
             )
         )
         red_flags = build_jump_flag_rows(
             _synthetic_profile_row(
                 EUR=0.95,
                 DSI=0.70,
-                mRSI=0.30,
-                TTT_s=0.55,
             )
         )
 

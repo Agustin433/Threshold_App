@@ -470,7 +470,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         cards = _build_professional_metric_cards(state, "Ana Lopez")
 
-        self.assertEqual([card["title"] for card in cards], ["CMJ", "SJ", "DJ", "RSI", "Contact Time", "EUR", "mRSI", "IMTP"])
+        self.assertEqual([card["title"] for card in cards], ["CMJ", "SJ", "DJ", "RSI", "Contact Time", "EUR", "IMTP"])
         cmj_card = cards[0]
         self.assertEqual(cmj_card["delta"], PDF_MISSING_TEXT)
         self.assertEqual(cmj_card["best"], "32.0 cm")
@@ -503,7 +503,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         available, missing = _professional_metric_display_groups(cards)
 
         self.assertEqual(available, [])
-        self.assertEqual(len(missing), 8)
+        self.assertEqual(len(missing), 7)
         self.assertIn("Faltan datos de evaluación", PROFESSIONAL_NO_EVALUATION_TEXT)
 
     def test_professional_pdf_generates_with_missing_datasets(self):
