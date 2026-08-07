@@ -336,8 +336,14 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertNotIn("TC inv", visible_text)
         for token in ["ÃƒÆ’", "Ãƒâ€š", "EstÃƒÆ’", "fisiolÃƒÆ’", "biomecÃƒÆ’", "prÃƒÆ’", "exposiciÃƒÆ’"]:
             self.assertNotIn(token, visible_text)
+        # Se compara por palabra completa: varias de estas formas son correctas
+        # sin tilde cuando cambian de numero o derivan ("mediciones", "utilizar"),
+        # y una busqueda por subcadena las marcaba como mojibake sin serlo.
         for token in ["ultimas", "util", "Proximo", "proximo", "grafico", "sueno", "estres", "recuperacion", "medicion"]:
-            self.assertNotIn(token, visible_text)
+            self.assertIsNone(
+                re.search(rf"{re.escape(token)}", visible_text),
+                f"'{token}' sin tilde aparece como palabra completa (posible mojibake)",
+            )
         self.assertNotIn("..", visible_text)
         self.assertNotIn("cuidar la recuperaci", visible_text.lower())
 

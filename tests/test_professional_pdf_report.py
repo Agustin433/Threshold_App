@@ -18,6 +18,7 @@ from modules.jump_analysis import (
     classify_neuromuscular_quadrant,
 )
 from modules.report_generator import (
+    WELLNESS_SCORE_UNIT,
     PDF_MISSING_TEXT,
     PROFESSIONAL_NO_EVALUATION_TEXT,
     _build_pdf_neuromuscular_profile_payload,
@@ -230,6 +231,91 @@ def _assert_legacy_professional_sections_absent(testcase: unittest.TestCase, tex
     ]
     for term in legacy_terms:
         testcase.assertNotIn(term, text)
+
+
+def _declare_z(frame):
+    """Marca como cohorte todo z ya presente en el frame.
+
+    Los fixtures que inyectan `*_Z` estan ejercitando clasificacion y armado de
+    secciones, no la derivacion del z. Sin procedencia declarada el gate los
+    descarta y la seccion queda vacia.
+    """
+    import pandas as _pd
+
+    from modules.zscore_sources import ZSource as _ZSource
+
+    result = frame.copy() if isinstance(frame, _pd.DataFrame) else frame
+    if not isinstance(result, _pd.DataFrame):
+        return frame
+    for column in [col for col in result.columns if str(col).endswith("_Z")]:
+        source_col = f"{column}_source"
+        if source_col not in result.columns:
+            result[source_col] = str(_ZSource.COHORT_Z)
+    return result
+
+
+def _declare_only(state: dict) -> dict:
+    """Sella procedencia sin agregar pares.
+
+    Para los fixtures que inyectan los z a mano: sumarles cohorte recalcularia
+    los valores y con eso se perderia la zona exacta que el test quiere probar.
+    """
+    enriched = dict(state)
+    enriched["jump_df"] = _declare_z(state["jump_df"])
+    return enriched
+
+
+def _with_cohort(state: dict) -> dict:
+    """Agrega pares y perfil al estado para que exista cohorte.
+
+    Los fixtures arman planteles de dos o tres atletas, que bajo el gate de
+    procedencia no forman poblacion y por lo tanto no producen ningun z. Se
+    completan con pares sinteticos de la misma clase y sexo, y se adjunta el
+    `athlete_profile_df` que el generador de reportes necesita para resolver la
+    cohorte. Las aserciones siguen apuntando a los atletas originales.
+    """
+    import pandas as _pd
+
+    from modules.evaluation_sources import MIN_COHORT_SIZE as _MIN
+
+    jump_df = state.get("jump_df")
+    if not isinstance(jump_df, _pd.DataFrame) or jump_df.empty:
+        return state
+
+    named = [str(name).strip().title() for name in jump_df["Athlete"].dropna().unique()]
+    fillers = _pd.DataFrame(
+        [
+            {
+                "Athlete": f"Par Cohorte {index}",
+                "Date": "2026-04-01",
+                "CMJ_cm": 33.0 + index,
+                "SJ_cm": 29.0 + index,
+                "DJ_cm": 24.0 + index,
+                "DJ_tc_ms": 215 - index,
+                "DJ_drop_height_cm": 30,
+                "IMTP_N": 2000 + index * 50,
+                "BW_kg": 72,
+            }
+            for index in range(_MIN)
+        ]
+    )
+    enriched = dict(state)
+    enriched["jump_df"] = _declare_z(
+        _pd.concat([jump_df, fillers], ignore_index=True, sort=False)
+    )
+    enriched["athlete_profile_df"] = _pd.DataFrame(
+        [
+            {
+                "Athlete": name,
+                "Deporte": "Handball",
+                "Nivel": "Competitivo",
+                "Sexo": "M",
+                "Contexto": "Club",
+            }
+            for name in named + [f"Par Cohorte {index}" for index in range(_MIN)]
+        ]
+    )
+    return enriched
 
 
 class FixedProfessionalReportDate(real_datetime):
@@ -468,7 +554,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             ),
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
 
         self.assertEqual([card["title"] for card in cards], ["CMJ", "SJ", "DJ", "RSI", "Contact Time", "EUR", "IMTP"])
         cmj_card = cards[0]
@@ -490,7 +576,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         imtp_card = next(card for card in cards if card["title"] == "IMTP")
 
         self.assertEqual(imtp_card["value"], "3385 N")
@@ -572,7 +658,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        sections = _build_professional_quadrant_sections(_with_cohort(state), "Ana Lopez")
         points = sections[0]["points"]
 
         self.assertTrue(points)
@@ -607,7 +693,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        sections = _build_professional_quadrant_sections(_with_cohort(state), "Ana Lopez")
         rsi_section = sections[1]
 
         self.assertEqual(rsi_section["title"], "Cuadrante fuerza concéntrica vs DJ RSI")
@@ -630,7 +716,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        sections = _build_professional_quadrant_sections(_with_cohort(state), "Ana Lopez")
         rsi_section = sections[1]
         dri_section = sections[2]
 
@@ -649,7 +735,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        sections = _build_professional_quadrant_sections(_with_cohort(state), "Ana Lopez")
 
         self.assertFalse(_professional_quadrants_ready(sections))
 
@@ -684,7 +770,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         dj_card = next(card for card in cards if card["title"] == "DJ")
 
         self.assertEqual(dj_card["signal"], "Amarillo")
@@ -701,7 +787,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         imtp_card = next(card for card in cards if card["title"] == "IMTP")
 
         self.assertEqual(imtp_card["signal"], "Verde")
@@ -718,7 +804,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         eur_card = next(card for card in cards if card["title"] == "EUR")
 
         self.assertEqual(eur_card["signal"], "Verde")
@@ -734,7 +820,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         rsi_card = next(card for card in cards if card["title"] == "RSI")
 
         self.assertEqual(rsi_card["unit_label"], "Índice RSI")
@@ -753,7 +839,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         eur_card = next(card for card in cards if card["title"] == "EUR")
 
         self.assertEqual(eur_card["unit_label"], "Ratio")
@@ -769,7 +855,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         contact_card = next(card for card in cards if card["title"] == "Contact Time")
 
         self.assertEqual(contact_card["unit_label"], "ms")
@@ -786,7 +872,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         cmj_card = next(card for card in cards if card["title"] == "CMJ")
         sj_card = next(card for card in cards if card["title"] == "SJ")
 
@@ -815,7 +901,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             "completion_df": None,
             "raw_df": None,
         }
-        cards = _build_professional_metric_cards(state, "Ana Lopez")
+        cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
         training = _build_professional_training_context(state, "Ana Lopez")
         internal = _build_professional_internal_load_context(state, "Ana Lopez")
 
@@ -928,7 +1014,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertEqual(context["scales"]["sleep"], "h")
         self.assertEqual(context["scales"]["stress"], "/5")
         self.assertEqual(context["scales"]["pain"], "/5")
-        self.assertEqual(context["scales"]["score"], "/5.0")
+        self.assertEqual(context["scales"]["score"], WELLNESS_SCORE_UNIT)
 
     def test_wellness_context_marks_single_record_as_partial_context_not_trend(self):
         state = {
@@ -1204,7 +1290,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        sections = _build_professional_quadrant_sections(_with_cohort(state), "Ana Lopez")
         ready_sections = [section for section in sections if section["selected"] is not None]
 
         self.assertTrue(ready_sections)
@@ -1223,7 +1309,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        sections = _build_professional_quadrant_sections(_declare_only(state), "Ana Lopez")
         rsi_section = sections[1]
         expected = classify_neuromuscular_quadrant(
             rsi_section["selected"]["x"],
@@ -1243,7 +1329,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        sections = _build_professional_quadrant_sections(_declare_only(state), "Ana Lopez")
         rsi_section = sections[1]
         meaning = _normalized_story_text(rsi_section["athlete_meaning"])
 
@@ -1255,12 +1341,18 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         state = {
             "jump_df": pd.DataFrame(
                 [
-                    {"Athlete": "Ana Lopez", "Date": "2026-04-01", "SJ_Z": 0.80, "DJ_RSI": 1.70},
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Date": "2026-04-01",
+                        "SJ_Z": 0.80,
+                        "DJ_RSI": 1.70,
+                        "DJ_RSI_Z": 0.20,
+                    },
                 ]
             )
         }
 
-        sections = _build_professional_quadrant_sections(state, "Ana Lopez")
+        sections = _build_professional_quadrant_sections(_declare_only(state), "Ana Lopez")
         rsi_section = sections[1]
         meaning = _normalized_story_text(rsi_section["athlete_meaning"])
 
@@ -1278,7 +1370,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         )
 
         with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
-            cards = _build_professional_metric_cards(state, "Ana Lopez")
+            cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
             training = _build_professional_training_context(state, "Ana Lopez")
             internal = _build_professional_internal_load_context(state, "Ana Lopez")
             overview = _build_professional_report_overview(state, "Ana Lopez", cards, training, internal)
@@ -1788,7 +1880,10 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                         "CMJ_Z": 0.7,
                         "DJ_height_Z": -1.0,
                         "DRI_Z": 0.2,
-                        "DJ_RSI_Z": 0.2,
+                        # Coherente con el DJ del propio fixture (22 cm, z -1.0).
+                        # Antes decia 0.2, pero el benchmark externo lo recalculaba
+                        # y lo pisaba, asi que el valor inyectado nunca se leia.
+                        "DJ_RSI_Z": -0.6,
                         "TC_inv_Z": 0.9,
                         "IMTP_relPF_Z": 0.6,
                     }
@@ -1796,7 +1891,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        payload = _build_professional_composite_profile_payload(state, "Ana Lopez")
+        payload = _build_professional_composite_profile_payload(_declare_only(state), "Ana Lopez")
         feedback = payload["feedback"]
         combined = _normalized_story_text(" ".join(feedback.values()))
 
@@ -1912,6 +2007,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
+        state = _declare_only(state)
         dashboard_row, _ = build_composite_profile_snapshot(state["jump_df"])
         dashboard_table = build_composite_profile_metric_table(dashboard_row).set_index("Variable")
         pdf_table = _build_professional_composite_profile_payload(state, "Ana Lopez")["metric_table"].set_index("Variable")
@@ -2027,7 +2123,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             ]
         )
 
-        overlay = report_generator._team_mean_for_radar(jump_df)
+        overlay = report_generator._team_mean_for_radar(_declare_z(jump_df))
 
         self.assertIn("DJ_height_Z", overlay)
         self.assertIn("TC_inv_Z", overlay)

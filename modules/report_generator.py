@@ -488,6 +488,19 @@ def _report_wellness_score_label(value: float | None) -> dict[str, object]:
     }
 
 
+def _state_profile_df(state: dict[str, object] | None) -> pd.DataFrame | None:
+    """Perfil de atleta del estado, si viaja.
+
+    Es lo que habilita la cohorte de comparacion. Sin esto el PDF resolvia
+    todas las metricas a banda de criterio y mostraba menos que el dashboard
+    para el mismo atleta.
+    """
+    if not isinstance(state, dict):
+        return None
+    profile_df = state.get("athlete_profile_df")
+    return profile_df if isinstance(profile_df, pd.DataFrame) else None
+
+
 def _report_wellness_source_column(frame: pd.DataFrame, *candidates: str) -> str | None:
     for candidate in candidates:
         if candidate in frame.columns:
@@ -1462,7 +1475,7 @@ def build_executive_summary_df(
     athletes = _selected_athletes(state, effective_athlete)
     summary_audience = normalize_report_audience(report_audience)
     prepared_jump_df = (
-        _prepare_jump_df(state.get("jump_df"))
+        _prepare_jump_df(state.get("jump_df"), profile_df=_state_profile_df(state))
         if isinstance(state.get("jump_df"), pd.DataFrame)
         else pd.DataFrame()
     )
@@ -2089,7 +2102,7 @@ def build_report_sheets(
 
         if include_jumps and state.get("jump_df") is not None:
             df = state["jump_df"].copy()
-            prepared_jumps = _prepare_jump_df(df)
+            prepared_jumps = _prepare_jump_df(df, profile_df=_state_profile_df(state))
             if (
                 "EUR_Profile" not in df.columns
                 and not prepared_jumps.empty
@@ -4511,11 +4524,13 @@ def _build_report_chart_theme() -> dict:
     }
 
 
-def _team_mean_for_radar(jdf: pd.DataFrame) -> dict[str, float]:
+def _team_mean_for_radar(
+    jdf: pd.DataFrame, profile_df: pd.DataFrame | None = None
+) -> dict[str, float]:
     if jdf is None or jdf.empty:
         return {}
 
-    prepared = _prepare_jump_df(jdf)
+    prepared = _prepare_jump_df(jdf, profile_df=profile_df)
     z_keys = ("SJ_Z", "CMJ_Z", "DJ_height_Z", "DJ_RSI_Z", "TC_inv_Z", "IMTP_relPF_Z")
     team_means: dict[str, float] = {}
     for key in z_keys:
@@ -4605,7 +4620,7 @@ def collect_report_plotly_figures(
                 {
                     "slug": "radar_perfil",
                     "title": "Perfil neuromuscular",
-                    "figure": chart_radar(radar_row, effective_athlete, _team_mean_for_radar(jdf), theme=theme),
+                    "figure": chart_radar(radar_row, effective_athlete, _team_mean_for_radar(jdf, _state_profile_df(state)), theme=theme),
                 }
             )
         if len(_cmj_series(state, effective_athlete)) >= 2:
@@ -4682,7 +4697,7 @@ def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], a
             payloads["radar_perfil"] = {
                 "slug": "radar_perfil",
                 "title": "Perfil neuromuscular",
-                "figure": chart_radar(radar_row, athlete, _team_mean_for_radar(jump_team), theme=theme),
+                "figure": chart_radar(radar_row, athlete, _team_mean_for_radar(jump_team, _state_profile_df(state)), theme=theme),
             }
         except Exception:
             pass
@@ -4824,7 +4839,7 @@ def _professional_jump_history(state: dict[str, pd.DataFrame | None], athlete: s
     if jdf is None or jdf.empty or "Athlete" not in jdf.columns:
         return pd.DataFrame()
     try:
-        data = _prepare_jump_df(jdf.copy())
+        data = _prepare_jump_df(jdf.copy(), profile_df=_state_profile_df(state))
     except Exception:
         data = jdf.copy()
     if data.empty or "Date" not in data.columns or "Athlete" not in data.columns:
@@ -6183,7 +6198,7 @@ def _professional_wellness_scales(frame: pd.DataFrame) -> dict[str, str]:
         "sleep": "h",
         "stress": _professional_infer_response_scale(frame["Estres"]) if "Estres" in frame.columns else "Escala no definida",
         "pain": _professional_infer_response_scale(frame["Dolor"]) if "Dolor" in frame.columns else "Escala no definida",
-        "score": "/5.0",
+        "score": WELLNESS_SCORE_UNIT,
     }
 
 
@@ -6201,7 +6216,7 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             "analysis_scope": "missing",
             "analysis_title": "Wellness - última semana completa",
             "trend_allowed": False,
-            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "/5.0"},
+            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": WELLNESS_SCORE_UNIT},
             "message": "Faltan datos de wellness para este período.",
         }
     result = wdf.copy()
@@ -6226,7 +6241,7 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             "analysis_scope": "missing",
             "analysis_title": "Wellness - última semana completa",
             "trend_allowed": False,
-            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "/5.0"},
+            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": WELLNESS_SCORE_UNIT},
             "message": "Faltan datos de wellness para este período.",
         }
     rows_count = int(len(result))
@@ -11860,7 +11875,7 @@ def _generate_visual_report_pdf_reportlab(
             if recent_value is not None:
                 return _display_metric(recent_value, digits=1)
             if athlete_score_meta is not None:
-                return f"{float(athlete_score_meta['score']):.1f} / 5.0"
+                return f"{float(athlete_score_meta['score']):.1f} {WELLNESS_SCORE_UNIT}"
             return "Todavía no registrado"
 
         def _athlete_focus_summary_sentence() -> str:
@@ -12061,7 +12076,7 @@ def _generate_visual_report_pdf_reportlab(
                 _athlete_metric_row(
                     "Bienestar",
                     (
-                        f"{float(athlete_score_meta['score']):.1f} / 5.0 ({athlete_score_meta['label']})"
+                        f"{float(athlete_score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({athlete_score_meta['label']})"
                         if athlete_score_meta is not None
                         else "Todavía no registrado"
                     ),
@@ -13249,7 +13264,7 @@ def _generate_visual_report_pdf_reportlab(
             score_label = _client_missing_text("registration")
             if score_value is not None:
                 score_meta = _report_wellness_score_label(score_value)
-                score_label = f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']})"
+                score_label = f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']})"
             days_count = _client_wellness_days_count()
             return [
                 {"label": "Promedio reciente", "value": score_label, "note": "Últimos registros visibles"},
