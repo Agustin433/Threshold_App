@@ -74,6 +74,20 @@ _SOURCE_ALIASES: dict[str, str] = {
 
 EARTH_GRAVITY = 9.81
 
+# ── Umbrales de cohorte ────────────────────────────────────────────────────
+# Viven aca, en la base de la cadena de imports, porque los consumen tanto
+# `athlete_profile` (que arma la cohorte) como `zscore_sources` (que decide con
+# que comparar). Ponerlos en cualquiera de los dos crea un import circular.
+#
+# MIN_COHORT_SIZE no es el punto donde un z de cohorte pasa a ser confiable:
+# es el umbral por debajo del cual directamente no se calcula. Funciona como
+# gate de dormancia y reactivacion a medida que crece el plantel.
+MIN_COHORT_SIZE = 8
+
+# Entre 5 y 7 pares no hay desvio estable para un z, pero si hay orden
+# suficiente para informar posicion dentro del grupo.
+MIN_COHORT_RANK_SIZE = 5
+
 
 def normalize_source(value: object) -> str:
     """Resolve any stored/typed source value to a canonical partition key.

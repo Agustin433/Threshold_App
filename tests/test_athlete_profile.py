@@ -4,6 +4,8 @@ import importlib
 import os
 import shutil
 import unittest
+
+from modules.evaluation_sources import MIN_COHORT_SIZE
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -208,12 +210,14 @@ class ComputeProfileCoverageTest(unittest.TestCase):
                     "Athlete": "Ana Lopez",
                     "Contexto": "Club",
                     "Nivel": "Competitivo",
+                    "Sexo": "F",
                     "Objetivo_primario": "Fuerza máxima",
                 },
                 {
                     "Athlete": "Bruno Rey",
                     "Contexto": "",
                     "Nivel": "Recreativo",
+                    "Sexo": "M",
                     "Objetivo_primario": "Hipertrofia",
                 },
             ]
@@ -232,6 +236,7 @@ class ComputeProfileCoverageTest(unittest.TestCase):
                     "Athlete": "Ana Lopez",
                     "Contexto": "Club",
                     "Nivel": "Competitivo",
+                    "Sexo": "F",
                     "Objetivo_primario": "Fuerza máxima",
                 },
             ]
@@ -242,8 +247,8 @@ class ComputeProfileCoverageTest(unittest.TestCase):
         self.assertTrue(result["missing_or_incomplete"].empty)
 
 
-def _profile_row(athlete: str, deporte: str, nivel: str) -> dict[str, object]:
-    return {"Athlete": athlete, "Deporte": deporte, "Nivel": nivel}
+def _profile_row(athlete: str, deporte: str, nivel: str, sexo: str = "M") -> dict[str, object]:
+    return {"Athlete": athlete, "Deporte": deporte, "Nivel": nivel, "Sexo": sexo}
 
 
 def _jump_row(athlete: str, date: str, **extra: object) -> dict[str, object]:
@@ -251,81 +256,118 @@ def _jump_row(athlete: str, date: str, **extra: object) -> dict[str, object]:
 
 
 class GetComparisonCohortTest(unittest.TestCase):
-    def test_deporte_nivel_level_when_sample_is_sufficient(self):
+    """La cohorte se arma por Clase x Sexo, no por Deporte x Nivel.
+
+    Con match exacto por deporte el mejor grupo del plantel real llegaba a 4
+    atletas y ninguno alcanzaba el minimo, asi que nadie recibia z. La clave
+    pasa a ser clase (deportista / poblacion general) y sexo: pierde
+    especificidad de deporte y gana una muestra que existe.
+    """
+
+    def _cohort_of(self, n: int, *, nivel: str = "Competitivo", sexo: str = "M"):
         profile_df = pd.DataFrame(
-            [
-                _profile_row("Ana Lopez", "Handball", "Competitivo"),
-                _profile_row("Bruno Rey", "Handball", "Competitivo"),
-                _profile_row("Caro Diaz", "Handball", "Competitivo"),
-                _profile_row("Dario Sosa", "Handball", "Competitivo"),
-                _profile_row("Emi Paz", "Futbol", "Recreativo"),
-            ]
+            [_profile_row(f"Atleta {i}", "Handball", nivel, sexo) for i in range(n)]
         )
         jump_df = pd.DataFrame(
-            [
-                _jump_row("Ana Lopez", "2026-06-01", CMJ_cm=35),
-                _jump_row("Bruno Rey", "2026-06-01", CMJ_cm=40),
-                _jump_row("Caro Diaz", "2026-06-01", CMJ_cm=38),
-                _jump_row("Dario Sosa", "2026-06-01", CMJ_cm=42),
-                _jump_row("Emi Paz", "2026-06-01", CMJ_cm=30),
-            ]
+            [_jump_row(f"Atleta {i}", "2026-06-01", CMJ_cm=35 + i) for i in range(n)]
         )
-        result = get_comparison_cohort("Ana Lopez", jump_df, profile_df)
+        return get_comparison_cohort("Atleta 0", jump_df, profile_df)
 
-        self.assertEqual(result["cohort_level"], "deporte_nivel")
+    def test_clase_sexo_level_when_sample_is_sufficient(self):
+        result = self._cohort_of(MIN_COHORT_SIZE)
+
+        self.assertEqual(result["cohort_level"], "clase_sexo")
         self.assertFalse(result["is_fallback"])
-        self.assertEqual(result["cohort_size"], 4)
-        self.assertIn("Handball", result["cohort_label"])
-        self.assertIn("Competitivo", result["cohort_label"])
-        self.assertEqual(set(result["cohort_df"]["Athlete"]), {"Ana Lopez", "Bruno Rey", "Caro Diaz", "Dario Sosa"})
+        self.assertEqual(result["cohort_size"], MIN_COHORT_SIZE)
+        self.assertIn("Deportistas", result["cohort_label"])
+        self.assertIn("masculino", result["cohort_label"])
 
-    def test_falls_back_to_nivel_when_deporte_nivel_sample_too_small(self):
+    def test_sport_no_longer_splits_the_cohort(self):
+        """Deportes distintos al mismo nivel y sexo comparten cohorte."""
+        deportes = ["Handball", "Futbol", "Rugby", "Tenis"]
         profile_df = pd.DataFrame(
             [
-                _profile_row("Ana Lopez", "Handball", "Competitivo"),
-                _profile_row("Bruno Rey", "Futbol", "Competitivo"),
-                _profile_row("Caro Diaz", "Running", "Competitivo"),
-                _profile_row("Dario Sosa", "Futbol", "Recreativo"),
+                _profile_row(f"Atleta {i}", deportes[i % len(deportes)], "Competitivo", "M")
+                for i in range(MIN_COHORT_SIZE)
             ]
         )
         jump_df = pd.DataFrame(
-            [
-                _jump_row("Ana Lopez", "2026-06-01", CMJ_cm=35),
-                _jump_row("Bruno Rey", "2026-06-01", CMJ_cm=40),
-                _jump_row("Caro Diaz", "2026-06-01", CMJ_cm=38),
-                _jump_row("Dario Sosa", "2026-06-01", CMJ_cm=32),
-            ]
+            [_jump_row(f"Atleta {i}", "2026-06-01", CMJ_cm=35 + i) for i in range(MIN_COHORT_SIZE)]
         )
-        result = get_comparison_cohort("Ana Lopez", jump_df, profile_df)
+        result = get_comparison_cohort("Atleta 0", jump_df, profile_df)
 
-        self.assertEqual(result["cohort_level"], "nivel")
-        self.assertTrue(result["is_fallback"])
-        self.assertEqual(result["cohort_size"], 3)
-        self.assertIn("Competitivo", result["cohort_label"])
-        self.assertEqual(set(result["cohort_df"]["Athlete"]), {"Ana Lopez", "Bruno Rey", "Caro Diaz"})
+        self.assertEqual(result["cohort_level"], "clase_sexo")
+        self.assertEqual(result["cohort_size"], MIN_COHORT_SIZE)
 
-    def test_general_fallback_when_even_nivel_sample_is_too_small(self):
+    def test_levels_within_deportista_share_a_cohort(self):
+        """Recreativo, competitivo y alto rendimiento son todos deportistas."""
+        niveles = ["Recreativo", "Competitivo", "Alto rendimiento"]
         profile_df = pd.DataFrame(
             [
-                _profile_row("Ana Lopez", "Handball", "Competitivo"),
-                _profile_row("Bruno Rey", "Futbol", "Competitivo"),
-                _profile_row("Caro Diaz", "Running", "Recreativo"),
+                _profile_row(f"Atleta {i}", "Handball", niveles[i % len(niveles)], "M")
+                for i in range(MIN_COHORT_SIZE)
             ]
         )
         jump_df = pd.DataFrame(
-            [
-                _jump_row("Ana Lopez", "2026-06-01", CMJ_cm=35),
-                _jump_row("Bruno Rey", "2026-06-01", CMJ_cm=40),
-                _jump_row("Caro Diaz", "2026-06-01", CMJ_cm=38),
-            ]
+            [_jump_row(f"Atleta {i}", "2026-06-01", CMJ_cm=35 + i) for i in range(MIN_COHORT_SIZE)]
         )
+        self.assertEqual(
+            get_comparison_cohort("Atleta 0", jump_df, profile_df)["cohort_size"],
+            MIN_COHORT_SIZE,
+        )
+
+    def test_poblacion_general_never_mixes_with_deportistas(self):
+        rows = [
+            _profile_row(f"Dep {i}", "Handball", "Competitivo", "M")
+            for i in range(MIN_COHORT_SIZE)
+        ]
+        rows.append(_profile_row("Gen 0", "", "Poblacion general", "M"))
+        jump_df = pd.DataFrame(
+            [_jump_row(row["Athlete"], "2026-06-01", CMJ_cm=35) for row in rows]
+        )
+        result = get_comparison_cohort("Gen 0", jump_df, pd.DataFrame(rows))
+
+        self.assertEqual(result["cohort_size"], 1)
+        self.assertTrue(result["is_fallback"])
+        self.assertIn("Poblacion", result["cohort_label"].replace("ó", "o"))
+
+    def test_sexes_never_share_a_cohort(self):
+        rows = [
+            _profile_row(f"M {i}", "Handball", "Competitivo", "M")
+            for i in range(MIN_COHORT_SIZE)
+        ]
+        rows.append(_profile_row("F 0", "Handball", "Competitivo", "F"))
+        jump_df = pd.DataFrame(
+            [_jump_row(row["Athlete"], "2026-06-01", CMJ_cm=35) for row in rows]
+        )
+        result = get_comparison_cohort("F 0", jump_df, pd.DataFrame(rows))
+
+        self.assertEqual(result["cohort_size"], 1)
+        self.assertTrue(result["is_fallback"])
+        self.assertIn("femenino", result["cohort_label"])
+
+    def test_insufficient_sample_reports_real_size_without_enabling_z(self):
+        result = self._cohort_of(MIN_COHORT_SIZE - 1)
+
+        self.assertEqual(result["cohort_level"], "muestra_insuficiente")
+        self.assertTrue(result["is_fallback"])
+        self.assertEqual(result["cohort_size"], MIN_COHORT_SIZE - 1)
+        self.assertIn("muestra insuficiente", result["cohort_label"].lower())
+
+    def test_missing_sexo_leaves_the_athlete_without_cohort(self):
+        result = self._cohort_of(MIN_COHORT_SIZE, sexo="no_especificado")
+
+        self.assertEqual(result["cohort_level"], "sin_cohorte")
+        self.assertEqual(result["cohort_size"], 0)
+        self.assertTrue(result["cohort_df"].empty)
+
+    def test_missing_nivel_leaves_the_athlete_without_cohort(self):
+        profile_df = pd.DataFrame([_profile_row("Ana Lopez", "Handball", "", "F")])
+        jump_df = pd.DataFrame([_jump_row("Ana Lopez", "2026-06-01", CMJ_cm=35)])
         result = get_comparison_cohort("Ana Lopez", jump_df, profile_df)
 
-        self.assertEqual(result["cohort_level"], "general")
-        self.assertTrue(result["is_fallback"])
-        self.assertEqual(result["cohort_size"], 2)
-        self.assertIn("Muestra insuficiente", result["cohort_label"])
-        self.assertEqual(set(result["cohort_df"]["Athlete"]), {"Ana Lopez", "Bruno Rey", "Caro Diaz"})
+        self.assertEqual(result["cohort_level"], "sin_cohorte")
+        self.assertIn("nivel", result["cohort_label"])
 
     def test_general_fallback_when_profile_missing(self):
         profile_df = pd.DataFrame([_profile_row("Bruno Rey", "Handball", "Competitivo")])
@@ -342,14 +384,18 @@ class GetComparisonCohortTest(unittest.TestCase):
         self.assertEqual(result["cohort_label"], "Comparación general — perfil incompleto")
         self.assertEqual(set(result["cohort_df"]["Athlete"]), {"Ana Lopez", "Bruno Rey"})
 
-    def test_general_fallback_when_deporte_or_nivel_blank(self):
-        profile_df = pd.DataFrame([_profile_row("Ana Lopez", "", "Competitivo")])
-        jump_df = pd.DataFrame([_jump_row("Ana Lopez", "2026-06-01", CMJ_cm=35)])
-        result = get_comparison_cohort("Ana Lopez", jump_df, profile_df)
+    def test_blank_deporte_no_longer_blocks_the_cohort(self):
+        """El deporte salio de la identidad: en blanco ya no impide comparar."""
+        profile_df = pd.DataFrame(
+            [_profile_row(f"Atleta {i}", "", "Competitivo", "M") for i in range(MIN_COHORT_SIZE)]
+        )
+        jump_df = pd.DataFrame(
+            [_jump_row(f"Atleta {i}", "2026-06-01", CMJ_cm=35 + i) for i in range(MIN_COHORT_SIZE)]
+        )
+        result = get_comparison_cohort("Atleta 0", jump_df, profile_df)
 
-        self.assertEqual(result["cohort_level"], "general")
-        self.assertTrue(result["is_fallback"])
-        self.assertEqual(result["cohort_label"], "Comparación general — perfil incompleto")
+        self.assertEqual(result["cohort_level"], "clase_sexo")
+        self.assertEqual(result["cohort_size"], MIN_COHORT_SIZE)
 
     def test_none_or_empty_inputs_do_not_raise(self):
         self.assertEqual(get_comparison_cohort("Ana Lopez", None, None)["cohort_level"], "general")
@@ -365,3 +411,50 @@ class GetComparisonCohortTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeporteNormalizationTest(unittest.TestCase):
+    """El campo Deporte pasa de texto libre a lista cerrada.
+
+    El texto abierto produjo tres grafias del mismo deporte ("Futbol",
+    "Futboll", "Futbo"), que fragmentaban cualquier agrupacion por deporte en
+    grupos de uno o dos. La normalizacion las unifica.
+    """
+
+    def test_futbol_spellings_collapse_into_one_sport(self):
+        from modules.athlete_profile import normalize_deporte
+
+        for variant in ("Futbol", "Futboll", "Futbo", "futbol", "FUTBOL", " Fútbol "):
+            with self.subTest(variant=variant):
+                self.assertEqual(normalize_deporte(variant), "Fútbol")
+
+    def test_listed_sports_are_canonical(self):
+        from modules.athlete_profile import DEPORTE_OPTIONS, normalize_deporte
+
+        for option in DEPORTE_OPTIONS:
+            with self.subTest(option=option):
+                self.assertEqual(normalize_deporte(option), option)
+
+    def test_unlisted_sport_is_preserved_not_discarded(self):
+        # Un deporte cargado por la opcion "Otro" es dato valido, no un typo.
+        from modules.athlete_profile import normalize_deporte
+
+        self.assertEqual(normalize_deporte("  Padel "), "Padel")
+
+    def test_blank_values_resolve_to_none(self):
+        from modules.athlete_profile import normalize_deporte
+
+        for value in ("", None, float("nan"), "nan", "   "):
+            with self.subTest(value=value):
+                self.assertIsNone(normalize_deporte(value))
+
+    def test_otro_option_is_offered_after_the_listed_sports(self):
+        from modules.athlete_profile import (
+            DEPORTE_OPTIONS,
+            DEPORTE_SELECT_OPTIONS,
+            OTRO_DEPORTE_OPTION,
+        )
+
+        self.assertEqual(len(DEPORTE_OPTIONS), 10)
+        self.assertEqual(DEPORTE_SELECT_OPTIONS[-1], OTRO_DEPORTE_OPTION)
+        self.assertNotIn(OTRO_DEPORTE_OPTION, DEPORTE_OPTIONS)
