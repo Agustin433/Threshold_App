@@ -25,6 +25,8 @@ from io import BytesIO
 from pathlib import Path
 import warnings
 from charts.dashboard_charts import (
+    build_quadrant_exclusions,
+    quadrant_exclusion_summary,
     chart_composite_profile_radar as shared_chart_composite_profile_radar,
     chart_cmj_trend as shared_chart_cmj_trend,
     chart_jump_metric_trend as shared_chart_jump_metric_trend,
@@ -74,8 +76,14 @@ from local_store import (
 )
 from modules.athlete_profile import (
     CONTEXTO_OPTIONS,
+    DEPORTE_SELECT_OPTIONS,
     NIVEL_OPTIONS,
+    OTRO_DEPORTE_OPTION,
     OBJETIVO_OPTIONS,
+    SEXO_LABELS,
+    Sexo,
+    normalize_deporte,
+    normalize_sexo,
     get_comparison_cohort,
     parse_secondary_objectives,
     secondary_objective_options,
@@ -139,6 +147,7 @@ from modules.metrics import calculate_completion_rate, summarize_completion_by_g
 from modules.load_monitoring import MONOTONY_HIGH, build_weekly_acwr_context
 from modules.jump_analysis import (
     available_sources as jump_available_sources,
+    choose_secondary_quadrant_x_spec,
     filter_by_source as filter_jump_by_source,
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
@@ -3909,6 +3918,25 @@ with st.sidebar:
             else 0
         )
 
+        # "Deporte / Actividad" vive fuera del st.form a proposito: adentro de
+        # un form Streamlit no reejecuta el script hasta el submit, asi que el
+        # campo de texto de la opcion "Otro" nunca llegaria a mostrarse. Afuera,
+        # el selectbox dispara el rerun y el campo aparece en el acto. Es el
+        # mismo motivo por el que "Tipo de test" esta fuera del form de
+        # evaluaciones.
+        profile_deporte_choice = st.selectbox(
+            "Deporte / Actividad",
+            DEPORTE_SELECT_OPTIONS,
+            key=f"profile_deporte_choice_{profile_nonce}",
+        )
+        profile_deporte = profile_deporte_choice
+        if profile_deporte_choice == OTRO_DEPORTE_OPTION:
+            profile_deporte = st.text_input(
+                "¿Cuál es el deporte?",
+                key=f"profile_deporte_otro_{profile_nonce}",
+                placeholder="Ej: Padel, Escalada, Karate",
+            )
+
         with st.form(f"athlete_profile_form_{profile_nonce}", clear_on_submit=True):
             selected_profile_athlete = st.selectbox(
                 "Nombre del atleta",
@@ -3950,10 +3978,19 @@ with st.sidebar:
                 key=f"profile_contexto_{profile_nonce}",
                 horizontal=True,
             )
-            profile_deporte = st.text_input(
-                "Deporte / Actividad",
-                key=f"profile_deporte_{profile_nonce}",
-                placeholder="Ej: Handball, Futbol, Running",
+            # El sexo selecciona la tabla de referencia contra la que se calcula
+            # el z-score, asi que dejarlo sin especificar tiene consecuencia:
+            # ese atleta no puede resolver a z de literatura.
+            profile_sexo = st.radio(
+                "Sexo",
+                list(Sexo),
+                format_func=lambda value: SEXO_LABELS[value],
+                key=f"profile_sexo_{profile_nonce}",
+                horizontal=True,
+                help=(
+                    "Determina contra que poblacion se compara al atleta. "
+                    "Sin especificar, la comparacion cae a banda de criterio."
+                ),
             )
             profile_nivel = st.selectbox(
                 "Nivel",
@@ -4002,7 +4039,8 @@ with st.sidebar:
                 "Altura_cm": profile_height_cm or None,
                 "Peso_kg": profile_weight_kg or None,
                 "Contexto": profile_contexto,
-                "Deporte": profile_deporte.strip() if profile_deporte else None,
+                "Sexo": str(normalize_sexo(profile_sexo)),
+                "Deporte": normalize_deporte(profile_deporte),
                 "Nivel": profile_nivel,
                 "Objetivo_primario": profile_objetivo_primario,
                 "Objetivos_secundarios": serialize_secondary_objectives(secondary_selection),
@@ -6770,19 +6808,50 @@ elif active_main_view == "Team":
             for team_athlete in sorted(latest["Athlete"].dropna().unique())
         ]
         with st.expander("📊 Cohortes de comparacion", expanded=False):
-            st.caption("Cada atleta se compara contra su cohorte de Deporte + Nivel cuando hay muestra suficiente.")
+            st.caption(
+                "Cada atleta se compara contra su cohorte de clase (deportista / poblacion "
+                "general) y sexo, cuando hay muestra suficiente. El deporte se conserva como "
+                "dato de lectura pero no define la cohorte: con match exacto por deporte "
+                "ningun grupo del plantel alcanzaba el minimo."
+            )
             st.dataframe(pd.DataFrame(team_cohort_rows), width='stretch', hide_index=True)
+
+        def _render_exclusions(x_col: str, y_col: str, key: str) -> None:
+            """Conteo en el pie del grafico, nombres agrupados por motivo aparte.
+
+            El detalle accionable completo vive en la superficie de calidad de
+            datos; aca solo se declara por que falta gente en el cuadrante, para
+            que una ausencia no se lea como un error del grafico.
+            """
+            exclusions = build_quadrant_exclusions(
+                latest, x_col, y_col, profile_df=profile_df_for_team_cohort
+            )
+            summary = quadrant_exclusion_summary(exclusions)
+            if not summary:
+                return
+            st.caption(summary)
+            with st.expander("Ver quienes quedaron fuera y por que", expanded=False):
+                for group in exclusions["groups"]:
+                    marca = "Accionable" if group["actionable"] else "Requiere mas datos"
+                    st.markdown(f"**{group['reason']}** · {marca}")
+                    st.caption(group["detail"])
+                    st.caption(", ".join(group["athletes"]))
 
         c_q1, c_q2 = st.columns(2)
         with c_q1:
             if "CMJ_cm" in latest.columns and "IMTP_N" in latest.columns:
                 st.plotly_chart(chart_quadrant_cmj_imtp(latest), width='content', key="quad_cmj_imtp_team")
+                _render_exclusions(
+                    choose_secondary_quadrant_x_spec(latest)[0], "IMTP_relPF_Z", "cmj_imtp"
+                )
         with c_q2:
             if "DJ_RSI" in latest.columns and "SJ_cm" in latest.columns:
                 st.plotly_chart(chart_quadrant_rsi_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_rsi_sj_team")
-        with st.expander("DRI experimental (SJ vs DRI)", expanded=False):
+                _render_exclusions("DJ_RSI_Z", "SJ_Z", "rsi_sj")
+        with st.expander("Cuadrante DRI (experimental) — SJ vs DRI", expanded=False):
             if "DRI" in latest.columns and "SJ_cm" in latest.columns:
                 st.plotly_chart(chart_quadrant_dri_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_dri_experimental_team")
+                _render_exclusions("DRI_Z", "SJ_Z", "dri_sj")
 
         # Z-scores grupales
         st.markdown("---")

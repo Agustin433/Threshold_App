@@ -12,7 +12,9 @@ from modules.jump_analysis import (
     choose_secondary_quadrant_x_spec,
     classify_neuromuscular_quadrant,
     compute_baseline_delta,
+    has_plottable_z,
     resolve_zscore,
+    z_source_of,
 )
 
 
@@ -142,6 +144,106 @@ def _numeric_value(value: object) -> float | None:
     if pd.isna(numeric):
         return None
     return float(numeric)
+
+
+def _same_origin_rows(data: pd.DataFrame, x_col: str, y_col: str) -> pd.DataFrame:
+    """Deja solo las filas cuyos dos ejes comparten procedencia de z.
+
+    Un cuadrante ubica al atleta cruzando dos ejes. Si uno se calculo contra
+    una referencia publicada y el otro contra la cohorte propia, las unidades
+    del plano no son las mismas y la posicion resultante no significa nada:
+    la banda neutral captura una fraccion distinta de cada eje. Antes esto
+    pasaba de forma sistematica, porque las metricas con benchmark externo
+    tenian un desvio inflado respecto de las que caian a cohorte.
+    """
+    if data.empty:
+        return data
+    x_origin = data.apply(lambda row: z_source_of(row, x_col), axis=1)
+    y_origin = data.apply(lambda row: z_source_of(row, y_col), axis=1)
+    return data[x_origin == y_origin]
+
+
+def build_quadrant_exclusions(
+    data: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    *,
+    profile_df: pd.DataFrame | None = None,
+) -> dict[str, object]:
+    """Quienes quedaron fuera del cuadrante y por que, agrupado por motivo.
+
+    Se agrupa por motivo y no por nombre a proposito: una lista pelada de
+    nombres debajo de un grafico de rendimiento se lee como un juicio sobre
+    esos atletas, cuando en realidad describe el estado de sus datos.
+
+    Los motivos no son igual de accionables, asi que se separan: "sin perfil"
+    lo resuelve el usuario en minutos, mientras que "cohorte insuficiente"
+    depende de que llegue mas gente. Mezclarlos convertiria una tarea concreta
+    en una espera indefinida.
+
+    Devuelve conteo total y grupos, para que la superficie muestre el numero en
+    el grafico y los nombres en un expander.
+    """
+    if data is None or data.empty or "Athlete" not in data.columns:
+        return {"total": 0, "groups": []}
+
+    profiled: set[str] = set()
+    if profile_df is not None and not profile_df.empty and "Athlete" in profile_df.columns:
+        profiled = {str(name).strip() for name in profile_df["Athlete"].dropna()}
+
+    sin_perfil: list[str] = []
+    sin_cohorte: list[str] = []
+    procedencia_mixta: list[str] = []
+
+    for _, row in data.iterrows():
+        athlete = str(row.get("Athlete") or "").strip()
+        if not athlete:
+            continue
+        x_ok = has_plottable_z(row, x_col)
+        y_ok = has_plottable_z(row, y_col)
+        if x_ok and y_ok:
+            if z_source_of(row, x_col) != z_source_of(row, y_col):
+                procedencia_mixta.append(athlete)
+            continue
+        if profiled and athlete not in profiled:
+            sin_perfil.append(athlete)
+        else:
+            sin_cohorte.append(athlete)
+
+    groups = [
+        {
+            "reason": "Sin perfil cargado",
+            "detail": "Completar el perfil los habilita.",
+            "athletes": sorted(set(sin_perfil)),
+            "actionable": True,
+        },
+        {
+            "reason": "Sin cohorte de comparacion suficiente",
+            "detail": "Requiere que se sumen mas atletas de su clase y sexo.",
+            "athletes": sorted(set(sin_cohorte)),
+            "actionable": False,
+        },
+        {
+            "reason": "Ejes de procedencia distinta",
+            "detail": "Sus dos ejes salen de referencias distintas y no son comparables en el mismo plano.",
+            "athletes": sorted(set(procedencia_mixta)),
+            "actionable": False,
+        },
+    ]
+    groups = [group for group in groups if group["athletes"]]
+    return {"total": sum(len(group["athletes"]) for group in groups), "groups": groups}
+
+
+def quadrant_exclusion_summary(exclusions: dict[str, object]) -> str | None:
+    """Resumen de una linea para el pie del grafico."""
+    total = int(exclusions.get("total") or 0)
+    if not total:
+        return None
+    parts = [
+        f"{len(group['athletes'])} {str(group['reason']).lower()}"
+        for group in exclusions.get("groups", [])
+    ]
+    return f"{total} atleta(s) fuera del cuadrante — " + " · ".join(parts)
 
 
 def _quadrant_classification(row: pd.Series, x_col: str, y_col: str) -> dict[str, object]:
@@ -392,6 +494,7 @@ def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
         data["DJ_RSI_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "DJ_RSI_Z"), axis=1)
         data["SJ_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "SJ_Z"), axis=1)
         data = data.dropna(subset=["DJ_RSI_Z_plot", "SJ_Z_plot"])
+        data = _same_origin_rows(data, "DJ_RSI_Z", "SJ_Z")
     if data.empty:
         return _empty_state_figure(
             theme=theme,
@@ -468,6 +571,7 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
         data["DRI_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "DRI_Z"), axis=1)
         data["SJ_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "SJ_Z"), axis=1)
         data = data.dropna(subset=["DRI_Z_plot", "SJ_Z_plot"])
+        data = _same_origin_rows(data, "DRI_Z", "SJ_Z")
     if data.empty:
         return _empty_state_figure(
             theme=theme,
@@ -545,6 +649,7 @@ def chart_quadrant_cmj_imtp(df: pd.DataFrame, *, theme: dict) -> go.Figure:
         data[f"{x_col}_plot"] = data.apply(lambda row: resolve_zscore(row, x_col), axis=1)
         data["IMTP_relPF_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "IMTP_relPF_Z"), axis=1)
         data = data.dropna(subset=[f"{x_col}_plot", "IMTP_relPF_Z_plot"])
+        data = _same_origin_rows(data, x_col, "IMTP_relPF_Z")
     if data.empty:
         return go.Figure()
 
