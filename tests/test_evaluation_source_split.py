@@ -28,7 +28,6 @@ from modules.evaluation_sources import (
     normalize_source,
 )
 from modules.jump_analysis import (
-    EXTERNAL_BENCHMARKS,
     _prepare_jump_df,
     _records_to_jump_df,
     available_sources,
@@ -197,50 +196,74 @@ class ZScorePartitionTest(unittest.TestCase):
             platform_z.to_numpy(dtype=float), [-1.22, 0.0, 1.22], atol=0.01
         )
 
-    def test_population_fallback_is_computed_per_source(self):
-        # Dos poblaciones con la misma dispersion interna pero medias muy
-        # distintas por metodo. Pooled, la SD se infla y los z se comprimen.
-        records = []
-        for idx, height in enumerate([30.0, 32.0, 34.0]):
-            records.append(_sj_record(f"Plat {idx}", "2026-05-01", height, SOURCE_PLATFORM))
-        for idx, height in enumerate([50.0, 52.0, 54.0]):
-            records.append(_sj_record(f"Mat {idx}", "2026-05-01", height, SOURCE_NONPLATFORM))
+    def test_cohort_z_is_computed_per_source(self):
+        """La cohorte, cuando es valida, sigue separada por fuente.
 
-        df = _records_to_jump_df(records)
-        platform_z = filter_by_source(df, SOURCE_PLATFORM)["SJ_Z"].to_numpy(dtype=float)
-        nonplatform_z = filter_by_source(df, SOURCE_NONPLATFORM)["SJ_Z"].to_numpy(dtype=float)
+        Antes este test usaba el fallback poblacional del dataset entero, que
+        se cerro: una poblacion que mezcla deportes, niveles y sexos no
+        habilita un z. Ahora se arma una cohorte real (mismo deporte, nivel y
+        sexo, por encima del minimo) para cada fuente y se verifica que los z
+        de una no contaminen a los de la otra.
+        """
+        from modules.athlete_profile import Sexo
+        from modules.jump_analysis import calc_zscores
+        from modules.zscore_sources import MIN_COHORT_SIZE
 
+        n = MIN_COHORT_SIZE
+        rows, profiles = [], []
+        for idx in range(n):
+            for tag, base, source in (("Plat", 30.0, SOURCE_PLATFORM), ("Mat", 50.0, SOURCE_NONPLATFORM)):
+                name = f"{tag} {idx}"
+                rows.append(
+                    {
+                        "Athlete": name,
+                        "Date": pd.Timestamp("2026-05-01"),
+                        "SJ_cm": base + idx,
+                        "Source": source,
+                    }
+                )
+                profiles.append(
+                    {"Athlete": name, "Deporte": "Handball", "Nivel": "Competitivo", "Sexo": Sexo.MASCULINO}
+                )
+
+        result = calc_zscores(pd.DataFrame(rows), profile_df=pd.DataFrame(profiles))
+        platform_z = filter_by_source(result, SOURCE_PLATFORM)["SJ_Z"].to_numpy(dtype=float)
+        nonplatform_z = filter_by_source(result, SOURCE_NONPLATFORM)["SJ_Z"].to_numpy(dtype=float)
+
+        # Ambos grupos recorren el mismo rango relativo: si se calcularan
+        # juntos, el escalon de 20 cm los separaria en extremos opuestos.
         np.testing.assert_allclose(sorted(platform_z), sorted(nonplatform_z), atol=1e-6)
-        # Con particion el rango llega a +/-1.22; pooled rondaria +/-0.3.
         self.assertGreater(float(np.nanmax(platform_z)), 1.0)
 
 
-class ExternalBenchmarkGateTest(unittest.TestCase):
-    def test_platform_rows_still_use_the_external_benchmark(self):
-        mean = EXTERNAL_BENCHMARKS["CMJ_cm"]["mean"]
-        df = _records_to_jump_df(
-            [_cmj_record(f"Plat {i}", "2026-05-01", mean, SOURCE_PLATFORM) for i in range(3)]
-        )
-        self.assertTrue((df["CMJ_Z"].astype(float).abs() < 1e-9).all())
+class SourceStillPartitionsWithoutExternalBenchmarkTest(unittest.TestCase):
+    """El benchmark sintetico se elimino; la particion por fuente sigue viva.
 
-    def test_nonplatform_rows_do_not_inherit_the_platform_benchmark(self):
-        # Mismo valor numerico que la media de plataforma. Si el benchmark se
-        # aplicara igual, el z seria exactamente 0 para todos.
-        mean = EXTERNAL_BENCHMARKS["CMJ_cm"]["mean"]
+    Antes esta clase verificaba que las filas de plataforma usaran el benchmark
+    externo y las de tiempo de vuelo no. Ese benchmark ya no existe: su desvio
+    era `excellent - mean`, un proxy inflado. Lo que se conserva es la regla de
+    fondo, que ninguna fila herede una referencia que no le corresponde.
+    """
+
+    def test_no_metric_resolves_to_a_borrowed_literature_sd(self):
+        from modules.zscore_sources import ZSource
+
         records = [
-            _cmj_record("Mat A", "2026-05-01", mean, SOURCE_NONPLATFORM),
-            _cmj_record("Mat B", "2026-05-01", mean + 6.0, SOURCE_NONPLATFORM),
-            _cmj_record("Mat C", "2026-05-01", mean + 12.0, SOURCE_NONPLATFORM),
+            _cmj_record("Plat A", "2026-05-01", 38.0, SOURCE_PLATFORM),
+            _cmj_record("Mat A", "2026-05-01", 38.0, SOURCE_NONPLATFORM),
         ]
-        df = _records_to_jump_df(records).sort_values("CMJ_cm")
-        z_values = df["CMJ_Z"].to_numpy(dtype=float)
+        df = _records_to_jump_df(records)
+        # Sin perfil no hay poblacion: nadie puede llegar a z de literatura.
+        self.assertNotIn(str(ZSource.LITERATURE_Z), set(df["CMJ_Z_source"]))
 
-        self.assertFalse(
-            np.allclose(z_values[0], 0.0, atol=1e-9),
-            "el z de no-plataforma se calculo contra el benchmark de plataforma",
-        )
-        # Cae al fallback poblacional de su propia fuente: extremos simetricos.
-        self.assertAlmostEqual(float(z_values[0]), -float(z_values[-1]), places=6)
+    def test_sources_keep_their_own_rows(self):
+        records = [
+            _cmj_record("Ana Lopez", "2026-05-01", 40.0, SOURCE_PLATFORM),
+            _cmj_record("Ana Lopez", "2026-05-01", 46.0, SOURCE_NONPLATFORM),
+        ]
+        df = _records_to_jump_df(records)
+        self.assertEqual(len(df), 2)
+        self.assertEqual(sorted(df["CMJ_cm"].tolist()), [40.0, 46.0])
 
 
 class TemporalPartitionTest(unittest.TestCase):

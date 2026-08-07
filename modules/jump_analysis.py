@@ -15,6 +15,11 @@ from modules.evaluation_sources import (
     SOURCE_PLATFORM,
     normalize_source,
 )
+from modules.zscore_sources import (
+    Z_SOURCES_WITH_NUMERIC_Z,
+    ZSource,
+    resolve_z_source,
+)
 
 # Columnas de la tabla de evaluaciones que NO son metricas numericas. Se
 # listan explicitamente porque `_prepare_jump_df` convierte a numerico todo lo
@@ -43,15 +48,12 @@ EARTH_GRAVITY = 9.81
 # "Excellent" is used here as the product-facing z=+1 anchor because the coach
 # wants z=0 to represent the reference average and z=+1 to represent a
 # practically "good" threshold in the radar.
-EXTERNAL_BENCHMARKS: dict[str, dict[str, float]] = {
-    "CMJ_cm": {"mean": 38.0, "excellent": 53.0},
-    "DJ_RSI": {"mean": 1.71, "excellent": 2.68},
-    "IMTP_N": {"mean": 3031.0, "excellent": 4678.0},
-    "IMTP_relPF": {"mean": 37.39, "excellent": 53.43},
-}
-
-for _benchmark in EXTERNAL_BENCHMARKS.values():
-    _benchmark["sd"] = _benchmark["excellent"] - _benchmark["mean"]
+# `EXTERNAL_BENCHMARKS` quedo eliminado. Derivaba el desvio como
+# `excellent - mean`, que no es un desvio sino aproximadamente dos o tres:
+# medido contra la muestra real quedaba inflado entre 1.9x y 2.3x, con el
+# efecto de que ningun atleta podia alcanzar z >= 1 en las metricas que lo
+# usaban. Las referencias publicadas, con su desvio real y su procedencia
+# declarada, viven ahora en modules/zscore_sources.py.
 
 METRIC_LABELS = {
     "SJ_cm": "SJ",
@@ -326,6 +328,12 @@ ZSCORE_ALIAS_GROUPS = (
 )
 
 NEUROMUSCULAR_QUADRANT_NEUTRAL_BAND = 0.35
+
+# Los patrones usaban +/-0.5 mientras los cuadrantes usaban +/-0.35 sobre los
+# mismos ejes, asi que un atleta con SJ_z = 0.42 quedaba "alto" en el cuadrante
+# y "neutro" para el patron. Se derivan de la misma constante para que no
+# vuelvan a divergir.
+PATTERN_SIGNAL_BAND = NEUROMUSCULAR_QUADRANT_NEUTRAL_BAND
 
 _NEUROMUSCULAR_QUADRANT_ZONE_META = {
     "low": {
@@ -785,37 +793,45 @@ def _cohort_z(
     return zscores
 
 
-def _external_z(
-    values: pd.Series,
-    metric_key: str | None,
-    source_series: pd.Series | None = None,
-) -> pd.Series:
-    if metric_key is None or metric_key not in EXTERNAL_BENCHMARKS:
-        return pd.Series(np.nan, index=values.index, dtype=float)
-    benchmark = EXTERNAL_BENCHMARKS[metric_key]
-    sd = float(benchmark["sd"])
-    if sd <= 0:
-        return pd.Series(np.nan, index=values.index, dtype=float)
-    external = ((values - float(benchmark["mean"])) / sd).astype(float)
-    if source_series is None:
-        return external
-    # Los benchmarks son de plataforma (altura por impulso-momento). Aplicarlos
-    # a datos de tiempo de vuelo agrega un sesgo sistematico, asi que las filas
-    # no-plataforma quedan sin z externo y caen al fallback interno/cohorte.
-    platform_mask = source_series.map(normalize_source) == SOURCE_PLATFORM
-    return external.where(platform_mask)
+# `_external_z` quedo eliminada junto con el benchmark sintetico. La
+# comparacion contra poblacion publicada la decide `resolve_z_source`.
+
+
+def _profile_lookup(profile_df: pd.DataFrame | None) -> dict[str, dict[str, object]]:
+    """Indexa el perfil por atleta para consultarlo fila a fila."""
+    if profile_df is None or profile_df.empty or "Athlete" not in profile_df.columns:
+        return {}
+    lookup: dict[str, dict[str, object]] = {}
+    for _, row in profile_df.iterrows():
+        key = str(row.get("Athlete") or "").strip()
+        if key:
+            lookup[key] = row.to_dict()
+    return lookup
 
 
 def _resolve_zscore(
     frame: pd.DataFrame,
     metric_col: str,
     *,
-    benchmark_key: str | None = None,
     invert: bool = False,
     internal_min_count: int = 2,
     allow_dataset_fallback: bool = True,
     cohort_cache: dict[str, dict[str, object]] | None = None,
-) -> pd.Series:
+    profile_lookup: dict[str, dict[str, object]] | None = None,
+) -> tuple[pd.Series, pd.Series]:
+    """Calcula el z de una metrica segun la procedencia que le corresponda.
+
+    Devuelve `(z, origen)`. La decision de con que comparar se toma en
+    `modules.zscore_sources.resolve_z_source`, fila a fila, porque depende del
+    perfil del atleta (sexo, deporte, nivel), del instrumento con el que se
+    midio y del tamano de su cohorte.
+
+    Antes esta funcion aplicaba un benchmark externo global cuyo desvio era
+    `excellent - mean`, un proxy que sobreestimaba el desvio real entre 1.9x y
+    2.3x y que se usaba para cualquier atleta sin mirar su poblacion. Ahora un
+    z solo se calcula si hay con que: sin poblacion aplicable la metrica queda
+    en `REFERENCE_BAND` y no produce z.
+    """
     values = _numeric_series(frame, metric_col)
     athlete_series = frame["Athlete"] if "Athlete" in frame.columns else None
     source_series = (
@@ -823,7 +839,8 @@ def _resolve_zscore(
         if "Source" in frame.columns
         else pd.Series(DEFAULT_SOURCE, index=frame.index)
     )
-    external = _external_z(values, benchmark_key, source_series)
+    profile_lookup = profile_lookup or {}
+
     internal = _group_internal_z(
         values,
         athlete_series,
@@ -832,20 +849,80 @@ def _resolve_zscore(
         source_series=source_series,
     )
     if not allow_dataset_fallback:
-        dataset = pd.Series(np.nan, index=values.index, dtype=float)
+        cohort = pd.Series(np.nan, index=values.index, dtype=float)
     elif cohort_cache is not None:
-        # Cohort-aware population fallback (Deporte+Nivel peers) replaces the
-        # plain whole-dataset fallback when a profile_df was supplied upstream.
-        dataset = _cohort_z(frame, values, cohort_cache, invert=invert)
+        cohort = _cohort_z(frame, values, cohort_cache, invert=invert)
     else:
-        dataset = _dataset_fallback_z(values, invert=invert, source_series=source_series)
+        cohort = _dataset_fallback_z(values, invert=invert, source_series=source_series)
 
-    # El benchmark externo sigue teniendo prioridad donde aplica, pero ahora
-    # solo cubre filas de plataforma. Las de tiempo de vuelo caen al fallback
-    # interno/cohorte en vez de quedar sin z.
-    resolved = external.combine_first(internal).combine_first(dataset)
+    # Tomas validas por (atleta, fuente): habilita o no la lectura propia.
+    if athlete_series is not None:
+        group_key = athlete_series.astype(str) + "\x1f" + source_series.astype(str)
+        measurement_counts = values.notna().groupby(group_key).transform("sum")
+    else:
+        measurement_counts = pd.Series(0, index=values.index)
 
-    return resolved.where(values.notna())
+    z_values = pd.Series(np.nan, index=values.index, dtype=float)
+    origins = pd.Series("", index=values.index, dtype=object)
+    percentiles = pd.Series(np.nan, index=values.index, dtype=float)
+    ranks = pd.Series(pd.NA, index=values.index, dtype="Int64")
+    cohort_sizes = pd.Series(pd.NA, index=values.index, dtype="Int64")
+
+    # Indice de la cohorte de cada atleta, para calcular percentiles sin
+    # rearmarla en cada fila.
+    cohort_index_by_athlete: dict[str, pd.Index] = {}
+    for name, info in (cohort_cache or {}).items():
+        cohort_df = info.get("cohort_df")
+        if cohort_df is not None and not cohort_df.empty:
+            cohort_index_by_athlete[name] = cohort_df.index
+
+    for idx in values.index:
+        athlete = str(frame.at[idx, "Athlete"]).strip() if athlete_series is not None else ""
+        cohort_info = (cohort_cache or {}).get(athlete) or {}
+        # Solo cuenta como cohorte la resuelta por Deporte+Nivel. El fallback
+        # "general" agrupa a todo el dataset mezclando deportes, niveles y
+        # sexos: su tamano es grande pero no describe una poblacion, asi que
+        # no puede habilitar un z de cohorte.
+        cohort_size = (
+            0 if cohort_info.get("is_fallback", True) else int(cohort_info.get("cohort_size") or 0)
+        )
+
+        decision = resolve_z_source(
+            metric_col,
+            profile=profile_lookup.get(athlete),
+            source=source_series.at[idx],
+            cohort_size=cohort_size,
+            measurement_count=int(measurement_counts.at[idx] or 0),
+        )
+        origins.at[idx] = str(decision.z_source)
+
+        if pd.isna(values.at[idx]):
+            continue
+        if decision.z_source is ZSource.LITERATURE_Z and decision.sd:
+            raw = (float(values.at[idx]) - float(decision.mean)) / float(decision.sd)
+            z_values.at[idx] = -raw if invert else raw
+        elif decision.z_source is ZSource.COHORT_Z:
+            z_values.at[idx] = cohort.at[idx]
+        elif decision.z_source is ZSource.INTRA_INDIVIDUAL:
+            z_values.at[idx] = internal.at[idx]
+        elif decision.z_source is ZSource.COHORT_RANK:
+            # Se calcula percentil, no z: con 5 a 7 pares el orden es
+            # informativo pero el desvio no. El z queda NaN a proposito para
+            # que ningun eje lo grafique como si fuera una distancia.
+            peers = values.reindex(cohort_index_by_athlete.get(athlete, values.index[0:0])).dropna()
+            if len(peers) >= 2:
+                below = int((peers < float(values.at[idx])).sum())
+                pct = round(100.0 * below / (len(peers) - 1), 1) if len(peers) > 1 else 50.0
+                percentiles.at[idx] = min(100.0, max(0.0, 100.0 - pct if invert else pct))
+                ranks.at[idx] = (
+                    int((peers > float(values.at[idx])).sum()) + 1
+                    if not invert
+                    else int((peers < float(values.at[idx])).sum()) + 1
+                )
+                cohort_sizes.at[idx] = len(peers)
+        # REFERENCE_BAND no produce ni z ni rango a proposito.
+
+    return z_values.where(values.notna()), origins, percentiles, ranks, cohort_sizes
 
 
 def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
@@ -993,47 +1070,120 @@ def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd
     instead of the whole dataset. When omitted, behavior is unchanged.
     """
     zscore_specs = (
-        ("SJ_cm", "SJ_Z", None, False),
-        ("CMJ_cm", "CMJ_Z", "CMJ_cm", False),
-        ("DJ_cm", "DJ_height_Z", None, False),
-        ("DJ_RSI", "DJ_RSI_Z", "DJ_RSI", False),
-        ("DRI", "DRI_Z", None, False),
-        ("DJ_tc_ms", "TC_inv_Z", None, True),
-        ("IMTP_relPF", "IMTP_relPF_Z", "IMTP_relPF", False),
-        ("Jump_Momentum", "Jump_Momentum_Z", None, False),
-        ("EUR", "EUR_Z", None, False),
-        ("DSI", "DSI_Z", None, False),
-        ("IMTP_N", "IMTP_N_Z", "IMTP_N", False),
+        ("SJ_cm", "SJ_Z", False),
+        ("CMJ_cm", "CMJ_Z", False),
+        ("DJ_cm", "DJ_height_Z", False),
+        ("DJ_RSI", "DJ_RSI_Z", False),
+        ("DRI", "DRI_Z", False),
+        ("DJ_tc_ms", "TC_inv_Z", True),
+        ("IMTP_relPF", "IMTP_relPF_Z", False),
+        ("Jump_Momentum", "Jump_Momentum_Z", False),
+        ("EUR", "EUR_Z", False),
+        ("DSI", "DSI_Z", False),
+        ("IMTP_N", "IMTP_N_Z", False),
     )
 
     cohort_cache = build_cohort_cache(df, profile_df) if profile_df is not None else None
+    profile_lookup = _profile_lookup(profile_df)
 
-    for metric_col, z_col, benchmark_key, invert in zscore_specs:
-        computed_z = _resolve_zscore(
+    numeric_z_sources = {str(source) for source in Z_SOURCES_WITH_NUMERIC_Z}
+
+    def _apply(
+        z_col: str,
+        computed_z: pd.Series,
+        origins: pd.Series,
+        percentiles: pd.Series,
+        ranks: pd.Series,
+        cohort_sizes: pd.Series,
+    ) -> None:
+        # Procedencia declarada en el frame que entro, si la trae. Un z solo se
+        # conserva cuando viene acompanado de una procedencia numerica
+        # explicita: eso distingue un z calculado por una corrida anterior de
+        # este mismo resolutor (que hay que respetar, porque quizas se calculo
+        # con un profile_df que esta llamada no recibio) de los z que quedaron
+        # en el CSV del benchmark sintetico, que no traen columna de origen y
+        # por lo tanto se descartan.
+        source_col = f"{z_col}_source"
+        declared = (
+            df[source_col].astype(object).where(df[source_col].notna(), "")
+            if source_col in df.columns
+            else pd.Series("", index=df.index, dtype=object)
+        )
+        stored_is_numeric = declared.isin(numeric_z_sources)
+        stored = _coalesced_numeric_series(df, z_col)
+
+        fresh_is_numeric = origins.isin(numeric_z_sources)
+        # La procedencia fresca gana cuando produce z; si no, se hereda la
+        # declarada, y solo si tampoco hay se cae a banda de criterio.
+        resolved_origin = origins.where(
+            fresh_is_numeric, declared.where(stored_is_numeric, origins)
+        )
+        allows_z = resolved_origin.isin(numeric_z_sources)
+
+        df[z_col] = (
+            computed_z.where(fresh_is_numeric)
+            .combine_first(stored.where(stored_is_numeric))
+            .where(allows_z)
+            .round(2)
+        )
+        # Cada z viaja con su procedencia para que ninguna superficie mezcle
+        # ejes de distinto origen sin declararlo.
+        df[source_col] = resolved_origin
+        df[f"{z_col}_percentile"] = percentiles.round(1)
+        df[f"{z_col}_rank"] = ranks
+        df[f"{z_col}_cohort_n"] = cohort_sizes
+
+    for metric_col, z_col, invert in zscore_specs:
+        _apply(z_col, *_resolve_zscore(
             df,
             metric_col,
-            benchmark_key=benchmark_key,
             invert=invert,
             cohort_cache=cohort_cache,
-        )
-        df[z_col] = computed_z.combine_first(_coalesced_numeric_series(df, z_col)).round(2)
+            profile_lookup=profile_lookup,
+        ))
 
-    computed_rel_impulse_z = _resolve_zscore(
+    _apply("CMJ_rel_impulse_Z", *_resolve_zscore(
         df,
         "CMJ_rel_impulse",
         internal_min_count=3,
         allow_dataset_fallback=False,
-    )
-    df["CMJ_rel_impulse_Z"] = computed_rel_impulse_z.combine_first(
-        _coalesced_numeric_series(df, "CMJ_rel_impulse_Z")
-    ).round(2)
+        profile_lookup=profile_lookup,
+    ))
 
     # Backward-compatible aliases used elsewhere in the app/reporting.
+    # El alias se rellena desde el canonico y viceversa, pero nunca por encima
+    # de una decision de banda de criterio: si no corresponde z, el alias
+    # tampoco puede tenerlo (si no, el z viejo entra por la columna espejo).
     for primary_col, alias_col in ZSCORE_ALIAS_GROUPS:
-        primary = _coalesced_numeric_series(df, primary_col, alias_col).round(2)
-        alias = _coalesced_numeric_series(df, alias_col, primary_col).round(2)
+        source_col = f"{primary_col}_source"
+        alias_source_col = f"{alias_col}_source"
+        # Alias y canonico son la misma medicion escrita de dos formas, asi que
+        # la procedencia vale para ambos. Si solo uno la declara, el otro la
+        # adopta: sin esto un frame que trae el alias legacy con origen valido
+        # perdia el z al no encontrar origen en la columna canonica.
+        blank = pd.Series("", index=df.index, dtype=object)
+        primary_origin = df[source_col].astype(object) if source_col in df.columns else blank
+        alias_origin = df[alias_source_col].astype(object) if alias_source_col in df.columns else blank
+        primary_ok = primary_origin.isin(numeric_z_sources)
+        alias_ok = alias_origin.isin(numeric_z_sources)
+        # El que tenga procedencia numerica se la presta al otro. No alcanza con
+        # copiar cuando la columna falta: el canonico casi siempre existe ya
+        # resuelto a banda, y en ese caso el alias es el unico que sabe de donde
+        # salio el valor.
+        resolved_origin = primary_origin.where(primary_ok, alias_origin.where(alias_ok, primary_origin))
+        df[source_col] = resolved_origin
+        df[alias_source_col] = resolved_origin
+        allows_z = (
+            df[source_col].isin(numeric_z_sources)
+            if source_col in df.columns
+            else pd.Series(True, index=df.index)
+        )
+        primary = _coalesced_numeric_series(df, primary_col, alias_col).round(2).where(allows_z)
+        alias = _coalesced_numeric_series(df, alias_col, primary_col).round(2).where(allows_z)
         df[primary_col] = primary
         df[alias_col] = alias
+        if source_col in df.columns:
+            df[f"{alias_col}_source"] = df[source_col]
     if "DRI_Z" in df.columns:
         df.loc[_numeric_series(df, "DRI").isna(), "DRI_Z"] = np.nan
     return df
@@ -1061,7 +1211,62 @@ def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def z_source_of(row: pd.Series | dict[str, object], z_col: str) -> str:
+    """Procedencia declarada de un z, o banda de criterio si no viaja."""
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    declared = str(row_series.get(f"{z_col}_source") or "").strip()
+    return declared or str(ZSource.REFERENCE_BAND)
+
+
+def has_plottable_z(row: pd.Series | dict[str, object], z_col: str) -> bool:
+    """True si ese eje tiene un z que se pueda graficar.
+
+    Exige valor numerico y una procedencia que produzca z. Ni la banda de
+    criterio ni la posicion en cohorte lo hacen: dibujarlas como 0 haria
+    parecer un atleta promedio donde en realidad no hay dato comparable, y
+    mapear un percentil a un eje de z seria disfrazar una posicion de distancia.
+    """
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    value = pd.to_numeric(pd.Series([row_series.get(z_col)]), errors="coerce").iloc[0]
+    if pd.isna(value):
+        return False
+    return z_source_of(row_series, z_col) in {str(source) for source in Z_SOURCES_WITH_NUMERIC_Z}
+
+
+def build_reference_band_reading(
+    row: pd.Series | dict[str, object],
+    metric_col: str,
+    label: str,
+    unit: str = "",
+    *,
+    digits: int = 1,
+) -> dict[str, str]:
+    """Lectura de una metrica que no tiene z aplicable.
+
+    Sin poblacion de referencia lo unico honesto es el valor crudo y el motivo
+    por el que no hay comparacion. No se inventa una banda cualitativa: seria
+    un criterio prestado, que es justo lo que este gate impide.
+    """
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    value = pd.to_numeric(pd.Series([row_series.get(metric_col)]), errors="coerce").iloc[0]
+    return {
+        "Variable": label,
+        "Valor": "-" if pd.isna(value) else f"{float(value):.{digits}f}",
+        "Unidad": unit,
+        "Lectura": "Sin poblacion de referencia aplicable",
+        "Detalle": "Se muestra el valor medido; para compararlo hace falta perfil completo o mas tomas.",
+    }
+
+
 def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tuple[str, str, str, str]], list[str]]:
+    """Ejes del radar que tienen un z real y comparable entre si.
+
+    Ademas de exigir que la metrica exista, se exige que su z sea graficable y
+    que todos los ejes compartan procedencia. Un radar que mezcla un eje
+    calculado contra literatura con otro calculado contra la cohorte propia
+    compara escalas distintas sobre el mismo anillo, y la forma resultante
+    describe de donde salio cada desvio mas que al atleta.
+    """
     row_series = row if isinstance(row, pd.Series) else pd.Series(row)
     has_imtp = pd.notna(row_series.get("IMTP_relPF"))
     has_dj = pd.notna(row_series.get("DJ_cm")) and pd.notna(row_series.get("DJ_RSI"))
@@ -1079,7 +1284,21 @@ def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tupl
         axes = list(RADAR_NO_IMTP_AXES[:2])
         notes.append("Perfil parcial")
 
-    return axes, notes
+    plottable = [axis for axis in axes if has_plottable_z(row_series, axis[3])]
+    dropped = len(axes) - len(plottable)
+    if dropped:
+        notes.append(f"{dropped} eje(s) sin poblacion de referencia")
+
+    origins = {z_source_of(row_series, axis[3]) for axis in plottable}
+    if len(origins) > 1:
+        # Se conserva el origen mas representado para no mezclar escalas.
+        dominant = max(origins, key=lambda origin: sum(
+            1 for axis in plottable if z_source_of(row_series, axis[3]) == origin
+        ))
+        plottable = [axis for axis in plottable if z_source_of(row_series, axis[3]) == dominant]
+        notes.append("Se omitieron ejes de otra procedencia para no mezclar escalas")
+
+    return plottable, notes
 
 
 def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, str]]:
@@ -1130,11 +1349,11 @@ def _pattern_matches(row: pd.Series) -> list[str]:
     eur = pd.to_numeric(pd.Series([row.get("EUR")]), errors="coerce").iloc[0]
 
     patterns: list[str] = []
-    if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z > 0.5 and dj_rsi_z < -0.5:
+    if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z > PATTERN_SIGNAL_BAND and dj_rsi_z < -PATTERN_SIGNAL_BAND:
         patterns.append("A")
-    if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z < -0.5 and dj_rsi_z > 0.5:
+    if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z < -PATTERN_SIGNAL_BAND and dj_rsi_z > PATTERN_SIGNAL_BAND:
         patterns.append("B")
-    if pd.notna(imtp_relpf_z) and pd.notna(cmj_z) and imtp_relpf_z < -0.5 and cmj_z >= -0.5:
+    if pd.notna(imtp_relpf_z) and pd.notna(cmj_z) and imtp_relpf_z < -PATTERN_SIGNAL_BAND and cmj_z >= -PATTERN_SIGNAL_BAND:
         patterns.append("C")
 
     radar_z_cols = [axis[3] for axis in _available_radar_axes(row)[0]]
@@ -1143,7 +1362,7 @@ def _pattern_matches(row: pd.Series) -> list[str]:
         for col in radar_z_cols
     ]
     radar_values = [value for value in radar_values if pd.notna(value)]
-    if radar_values and all(value < -0.5 for value in radar_values):
+    if radar_values and all(value < -PATTERN_SIGNAL_BAND for value in radar_values):
         patterns.append("D")
     if pd.notna(eur) and eur < 1.00:
         patterns.append("E")
@@ -1157,9 +1376,9 @@ def _pattern_text(row: pd.Series, pattern_code: str, field: str) -> str:
 
     dj_rsi_z = resolve_zscore(row, "DJ_RSI_Z")
     sj_z = resolve_zscore(row, "SJ_Z")
-    if dj_rsi_z is not None and dj_rsi_z > 0.5:
+    if dj_rsi_z is not None and dj_rsi_z > PATTERN_SIGNAL_BAND:
         return str(payload.get("bio_dj_rsi_high") or payload.get("bio", "")).strip()
-    if sj_z is not None and sj_z > 0.5:
+    if sj_z is not None and sj_z > PATTERN_SIGNAL_BAND:
         return str(payload.get("bio_sj_high") or payload.get("bio", "")).strip()
     return str(payload.get("bio", "")).strip()
 
@@ -2297,14 +2516,21 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
             else _coalesced_numeric_value(source_row, "IMTP_N_Z")
         )
         snapshot[source_z_col] = resolved_source_z
+        # La procedencia viaja con el z. Sin esto el perfil compuesto copiaba
+        # el numero pero perdia de donde salio, y toda superficie que lo lee lo
+        # descartaba por no poder verificar que no fuera un desvio prestado.
+        snapshot[f"{source_z_col}_source"] = z_source_of(source_row, source_z_col)
         snapshot[f"{value_col}__source_date"] = source_date
         snapshot[f"{value_col}__source_date_iso"] = source_date_iso
         snapshot[f"{source_value_col}__source_date"] = source_date
         snapshot[f"{source_value_col}__source_date_iso"] = source_date_iso
         if value_col == "DJ_tc_ms":
             tc_z = resolve_zscore(source_row, "TC_inv_Z")
+            tc_origin = z_source_of(source_row, "TC_inv_Z")
             snapshot["TC_inv_Z"] = tc_z
             snapshot["DJtc_Z"] = tc_z
+            snapshot["TC_inv_Z_source"] = tc_origin
+            snapshot["DJtc_Z_source"] = tc_origin
         if value_col == "IMTP_relPF":
             snapshot["IMTP_N"] = source_row.get("IMTP_N")
             if source_value_col == "IMTP_relPF":
@@ -2535,10 +2761,15 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
         else DEFAULT_SOURCE
     )
 
+    # Las columnas `*_Z_source` son texto: declaran de donde salio cada z. Si
+    # entraran al casteo numerico se convertirian en NaN y el z que acompanan
+    # quedaria sin procedencia, o sea descartado. Es la misma trampa que
+    # `NON_NUMERIC_EVALUATION_COLUMNS` evita para Source y Device, pero por
+    # sufijo, porque hay una columna de estas por metrica.
     numeric_cols = [
         col
         for col in result.columns
-        if col not in NON_NUMERIC_EVALUATION_COLUMNS
+        if col not in NON_NUMERIC_EVALUATION_COLUMNS and not col.endswith("_source")
     ]
     for col in numeric_cols:
         result[col] = pd.to_numeric(result[col], errors="coerce")
