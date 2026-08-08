@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
 
-from modules.athlete_profile import get_comparison_cohort
+from modules.athlete_profile import get_comparison_cohort, normalize_deporte
 from modules.data_loader import _normalize_legacy_imtp_rfd_aliases_frame
 from modules.evaluation_sources import (
     DEFAULT_SOURCE,
@@ -2677,24 +2678,121 @@ def build_jump_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def choose_secondary_quadrant_x_spec(df: pd.DataFrame) -> tuple[str, str]:
-    # In heavier collision profiles, jump momentum avoids undervaluing heavier
-    # athletes whose propulsive capability is not fully described by jump height.
-    # Ref2 / Ref6 support this practical decision rule.
-    average_bw = pd.to_numeric(df.get("BW_kg", pd.Series(dtype=float)), errors="coerce").dropna().mean()
-    sport_text = " ".join(
-        str(value).strip().lower()
-        for col in ["Sport", "sport", "Deporte", "deporte"]
-        if col in df.columns
-        for value in df[col].dropna().tolist()
-    )
-    heavy_collision_context = (
-        pd.notna(average_bw) and float(average_bw) > 85
-    ) or any(token in sport_text for token in ("rugby", "handball pesado"))
+# Umbral de masa corporal a partir del cual la altura de salto sola subestima
+# la capacidad propulsiva. En McMahon et al. 2022 los forwards de rugby league
+# saltan 2,3 cm menos que los backs (34,1 vs 36,4 cm) pero tienen 22,3 N*s mas
+# de momentum (262,6 vs 240,3): las dos metricas ordenan a la misma poblacion al
+# revés, asi que el eje decide quien aparece a la derecha del cuadrante.
+HEAVY_BW_THRESHOLD_KG = 85.0
 
-    if heavy_collision_context:
-        return "Jump_Momentum_Z", "Jump Momentum z"
-    return "CMJ_Z", "CMJ z"
+# Unico deporte de `DEPORTE_OPTIONS` con evidencia publicada de momentum en la
+# tabla de referencia. El resto entra por masa corporal si corresponde, en vez
+# de por una lista de deportes que suene a colision.
+COLLISION_DEPORTES: frozenset[str] = frozenset({"Rugby"})
+
+# Cuando la proporcion de atletas por encima del umbral cae en esta banda, el
+# plantel esta repartido y ningun eje unico lo describe bien. No se inventa un
+# criterio: se declara que la eleccion no fue limpia, igual que con las cohortes
+# de 5-7 atletas.
+_HEAVY_SHARE_AMBIGUOUS_BAND = (0.35, 0.65)
+
+
+class SecondaryQuadrantXSpec(NamedTuple):
+    """Eje X del cuadrante secundario, con el motivo que lo eligio.
+
+    Se devuelve el motivo junto al eje porque el eje solo no se puede auditar:
+    un mismo atleta cae en cuadrantes distintos segun la metrica elegida, y sin
+    el motivo no hay forma de saber si la regla acerto.
+    """
+
+    x_col: str
+    x_label: str
+    reason: str
+    is_ambiguous: bool = False
+
+
+def _team_deportes(
+    df: pd.DataFrame, profile_df: pd.DataFrame | None
+) -> pd.Series:
+    """Deporte canonico por atleta.
+
+    El deporte vive en el perfil desde que la cohorte se modela por clase y
+    sexo; el frame de saltos se acepta como respaldo para los llamados que
+    todavia no enhebran el perfil.
+    """
+    for frame in (profile_df, df):
+        if not isinstance(frame, pd.DataFrame) or frame.empty:
+            continue
+        column = next(
+            (col for col in ("Deporte", "deporte", "Sport", "sport") if col in frame.columns),
+            None,
+        )
+        if column is None:
+            continue
+        values = frame[column].map(normalize_deporte).dropna()
+        if not values.empty:
+            return values
+    return pd.Series(dtype=object)
+
+
+def choose_secondary_quadrant_x_spec(
+    df: pd.DataFrame, profile_df: pd.DataFrame | None = None
+) -> SecondaryQuadrantXSpec:
+    """Elige el eje X del cuadrante secundario y declara por que.
+
+    Es el unico punto de decision: el dashboard y el reporte llaman aca, de modo
+    que no pueden divergir. Antes el reporte tomaba la primera columna presente
+    en el frame y la rotulaba siempre "CMJ z", asi que el mismo atleta podia
+    caer en cuadrantes distintos en pantalla y en el PDF, con una etiqueta que
+    podia mentir.
+
+    Decide por mayoria de atletas, no por promedio: un solo pesado no tiene que
+    correr el eje de todo el plantel, porque el eje Y es IMTP relPF (N/kg) y con
+    momentum en X el liviano queda castigado por su masa en un eje y premiado en
+    el otro.
+    """
+    cmj = SecondaryQuadrantXSpec("CMJ_Z", "CMJ z", "")
+    momentum = SecondaryQuadrantXSpec("Jump_Momentum_Z", "Jump Momentum z", "")
+    threshold_text = f"{int(HEAVY_BW_THRESHOLD_KG)} kg"
+
+    deportes = _team_deportes(df, profile_df)
+    if not deportes.empty:
+        collision_share = float(deportes.isin(COLLISION_DEPORTES).mean())
+        if collision_share > 0.5:
+            return momentum._replace(
+                reason=(
+                    f"Eje X: Jump Momentum — la mayoria del plantel practica un deporte de "
+                    f"colision ({collision_share:.0%}), donde la altura de salto sola subestima "
+                    f"la capacidad propulsiva del atleta pesado (McMahon et al. 2022). "
+                    f"Umbral de masa corporal: {threshold_text}."
+                )
+            )
+
+    body_mass = pd.to_numeric(
+        df.get("BW_kg", pd.Series(dtype=float)), errors="coerce"
+    ).dropna()
+    if body_mass.empty:
+        return cmj._replace(
+            reason=(
+                f"Eje X: CMJ — el plantel esta sin peso corporal cargado, asi que no se "
+                f"puede evaluar el umbral de {threshold_text} ni calcular momentum."
+            )
+        )
+
+    heavy_share = float((body_mass > HEAVY_BW_THRESHOLD_KG).mean())
+    low, high = _HEAVY_SHARE_AMBIGUOUS_BAND
+    is_ambiguous = low <= heavy_share <= high
+    chosen = momentum if heavy_share > 0.5 else cmj
+    metric_name = "Jump Momentum" if chosen is momentum else "CMJ"
+    reason = (
+        f"Eje X: {metric_name} — {heavy_share:.0%} del plantel supera los {threshold_text}."
+    )
+    if is_ambiguous:
+        reason += (
+            " El plantel esta repartido a los dos lados del umbral, asi que ningun eje "
+            "unico lo describe bien: leer las posiciones relativas con cautela."
+        )
+    return chosen._replace(reason=reason, is_ambiguous=is_ambiguous)
 
 
 def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:

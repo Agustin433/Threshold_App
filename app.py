@@ -6840,10 +6840,21 @@ elif active_main_view == "Team":
         c_q1, c_q2 = st.columns(2)
         with c_q1:
             if "CMJ_cm" in latest.columns and "IMTP_N" in latest.columns:
-                st.plotly_chart(chart_quadrant_cmj_imtp(latest), width='content', key="quad_cmj_imtp_team")
-                _render_exclusions(
-                    choose_secondary_quadrant_x_spec(latest)[0], "IMTP_relPF_Z", "cmj_imtp"
+                secondary_x = choose_secondary_quadrant_x_spec(
+                    latest, profile_df=profile_df_for_team_cohort
                 )
+                st.plotly_chart(
+                    chart_quadrant_cmj_imtp(latest, profile_df=profile_df_for_team_cohort),
+                    width='content',
+                    key="quad_cmj_imtp_team",
+                )
+                # CMJ y Jump Momentum ordenan al mismo plantel al revés, asi que
+                # el eje elegido se declara en vez de quedar implicito.
+                if secondary_x.is_ambiguous:
+                    st.warning(secondary_x.reason)
+                else:
+                    st.caption(secondary_x.reason)
+                _render_exclusions(secondary_x.x_col, "IMTP_relPF_Z", "cmj_imtp")
         with c_q2:
             if "DJ_RSI" in latest.columns and "SJ_cm" in latest.columns:
                 st.plotly_chart(chart_quadrant_rsi_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_rsi_sj_team")

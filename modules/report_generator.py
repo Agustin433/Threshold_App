@@ -24,6 +24,7 @@ from modules.load_monitoring import (
     classify_acwr_zone,
 )
 from modules.jump_analysis import (
+    choose_secondary_quadrant_x_spec,
     _format_profile_source_date,
     _prepare_jump_df,
     build_neuromuscular_profile_result,
@@ -5626,11 +5627,17 @@ def _build_professional_quadrant_sections(
     athlete: str,
 ) -> list[dict[str, object]]:
     data = _professional_latest_team_jump_rows(state)
+    # El eje X del cuadrante secundario se resuelve con la misma funcion que usa
+    # el dashboard. Antes se tomaba la primera columna presente en el frame y se
+    # rotulaba siempre "CMJ z": el orden de columnas podia decidir el eje y la
+    # etiqueta podia no corresponder a lo graficado.
+    secondary_x = choose_secondary_quadrant_x_spec(data, profile_df=_state_profile_df(state))
     specs = [
         {
-            "title": "Cuadrante fuerza relativa vs salida vertical",
-            "x_cols": ("CMJ_Z", "Jump_Momentum_Z"),
-            "x_label": "CMJ z",
+            "title": f"Cuadrante IMTP relPF z vs {secondary_x.x_label}",
+            "x_cols": (secondary_x.x_col,),
+            "x_label": secondary_x.x_label,
+            "axis_reason": secondary_x.reason,
             "y_col": "IMTP_relPF_Z",
             "y_label": "IMTP relPF z",
             "what": "Cruza salida vertical con fuerza isométrica relativa.",
@@ -5716,6 +5723,7 @@ def _build_professional_quadrant_sections(
             {
                 **spec,
                 "x_col": x_col,
+                "axis_reason": str(spec.get("axis_reason") or ""),
                 "points": points,
                 "selected": selected,
                 "classification": classification,

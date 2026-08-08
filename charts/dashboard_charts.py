@@ -639,10 +639,12 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
     return fig
 
 
-def chart_quadrant_cmj_imtp(df: pd.DataFrame, *, theme: dict) -> go.Figure:
+def chart_quadrant_cmj_imtp(
+    df: pd.DataFrame, *, theme: dict, profile_df: pd.DataFrame | None = None
+) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
     data = _prepare_frame(df)
-    x_col, x_label = choose_secondary_quadrant_x_spec(data)
+    x_col, x_label = choose_secondary_quadrant_x_spec(data, profile_df=profile_df)[:2]
     data = data.copy()
     data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
     if not data.empty:
