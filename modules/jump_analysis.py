@@ -26,7 +26,14 @@ from modules.zscore_sources import (
 # listan explicitamente porque `_prepare_jump_df` convierte a numerico todo lo
 # que no este aca, y una columna de texto olvidada se transformaria en NaN
 # silenciosamente.
+# Marca que el frame ya paso por `_prepare_jump_df`. Preparar cuesta ~500 ms
+# con 18 atletas y cada cuadrante lo repetia, porque nada en la ruta de equipo
+# declaraba que el trabajo estaba hecho: `Profile_Composed` solo lo pone la foto
+# compuesta de un atleta, asi que el cortocircuito de los graficos no disparaba.
+JUMP_PREPARED_COLUMN = "Jump_Prepared"
+
 NON_NUMERIC_EVALUATION_COLUMNS = {
+    JUMP_PREPARED_COLUMN,
     "Athlete",
     "Date",
     "Source",
@@ -2898,6 +2905,7 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
     ):
         _round_column(result, column, digits)
 
+    result[JUMP_PREPARED_COLUMN] = True
     return result.sort_values(["Athlete", "Date", "Source"]).reset_index(drop=True)
 
 

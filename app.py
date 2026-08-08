@@ -129,6 +129,7 @@ from modules.page_state import (
     current_report_state_version,
     ensure_history_mode_load_state,
     ensure_load_state,
+    ensure_prepared_jump_df,
     ensure_prepared_raw_workouts,
     invalidate_local_store_hydration,
     local_store_needs_hydration,
@@ -3052,6 +3053,7 @@ def _render_performance_debug_panel(panel_placeholder, active_view: str) -> None
         {"Item": "local_store_hydrated", "Valor": _format_debug_value(st.session_state.get("local_store_hydrated"))},
         {"Item": "local_store_version", "Valor": _format_debug_value(st.session_state.get("local_store_version"))},
         {"Item": "prepared_raw_df_version", "Valor": _format_debug_value(st.session_state.get("prepared_raw_df_version"))},
+        {"Item": "prepared_jump_df_signature", "Valor": _format_debug_value(st.session_state.get("prepared_jump_df_signature"))},
         {"Item": "load_state_version", "Valor": _format_debug_value(st.session_state.get("load_state_version"))},
         {"Item": "report_preview_signature", "Valor": _format_debug_value(st.session_state.get("report_preview_signature") or report_debug["preview_signature"])},
         {"Item": "report_preview_state", "Valor": report_debug["preview_state"]},
@@ -3064,6 +3066,7 @@ def _render_performance_debug_panel(panel_placeholder, active_view: str) -> None
         {"Evento": "Render vista activa", "Estado": "ejecutado", "Tiempo": _format_debug_seconds(timings.get("active_view_render_s"))},
         {"Evento": "ensure_local_store_hydrated", "Estado": artifacts.get("local_store_hydration", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("ensure_local_store_hydrated_s"))},
         {"Evento": "ensure_prepared_raw_workouts", "Estado": artifacts.get("prepared_raw_df", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("ensure_prepared_raw_workouts_s"))},
+        {"Evento": "ensure_prepared_jump_df", "Estado": artifacts.get("prepared_jump_df", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("ensure_prepared_jump_df_s"))},
         {"Evento": "ensure_load_state", "Estado": artifacts.get("load_state", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("ensure_load_state_s"))},
         {"Evento": "Reports preview", "Estado": artifacts.get("report_preview", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("report_preview_build_s"))},
         {"Evento": "Reports exportables", "Estado": artifacts.get("report_exportables", "no ejecutado"), "Tiempo": _format_debug_seconds(timings.get("report_exportables_build_s"))},
@@ -6796,7 +6799,15 @@ elif active_main_view == "Team":
 
         latest = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
         profile_df_for_team_cohort = st.session_state.athlete_profile_df
-        latest = shared_calc_zscores(latest, profile_df=profile_df_for_team_cohort)
+        # Se prepara una vez por cambio de datos y queda marcado como preparado,
+        # asi los cuadrantes lo reutilizan en vez de recalcularlo cada uno. La
+        # cohorte se arma sobre la ultima fila de cada atleta, no sobre el
+        # historial completo, para que nadie pese dos veces en el desvio.
+        latest = ensure_prepared_jump_df(
+            latest,
+            profile_df=profile_df_for_team_cohort,
+            source=team_eval_source,
+        )
 
         team_cohort_rows = [
             {

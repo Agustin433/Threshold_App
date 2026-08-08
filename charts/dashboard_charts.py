@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from modules.jump_analysis import (
+    JUMP_PREPARED_COLUMN,
     _prepare_jump_df,
     _available_radar_axes,
     build_composite_profile_metric_rows,
@@ -84,6 +85,8 @@ def _prepare_frame(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> 
     if "Athlete" not in df.columns or "Date" not in df.columns:
         return df.copy()
     if "Profile_Composed" in df.columns and df["Profile_Composed"].fillna(False).astype(bool).any():
+        return df.copy()
+    if JUMP_PREPARED_COLUMN in df.columns and df[JUMP_PREPARED_COLUMN].fillna(False).astype(bool).any():
         return df.copy()
 
     prepared = _prepare_jump_df(df, profile_df=profile_df)
