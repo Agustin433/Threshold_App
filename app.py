@@ -2915,6 +2915,7 @@ def _current_state_snapshot() -> dict[str, pd.DataFrame | None]:
         "session_notes_df": st.session_state.session_notes_df,
         "maxes_df": st.session_state.maxes_df,
         "jump_df": st.session_state.jump_df,
+        "athlete_profile_df": st.session_state.athlete_profile_df,
     }
 
 
@@ -3983,10 +3984,33 @@ with st.sidebar:
             )
             # El sexo selecciona la tabla de referencia contra la que se calcula
             # el z-score, asi que dejarlo sin especificar tiene consecuencia:
-            # ese atleta no puede resolver a z de literatura.
+            # ese atleta no puede resolver a z de literatura. Sin un `index`
+            # explicito Streamlit muestra el primer valor del enum
+            # (Masculino) como si fuera la seleccion, y el upsert reemplaza
+            # la fila entera: guardar sin tocar el campo pisaria un sexo ya
+            # cargado. Se precarga desde el perfil existente del atleta
+            # elegido, o "No especificado" para un atleta nuevo.
+            existing_profile_sexo = Sexo.NO_ESPECIFICADO
+            profile_lookup_name = (
+                typed_profile_athlete.strip()
+                if selected_profile_athlete == "Escribir nuevo..."
+                else selected_profile_athlete
+            )
+            if (
+                profile_lookup_name
+                and profile_df_state is not None
+                and not profile_df_state.empty
+                and "Athlete" in profile_df_state.columns
+            ):
+                existing_profile_rows = profile_df_state[
+                    profile_df_state["Athlete"].astype(str).str.strip() == str(profile_lookup_name).strip()
+                ]
+                if not existing_profile_rows.empty:
+                    existing_profile_sexo = normalize_sexo(existing_profile_rows.iloc[-1].get("Sexo"))
             profile_sexo = st.radio(
                 "Sexo",
                 list(Sexo),
+                index=list(Sexo).index(existing_profile_sexo),
                 format_func=lambda value: SEXO_LABELS[value],
                 key=f"profile_sexo_{profile_nonce}",
                 horizontal=True,
@@ -6874,6 +6898,18 @@ elif active_main_view == "Team":
             if "DRI" in latest.columns and "SJ_cm" in latest.columns:
                 st.plotly_chart(chart_quadrant_dri_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_dri_experimental_team")
                 _render_exclusions("DRI_Z", "SJ_Z", "dri_sj")
+
+        # Ultima evaluacion cruda por atleta — el heatmap de abajo normaliza
+        # a z y no deja ver el valor real en sus unidades.
+        st.markdown("---")
+        render_subsection_header("Ultima evaluacion por atleta", "valores crudos, sin normalizar", kicker="Detalle")
+        raw_eval_cols = ["Athlete", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_RSI", "DRI", "IMTP_N", "NM_Profile"]
+        raw_eval_cols_present = [col for col in raw_eval_cols if col in latest.columns]
+        st.dataframe(
+            latest[raw_eval_cols_present].sort_values("Athlete").reset_index(drop=True),
+            width='stretch',
+            hide_index=True,
+        )
 
         # Z-scores grupales
         st.markdown("---")

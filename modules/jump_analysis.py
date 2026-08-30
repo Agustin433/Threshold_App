@@ -12,6 +12,7 @@ from modules.athlete_profile import get_comparison_cohort, normalize_deporte
 from modules.data_loader import _normalize_legacy_imtp_rfd_aliases_frame
 from modules.evaluation_sources import (
     DEFAULT_SOURCE,
+    MIN_COHORT_SIZE,
     SOURCE_ORDER,
     SOURCE_PLATFORM,
     normalize_source,
@@ -741,7 +742,7 @@ def build_cohort_cache(
     frame: pd.DataFrame,
     profile_df: pd.DataFrame | None,
     *,
-    min_cohort_size: int = 3,
+    min_cohort_size: int = MIN_COHORT_SIZE,
 ) -> dict[str, dict[str, object]]:
     """Resolve each athlete's comparison cohort once, reused across every metric."""
     cache: dict[str, dict[str, object]] = {}
@@ -890,10 +891,17 @@ def _resolve_zscore(
         # Solo cuenta como cohorte la resuelta por Deporte+Nivel. El fallback
         # "general" agrupa a todo el dataset mezclando deportes, niveles y
         # sexos: su tamano es grande pero no describe una poblacion, asi que
-        # no puede habilitar un z de cohorte.
-        cohort_size = (
-            0 if cohort_info.get("is_fallback", True) else int(cohort_info.get("cohort_size") or 0)
-        )
+        # no puede habilitar un z de cohorte. "muestra_insuficiente" es la
+        # unica variante de fallback que trae un cohort_size real y acotado
+        # (las demas devuelven 0 o el tamano del dataset entero): dejarlo
+        # pasar es lo que permite que 5 a 7 pares resuelvan a COHORT_RANK en
+        # vez de quedar indistinguibles del fallback general.
+        if cohort_info.get("cohort_level") == "muestra_insuficiente":
+            cohort_size = int(cohort_info.get("cohort_size") or 0)
+        elif cohort_info.get("is_fallback", True):
+            cohort_size = 0
+        else:
+            cohort_size = int(cohort_info.get("cohort_size") or 0)
 
         decision = resolve_z_source(
             metric_col,
@@ -917,7 +925,14 @@ def _resolve_zscore(
             # Se calcula percentil, no z: con 5 a 7 pares el orden es
             # informativo pero el desvio no. El z queda NaN a proposito para
             # que ningun eje lo grafique como si fuera una distancia.
-            peers = values.reindex(cohort_index_by_athlete.get(athlete, values.index[0:0])).dropna()
+            # El rango se restringe a la misma fuente que _cohort_z: mezclar
+            # plataforma y tiempo de vuelo invierte el orden real (metodos
+            # distintos, no variabilidad entre atletas).
+            peer_index = cohort_index_by_athlete.get(athlete, values.index[0:0])
+            row_source = source_series.at[idx]
+            peer_source = source_series.reindex(peer_index)
+            peer_index = peer_index[(peer_source == row_source).fillna(False)]
+            peers = values.reindex(peer_index).dropna()
             if len(peers) >= 2:
                 below = int((peers < float(values.at[idx])).sum())
                 pct = round(100.0 * below / (len(peers) - 1), 1) if len(peers) > 1 else 50.0

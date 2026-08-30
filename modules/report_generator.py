@@ -39,6 +39,7 @@ from modules.jump_analysis import (
     compute_swc_delta,
     resolve_zscore,
     semaphore_label,
+    z_source_of,
 )
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 from modules.report_force_time import build_force_time_report_payload, draw_force_time_test_block
@@ -4585,7 +4586,7 @@ def collect_report_plotly_figures(
                     {
                         "slug": "quadrant_cmj_imtp",
                         "title": "Mapa de potencia y fuerza máxima",
-                        "figure": chart_quadrant_cmj_imtp(latest_team, theme=theme),
+                        "figure": chart_quadrant_cmj_imtp(latest_team, theme=theme, profile_df=_state_profile_df(state)),
                     }
                 )
             if len(latest_team) > 1 and {"DJ_RSI", "SJ_cm"}.issubset(latest_team.columns):
@@ -4593,7 +4594,7 @@ def collect_report_plotly_figures(
                     {
                         "slug": "quadrant_rsi_sj",
                         "title": "Mapa de RSI y fuerza concéntrica",
-                        "figure": chart_quadrant_rsi_sj(latest_team, theme=theme),
+                        "figure": chart_quadrant_rsi_sj(latest_team, theme=theme, profile_df=_state_profile_df(state)),
                     }
                 )
             if len(latest_team) > 1 and {"DRI", "SJ_cm"}.issubset(latest_team.columns):
@@ -4601,7 +4602,7 @@ def collect_report_plotly_figures(
                     {
                         "slug": "quadrant_dri_sj_experimental",
                         "title": "Mapa experimental de DRI y fuerza concéntrica",
-                        "figure": chart_quadrant_dri_sj(latest_team, theme=theme),
+                        "figure": chart_quadrant_dri_sj(latest_team, theme=theme, profile_df=_state_profile_df(state)),
                     }
                 )
 
@@ -4836,6 +4837,16 @@ def export_plotly_figure_png(
 
 
 def _professional_jump_history(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.DataFrame:
+    # Una sola generacion de reporte llama a esta funcion mas de una decena de
+    # veces con el mismo `state` (tarjetas, evolucion, perfil compuesto,
+    # cambios, isometria, graficos): sin memoizar, cada llamada rehace
+    # `_prepare_jump_df` sobre el historial completo del equipo. `state` es un
+    # dict fresco por generacion (ver `_current_report_state_snapshot`), asi
+    # que cachear en el mismo dict no arrastra nada entre reportes distintos.
+    cache_key = f"__professional_jump_history_cache__{athlete}"
+    cached = state.get(cache_key)
+    if isinstance(cached, pd.DataFrame):
+        return cached
     jdf = state.get("jump_df")
     if jdf is None or jdf.empty or "Athlete" not in jdf.columns:
         return pd.DataFrame()
@@ -4853,7 +4864,9 @@ def _professional_jump_history(state: dict[str, pd.DataFrame | None], athlete: s
         data = data[_professional_athlete_mask(data["Athlete"], athlete)]
     if data.empty:
         return pd.DataFrame()
-    return data.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+    result = data.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+    state[cache_key] = result
+    return result
 
 
 def _professional_latest_team_jump_rows(state: dict[str, pd.DataFrame | None]) -> pd.DataFrame:
@@ -5699,10 +5712,17 @@ def _build_professional_quadrant_sections(
         points: list[dict[str, object]] = []
         selected = None
         if x_col and y_col in data.columns and "Athlete" in data.columns:
-            plot_df = data[["Athlete", x_col, y_col]].copy()
+            source_cols = [col for col in (f"{x_col}_source", f"{y_col}_source") if col in data.columns]
+            plot_df = data[["Athlete", x_col, y_col, *source_cols]].copy()
             plot_df["x_plot"] = plot_df.apply(lambda row: resolve_zscore(row, x_col), axis=1)
             plot_df["y_plot"] = plot_df.apply(lambda row: resolve_zscore(row, y_col), axis=1)
             plot_df = plot_df.dropna(subset=["x_plot", "y_plot"])
+            # Mismo criterio que el dashboard (`_same_origin_rows`): un eje de
+            # literatura contra uno de cohorte no comparten unidad de z, asi
+            # que el PDF no puede graficar el par aunque ambos existan.
+            plot_df = plot_df[
+                plot_df.apply(lambda row: z_source_of(row, x_col) == z_source_of(row, y_col), axis=1)
+            ]
             target = str(athlete).strip().casefold()
             for _, row in plot_df.iterrows():
                 is_selected = str(row["Athlete"]).strip().casefold() == target

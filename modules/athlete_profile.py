@@ -301,7 +301,16 @@ def _field_value(row: Mapping[str, object] | pd.Series, field: str) -> object:
 def missing_profile_fields(row: Mapping[str, object] | pd.Series) -> list[str]:
     missing: list[str] = []
     for field in REQUIRED_PROFILE_FIELDS:
-        if _is_blank(_field_value(row, field)):
+        value = _field_value(row, field)
+        # "no_especificado" es un valor valido del enum Sexo, no un string
+        # vacio, asi que `_is_blank` no lo detecta. Para completitud de perfil
+        # cuenta como faltante igual: sin sexo no hay z de literatura ni de
+        # cohorte posible.
+        if field == "Sexo":
+            if normalize_sexo(value) is Sexo.NO_ESPECIFICADO:
+                missing.append(FIELD_LABELS.get(field, field))
+            continue
+        if _is_blank(value):
             missing.append(FIELD_LABELS.get(field, field))
     return missing
 

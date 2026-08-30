@@ -166,6 +166,29 @@ def _same_origin_rows(data: pd.DataFrame, x_col: str, y_col: str) -> pd.DataFram
     return data[x_origin == y_origin]
 
 
+# Deriva la columna de metrica cruda a partir del z-column, solo para los
+# ejes que efectivamente usan los cuadrantes de esta app. Sirve para
+# distinguir "nunca se tomo el test" (falta el dato crudo) de "cohorte
+# insuficiente" (el dato existe, pero no hay con que compararlo): son
+# problemas distintos y uno es accionable en el momento, el otro no.
+_QUADRANT_Z_TO_RAW_METRIC = {
+    "CMJ_Z": "CMJ_cm",
+    "SJ_Z": "SJ_cm",
+    "DJ_RSI_Z": "DJ_RSI",
+    "DRI_Z": "DRI",
+    "IMTP_relPF_Z": "IMTP_relPF",
+    "Jump_Momentum_Z": "Jump_Momentum",
+    "EUR_Z": "EUR",
+}
+
+
+def _raw_metric_missing(row: pd.Series, z_col: str) -> bool:
+    raw_col = _QUADRANT_Z_TO_RAW_METRIC.get(z_col)
+    if raw_col is None or raw_col not in row.index:
+        return False
+    return bool(pd.isna(pd.to_numeric(pd.Series([row.get(raw_col)]), errors="coerce").iloc[0]))
+
+
 def build_quadrant_exclusions(
     data: pd.DataFrame,
     x_col: str,
@@ -195,6 +218,7 @@ def build_quadrant_exclusions(
         profiled = {str(name).strip() for name in profile_df["Athlete"].dropna()}
 
     sin_perfil: list[str] = []
+    sin_test: list[str] = []
     sin_cohorte: list[str] = []
     procedencia_mixta: list[str] = []
 
@@ -210,6 +234,8 @@ def build_quadrant_exclusions(
             continue
         if profiled and athlete not in profiled:
             sin_perfil.append(athlete)
+        elif (not x_ok and _raw_metric_missing(row, x_col)) or (not y_ok and _raw_metric_missing(row, y_col)):
+            sin_test.append(athlete)
         else:
             sin_cohorte.append(athlete)
 
@@ -218,6 +244,12 @@ def build_quadrant_exclusions(
             "reason": "Sin perfil cargado",
             "detail": "Completar el perfil los habilita.",
             "athletes": sorted(set(sin_perfil)),
+            "actionable": True,
+        },
+        {
+            "reason": "Falta un test",
+            "detail": "No tiene toma valida para uno de los dos ejes; perfil y cohorte estan en orden.",
+            "athletes": sorted(set(sin_test)),
             "actionable": True,
         },
         {
@@ -646,7 +678,7 @@ def chart_quadrant_cmj_imtp(
     df: pd.DataFrame, *, theme: dict, profile_df: pd.DataFrame | None = None
 ) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
-    data = _prepare_frame(df)
+    data = _prepare_frame(df, profile_df=profile_df)
     x_col, x_label = choose_secondary_quadrant_x_spec(data, profile_df=profile_df)[:2]
     data = data.copy()
     data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()

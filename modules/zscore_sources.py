@@ -32,6 +32,7 @@ Reglas duras, en este orden:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -155,7 +156,13 @@ REFERENCE_TABLES: tuple[dict[str, object], ...] = (
 
 
 def _clean(value: object) -> str:
-    return str(value or "").strip()
+    # `value or ""` no alcanza para NaN: es truthy en Python, asi que un campo
+    # de perfil genuinamente vacio (float NaN tras `Series.to_dict()`)
+    # terminaria como el string "nan", que los checks `if not deporte:`
+    # aguas abajo no detectan como faltante.
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return ""
+    return str(value).strip()
 
 
 def lookup_reference(

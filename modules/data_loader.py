@@ -432,9 +432,13 @@ def _read_xlsx_rows(file_bytes: bytes) -> list[list[object]]:
 
 def _safe_float(value) -> float | None:
     try:
-        return float(str(value).replace(",", "."))
+        result = float(str(value).replace(",", "."))
     except Exception:
         return None
+    # Un valor NaN de entrada (celda vacia en pandas) produce un float NaN
+    # aca, no una excepcion, asi que sin este chequeo un dato faltante se
+    # trata como si estuviera presente en los guards `is None` aguas abajo.
+    return None if pd.isna(result) else result
 
 
 def _wellness_score(sueno, estres, dolor):

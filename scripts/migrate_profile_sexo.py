@@ -44,8 +44,11 @@ def main() -> None:
         return
 
     backup_path = csv_path.with_name(f"{csv_path.stem}{BACKUP_SUFFIX}{csv_path.suffix}")
-    shutil.copy2(csv_path, backup_path)
-    print(f"Backup creado: {backup_path}")
+    if backup_path.exists():
+        print(f"Backup ya existe, se conserva el original: {backup_path}")
+    else:
+        shutil.copy2(csv_path, backup_path)
+        print(f"Backup creado: {backup_path}")
 
     df = pd.read_csv(csv_path)
     total = len(df)
