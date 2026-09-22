@@ -147,6 +147,26 @@ Impacto:
 
 - la exportacion de imagenes de Plotly puede fallar
 
+### `pyo3_runtime.PanicException` o `ModuleNotFoundError: No module named '_cffi_backend'` al correr los tests
+
+Pasa al instalar `requirements.txt` en un entorno Linux/CI limpio: `pypdf`
+depende de `cryptography`, que a su vez depende de la extension nativa
+`cffi`. Si `cffi` no quedo instalado correctamente, la coleccion de tests
+de PDF (`tests/test_athlete_pdf_report.py`, `tests/test_client_pdf_report.py`,
+`tests/test_professional_pdf_report.py`) se corta entera al importar.
+
+No es un bug de la app, es una dependencia nativa que a veces no se instala
+sola. Solucion:
+
+```bash
+pip install --force-reinstall cffi
+```
+
+Despues de eso, `pip install -r requirements.txt` y los tests corren normal.
+En Windows con el flujo de `RUNBOOK.md` (venv + pip install de este mismo
+archivo) esto no suele aparecer; es mas frecuente en un entorno Linux/CI
+recien creado.
+
 ### La app arranca pero no aparecen datos
 
 Revisar:
