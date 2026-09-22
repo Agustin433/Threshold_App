@@ -350,19 +350,24 @@ def _sort_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
 
 
 def _collapse_duplicate_rows(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
-    rows: list[dict[str, object]] = []
+    """Colapsa por key_cols quedandose, por columna, con el ultimo valor no nulo.
+
+    Antes iteraba grupo por grupo y columna por columna con llamadas de
+    pandas individuales: con el historial completo (decenas de miles de
+    filas) cada subida pagaba minutos de overhead por-fila. Ordenar por
+    `_merge_order` y aplicar `ffill` dentro de cada grupo propaga el ultimo
+    valor no nulo hasta la ultima fila del grupo -exactamente lo que
+    devolvia el loop- en una sola pasada vectorizada.
+    """
     ordered_cols = [col for col in df.columns if col != "_merge_order"]
+    value_cols = [col for col in ordered_cols if col not in key_cols]
 
-    for _, group in df.groupby(key_cols, dropna=False, sort=False):
-        group = group.sort_values("_merge_order")
-        merged_row: dict[str, object] = {}
-        for col in ordered_cols:
-            series = group[col]
-            non_null = series[series.notna()]
-            merged_row[col] = non_null.iloc[-1] if not non_null.empty else series.iloc[-1]
-        rows.append(merged_row)
-
-    return pd.DataFrame(rows)
+    sorted_df = df.sort_values("_merge_order")
+    filled = sorted_df.copy()
+    if value_cols:
+        filled[value_cols] = sorted_df.groupby(key_cols, dropna=False, sort=False)[value_cols].ffill()
+    collapsed = filled.drop_duplicates(subset=key_cols, keep="last")
+    return collapsed[ordered_cols].reset_index(drop=True)
 
 
 def _row_has_jump_dj_context(row: pd.Series | dict[str, object]) -> bool:
@@ -377,27 +382,41 @@ def _row_has_jump_dj_context(row: pd.Series | dict[str, object]) -> bool:
 
 
 def _collapse_jump_duplicate_rows(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
-    rows: list[dict[str, object]] = []
+    """Como `_collapse_duplicate_rows`, mas la regla propia de saltos: si la
+    fila entrante mas reciente del grupo trae contexto de altura de caida
+    (DJ), sus campos dependientes de DRI pisan al valor colapsado aunque esa
+    fila entrante no haya ganado el resto de las columnas por fecha.
+    """
     ordered_cols = [col for col in df.columns if col not in {"_merge_order", "_merge_source"}]
+    value_cols = [col for col in ordered_cols if col not in key_cols]
 
-    for _, group in df.groupby(key_cols, dropna=False, sort=False):
-        group = group.sort_values("_merge_order")
-        merged_row: dict[str, object] = {}
-        for col in ordered_cols:
-            series = group[col]
-            non_null = series[series.notna()]
-            merged_row[col] = non_null.iloc[-1] if not non_null.empty else series.iloc[-1]
+    sorted_df = df.sort_values("_merge_order")
+    filled = sorted_df.copy()
+    if value_cols:
+        filled[value_cols] = sorted_df.groupby(key_cols, dropna=False, sort=False)[value_cols].ffill()
+    collapsed = filled.drop_duplicates(subset=key_cols, keep="last")[ordered_cols].reset_index(drop=True)
 
-        incoming_group = group[group["_merge_source"] == "incoming"] if "_merge_source" in group.columns else pd.DataFrame()
-        if not incoming_group.empty and incoming_group.apply(_row_has_jump_dj_context, axis=1).any():
-            latest_incoming = incoming_group.sort_values("_merge_order").iloc[-1]
-            for field in _JUMP_DRI_DEPENDENT_FIELDS:
-                if field in ordered_cols:
-                    merged_row[field] = latest_incoming.get(field)
+    dependent_fields = [field for field in _JUMP_DRI_DEPENDENT_FIELDS if field in ordered_cols]
+    incoming = df[df["_merge_source"] == "incoming"] if "_merge_source" in df.columns else df.iloc[0:0]
+    if dependent_fields and not incoming.empty:
+        has_context = incoming.apply(_row_has_jump_dj_context, axis=1)
+        contextual = incoming[has_context]
+        if not contextual.empty:
+            # `.tail(1)` conserva la fila literal, nulos incluidos: a
+            # diferencia de `.last()` (que busca el ultimo valor no nulo),
+            # una fila entrante que trae DJ pero deja el campo vacio tiene
+            # que poder vaciar el valor colapsado, no heredar el viejo.
+            latest = (
+                contextual.sort_values("_merge_order")
+                .groupby(key_cols, dropna=False, sort=False)
+                .tail(1)
+                .set_index(key_cols)[dependent_fields]
+            )
+            collapsed = collapsed.set_index(key_cols)
+            collapsed.loc[latest.index, dependent_fields] = latest
+            collapsed = collapsed.reset_index()[ordered_cols]
 
-        rows.append(merged_row)
-
-    return pd.DataFrame(rows)
+    return collapsed
 
 
 def _dedupe_dataset_frame(df: pd.DataFrame, state_key: str) -> pd.DataFrame:
