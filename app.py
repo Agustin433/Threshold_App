@@ -6875,7 +6875,7 @@ elif active_main_view == "Team":
             )
 
     # ── Cuadrantes grupales ────────────────────────────────────────
-    if jdf is not None and len(jdf["Athlete"].unique()) > 1:
+    if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and len(jdf["Athlete"].unique()) > 1:
         st.markdown("---")
         render_subsection_header("Cuadrantes de rendimiento", "mapas comparativos de fuerza y reactividad", kicker="Comparacion")
 

@@ -441,14 +441,19 @@ EUR_PROFILE_THRESHOLDS = (
 )
 
 
-def filter_by_source(frame: pd.DataFrame | None, source: str | None) -> pd.DataFrame:
+def filter_by_source(frame: pd.DataFrame | None, source: str | None) -> pd.DataFrame | None:
     """Recorta un frame de evaluaciones a una unica fuente de medicion.
 
     Con `source=None` devuelve el frame tal cual. Un frame sin columna
-    `Source` se considera historico y por lo tanto de plataforma.
+    `Source` se considera historico y por lo tanto de plataforma. `None`
+    se propaga como `None`: convertirlo en un DataFrame() vacio rompia el
+    patron `if jdf is not None` que usan todos los llamadores (KeyError
+    en accesos como `jdf["Athlete"]` contra un frame sin columnas).
     """
-    if frame is None or frame.empty or source is None:
-        return frame if frame is not None else pd.DataFrame()
+    if frame is None:
+        return None
+    if frame.empty or source is None:
+        return frame
 
     target = normalize_source(source)
     if "Source" not in frame.columns:
