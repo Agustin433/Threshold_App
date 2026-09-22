@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
+import logging
 import re
 import textwrap
 import unicodedata
@@ -38,6 +39,8 @@ from modules.report_force_time import build_force_time_report_payload, draw_forc
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
+
+logger = logging.getLogger(__name__)
 BRAND_ASSET_DIR = APP_ROOT / "assets" / "brand"
 
 REPORT_SHEET_ORDER = [
@@ -2786,13 +2789,15 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
 
 
 def _ascii_text(value: object) -> str:
-    text = "" if value is None else str(value)
+    text = _repair_mojibake_text(value)
     text = (
         text.replace("—", "-")
+        .replace("–", "-")
         .replace("±", "+/-")
         .replace("σ", "sd")
         .replace("·", "-")
         .replace("→", "->")
+        .replace("…", "...")
     )
     normalized = unicodedata.normalize("NFKC", text)
     return normalized.encode("latin-1", "ignore").decode("latin-1")
@@ -9456,6 +9461,7 @@ def _generate_professional_profile_pdf_reportlab(
         from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
         from xml.sax.saxutils import escape
     except Exception:
+        logger.exception("No se pudo importar reportlab para el PDF profesional individual")
         return None
 
     palette = _pdf_theme_threshold(colors, variant="professional")
@@ -11513,6 +11519,7 @@ def _generate_professional_profile_pdf_reportlab(
     try:
         doc.build(story, onFirstPage=_draw_professional_footer, onLaterPages=_draw_professional_footer)
     except Exception:
+        logger.exception("Fallo al construir el PDF profesional individual de %s", report_athlete)
         return None
     return buffer.getvalue()
 
@@ -11530,6 +11537,7 @@ def _generate_visual_report_pdf_reportlab(
         from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
         from xml.sax.saxutils import escape
     except Exception:
+        logger.exception("No se pudo importar reportlab para el PDF de reporte (%s)", report_audience)
         return None
 
     audience = normalize_report_audience(report_audience)
@@ -12819,6 +12827,7 @@ def _generate_visual_report_pdf_reportlab(
         try:
             doc.build(story, onFirstPage=_athlete_chrome, onLaterPages=_athlete_chrome)
         except Exception:
+            logger.exception("Fallo al construir el PDF de atleta de %s", effective_athlete)
             return None
         return buffer.getvalue()
 
@@ -13745,6 +13754,7 @@ def _generate_visual_report_pdf_reportlab(
         try:
             doc.build(story, onFirstPage=_client_chrome, onLaterPages=_client_chrome)
         except Exception:
+            logger.exception("Fallo al construir el PDF de cliente de %s", effective_athlete)
             return None
         return buffer.getvalue()
 
@@ -13851,6 +13861,7 @@ def _generate_visual_report_pdf_reportlab(
     try:
         doc.build(story)
     except Exception:
+        logger.exception("Fallo al construir el PDF de equipo (%s)", report_athlete)
         return None
     return buffer.getvalue()
 
@@ -13860,9 +13871,9 @@ def _build_pdf_document(page_contents: list[str]) -> bytes:
     objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
 
     font_objects = [
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>",
     ]
     pages_object_num = 2
     first_dynamic_obj = 3 + len(font_objects)
