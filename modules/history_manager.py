@@ -167,17 +167,11 @@ def _replace_remote_dataset(state_key: str, df: pd.DataFrame | None) -> dict[str
         offset += page_size
 
     existing_keys = {row.get("row_key") for row in existing_rows if row.get("row_key")}
-    deleted = 0
-    keys_to_delete = sorted(existing_keys - desired_keys)
-    for chunk in _chunked(keys_to_delete):
-        deleted_rows = _supabase_request(
-            "DELETE",
-            table,
-            query={"dataset_key": f"eq.{state_key}", "row_key": f"in.({','.join(chunk)})"},
-            prefer="return=representation",
-        ) or []
-        deleted += len(deleted_rows) if deleted_rows else len(chunk)
 
+    # Upsert primero, delete despues: si el proceso se corta a mitad de
+    # camino (red, timeout), el remoto queda con el set deseado ya escrito
+    # y a lo sumo filas viejas de mas por limpiar despues, nunca con datos
+    # borrados sin reponer.
     upserted = 0
     if desired_records:
         upserted_rows = _supabase_request(
@@ -188,6 +182,17 @@ def _replace_remote_dataset(state_key: str, df: pd.DataFrame | None) -> dict[str
             prefer="resolution=merge-duplicates,return=representation",
         ) or []
         upserted = len(upserted_rows) if upserted_rows else len(desired_records)
+
+    deleted = 0
+    keys_to_delete = sorted(existing_keys - desired_keys)
+    for chunk in _chunked(keys_to_delete):
+        deleted_rows = _supabase_request(
+            "DELETE",
+            table,
+            query={"dataset_key": f"eq.{state_key}", "row_key": f"in.({','.join(chunk)})"},
+            prefer="return=representation",
+        ) or []
+        deleted += len(deleted_rows) if deleted_rows else len(chunk)
 
     return {"enabled": True, "deleted": deleted, "upserted": upserted, "dataset": DATASET_LABELS.get(state_key, state_key)}
 
@@ -217,18 +222,11 @@ def _replace_remote_evaluations(df: pd.DataFrame | None) -> dict[str, object]:
             break
         offset += page_size
 
-    deleted = 0
     existing_keys = {(row.get("athlete"), row.get("date")) for row in existing_rows if row.get("athlete") and row.get("date")}
-    for athlete, event_date in sorted(existing_keys - desired_keys):
-        deleted_rows = _supabase_request(
-            "DELETE",
-            table,
-            query={"athlete": f"eq.{athlete}", "date": f"eq.{event_date}"},
-            prefer="return=representation",
-            evaluations=True,
-        ) or []
-        deleted += len(deleted_rows) if deleted_rows else 1
 
+    # Upsert primero, delete despues (ver _replace_remote_dataset): evita
+    # que un corte a mitad de camino deje el remoto con evaluaciones
+    # borradas sin haber sido repuestas.
     upserted = 0
     for record in desired_records:
         updated_rows = _supabase_request(
@@ -250,5 +248,16 @@ def _replace_remote_evaluations(df: pd.DataFrame | None) -> dict[str, object]:
             evaluations=True,
         ) or []
         upserted += len(inserted_rows) if inserted_rows else 1
+
+    deleted = 0
+    for athlete, event_date in sorted(existing_keys - desired_keys):
+        deleted_rows = _supabase_request(
+            "DELETE",
+            table,
+            query={"athlete": f"eq.{athlete}", "date": f"eq.{event_date}"},
+            prefer="return=representation",
+            evaluations=True,
+        ) or []
+        deleted += len(deleted_rows) if deleted_rows else 1
 
     return {"enabled": True, "deleted": deleted, "upserted": upserted, "dataset": DATASET_LABELS.get("jump_df", "Evaluaciones")}

@@ -23,7 +23,16 @@ from modules.jump_analysis import (
 )
 
 SUPABASE_DATASETS_TABLE = "dataset_rows"
-REMOTE_DATASET_KEYS = ["rpe_df", "wellness_df", "completion_df", "rep_load_df", "raw_df", "maxes_df"]
+REMOTE_DATASET_KEYS = [
+    "rpe_df",
+    "wellness_df",
+    "completion_df",
+    "rep_load_df",
+    "raw_df",
+    "maxes_df",
+    "session_notes_df",
+    "athlete_profile_df",
+]
 _JUMP_DJ_CONTEXT_FIELDS = ("DJ_cm", "DJ_tc_ms", "DJ_RSI", "DJ_drop_height_cm")
 _JUMP_DJ_CLEAR_FIELDS = ("DJ_drop_height_cm",)
 

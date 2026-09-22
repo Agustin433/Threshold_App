@@ -4245,6 +4245,15 @@ with st.sidebar:
                 try:
                     merged_profiles = upsert_athlete_profile(profile_payload)
                     st.session_state.athlete_profile_df = None if merged_profiles.empty else merged_profiles
+                    if supabase_dataset_store_enabled() and not merged_profiles.empty:
+                        try:
+                            save_remote_dataset("athlete_profile_df", merged_profiles)
+                        except Exception as remote_profile_exc:
+                            _push_notice(
+                                "warning",
+                                f"Perfil de atleta: se guardo en local, pero no se pudo sincronizar "
+                                f"con Supabase ({remote_profile_exc}).",
+                            )
                     profile_suggestion = suggest_objective_from_text(profile_objetivo_otro_texto)
                     summary_bits = [
                         f"Contexto: {profile_contexto}",

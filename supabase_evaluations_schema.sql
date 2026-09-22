@@ -116,3 +116,9 @@ comment on table public.evaluations is
 
 comment on column public.evaluations.imtp_rfd_50_n_s is
 'Campo canonico IMTP RFD 50 N/s. Los antiguos rfd_50/rfd_100/rfd_150/rfd_250 se conservan solo como alias legacy de lectura.';
+
+-- Row Level Security: sin politicas para anon/authenticated, esta tabla
+-- queda inaccesible via PostgREST para esas keys. La app debe usar
+-- SUPABASE_SERVICE_ROLE_KEY (bypassa RLS por diseno en Postgres/Supabase),
+-- nunca la anon key, para leer o escribir evaluaciones de atletas.
+alter table public.evaluations enable row level security;

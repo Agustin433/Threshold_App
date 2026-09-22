@@ -38,3 +38,9 @@ execute function public.set_dataset_rows_updated_at();
 
 comment on table public.dataset_rows is
 'Persistencia generica de datasets TeamBuildr para Threshold S&C usando payload JSONB.';
+
+-- Row Level Security: sin politicas para anon/authenticated, esta tabla
+-- queda inaccesible via PostgREST para esas keys. La app debe usar
+-- SUPABASE_SERVICE_ROLE_KEY (bypassa RLS por diseno en Postgres/Supabase),
+-- nunca la anon key, para leer o escribir estos datasets.
+alter table public.dataset_rows enable row level security;
