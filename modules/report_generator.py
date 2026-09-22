@@ -16,9 +16,16 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from local_store import build_weekly_summaries
+from modules.data_loader import _wellness_score as canonical_wellness_score
 from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
+from modules.load_monitoring import (
+    ACWR_ZONE_DISPLAY_LABELS,
+    calc_acwr,
+    classify_acwr_zone,
+)
 from modules.jump_analysis import (
+    choose_secondary_quadrant_x_spec,
     _format_profile_source_date,
     _prepare_jump_df,
     build_neuromuscular_profile_result,
@@ -33,6 +40,7 @@ from modules.jump_analysis import (
     compute_swc_delta,
     resolve_zscore,
     semaphore_label,
+    z_source_of,
 )
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
 from modules.report_force_time import build_force_time_report_payload, draw_force_time_test_block
@@ -285,10 +293,9 @@ PROFESSIONAL_METRIC_DIRECTIONS = {
     "RSI": "higher_is_better",
     "Contact Time": "lower_is_better",
     "EUR": "context_dependent",
-    "mRSI": "higher_is_better",
     "IMTP": "higher_is_better",
 }
-PROFESSIONAL_EVOLUTION_PRIORITY = ("CMJ", "SJ", "DJ", "IMTP", "EUR", "Contact Time", "RSI", "mRSI")
+PROFESSIONAL_EVOLUTION_PRIORITY = ("CMJ", "SJ", "DJ", "IMTP", "EUR", "Contact Time", "RSI")
 PROFESSIONAL_NO_EVALUATION_TEXT = (
     "Faltan datos de evaluación para este atleta en el período seleccionado.\n"
     "Este reporte se genera con la información disponible de entrenamiento, carga interna y wellness.\n"
@@ -358,15 +365,6 @@ PROFESSIONAL_PDF_METRICS = (
         "direction": PROFESSIONAL_METRIC_DIRECTIONS["EUR"],
     },
     {
-        "title": "mRSI",
-        "value_cols": ("mRSI",),
-        "z_cols": ("mRSI_Z",),
-        "unit": "mrsi_index",
-        "digits": 3,
-        "higher_is_better": True,
-        "direction": PROFESSIONAL_METRIC_DIRECTIONS["mRSI"],
-    },
-    {
         "title": "IMTP",
         "value_cols": ("IMTP_N", "IMTP_relPF"),
         "z_cols": ("IMTP_N_Z", "IMTP_Z", "IMTP_relPF_Z"),
@@ -383,7 +381,6 @@ PROFESSIONAL_TE_REFERENCES = {
     "DJ_RSI": {"value": 0.031, "unit": "m/s"},
     "DRI": {"value": 0.05, "unit": "dri_index"},
     "DJ_tc_ms": {"value": 4.0, "unit": "ms"},
-    "mRSI": {"value": 0.05, "unit": "mRSI"},
     "EUR": {"value": 0.021, "unit": "ratio"},
     "IMTP_N": {"value": 30.0, "unit": "N"},
 }
@@ -449,27 +446,41 @@ def _report_sample_warning(n: int | None) -> str:
     return ""
 
 
+# Escala canonica de wellness: 0-30 (tres componentes de 0-10 cada uno), la
+# misma que produce `data_loader._wellness_score` y que persiste el store.
+WELLNESS_SCORE_MAX = 30.0
+WELLNESS_SCORE_UNIT = f"/{WELLNESS_SCORE_MAX:.0f}"
+
+
 def _report_wellness_score_label(value: float | None) -> dict[str, object]:
+    """Interpreta el wellness en la escala canonica 0-30.
+
+    Antes el PDF usaba una escala 1-5 propia, asi que el mismo atleta aparecia
+    como "18.9" en el dashboard y como "3.2" en el reporte sin conversion
+    visible. Los cortes de abajo son los de la escala 1-5 reescalados
+    (4/5 -> 24/30, 3/5 -> 18/30, 2/5 -> 12/30), de modo que las categorias
+    siguen significando lo mismo que antes.
+    """
     if value is None or pd.isna(value):
         return {
             "score": float("nan"),
             "label": PDF_MISSING_TEXT,
             "interpretation": PDF_MISSING_TEXT,
         }
-    score = max(1.0, min(5.0, float(value)))
-    if score >= 4.0:
+    score = max(0.0, min(WELLNESS_SCORE_MAX, float(value)))
+    if score >= 24.0:
         return {
             "score": score,
             "label": "Óptimo",
             "interpretation": "Bienestar favorable para progresar.",
         }
-    if score >= 3.0:
+    if score >= 18.0:
         return {
             "score": score,
             "label": "Aceptable",
             "interpretation": "Progresar con monitoreo.",
         }
-    if score >= 2.0:
+    if score >= 12.0:
         return {
             "score": score,
             "label": "Atención",
@@ -482,6 +493,19 @@ def _report_wellness_score_label(value: float | None) -> dict[str, object]:
     }
 
 
+def _state_profile_df(state: dict[str, object] | None) -> pd.DataFrame | None:
+    """Perfil de atleta del estado, si viaja.
+
+    Es lo que habilita la cohorte de comparacion. Sin esto el PDF resolvia
+    todas las metricas a banda de criterio y mostraba menos que el dashboard
+    para el mismo atleta.
+    """
+    if not isinstance(state, dict):
+        return None
+    profile_df = state.get("athlete_profile_df")
+    return profile_df if isinstance(profile_df, pd.DataFrame) else None
+
+
 def _report_wellness_source_column(frame: pd.DataFrame, *candidates: str) -> str | None:
     for candidate in candidates:
         if candidate in frame.columns:
@@ -489,52 +513,40 @@ def _report_wellness_source_column(frame: pd.DataFrame, *candidates: str) -> str
     return None
 
 
-def _normalize_report_wellness_component(series: pd.Series, *, source_col: str) -> pd.Series:
-    numeric = pd.to_numeric(series, errors="coerce")
-    valid = numeric.dropna()
-    if valid.empty:
-        return numeric
-
-    # The PDF score is fixed to a 1-5 scale. Legacy exports may still arrive as
-    # sleep hours or 0-10 questionnaire values, so we normalize only for the
-    # report-level score while preserving raw component means elsewhere.
-    if source_col == "Sueno_hs" and float(valid.max()) > 5.0:
-        numeric = numeric / 2.0
-    elif float(valid.max()) > 5.0:
-        numeric = numeric / 2.0
-    return numeric.clip(lower=1.0, upper=5.0)
-
-
 def _report_wellness_score_series(frame: pd.DataFrame | None) -> pd.Series:
+    """Wellness del PDF en la escala canonica 0-30.
+
+    Reusa `Wellness_Score` si ya viene calculado en el frame y, si no, aplica
+    la misma funcion que usa el ingestor (`data_loader._wellness_score`). Antes
+    esta funcion construia una escala 1-5 propia, con una normalizacion que
+    ademas cuantizaba con division entera (`//`) solo cuando los datos
+    superaban 5.0, asi que la resolucion dependia de la muestra.
+    """
     if frame is None or frame.empty:
         return pd.Series(dtype="float64")
 
-    score_components: dict[str, pd.Series] = {}
-    sleep_col = _report_wellness_source_column(frame, "Sueno", "Sueno_hs")
-    if sleep_col is not None:
-        score_components["Sueno"] = _normalize_report_wellness_component(frame[sleep_col], source_col=sleep_col)
-    if "Estres" in frame.columns:
-        stress_raw = pd.to_numeric(frame["Estres"], errors="coerce")
-        stress_norm = _normalize_report_wellness_component(frame["Estres"], source_col="Estres")
-        if not stress_raw.dropna().empty and float(stress_raw.dropna().max()) > 5.0:
-            stress_norm = ((11.0 - stress_raw) // 2.0).clip(lower=1.0, upper=5.0)
-        else:
-            stress_norm = (6.0 - stress_norm).clip(lower=1.0, upper=5.0)
-        score_components["Estres"] = stress_norm
-    if "Dolor" in frame.columns:
-        pain_raw = pd.to_numeric(frame["Dolor"], errors="coerce")
-        pain_norm = _normalize_report_wellness_component(frame["Dolor"], source_col="Dolor")
-        if not pain_raw.dropna().empty and float(pain_raw.dropna().max()) > 5.0:
-            pain_norm = ((11.0 - pain_raw) // 2.0).clip(lower=1.0, upper=5.0)
-        else:
-            pain_norm = (6.0 - pain_norm).clip(lower=1.0, upper=5.0)
-        score_components["Dolor"] = pain_norm
+    if "Wellness_Score" in frame.columns:
+        existing = pd.to_numeric(frame["Wellness_Score"], errors="coerce")
+        if existing.notna().any():
+            return existing.clip(lower=0.0, upper=WELLNESS_SCORE_MAX)
 
-    if not score_components:
+    sleep_col = _report_wellness_source_column(frame, "Sueno_hs", "Sueno")
+    if sleep_col is None and "Estres" not in frame.columns and "Dolor" not in frame.columns:
         return pd.Series([float("nan")] * len(frame), index=frame.index, dtype="float64")
 
-    score_df = pd.DataFrame(score_components, index=frame.index)
-    return score_df.mean(axis=1).clip(lower=1.0, upper=5.0)
+    sleep_series = frame[sleep_col] if sleep_col is not None else pd.Series(None, index=frame.index, dtype="object")
+    stress_series = frame["Estres"] if "Estres" in frame.columns else pd.Series(None, index=frame.index, dtype="object")
+    pain_series = frame["Dolor"] if "Dolor" in frame.columns else pd.Series(None, index=frame.index, dtype="object")
+
+    scores = [
+        canonical_wellness_score(sleep, stress, pain)
+        for sleep, stress, pain in zip(sleep_series, stress_series, pain_series)
+    ]
+    return pd.Series(
+        [float("nan") if value is None else float(value) for value in scores],
+        index=frame.index,
+        dtype="float64",
+    ).clip(lower=0.0, upper=WELLNESS_SCORE_MAX)
 
 
 def _professional_metric_te_reference(spec: dict[str, object], value_col: str) -> dict[str, object] | None:
@@ -549,7 +561,6 @@ def _professional_metric_te_reference(spec: dict[str, object], value_col: str) -
         "RSI": "DJ_RSI",
         "Contact Time": "DJ_tc_ms",
         "EUR": "EUR",
-        "mRSI": "mRSI",
         "IMTP": "IMTP_N",
     }
     fallback_key = title_fallback.get(title)
@@ -1469,7 +1480,7 @@ def build_executive_summary_df(
     athletes = _selected_athletes(state, effective_athlete)
     summary_audience = normalize_report_audience(report_audience)
     prepared_jump_df = (
-        _prepare_jump_df(state.get("jump_df"))
+        _prepare_jump_df(state.get("jump_df"), profile_df=_state_profile_df(state))
         if isinstance(state.get("jump_df"), pd.DataFrame)
         else pd.DataFrame()
     )
@@ -2096,7 +2107,7 @@ def build_report_sheets(
 
         if include_jumps and state.get("jump_df") is not None:
             df = state["jump_df"].copy()
-            prepared_jumps = _prepare_jump_df(df)
+            prepared_jumps = _prepare_jump_df(df, profile_df=_state_profile_df(state))
             if (
                 "EUR_Profile" not in df.columns
                 and not prepared_jumps.empty
@@ -4520,11 +4531,13 @@ def _build_report_chart_theme() -> dict:
     }
 
 
-def _team_mean_for_radar(jdf: pd.DataFrame) -> dict[str, float]:
+def _team_mean_for_radar(
+    jdf: pd.DataFrame, profile_df: pd.DataFrame | None = None
+) -> dict[str, float]:
     if jdf is None or jdf.empty:
         return {}
 
-    prepared = _prepare_jump_df(jdf)
+    prepared = _prepare_jump_df(jdf, profile_df=profile_df)
     z_keys = ("SJ_Z", "CMJ_Z", "DJ_height_Z", "DJ_RSI_Z", "TC_inv_Z", "IMTP_relPF_Z")
     team_means: dict[str, float] = {}
     for key in z_keys:
@@ -4578,7 +4591,7 @@ def collect_report_plotly_figures(
                     {
                         "slug": "quadrant_cmj_imtp",
                         "title": "Mapa de potencia y fuerza máxima",
-                        "figure": chart_quadrant_cmj_imtp(latest_team, theme=theme),
+                        "figure": chart_quadrant_cmj_imtp(latest_team, theme=theme, profile_df=_state_profile_df(state)),
                     }
                 )
             if len(latest_team) > 1 and {"DJ_RSI", "SJ_cm"}.issubset(latest_team.columns):
@@ -4586,7 +4599,7 @@ def collect_report_plotly_figures(
                     {
                         "slug": "quadrant_rsi_sj",
                         "title": "Mapa de RSI y fuerza concéntrica",
-                        "figure": chart_quadrant_rsi_sj(latest_team, theme=theme),
+                        "figure": chart_quadrant_rsi_sj(latest_team, theme=theme, profile_df=_state_profile_df(state)),
                     }
                 )
             if len(latest_team) > 1 and {"DRI", "SJ_cm"}.issubset(latest_team.columns):
@@ -4594,7 +4607,7 @@ def collect_report_plotly_figures(
                     {
                         "slug": "quadrant_dri_sj_experimental",
                         "title": "Mapa experimental de DRI y fuerza concéntrica",
-                        "figure": chart_quadrant_dri_sj(latest_team, theme=theme),
+                        "figure": chart_quadrant_dri_sj(latest_team, theme=theme, profile_df=_state_profile_df(state)),
                     }
                 )
 
@@ -4614,7 +4627,7 @@ def collect_report_plotly_figures(
                 {
                     "slug": "radar_perfil",
                     "title": "Perfil neuromuscular",
-                    "figure": chart_radar(radar_row, effective_athlete, _team_mean_for_radar(jdf), theme=theme),
+                    "figure": chart_radar(radar_row, effective_athlete, _team_mean_for_radar(jdf, _state_profile_df(state)), theme=theme),
                 }
             )
         if len(_cmj_series(state, effective_athlete)) >= 2:
@@ -4691,7 +4704,7 @@ def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], a
             payloads["radar_perfil"] = {
                 "slug": "radar_perfil",
                 "title": "Perfil neuromuscular",
-                "figure": chart_radar(radar_row, athlete, _team_mean_for_radar(jump_team), theme=theme),
+                "figure": chart_radar(radar_row, athlete, _team_mean_for_radar(jump_team, _state_profile_df(state)), theme=theme),
             }
         except Exception:
             pass
@@ -4829,11 +4842,21 @@ def export_plotly_figure_png(
 
 
 def _professional_jump_history(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.DataFrame:
+    # Una sola generacion de reporte llama a esta funcion mas de una decena de
+    # veces con el mismo `state` (tarjetas, evolucion, perfil compuesto,
+    # cambios, isometria, graficos): sin memoizar, cada llamada rehace
+    # `_prepare_jump_df` sobre el historial completo del equipo. `state` es un
+    # dict fresco por generacion (ver `_current_report_state_snapshot`), asi
+    # que cachear en el mismo dict no arrastra nada entre reportes distintos.
+    cache_key = f"__professional_jump_history_cache__{athlete}"
+    cached = state.get(cache_key)
+    if isinstance(cached, pd.DataFrame):
+        return cached
     jdf = state.get("jump_df")
     if jdf is None or jdf.empty or "Athlete" not in jdf.columns:
         return pd.DataFrame()
     try:
-        data = _prepare_jump_df(jdf.copy())
+        data = _prepare_jump_df(jdf.copy(), profile_df=_state_profile_df(state))
     except Exception:
         data = jdf.copy()
     if data.empty or "Date" not in data.columns or "Athlete" not in data.columns:
@@ -4846,7 +4869,9 @@ def _professional_jump_history(state: dict[str, pd.DataFrame | None], athlete: s
         data = data[_professional_athlete_mask(data["Athlete"], athlete)]
     if data.empty:
         return pd.DataFrame()
-    return data.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+    result = data.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+    state[cache_key] = result
+    return result
 
 
 def _professional_latest_team_jump_rows(state: dict[str, pd.DataFrame | None]) -> pd.DataFrame:
@@ -4938,8 +4963,6 @@ def _professional_metric_display_unit(spec: dict[str, object], value_col: str) -
         return "Índice RSI"
     if unit == "dri_index":
         return "Índice DRI"
-    if unit == "mrsi_index":
-        return "Índice mRSI"
     if unit == "ratio":
         return "Ratio"
     if title == "IMTP" and value_col == "IMTP_relPF":
@@ -4953,8 +4976,6 @@ def _professional_metric_delta_unit(spec: dict[str, object], value_col: str) -> 
         return "unidades RSI"
     if unit == "dri_index":
         return "unidades DRI"
-    if unit == "mrsi_index":
-        return "unidades mRSI"
     return unit
 
 
@@ -4972,7 +4993,7 @@ def _format_professional_metric_value(value: object, spec: dict[str, object], va
     digits = _professional_metric_digits(spec, value_col)
     unit = _professional_metric_unit(spec, value_col)
     rendered = f"{numeric:.{digits}f}"
-    if unit and unit not in {"ratio", "rsi_index", "mrsi_index"}:
+    if unit and unit not in {"ratio", "rsi_index"}:
         return f"{rendered} {unit}"
     return rendered
 
@@ -5149,8 +5170,7 @@ def _professional_metric_interpretation(
         ),
         "RSI": "RSI debe leerse junto con DJ/DRI y Contact Time; no usarlo como conclusión aislada.",
         "Contact Time": "Contact Time debe leerse junto con DJ/DRI y RSI; un cambio aislado no define por sí solo el perfil reactivo.",
-        "mRSI": "mRSI aporta contexto reactivo y conviene leerlo junto con CMJ, DJ y el protocolo aplicado.",
-    }
+        }
     note = contextual_notes.get(title, "")
     if base_message and note:
         return f"{base_message} {note}"
@@ -5625,11 +5645,17 @@ def _build_professional_quadrant_sections(
     athlete: str,
 ) -> list[dict[str, object]]:
     data = _professional_latest_team_jump_rows(state)
+    # El eje X del cuadrante secundario se resuelve con la misma funcion que usa
+    # el dashboard. Antes se tomaba la primera columna presente en el frame y se
+    # rotulaba siempre "CMJ z": el orden de columnas podia decidir el eje y la
+    # etiqueta podia no corresponder a lo graficado.
+    secondary_x = choose_secondary_quadrant_x_spec(data, profile_df=_state_profile_df(state))
     specs = [
         {
-            "title": "Cuadrante fuerza relativa vs salida vertical",
-            "x_cols": ("CMJ_Z", "Jump_Momentum_Z"),
-            "x_label": "CMJ z",
+            "title": f"Cuadrante IMTP relPF z vs {secondary_x.x_label}",
+            "x_cols": (secondary_x.x_col,),
+            "x_label": secondary_x.x_label,
+            "axis_reason": secondary_x.reason,
             "y_col": "IMTP_relPF_Z",
             "y_label": "IMTP relPF z",
             "what": "Cruza salida vertical con fuerza isométrica relativa.",
@@ -5691,10 +5717,17 @@ def _build_professional_quadrant_sections(
         points: list[dict[str, object]] = []
         selected = None
         if x_col and y_col in data.columns and "Athlete" in data.columns:
-            plot_df = data[["Athlete", x_col, y_col]].copy()
+            source_cols = [col for col in (f"{x_col}_source", f"{y_col}_source") if col in data.columns]
+            plot_df = data[["Athlete", x_col, y_col, *source_cols]].copy()
             plot_df["x_plot"] = plot_df.apply(lambda row: resolve_zscore(row, x_col), axis=1)
             plot_df["y_plot"] = plot_df.apply(lambda row: resolve_zscore(row, y_col), axis=1)
             plot_df = plot_df.dropna(subset=["x_plot", "y_plot"])
+            # Mismo criterio que el dashboard (`_same_origin_rows`): un eje de
+            # literatura contra uno de cohorte no comparten unidad de z, asi
+            # que el PDF no puede graficar el par aunque ambos existan.
+            plot_df = plot_df[
+                plot_df.apply(lambda row: z_source_of(row, x_col) == z_source_of(row, y_col), axis=1)
+            ]
             target = str(athlete).strip().casefold()
             for _, row in plot_df.iterrows():
                 is_selected = str(row["Athlete"]).strip().casefold() == target
@@ -5715,6 +5748,7 @@ def _build_professional_quadrant_sections(
             {
                 **spec,
                 "x_col": x_col,
+                "axis_reason": str(spec.get("axis_reason") or ""),
                 "points": points,
                 "selected": selected,
                 "classification": classification,
@@ -6197,7 +6231,7 @@ def _professional_wellness_scales(frame: pd.DataFrame) -> dict[str, str]:
         "sleep": "h",
         "stress": _professional_infer_response_scale(frame["Estres"]) if "Estres" in frame.columns else "Escala no definida",
         "pain": _professional_infer_response_scale(frame["Dolor"]) if "Dolor" in frame.columns else "Escala no definida",
-        "score": "/5.0",
+        "score": WELLNESS_SCORE_UNIT,
     }
 
 
@@ -6215,7 +6249,7 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             "analysis_scope": "missing",
             "analysis_title": "Wellness - última semana completa",
             "trend_allowed": False,
-            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "/5.0"},
+            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": WELLNESS_SCORE_UNIT},
             "message": "Faltan datos de wellness para este período.",
         }
     result = wdf.copy()
@@ -6240,7 +6274,7 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
             "analysis_scope": "missing",
             "analysis_title": "Wellness - última semana completa",
             "trend_allowed": False,
-            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": "/5.0"},
+            "scales": {"sleep": "h", "stress": "Escala no definida", "pain": "Escala no definida", "score": WELLNESS_SCORE_UNIT},
             "message": "Faltan datos de wellness para este período.",
         }
     rows_count = int(len(result))
@@ -6639,7 +6673,6 @@ PROFESSIONAL_NEUROMUSCULAR_SIGNAL_ORDER = (
 PROFESSIONAL_NEUROMUSCULAR_SUPPORT_METRICS = (
     ("DJ_RSI", "DJ RSI", "m/s", ("DJ_RSI_Z",), "higher_is_better"),
     ("DSI", "DSI", "", ("DSI_Z",), "higher_is_better"),
-    ("mRSI", "mRSI", "m/s", ("mRSI_Z",), "higher_is_better"),
     ("IMTP_N", "IMTP", "N", ("IMTP_N_Z",), "higher_is_better"),
 )
 
@@ -6654,7 +6687,6 @@ NEUROMUSCULAR_KPI_LABELS = {
     "IMTP_relPF": "IMTP relPF",
     "IMTP_N": "IMTP",
     "DSI": "DSI",
-    "mRSI": "mRSI",
 }
 
 NEUROMUSCULAR_PRIORITY_SHORT_TEXT = {
@@ -7705,7 +7737,7 @@ def _build_professional_wellness_availability_payload(
     score_label = PDF_MISSING_TEXT
     if score_value is not None:
         score_meta = _report_wellness_score_label(score_value)
-        score_label = f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']})"
+        score_label = f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']})"
     day_candidates = [
         _coerce_float(summary.get("days")),
         _coerce_float(summary.get("score_n")),
@@ -8944,7 +8976,7 @@ def _build_professional_next_steps(evaluation_state: str) -> list[str]:
         ]
     if clean == "partial":
         return [
-            "Completar métricas faltantes, especialmente mRSI o DRI si corresponde.",
+            "Completar métricas faltantes, especialmente DRI si corresponde.",
             "Repetir evaluación en 6-8 semanas antes de cerrar conclusiones más fuertes.",
             "Mantener misma entrada en calor, protocolo y condiciones para comparar mejor.",
             "Usar carga interna y wellness solo para regular el corto plazo; no reemplazan el perfil físico.",
@@ -10026,7 +10058,7 @@ def _generate_professional_profile_pdf_reportlab(
         score_meta = _report_wellness_score_label(score_value) if score_value is not None else None
         score_days = int(_coerce_float(summary.get("score_n")) or 0)
         rendered_score = (
-            f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']}) (n={score_days} días)"
+            f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']}) (n={score_days} días)"
             if score_meta is not None
             else PDF_MISSING_TEXT
         )
@@ -10361,7 +10393,7 @@ def _generate_professional_profile_pdf_reportlab(
         if missing_metric_titles:
             target.append(Spacer(1, 3 * mm))
             target.append(_box([_p(f"Métricas no disponibles: {', '.join(missing_metric_titles)}.", "ProfMuted")]))
-        if any(card.get("title") in {"RSI", "mRSI"} for card in available_cards):
+        if any(card.get("title") == "RSI" for card in available_cards):
             target.append(Spacer(1, 3 * mm))
             target.append(_box([_p(f"Nota metodológica: {PROFESSIONAL_RSI_METHOD_NOTE}", "ProfMuted")], padding=5))
 
@@ -10534,27 +10566,26 @@ def _generate_professional_profile_pdf_reportlab(
         return rpe_daily_frame_cache.copy()
 
     def _acwr_zone_label(value: float | None) -> str:
+        """Etiqueta de zona del PDF, delegando en el clasificador canonico.
+
+        Antes esta funcion reimplementaba los umbrales. Ahora solo traduce la
+        etiqueta canonica a su forma acentuada para lectura.
+        """
         if value is None:
             return PDF_MISSING_TEXT
-        if value < 0.80:
-            return "Subcarga"
-        if value <= 1.30:
-            return "Óptimo"
-        if value <= 1.50:
-            return "Precaución"
-        return "Alto riesgo"
+        canonical = classify_acwr_zone(value)
+        return ACWR_ZONE_DISPLAY_LABELS.get(canonical, canonical)
 
     def _build_acwr_ewma_frame_for_pdf() -> pd.DataFrame:
         daily = _rpe_daily_frame_for_pdf()
         if daily.empty or len(daily) < 7:
             return pd.DataFrame()
-        result = daily.copy()
-        result["Aguda_7d"] = result["sRPE_diario"].ewm(alpha=0.25, adjust=False).mean()
-        result["Cronica_28d"] = result["sRPE_diario"].ewm(alpha=(2 / 29), adjust=False).mean()
-        result["ACWR_EWMA"] = result.apply(
-            lambda row: (float(row["Aguda_7d"]) / float(row["Cronica_28d"])) if _coerce_float(row["Cronica_28d"]) not in [None, 0] else None,
-            axis=1,
-        )
+        # Se usa `calc_acwr`, la misma funcion que alimenta `acwr_dict` y las
+        # tablas ejecutivas. Antes el PDF recalculaba con alphas propios
+        # (0.25 / 2÷29) distintos a los del dashboard (0.28 / 0.07), asi que el
+        # grafico y la narrativa mostraban un ACWR y las tablas del mismo
+        # documento mostraban otro.
+        result = calc_acwr(daily["sRPE_diario"], pd.DatetimeIndex(daily["Date"]))
         result["Zona"] = result["ACWR_EWMA"].map(lambda value: _acwr_zone_label(_coerce_float(value)))
         return result
 
@@ -10743,7 +10774,7 @@ def _generate_professional_profile_pdf_reportlab(
         score_meta = _report_wellness_score_label(score_value) if score_value is not None else None
         score_days = int(_coerce_float(summary.get("score_n")) or 0)
         rendered_score = (
-            f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']}) (n={score_days} días)"
+            f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']}) (n={score_days} días)"
             if score_meta is not None
             else PDF_MISSING_TEXT
         )
@@ -11880,7 +11911,7 @@ def _generate_visual_report_pdf_reportlab(
             if recent_value is not None:
                 return _display_metric(recent_value, digits=1)
             if athlete_score_meta is not None:
-                return f"{float(athlete_score_meta['score']):.1f} / 5.0"
+                return f"{float(athlete_score_meta['score']):.1f} {WELLNESS_SCORE_UNIT}"
             return "Todavía no registrado"
 
         def _athlete_focus_summary_sentence() -> str:
@@ -12081,7 +12112,7 @@ def _generate_visual_report_pdf_reportlab(
                 _athlete_metric_row(
                     "Bienestar",
                     (
-                        f"{float(athlete_score_meta['score']):.1f} / 5.0 ({athlete_score_meta['label']})"
+                        f"{float(athlete_score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({athlete_score_meta['label']})"
                         if athlete_score_meta is not None
                         else "Todavía no registrado"
                     ),
@@ -13270,7 +13301,7 @@ def _generate_visual_report_pdf_reportlab(
             score_label = _client_missing_text("registration")
             if score_value is not None:
                 score_meta = _report_wellness_score_label(score_value)
-                score_label = f"{float(score_meta['score']):.1f} / 5.0 ({score_meta['label']})"
+                score_label = f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']})"
             days_count = _client_wellness_days_count()
             return [
                 {"label": "Promedio reciente", "value": score_label, "note": "Últimos registros visibles"},

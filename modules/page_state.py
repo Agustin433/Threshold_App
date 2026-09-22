@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from modules.data_loader import prepare_raw_workouts_df
+from modules.jump_analysis import _prepare_jump_df as prepare_jump_df
 from local_store import (
     DATASET_SPECS,
     HISTORY_MODE_FULL,
@@ -38,6 +39,14 @@ WEEKLY_SUMMARY_KEYS = {"weekly_load", "weekly_wellness", "weekly_external", "wee
 LOCAL_STORE_HYDRATED_KEY = "local_store_hydrated"
 LOCAL_STORE_VERSION_KEY = "local_store_version"
 LOCAL_STORE_LAST_HYDRATION_TS_KEY = "last_hydration_ts"
+PREPARED_JUMP_DF_KEY = "prepared_jump_df"
+PREPARED_JUMP_DF_SIGNATURE_KEY = "prepared_jump_df_signature"
+PREPARED_JUMP_DF_LAST_BUILD_TS_KEY = "prepared_jump_df_last_build_ts"
+
+# La cohorte de comparacion sale del perfil, asi que un cambio de perfil tiene
+# que invalidar el z tanto como un cambio de evaluaciones.
+JUMP_STATE_KEYS = ["jump_df", "athlete_profile_df"]
+
 PREPARED_RAW_DF_KEY = "prepared_raw_df"
 PREPARED_RAW_DF_VERSION_KEY = "prepared_raw_df_version"
 PREPARED_RAW_DF_LAST_BUILD_TS_KEY = "prepared_raw_df_last_build_ts"
@@ -66,6 +75,13 @@ def _ensure_session_defaults() -> None:
         st.session_state[LOCAL_STORE_VERSION_KEY] = None
     if LOCAL_STORE_LAST_HYDRATION_TS_KEY not in st.session_state:
         st.session_state[LOCAL_STORE_LAST_HYDRATION_TS_KEY] = None
+    for key in (
+        PREPARED_JUMP_DF_KEY,
+        PREPARED_JUMP_DF_SIGNATURE_KEY,
+        PREPARED_JUMP_DF_LAST_BUILD_TS_KEY,
+    ):
+        if key not in st.session_state:
+            st.session_state[key] = None
     if PREPARED_RAW_DF_KEY not in st.session_state:
         st.session_state[PREPARED_RAW_DF_KEY] = None
     if PREPARED_RAW_DF_VERSION_KEY not in st.session_state:
@@ -101,6 +117,7 @@ def _performance_defaults() -> tuple[dict[str, float | None], dict[str, str]]:
         "active_view_render_s": None,
         "ensure_local_store_hydrated_s": None,
         "ensure_prepared_raw_workouts_s": None,
+        "ensure_prepared_jump_df_s": None,
         "ensure_load_state_s": None,
         "report_preview_build_s": None,
         "report_exportables_build_s": None,
@@ -108,6 +125,7 @@ def _performance_defaults() -> tuple[dict[str, float | None], dict[str, str]]:
     artifacts = {
         "local_store_hydration": "no ejecutado",
         "prepared_raw_df": "no ejecutado",
+        "prepared_jump_df": "no ejecutado",
         "load_state": "no ejecutado",
         "report_preview": "no ejecutado",
         "report_exportables": "no ejecutado",
@@ -161,6 +179,85 @@ def current_raw_df_version() -> tuple[tuple[str, bool, int, int], ...]:
     return current_local_store_version(keys=["raw_df"])
 
 
+def current_jump_state_version() -> tuple[tuple[str, bool, int, int], ...]:
+    return current_local_store_version(keys=JUMP_STATE_KEYS)
+
+
+def build_prepared_jump_signature(
+    *,
+    source: str = "",
+    store_version: tuple[tuple[str, bool, int, int], ...] | None = None,
+) -> tuple[object, ...]:
+    """Firma del frame de saltos ya preparado.
+
+    La fuente de medicion entra en la firma porque plataforma y no-plataforma
+    son poblaciones distintas: sin eso, el frame de una se reutilizaria como si
+    fuera el de la otra al cambiar de vista.
+    """
+    effective_version = current_jump_state_version() if store_version is None else store_version
+    return ("prepared_jump_df", str(source).strip().lower(), effective_version)
+
+
+def prepared_jump_df_needs_rebuild(*, signature: tuple[object, ...]) -> bool:
+    _ensure_session_defaults()
+    return (
+        st.session_state.get(PREPARED_JUMP_DF_KEY) is None
+        or st.session_state.get(PREPARED_JUMP_DF_SIGNATURE_KEY) != signature
+    )
+
+
+def mark_prepared_jump_df_built(*, signature: tuple[object, ...]) -> None:
+    _ensure_session_defaults()
+    st.session_state[PREPARED_JUMP_DF_SIGNATURE_KEY] = signature
+    st.session_state[PREPARED_JUMP_DF_LAST_BUILD_TS_KEY] = time.time()
+
+
+def invalidate_prepared_jump_df() -> None:
+    _ensure_session_defaults()
+    st.session_state[PREPARED_JUMP_DF_KEY] = None
+    st.session_state[PREPARED_JUMP_DF_SIGNATURE_KEY] = None
+    st.session_state[PREPARED_JUMP_DF_LAST_BUILD_TS_KEY] = None
+
+
+def ensure_prepared_jump_df(
+    jump_df: pd.DataFrame | None,
+    *,
+    profile_df: pd.DataFrame | None = None,
+    source: str = "",
+    force_reload: bool = False,
+) -> pd.DataFrame:
+    """Frame de saltos preparado una vez por cambio de datos, no por rerun.
+
+    Preparar cuesta ~500 ms con 18 atletas y escala lineal (~15 ms por fila).
+    Corria en el render del Team view y otra vez dentro de cada cuadrante, asi
+    que cada interaccion pagaba el calculo completo cuatro veces.
+    """
+    _ensure_session_defaults()
+    started_at = time.perf_counter()
+    try:
+        if jump_df is None or jump_df.empty:
+            record_performance_debug_artifact("prepared_jump_df", "no disponible")
+            return pd.DataFrame()
+
+        if force_reload:
+            invalidate_prepared_jump_df()
+
+        signature = build_prepared_jump_signature(source=source)
+        if not prepared_jump_df_needs_rebuild(signature=signature):
+            record_performance_debug_artifact("prepared_jump_df", "reutilizado")
+            return st.session_state.get(PREPARED_JUMP_DF_KEY)
+
+        prepared = prepare_jump_df(jump_df, profile_df=profile_df)
+        st.session_state[PREPARED_JUMP_DF_KEY] = prepared
+        mark_prepared_jump_df_built(signature=signature)
+        record_performance_debug_artifact("prepared_jump_df", "reconstruido")
+        return prepared
+    finally:
+        record_performance_debug_timing(
+            "ensure_prepared_jump_df_s", time.perf_counter() - started_at
+        )
+
+
 def current_report_state_version(keys: list[str] | None = None) -> tuple[tuple[str, bool, int, int], ...]:
     return current_local_store_version(keys=keys or REPORT_DATASET_KEYS)
 
@@ -201,6 +298,7 @@ def invalidate_local_store_hydration(
     _ensure_session_defaults()
     st.session_state[LOCAL_STORE_HYDRATED_KEY] = False
     st.session_state[LOCAL_STORE_VERSION_KEY] = None
+    invalidate_prepared_jump_df()
     st.session_state[LOCAL_STORE_LAST_HYDRATION_TS_KEY] = None
     clear_report_preview_cache()
     if clear_load_state:

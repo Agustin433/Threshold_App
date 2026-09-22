@@ -1,4 +1,10 @@
-"""Vista dedicada de evaluaciones individuales."""
+"""Vista dedicada de evaluaciones individuales.
+
+Se conserva porque expone un bloque de deteccion force-time (filas IMTP /
+ISO Push disponibles, campos no nulos, fila candidata) que la vista de
+evaluaciones de app.py no replica. Pendiente: portar ese bloque a app.py y
+recien ahi eliminar esta pagina.
+"""
 
 from __future__ import annotations
 

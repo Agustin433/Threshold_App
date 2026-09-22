@@ -6,13 +6,16 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from modules.jump_analysis import (
+    JUMP_PREPARED_COLUMN,
     _prepare_jump_df,
     _available_radar_axes,
     build_composite_profile_metric_rows,
     choose_secondary_quadrant_x_spec,
     classify_neuromuscular_quadrant,
     compute_baseline_delta,
+    has_plottable_z,
     resolve_zscore,
+    z_source_of,
 )
 
 
@@ -83,6 +86,8 @@ def _prepare_frame(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> 
         return df.copy()
     if "Profile_Composed" in df.columns and df["Profile_Composed"].fillna(False).astype(bool).any():
         return df.copy()
+    if JUMP_PREPARED_COLUMN in df.columns and df[JUMP_PREPARED_COLUMN].fillna(False).astype(bool).any():
+        return df.copy()
 
     prepared = _prepare_jump_df(df, profile_df=profile_df)
     return prepared if not prepared.empty else df.copy()
@@ -142,6 +147,138 @@ def _numeric_value(value: object) -> float | None:
     if pd.isna(numeric):
         return None
     return float(numeric)
+
+
+def _same_origin_rows(data: pd.DataFrame, x_col: str, y_col: str) -> pd.DataFrame:
+    """Deja solo las filas cuyos dos ejes comparten procedencia de z.
+
+    Un cuadrante ubica al atleta cruzando dos ejes. Si uno se calculo contra
+    una referencia publicada y el otro contra la cohorte propia, las unidades
+    del plano no son las mismas y la posicion resultante no significa nada:
+    la banda neutral captura una fraccion distinta de cada eje. Antes esto
+    pasaba de forma sistematica, porque las metricas con benchmark externo
+    tenian un desvio inflado respecto de las que caian a cohorte.
+    """
+    if data.empty:
+        return data
+    x_origin = data.apply(lambda row: z_source_of(row, x_col), axis=1)
+    y_origin = data.apply(lambda row: z_source_of(row, y_col), axis=1)
+    return data[x_origin == y_origin]
+
+
+# Deriva la columna de metrica cruda a partir del z-column, solo para los
+# ejes que efectivamente usan los cuadrantes de esta app. Sirve para
+# distinguir "nunca se tomo el test" (falta el dato crudo) de "cohorte
+# insuficiente" (el dato existe, pero no hay con que compararlo): son
+# problemas distintos y uno es accionable en el momento, el otro no.
+_QUADRANT_Z_TO_RAW_METRIC = {
+    "CMJ_Z": "CMJ_cm",
+    "SJ_Z": "SJ_cm",
+    "DJ_RSI_Z": "DJ_RSI",
+    "DRI_Z": "DRI",
+    "IMTP_relPF_Z": "IMTP_relPF",
+    "Jump_Momentum_Z": "Jump_Momentum",
+    "EUR_Z": "EUR",
+}
+
+
+def _raw_metric_missing(row: pd.Series, z_col: str) -> bool:
+    raw_col = _QUADRANT_Z_TO_RAW_METRIC.get(z_col)
+    if raw_col is None or raw_col not in row.index:
+        return False
+    return bool(pd.isna(pd.to_numeric(pd.Series([row.get(raw_col)]), errors="coerce").iloc[0]))
+
+
+def build_quadrant_exclusions(
+    data: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    *,
+    profile_df: pd.DataFrame | None = None,
+) -> dict[str, object]:
+    """Quienes quedaron fuera del cuadrante y por que, agrupado por motivo.
+
+    Se agrupa por motivo y no por nombre a proposito: una lista pelada de
+    nombres debajo de un grafico de rendimiento se lee como un juicio sobre
+    esos atletas, cuando en realidad describe el estado de sus datos.
+
+    Los motivos no son igual de accionables, asi que se separan: "sin perfil"
+    lo resuelve el usuario en minutos, mientras que "cohorte insuficiente"
+    depende de que llegue mas gente. Mezclarlos convertiria una tarea concreta
+    en una espera indefinida.
+
+    Devuelve conteo total y grupos, para que la superficie muestre el numero en
+    el grafico y los nombres en un expander.
+    """
+    if data is None or data.empty or "Athlete" not in data.columns:
+        return {"total": 0, "groups": []}
+
+    profiled: set[str] = set()
+    if profile_df is not None and not profile_df.empty and "Athlete" in profile_df.columns:
+        profiled = {str(name).strip() for name in profile_df["Athlete"].dropna()}
+
+    sin_perfil: list[str] = []
+    sin_test: list[str] = []
+    sin_cohorte: list[str] = []
+    procedencia_mixta: list[str] = []
+
+    for _, row in data.iterrows():
+        athlete = str(row.get("Athlete") or "").strip()
+        if not athlete:
+            continue
+        x_ok = has_plottable_z(row, x_col)
+        y_ok = has_plottable_z(row, y_col)
+        if x_ok and y_ok:
+            if z_source_of(row, x_col) != z_source_of(row, y_col):
+                procedencia_mixta.append(athlete)
+            continue
+        if profiled and athlete not in profiled:
+            sin_perfil.append(athlete)
+        elif (not x_ok and _raw_metric_missing(row, x_col)) or (not y_ok and _raw_metric_missing(row, y_col)):
+            sin_test.append(athlete)
+        else:
+            sin_cohorte.append(athlete)
+
+    groups = [
+        {
+            "reason": "Sin perfil cargado",
+            "detail": "Completar el perfil los habilita.",
+            "athletes": sorted(set(sin_perfil)),
+            "actionable": True,
+        },
+        {
+            "reason": "Falta un test",
+            "detail": "No tiene toma valida para uno de los dos ejes; perfil y cohorte estan en orden.",
+            "athletes": sorted(set(sin_test)),
+            "actionable": True,
+        },
+        {
+            "reason": "Sin cohorte de comparacion suficiente",
+            "detail": "Requiere que se sumen mas atletas de su clase y sexo.",
+            "athletes": sorted(set(sin_cohorte)),
+            "actionable": False,
+        },
+        {
+            "reason": "Ejes de procedencia distinta",
+            "detail": "Sus dos ejes salen de referencias distintas y no son comparables en el mismo plano.",
+            "athletes": sorted(set(procedencia_mixta)),
+            "actionable": False,
+        },
+    ]
+    groups = [group for group in groups if group["athletes"]]
+    return {"total": sum(len(group["athletes"]) for group in groups), "groups": groups}
+
+
+def quadrant_exclusion_summary(exclusions: dict[str, object]) -> str | None:
+    """Resumen de una linea para el pie del grafico."""
+    total = int(exclusions.get("total") or 0)
+    if not total:
+        return None
+    parts = [
+        f"{len(group['athletes'])} {str(group['reason']).lower()}"
+        for group in exclusions.get("groups", [])
+    ]
+    return f"{total} atleta(s) fuera del cuadrante — " + " · ".join(parts)
 
 
 def _quadrant_classification(row: pd.Series, x_col: str, y_col: str) -> dict[str, object]:
@@ -392,6 +529,7 @@ def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
         data["DJ_RSI_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "DJ_RSI_Z"), axis=1)
         data["SJ_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "SJ_Z"), axis=1)
         data = data.dropna(subset=["DJ_RSI_Z_plot", "SJ_Z_plot"])
+        data = _same_origin_rows(data, "DJ_RSI_Z", "SJ_Z")
     if data.empty:
         return _empty_state_figure(
             theme=theme,
@@ -468,10 +606,11 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
         data["DRI_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "DRI_Z"), axis=1)
         data["SJ_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "SJ_Z"), axis=1)
         data = data.dropna(subset=["DRI_Z_plot", "SJ_Z_plot"])
+        data = _same_origin_rows(data, "DRI_Z", "SJ_Z")
     if data.empty:
         return _empty_state_figure(
             theme=theme,
-            title="<b>Cuadrante Principal - SJ z vs DRI z</b>",
+            title="<b>Cuadrante DRI (experimental) - SJ z vs DRI z</b>",
             message=_dri_missing_message(source_data),
             height=500,
         )
@@ -527,7 +666,7 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
     fig.update_layout(
         **layout,
         height=500,
-        title=dict(text="<b>Cuadrante Principal - SJ z vs DRI z</b>", font=dict(color=colors["navy"], size=13)),
+        title=dict(text="<b>Cuadrante DRI (experimental) - SJ z vs DRI z</b>", font=dict(color=colors["navy"], size=13)),
         xaxis=dict(title="DRI z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
         yaxis=dict(title="SJ z", gridcolor=grid_soft, zeroline=False, range=[-2.5, 2.5]),
         legend=legend,
@@ -535,16 +674,19 @@ def chart_quadrant_dri_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataF
     return fig
 
 
-def chart_quadrant_cmj_imtp(df: pd.DataFrame, *, theme: dict) -> go.Figure:
+def chart_quadrant_cmj_imtp(
+    df: pd.DataFrame, *, theme: dict, profile_df: pd.DataFrame | None = None
+) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)
-    data = _prepare_frame(df)
-    x_col, x_label = choose_secondary_quadrant_x_spec(data)
+    data = _prepare_frame(df, profile_df=profile_df)
+    x_col, x_label = choose_secondary_quadrant_x_spec(data, profile_df=profile_df)[:2]
     data = data.copy()
     data = data[data["Athlete"].notna()].copy() if "Athlete" in data.columns else pd.DataFrame()
     if not data.empty:
         data[f"{x_col}_plot"] = data.apply(lambda row: resolve_zscore(row, x_col), axis=1)
         data["IMTP_relPF_Z_plot"] = data.apply(lambda row: resolve_zscore(row, "IMTP_relPF_Z"), axis=1)
         data = data.dropna(subset=[f"{x_col}_plot", "IMTP_relPF_Z_plot"])
+        data = _same_origin_rows(data, x_col, "IMTP_relPF_Z")
     if data.empty:
         return go.Figure()
 

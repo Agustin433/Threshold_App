@@ -15,6 +15,7 @@ import streamlit as st
 
 from local_store import DATASET_SPECS, normalize_athlete_name
 from modules.data_loader import EVALUATION_DB_COLUMN_MAP, EVALUATION_PERSIST_COLUMNS, SUPABASE_EVALUATIONS_TABLE
+from modules.evaluation_sources import normalize_source
 from modules.jump_analysis import (
     _prepare_jump_df,
     build_dj_drop_height_backfill_candidates,
@@ -296,10 +297,15 @@ def save_remote_evaluations(df: pd.DataFrame) -> dict[str, int | bool]:
     updated = 0
 
     for record in payload:
+        # La fuente entra en el filtro del PATCH: sin ella, una evaluacion de
+        # alfombra sobrescribiria la de plataforma del mismo atleta y fecha.
+        record_source = normalize_source(record.get("source"))
+        record["source"] = record_source
         filters = {
-            "select": "athlete,date",
+            "select": "athlete,date,source",
             "athlete": f"eq.{record['athlete']}",
             "date": f"eq.{record['date']}",
+            "source": f"eq.{record_source}",
         }
         updated_rows = _supabase_request(
             "PATCH",

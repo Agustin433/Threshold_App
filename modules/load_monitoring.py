@@ -13,6 +13,26 @@ ACWR_ZONES = (
     (1.30, 1.50, "Precaucion", "#E8C84A"),
     (1.50, 9.99, "Alto riesgo", "#D94F4F"),
 )
+
+# Etiquetas acentuadas para superficies de lectura (PDF, narrativa). Las claves
+# son las canonicas sin acento, que son las que viajan en los DataFrames y
+# contra las que filtran los paneles.
+ACWR_ZONE_DISPLAY_LABELS = {
+    "Subcarga": "Subcarga",
+    "Optimo": "Óptimo",
+    "Precaucion": "Precaución",
+    "Alto riesgo": "Alto riesgo",
+    "Sin datos": "Sin datos",
+}
+
+# Constantes de suavizado EWMA segun Williams et al. (2017): lambda = 2/(N+1).
+# Se derivan de la ventana en dias en vez de hardcodear el alpha, para que la
+# ventana quede explicita y no vuelvan a divergir entre superficies.
+ACWR_ACUTE_DAYS = 7
+ACWR_CHRONIC_DAYS = 28
+ACWR_ACUTE_ALPHA = 2 / (ACWR_ACUTE_DAYS + 1)
+ACWR_CHRONIC_ALPHA = 2 / (ACWR_CHRONIC_DAYS + 1)
+
 MONOTONY_HIGH = 2.0
 ACWR_CONTEXT_DEFAULT_WEEKS = 16
 ACWR_SPIKE_THRESHOLD_PCT = 50.0
@@ -36,21 +56,35 @@ ACWR_CONTEXT_COLUMNS = [
 
 
 def _classify_acwr(value: float) -> str:
+    """Zona de ACWR con limite superior inclusivo.
+
+    El rango operativo de referencia es 0.80-1.30 *inclusive*, asi que un ACWR
+    de exactamente 1.30 es "Optimo" y no "Precaucion". Antes esta funcion usaba
+    `lower <= value < upper`, lo que la dejaba como la unica superficie de la
+    app que clasificaba 1.30 como precaucion.
+    """
     if pd.isna(value):
         return "Sin datos"
-    for lower, upper, label, _ in ACWR_ZONES:
-        if lower <= value < upper:
-            return label
+    if value < 0.80:
+        return "Subcarga"
+    if value <= 1.30:
+        return "Optimo"
+    if value <= 1.50:
+        return "Precaucion"
     return "Alto riesgo"
+
+
+_ACWR_ZONE_COLORS = {label: color for _, _, label, color in ACWR_ZONES}
+
+# Nombre publico: cualquier superficie que necesite clasificar un ACWR debe
+# usar este, nunca reimplementar los umbrales.
+classify_acwr_zone = _classify_acwr
 
 
 def _acwr_color(value: float) -> str:
     if pd.isna(value):
         return "#5A6A7A"
-    for lower, upper, _, color in ACWR_ZONES:
-        if lower <= value < upper:
-            return color
-    return "#D94F4F"
+    return _ACWR_ZONE_COLORS.get(_classify_acwr(value), "#D94F4F")
 
 
 def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
@@ -68,8 +102,10 @@ def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
         0,
     )
 
-    result["EWMA_Aguda"] = result["sRPE_diario"].ewm(alpha=0.28, adjust=False).mean()
-    result["EWMA_Cronica"] = result["sRPE_diario"].ewm(alpha=0.07, adjust=False).mean()
+    # Williams et al. 2017. Antes se usaban 0.28 y 0.07, que no corresponden a
+    # ninguna ventana entera: implicaban ~6.1 y ~27.6 dias en vez de 7 y 28.
+    result["EWMA_Aguda"] = result["sRPE_diario"].ewm(alpha=ACWR_ACUTE_ALPHA, adjust=False).mean()
+    result["EWMA_Cronica"] = result["sRPE_diario"].ewm(alpha=ACWR_CHRONIC_ALPHA, adjust=False).mean()
     result["ACWR_EWMA"] = np.where(
         result["EWMA_Cronica"] > 0,
         result["EWMA_Aguda"] / result["EWMA_Cronica"],

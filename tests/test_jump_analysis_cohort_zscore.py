@@ -5,7 +5,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from modules.jump_analysis import EXTERNAL_BENCHMARKS, calc_zscores
+from modules.jump_analysis import calc_zscores
+from modules.zscore_sources import ZSource
 
 
 def _profile_row(athlete: str, deporte: str, nivel: str) -> dict[str, object]:
@@ -44,64 +45,77 @@ def _expected_z(values: list[float], target: float) -> float:
     return round(float((target - arr.mean()) / arr.std(ddof=0)), 2)
 
 
+def build_valid_cohort_frames() -> tuple[pd.DataFrame, pd.DataFrame, list[float]]:
+    """Cohorte que si habilita un z: mismo deporte, nivel y sexo, sobre el minimo.
+
+    Los fixtures chicos de este modulo existen para probar que el gate NIEGA
+    el z. Cuando hace falta lo contrario (verificar que `profile_df` se
+    propaga hasta los graficos, por ejemplo) hay que partir de una poblacion
+    admisible, porque si no el z es NaN por diseno y el test no distingue
+    entre "gate correcto" y "profile_df perdido en el camino".
+    """
+    from modules.athlete_profile import Sexo
+    from modules.zscore_sources import MIN_COHORT_SIZE
+
+    heights = [30.0 + idx for idx in range(MIN_COHORT_SIZE)]
+    jump_rows, profile_rows = [], []
+    for idx, height in enumerate(heights):
+        name = f"Cohorte {idx}"
+        jump_rows.append(
+            {"Athlete": name, "Date": "2026-06-01", "SJ_cm": height, "CMJ_cm": height + 8.0}
+        )
+        profile_rows.append(
+            {"Athlete": name, "Deporte": "Handball", "Nivel": "Competitivo", "Sexo": Sexo.FEMENINO}
+        )
+    return pd.DataFrame(jump_rows), pd.DataFrame(profile_rows), heights
+
+
 class CalcZscoresCohortTest(unittest.TestCase):
-    def test_without_profile_df_matches_whole_dataset_population(self):
-        jump_df, _profile_df = _build_two_cohort_frames()
-        result = calc_zscores(jump_df.copy())
+    """Cohorte como unica poblacion admisible para un z poblacional.
 
-        all_sj = [30, 32, 34, 20, 22, 24]
-        expected_ana = _expected_z(all_sj, 30)
-        actual_ana = result.loc[result["Athlete"] == "Ana Lopez", "SJ_Z"].iloc[0]
-        self.assertAlmostEqual(actual_ana, expected_ana, places=2)
+    Este fixture arma cohortes de 3 atletas y sin sexo cargado. Bajo el gate
+    vigente eso no alcanza para ningun z: ni literatura (no hay sexo, no hay
+    tabla) ni cohorte (3 < minimo). Los tests que antes verificaban el
+    fallback al dataset entero ahora verifican que ese fallback no exista.
+    """
 
-    def test_with_profile_df_scores_each_athlete_against_its_own_cohort(self):
+    def test_small_cohort_never_produces_a_cohort_z(self):
         jump_df, profile_df = _build_two_cohort_frames()
         result = calc_zscores(jump_df.copy(), profile_df=profile_df)
 
-        handball_sj = [30, 32, 34]
-        futbol_sj = [20, 22, 24]
+        self.assertNotIn(str(ZSource.COHORT_Z), set(result["SJ_Z_source"]))
+        self.assertTrue(result["SJ_Z"].isna().all())
 
-        expected_ana = _expected_z(handball_sj, 30)
-        expected_dario = _expected_z(futbol_sj, 20)
+    def test_without_profile_df_there_is_no_population_at_all(self):
+        jump_df, _profile_df = _build_two_cohort_frames()
+        result = calc_zscores(jump_df.copy())
 
-        actual_ana = result.loc[result["Athlete"] == "Ana Lopez", "SJ_Z"].iloc[0]
-        actual_dario = result.loc[result["Athlete"] == "Dario Sosa", "SJ_Z"].iloc[0]
+        self.assertEqual(set(result["SJ_Z_source"]), {str(ZSource.REFERENCE_BAND)})
+        self.assertTrue(result["SJ_Z"].isna().all())
 
-        self.assertAlmostEqual(actual_ana, expected_ana, places=2)
-        self.assertAlmostEqual(actual_dario, expected_dario, places=2)
-
-        # Sanity: the cohort-scoped value must differ from the whole-dataset value.
-        whole_dataset_ana = _expected_z([30, 32, 34, 20, 22, 24], 30)
-        self.assertNotAlmostEqual(actual_ana, whole_dataset_ana, places=2)
-
-    def test_external_benchmark_metric_is_unaffected_by_profile_df(self):
+    def test_metric_without_applicable_population_gets_no_z(self):
+        """Los perfiles del fixture no traen sexo: no hay tabla que elegir."""
         jump_df, profile_df = _build_two_cohort_frames()
-
-        without_profile = calc_zscores(jump_df.copy())
         with_profile = calc_zscores(jump_df.copy(), profile_df=profile_df)
 
-        benchmark = EXTERNAL_BENCHMARKS["CMJ_cm"]
-        expected_cmj_z = round((40 - benchmark["mean"]) / benchmark["sd"], 2)
+        self.assertNotIn(str(ZSource.LITERATURE_Z), set(with_profile["CMJ_Z_source"]))
 
-        cmj_without = without_profile.loc[without_profile["Athlete"] == "Ana Lopez", "CMJ_Z"].iloc[0]
-        cmj_with = with_profile.loc[with_profile["Athlete"] == "Ana Lopez", "CMJ_Z"].iloc[0]
+    def test_cohort_above_minimum_does_produce_a_cohort_z(self):
+        """Control: el camino de cohorte sigue vivo cuando la muestra alcanza."""
+        from modules.athlete_profile import Sexo
+        from modules.zscore_sources import MIN_COHORT_SIZE
 
-        self.assertAlmostEqual(cmj_without, expected_cmj_z, places=2)
-        self.assertAlmostEqual(cmj_with, expected_cmj_z, places=2)
-        self.assertAlmostEqual(cmj_without, cmj_with, places=2)
+        rows, profiles = [], []
+        for idx in range(MIN_COHORT_SIZE):
+            name = f"Atleta {idx}"
+            rows.append({"Athlete": name, "Date": "2026-06-01", "SJ_cm": 30 + idx})
+            profiles.append(
+                {"Athlete": name, "Deporte": "Handball", "Nivel": "Competitivo", "Sexo": Sexo.FEMENINO}
+            )
 
-    def test_empty_or_none_profile_df_falls_back_to_dataset_population(self):
-        jump_df, _profile_df = _build_two_cohort_frames()
-
-        result_none = calc_zscores(jump_df.copy(), profile_df=None)
-        result_empty = calc_zscores(jump_df.copy(), profile_df=pd.DataFrame())
-
-        all_sj = [30, 32, 34, 20, 22, 24]
-        expected_ana = _expected_z(all_sj, 30)
-
-        for result in (result_none, result_empty):
-            actual = result.loc[result["Athlete"] == "Ana Lopez", "SJ_Z"].iloc[0]
-            self.assertAlmostEqual(actual, expected_ana, places=2)
+        result = calc_zscores(pd.DataFrame(rows), profile_df=pd.DataFrame(profiles))
+        self.assertEqual(set(result["SJ_Z_source"]), {str(ZSource.COHORT_Z)})
+        self.assertTrue(result["SJ_Z"].notna().all())
 
 
 if __name__ == "__main__":

@@ -70,9 +70,13 @@ create table if not exists public.evaluations (
     sj_peak_force_n double precision,
     sj_peak_power_w double precision,
     sj_rsi double precision,
+    source text not null default 'platform',
+    device text,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
-    primary key (athlete, date)
+    -- source forma parte de la clave: una medicion de plataforma y una de
+    -- MyJump2/alfombra del mismo atleta y fecha son filas distintas.
+    primary key (athlete, date, source)
 );
 
 alter table if exists public.evaluations add column if not exists iso_ham_n double precision;
@@ -93,6 +97,41 @@ alter table if exists public.evaluations add column if not exists iso_ham_rfd_10
 alter table if exists public.evaluations add column if not exists iso_ham_rfd_150_n_s double precision;
 alter table if exists public.evaluations add column if not exists iso_ham_rfd_250_n_s double precision;
 alter table if exists public.evaluations add column if not exists dj_drop_height_cm double precision;
+
+-- ── Migracion a evaluaciones particionadas por fuente de medicion ──────────
+-- Ejecutar en orden sobre una base existente. Es idempotente.
+-- Todo el historial previo a esta columna vino de la plataforma de fuerza,
+-- por eso el backfill a 'platform' es correcto y no una suposicion.
+alter table if exists public.evaluations add column if not exists source text;
+alter table if exists public.evaluations add column if not exists device text;
+update public.evaluations set source = 'platform' where source is null;
+alter table if exists public.evaluations alter column source set default 'platform';
+alter table if exists public.evaluations alter column source set not null;
+
+-- Reemplazo de la PK. Solo corre si la clave todavia no incluye source, asi
+-- que repetir el script no falla ni pierde datos.
+do $$
+declare
+    pk_name text;
+    pk_cols text;
+begin
+    select con.conname,
+           string_agg(att.attname, ',' order by att.attname)
+      into pk_name, pk_cols
+      from pg_constraint con
+      join pg_attribute att
+        on att.attrelid = con.conrelid
+       and att.attnum = any(con.conkey)
+     where con.conrelid = 'public.evaluations'::regclass
+       and con.contype = 'p'
+     group by con.conname;
+
+    if pk_name is not null and pk_cols is distinct from 'athlete,date,source' then
+        execute format('alter table public.evaluations drop constraint %I', pk_name);
+        execute 'alter table public.evaluations add primary key (athlete, date, source)';
+    end if;
+end
+$$;
 
 create or replace function public.set_evaluations_updated_at()
 returns trigger

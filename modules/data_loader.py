@@ -16,6 +16,7 @@ import pandas as pd
 from openpyxl.utils.exceptions import InvalidFileException
 
 from modules.evaluation_registry import get_evaluation_spec, get_storage_mapping
+from modules.evaluation_sources import SOURCE_PLATFORM
 from modules.involution_parser import parse_involution_summary_excel
 
 _DATE_RE = re.compile(
@@ -330,10 +331,14 @@ RAW_EVALUATION_COLUMNS = sorted(
         for metric_name, _ in test_map.values()
     }
 )
-EVALUATION_PERSIST_COLUMNS = ["Athlete", "Date"] + RAW_EVALUATION_COLUMNS
+# Source y Device viajan junto a Athlete/Date, no entre las metricas: son
+# identidad de la medicion, no resultados de ella.
+EVALUATION_PERSIST_COLUMNS = ["Athlete", "Date", "Source", "Device"] + RAW_EVALUATION_COLUMNS
 EVALUATION_DB_COLUMN_MAP = {
     "Athlete": "athlete",
     "Date": "date",
+    "Source": "source",
+    "Device": "device",
     **{col: col.lower() for col in RAW_EVALUATION_COLUMNS if col not in LOCAL_ONLY_EVALUATION_COLUMNS},
     **{col: col.lower() for col in _IMTP_LEGACY_STORAGE_ALIASES},
 }
@@ -427,9 +432,13 @@ def _read_xlsx_rows(file_bytes: bytes) -> list[list[object]]:
 
 def _safe_float(value) -> float | None:
     try:
-        return float(str(value).replace(",", "."))
+        result = float(str(value).replace(",", "."))
     except Exception:
         return None
+    # Un valor NaN de entrada (celda vacia en pandas) produce un float NaN
+    # aca, no una excepcion, asi que sin este chequeo un dato faltante se
+    # trata como si estuviera presente en los guards `is None` aguas abajo.
+    return None if pd.isna(result) else result
 
 
 def _wellness_score(sueno, estres, dolor):
@@ -1997,7 +2006,10 @@ def _normalize_legacy_imtp_rfd_aliases_frame(df: pd.DataFrame | None) -> pd.Data
 def _parse_involution_force_time_forceplate(file_bytes: bytes, test_id: str) -> dict[str, object]:
     parsed = parse_involution_summary_excel(file_bytes, test_id=test_id)
     storage_mapping = get_storage_mapping(test_id)
-    result: dict[str, object] = {"test_type": str(test_id or "").strip().upper()}
+    result: dict[str, object] = {
+        "test_type": str(test_id or "").strip().upper(),
+        "Source": SOURCE_PLATFORM,
+    }
     for normalized_field, storage_field in storage_mapping.items():
         value = parsed["metrics"].get(normalized_field)
         if value is None:
@@ -2032,7 +2044,10 @@ def parse_forceplate_file(
             "El archivo de evaluacion debe ser un .xlsx valido exportado desde la plataforma de fuerza."
         ) from exc
     metric_map = TEST_MAPS.get(resolved_test_type, TEST_MAPS.get(test_type, {}))
-    result: dict[str, object] = {"test_type": resolved_test_type or test_type}
+    result: dict[str, object] = {
+        "test_type": resolved_test_type or test_type,
+        "Source": SOURCE_PLATFORM,
+    }
     for metric_name, (col_name, agg) in metric_map.items():
         if metric_name in raw:
             result[col_name] = _extract_best(raw[metric_name], agg)

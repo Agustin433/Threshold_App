@@ -4,12 +4,46 @@ from __future__ import annotations
 
 import math
 import unicodedata
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
 
-from modules.athlete_profile import get_comparison_cohort
+from modules.athlete_profile import get_comparison_cohort, normalize_deporte
 from modules.data_loader import _normalize_legacy_imtp_rfd_aliases_frame
+from modules.evaluation_sources import (
+    DEFAULT_SOURCE,
+    MIN_COHORT_SIZE,
+    SOURCE_ORDER,
+    SOURCE_PLATFORM,
+    normalize_source,
+)
+from modules.zscore_sources import (
+    Z_SOURCES_WITH_NUMERIC_Z,
+    ZSource,
+    resolve_z_source,
+)
+
+# Columnas de la tabla de evaluaciones que NO son metricas numericas. Se
+# listan explicitamente porque `_prepare_jump_df` convierte a numerico todo lo
+# que no este aca, y una columna de texto olvidada se transformaria en NaN
+# silenciosamente.
+# Marca que el frame ya paso por `_prepare_jump_df`. Preparar cuesta ~500 ms
+# con 18 atletas y cada cuadrante lo repetia, porque nada en la ruta de equipo
+# declaraba que el trabajo estaba hecho: `Profile_Composed` solo lo pone la foto
+# compuesta de un atleta, asi que el cortocircuito de los graficos no disparaba.
+JUMP_PREPARED_COLUMN = "Jump_Prepared"
+
+NON_NUMERIC_EVALUATION_COLUMNS = {
+    JUMP_PREPARED_COLUMN,
+    "Athlete",
+    "Date",
+    "Source",
+    "Device",
+    "NM_Profile",
+    "EUR_Profile",
+    "EUR_based_profile",
+}
 
 # Ref1: Normative data EFL 2025 - professional male soccer.
 # External z-scores below are orientative, not normative, for other sports.
@@ -24,16 +58,12 @@ EARTH_GRAVITY = 9.81
 # "Excellent" is used here as the product-facing z=+1 anchor because the coach
 # wants z=0 to represent the reference average and z=+1 to represent a
 # practically "good" threshold in the radar.
-EXTERNAL_BENCHMARKS: dict[str, dict[str, float]] = {
-    "CMJ_cm": {"mean": 38.0, "excellent": 53.0},
-    "DJ_RSI": {"mean": 1.71, "excellent": 2.68},
-    "IMTP_N": {"mean": 3031.0, "excellent": 4678.0},
-    "IMTP_relPF": {"mean": 37.39, "excellent": 53.43},
-    "mRSI": {"mean": 0.56, "excellent": 0.93},
-}
-
-for _benchmark in EXTERNAL_BENCHMARKS.values():
-    _benchmark["sd"] = _benchmark["excellent"] - _benchmark["mean"]
+# `EXTERNAL_BENCHMARKS` quedo eliminado. Derivaba el desvio como
+# `excellent - mean`, que no es un desvio sino aproximadamente dos o tres:
+# medido contra la muestra real quedaba inflado entre 1.9x y 2.3x, con el
+# efecto de que ningun atleta podia alcanzar z >= 1 en las metricas que lo
+# usaban. Las referencias publicadas, con su desvio real y su procedencia
+# declarada, viven ahora en modules/zscore_sources.py.
 
 METRIC_LABELS = {
     "SJ_cm": "SJ",
@@ -47,7 +77,6 @@ METRIC_LABELS = {
     "IMTP_N": "IMTP",
     "EUR": "EUR",
     "DSI": "DSI",
-    "mRSI": "mRSI",
     "Jump_Momentum": "Jump Momentum",
     "CMJ_rel_impulse": "Impulso Relativo Propulsivo",
 }
@@ -104,9 +133,16 @@ VARIABLE_META: dict[str, dict[str, object]] = {
         "fmt": "{:.2f}",
         "enabled_default": True,
     },
+    # EUR y DSI son cocientes, no cualidades: pueden subir porque bajo el
+    # denominador. EUR = CMJ/SJ sube si cae el SJ; DSI = CMJ_PF/IMTP_N sube si
+    # cae la fuerza isometrica. Marcarlos "higher_is_better" hacia que el motor
+    # temporal reportara "mejora relevante" ante una perdida real. Por eso van
+    # como context_dependent: se informa la magnitud del cambio, no un juicio
+    # de mejora o caida.
     "EUR": {
         "label": "EUR (ratio)",
         "higher_is_better": True,
+        "direction": "context_dependent",
         "fallback_pct": 2.0,
         "fmt": "{:.3f}",
         "enabled_default": True,
@@ -114,6 +150,7 @@ VARIABLE_META: dict[str, dict[str, object]] = {
     "DSI": {
         "label": "DSI",
         "higher_is_better": True,
+        "direction": "context_dependent",
         "fallback_pct": 3.0,
         "fmt": "{:.2f}",
         "enabled_default": False,
@@ -132,7 +169,23 @@ TEMPORAL_SIGNAL_BADGES = {
     "caida relevante": "↓ caida relevante",
     "sin cambio relevante": "~ sin cambio relevante",
     "sin dato anterior": "— sin dato anterior",
+    # Para ratios: se informa que hubo un cambio relevante sin calificarlo,
+    # porque el signo por si solo no distingue mejora de perdida.
+    "cambio relevante sin direccion": "± cambio relevante — leer numerador y denominador",
+    "sin cambio relevante sin direccion": "~ sin cambio relevante",
 }
+
+
+def _variable_direction(meta: dict[str, object]) -> str:
+    """Direccion interpretativa de una variable temporal.
+
+    Cae a `higher_is_better`/`lower_is_better` para mantener el comportamiento
+    de las variables simples; `context_dependent` es el caso de los cocientes.
+    """
+    declared = str(meta.get("direction") or "").strip()
+    if declared:
+        return declared
+    return "higher_is_better" if bool(meta.get("higher_is_better")) else "lower_is_better"
 
 BASELINE_MIN_VALID = 3
 BASELINE_METHOD = "Promedio primeras 3 mediciones validas"
@@ -140,6 +193,7 @@ BASELINE_SIGNAL_BADGES = {
     "mejora vs baseline": "+ mejora vs baseline",
     "caida vs baseline": "- caida vs baseline",
     "sin cambio vs baseline": "~ sin cambio vs baseline",
+    "cambio vs baseline sin direccion": "± cambio vs baseline — leer numerador y denominador",
     "baseline insuficiente": "baseline insuficiente",
     "sin dato actual": "sin dato actual",
 }
@@ -244,7 +298,6 @@ RADAR_NO_DJ_AXES = (
     ("SJ", "SJ_cm", "cm", "SJ_Z"),
     ("CMJ", "CMJ_cm", "cm", "CMJ_Z"),
     ("IMTP relPF", "IMTP_relPF", "N/kg", "IMTP_relPF_Z"),
-    ("mRSI", "mRSI", "m/s", "mRSI_Z"),
 )
 
 COMPOSITE_PROFILE_METRICS = (
@@ -313,6 +366,12 @@ ZSCORE_ALIAS_GROUPS = (
 
 NEUROMUSCULAR_QUADRANT_NEUTRAL_BAND = 0.35
 
+# Los patrones usaban +/-0.5 mientras los cuadrantes usaban +/-0.35 sobre los
+# mismos ejes, asi que un atleta con SJ_z = 0.42 quedaba "alto" en el cuadrante
+# y "neutro" para el patron. Se derivan de la misma constante para que no
+# vuelvan a divergir.
+PATTERN_SIGNAL_BAND = NEUROMUSCULAR_QUADRANT_NEUTRAL_BAND
+
 _NEUROMUSCULAR_QUADRANT_ZONE_META = {
     "low": {
         "label": "bajo",
@@ -338,9 +397,6 @@ COMPOSITE_PROFILE_SUPPORT_FIELDS = (
     "DJ_RSI_Z",
     "TC_inv_Z",
     "DSI",
-    "mRSI",
-    "TTT_s",
-    "TTT_ms",
     "Jump_Momentum",
     "Jump_Momentum_Z",
     "CMJ_rel_impulse",
@@ -377,13 +433,37 @@ PROFILE_SOURCE_DATE_FIELDS = (
     ("EUR", ("EUR",)),
     ("IMTP_relPF", ("IMTP_relPF", "IMTP_N")),
     ("DSI", ("DSI",)),
-    ("mRSI", ("mRSI",)),
 )
 
 EUR_PROFILE_THRESHOLDS = (
     (1.10, "Reactivo"),
     (1.00, "Mixto"),
 )
+
+
+def filter_by_source(frame: pd.DataFrame | None, source: str | None) -> pd.DataFrame:
+    """Recorta un frame de evaluaciones a una unica fuente de medicion.
+
+    Con `source=None` devuelve el frame tal cual. Un frame sin columna
+    `Source` se considera historico y por lo tanto de plataforma.
+    """
+    if frame is None or frame.empty or source is None:
+        return frame if frame is not None else pd.DataFrame()
+
+    target = normalize_source(source)
+    if "Source" not in frame.columns:
+        return frame if target == DEFAULT_SOURCE else frame.iloc[0:0]
+    return frame[frame["Source"].map(normalize_source) == target]
+
+
+def available_sources(frame: pd.DataFrame | None) -> list[str]:
+    """Fuentes presentes en el frame, en orden canonico."""
+    if frame is None or frame.empty:
+        return []
+    if "Source" not in frame.columns:
+        return [DEFAULT_SOURCE]
+    present = set(frame["Source"].map(normalize_source).dropna())
+    return [source for source in SOURCE_ORDER if source in present]
 
 
 def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
@@ -622,12 +702,27 @@ def _group_internal_z(
     *,
     invert: bool = False,
     min_count: int = 2,
+    source_series: pd.Series | None = None,
 ) -> pd.Series:
+    """Z intra-atleta. Se agrupa por (atleta, fuente), nunca solo por atleta.
+
+    Un cambio de dispositivo dentro de la serie temporal de un atleta mueve la
+    media y el desvio, y el salto de metodo se leeria como cambio real de
+    rendimiento. Separar por fuente hace que cada dispositivo tenga su propia
+    referencia interna.
+    """
     zscores = pd.Series(np.nan, index=values.index, dtype=float)
     if athlete_series is None:
         return zscores
 
-    grouped = pd.DataFrame({"value": values, "athlete": athlete_series})
+    if source_series is None:
+        group_keys = athlete_series
+    else:
+        group_keys = (
+            athlete_series.astype(str) + "\x1f" + source_series.map(normalize_source).astype(str)
+        ).where(athlete_series.notna())
+
+    grouped = pd.DataFrame({"value": values, "athlete": group_keys})
     for athlete, idx in grouped.groupby("athlete").groups.items():
         if pd.isna(athlete):
             continue
@@ -643,7 +738,24 @@ def _group_internal_z(
     return zscores
 
 
-def _dataset_fallback_z(values: pd.Series, *, invert: bool = False) -> pd.Series:
+def _dataset_fallback_z(
+    values: pd.Series,
+    *,
+    invert: bool = False,
+    source_series: pd.Series | None = None,
+) -> pd.Series:
+    """Fallback poblacional sin perfil. Se calcula por fuente, no sobre todo.
+
+    Sin `profile_df` no hay cohorte Deporte+Nivel y se compara contra el
+    dataset entero; aun asi ese dataset no debe mezclar metodos de medicion.
+    """
+    if source_series is not None and source_series.nunique(dropna=False) > 1:
+        result = pd.Series(np.nan, index=values.index, dtype=float)
+        for _, idx in values.groupby(source_series.map(normalize_source)).groups.items():
+            subset = values.loc[idx]
+            result.loc[idx] = _dataset_fallback_z(subset, invert=invert)
+        return result
+
     valid = values.dropna()
     if len(valid) < 2:
         return pd.Series(np.nan, index=values.index, dtype=float)
@@ -658,13 +770,17 @@ def build_cohort_cache(
     frame: pd.DataFrame,
     profile_df: pd.DataFrame | None,
     *,
-    min_cohort_size: int = 3,
+    min_cohort_size: int = MIN_COHORT_SIZE,
 ) -> dict[str, dict[str, object]]:
     """Resolve each athlete's comparison cohort once, reused across every metric."""
     cache: dict[str, dict[str, object]] = {}
     if frame is None or frame.empty or "Athlete" not in frame.columns:
         return cache
     for athlete in frame["Athlete"].dropna().unique():
+        # La cohorte se resuelve sobre el frame completo; `_cohort_z` recorta
+        # despues por fuente fila a fila. Asi un atleta medido con los dos
+        # metodos conserva una sola identidad de cohorte (Deporte+Nivel) y no
+        # se fragmenta la etiqueta que se muestra al usuario.
         cache[athlete] = get_comparison_cohort(athlete, frame, profile_df, min_cohort_size=min_cohort_size)
     return cache
 
@@ -680,7 +796,14 @@ def _cohort_z(
     if "Athlete" not in frame.columns:
         return zscores
 
-    for athlete, idx in pd.DataFrame({"athlete": frame["Athlete"]}).groupby("athlete").groups.items():
+    source_series = (
+        frame["Source"].map(normalize_source)
+        if "Source" in frame.columns
+        else pd.Series(DEFAULT_SOURCE, index=frame.index)
+    )
+
+    group_cols = {"athlete": frame["Athlete"], "source": source_series}
+    for (athlete, row_source), idx in pd.DataFrame(group_cols).groupby(["athlete", "source"]).groups.items():
         if pd.isna(athlete):
             continue
         cohort_info = cohort_cache.get(athlete)
@@ -689,7 +812,13 @@ def _cohort_z(
         cohort_df = cohort_info.get("cohort_df")
         if cohort_df is None or cohort_df.empty:
             continue
-        cohort_values = values.reindex(cohort_df.index).dropna()
+        # La cohorte se restringe a la misma fuente: una poblacion mixta de
+        # plataforma y tiempo de vuelo tiene un desvio inflado por la
+        # diferencia de metodo, no por variabilidad real entre atletas.
+        cohort_index = cohort_df.index
+        cohort_source = source_series.reindex(cohort_index)
+        cohort_index = cohort_index[(cohort_source == row_source).fillna(False)]
+        cohort_values = values.reindex(cohort_index).dropna()
         if len(cohort_values) < 2:
             continue
         std = float(cohort_values.std(ddof=0))
@@ -701,45 +830,150 @@ def _cohort_z(
     return zscores
 
 
-def _external_z(values: pd.Series, metric_key: str | None) -> pd.Series:
-    if metric_key is None or metric_key not in EXTERNAL_BENCHMARKS:
-        return pd.Series(np.nan, index=values.index, dtype=float)
-    benchmark = EXTERNAL_BENCHMARKS[metric_key]
-    sd = float(benchmark["sd"])
-    if sd <= 0:
-        return pd.Series(np.nan, index=values.index, dtype=float)
-    return ((values - float(benchmark["mean"])) / sd).astype(float)
+# `_external_z` quedo eliminada junto con el benchmark sintetico. La
+# comparacion contra poblacion publicada la decide `resolve_z_source`.
+
+
+def _profile_lookup(profile_df: pd.DataFrame | None) -> dict[str, dict[str, object]]:
+    """Indexa el perfil por atleta para consultarlo fila a fila."""
+    if profile_df is None or profile_df.empty or "Athlete" not in profile_df.columns:
+        return {}
+    lookup: dict[str, dict[str, object]] = {}
+    for _, row in profile_df.iterrows():
+        key = str(row.get("Athlete") or "").strip()
+        if key:
+            lookup[key] = row.to_dict()
+    return lookup
 
 
 def _resolve_zscore(
     frame: pd.DataFrame,
     metric_col: str,
     *,
-    benchmark_key: str | None = None,
     invert: bool = False,
     internal_min_count: int = 2,
     allow_dataset_fallback: bool = True,
     cohort_cache: dict[str, dict[str, object]] | None = None,
-) -> pd.Series:
+    profile_lookup: dict[str, dict[str, object]] | None = None,
+) -> tuple[pd.Series, pd.Series]:
+    """Calcula el z de una metrica segun la procedencia que le corresponda.
+
+    Devuelve `(z, origen)`. La decision de con que comparar se toma en
+    `modules.zscore_sources.resolve_z_source`, fila a fila, porque depende del
+    perfil del atleta (sexo, deporte, nivel), del instrumento con el que se
+    midio y del tamano de su cohorte.
+
+    Antes esta funcion aplicaba un benchmark externo global cuyo desvio era
+    `excellent - mean`, un proxy que sobreestimaba el desvio real entre 1.9x y
+    2.3x y que se usaba para cualquier atleta sin mirar su poblacion. Ahora un
+    z solo se calcula si hay con que: sin poblacion aplicable la metrica queda
+    en `REFERENCE_BAND` y no produce z.
+    """
     values = _numeric_series(frame, metric_col)
     athlete_series = frame["Athlete"] if "Athlete" in frame.columns else None
-    external = _external_z(values, benchmark_key)
-    internal = _group_internal_z(values, athlete_series, invert=invert, min_count=internal_min_count)
+    source_series = (
+        frame["Source"].map(normalize_source)
+        if "Source" in frame.columns
+        else pd.Series(DEFAULT_SOURCE, index=frame.index)
+    )
+    profile_lookup = profile_lookup or {}
+
+    internal = _group_internal_z(
+        values,
+        athlete_series,
+        invert=invert,
+        min_count=internal_min_count,
+        source_series=source_series,
+    )
     if not allow_dataset_fallback:
-        dataset = pd.Series(np.nan, index=values.index, dtype=float)
+        cohort = pd.Series(np.nan, index=values.index, dtype=float)
     elif cohort_cache is not None:
-        # Cohort-aware population fallback (Deporte+Nivel peers) replaces the
-        # plain whole-dataset fallback when a profile_df was supplied upstream.
-        dataset = _cohort_z(frame, values, cohort_cache, invert=invert)
+        cohort = _cohort_z(frame, values, cohort_cache, invert=invert)
     else:
-        dataset = _dataset_fallback_z(values, invert=invert)
+        cohort = _dataset_fallback_z(values, invert=invert, source_series=source_series)
 
-    if benchmark_key is not None:
-        resolved = external
+    # Tomas validas por (atleta, fuente): habilita o no la lectura propia.
+    if athlete_series is not None:
+        group_key = athlete_series.astype(str) + "\x1f" + source_series.astype(str)
+        measurement_counts = values.notna().groupby(group_key).transform("sum")
     else:
-        resolved = internal.combine_first(dataset)
+        measurement_counts = pd.Series(0, index=values.index)
 
-    return resolved.where(values.notna())
+    z_values = pd.Series(np.nan, index=values.index, dtype=float)
+    origins = pd.Series("", index=values.index, dtype=object)
+    percentiles = pd.Series(np.nan, index=values.index, dtype=float)
+    ranks = pd.Series(pd.NA, index=values.index, dtype="Int64")
+    cohort_sizes = pd.Series(pd.NA, index=values.index, dtype="Int64")
+
+    # Indice de la cohorte de cada atleta, para calcular percentiles sin
+    # rearmarla en cada fila.
+    cohort_index_by_athlete: dict[str, pd.Index] = {}
+    for name, info in (cohort_cache or {}).items():
+        cohort_df = info.get("cohort_df")
+        if cohort_df is not None and not cohort_df.empty:
+            cohort_index_by_athlete[name] = cohort_df.index
+
+    for idx in values.index:
+        athlete = str(frame.at[idx, "Athlete"]).strip() if athlete_series is not None else ""
+        cohort_info = (cohort_cache or {}).get(athlete) or {}
+        # Solo cuenta como cohorte la resuelta por Deporte+Nivel. El fallback
+        # "general" agrupa a todo el dataset mezclando deportes, niveles y
+        # sexos: su tamano es grande pero no describe una poblacion, asi que
+        # no puede habilitar un z de cohorte. "muestra_insuficiente" es la
+        # unica variante de fallback que trae un cohort_size real y acotado
+        # (las demas devuelven 0 o el tamano del dataset entero): dejarlo
+        # pasar es lo que permite que 5 a 7 pares resuelvan a COHORT_RANK en
+        # vez de quedar indistinguibles del fallback general.
+        if cohort_info.get("cohort_level") == "muestra_insuficiente":
+            cohort_size = int(cohort_info.get("cohort_size") or 0)
+        elif cohort_info.get("is_fallback", True):
+            cohort_size = 0
+        else:
+            cohort_size = int(cohort_info.get("cohort_size") or 0)
+
+        decision = resolve_z_source(
+            metric_col,
+            profile=profile_lookup.get(athlete),
+            source=source_series.at[idx],
+            cohort_size=cohort_size,
+            measurement_count=int(measurement_counts.at[idx] or 0),
+        )
+        origins.at[idx] = str(decision.z_source)
+
+        if pd.isna(values.at[idx]):
+            continue
+        if decision.z_source is ZSource.LITERATURE_Z and decision.sd:
+            raw = (float(values.at[idx]) - float(decision.mean)) / float(decision.sd)
+            z_values.at[idx] = -raw if invert else raw
+        elif decision.z_source is ZSource.COHORT_Z:
+            z_values.at[idx] = cohort.at[idx]
+        elif decision.z_source is ZSource.INTRA_INDIVIDUAL:
+            z_values.at[idx] = internal.at[idx]
+        elif decision.z_source is ZSource.COHORT_RANK:
+            # Se calcula percentil, no z: con 5 a 7 pares el orden es
+            # informativo pero el desvio no. El z queda NaN a proposito para
+            # que ningun eje lo grafique como si fuera una distancia.
+            # El rango se restringe a la misma fuente que _cohort_z: mezclar
+            # plataforma y tiempo de vuelo invierte el orden real (metodos
+            # distintos, no variabilidad entre atletas).
+            peer_index = cohort_index_by_athlete.get(athlete, values.index[0:0])
+            row_source = source_series.at[idx]
+            peer_source = source_series.reindex(peer_index)
+            peer_index = peer_index[(peer_source == row_source).fillna(False)]
+            peers = values.reindex(peer_index).dropna()
+            if len(peers) >= 2:
+                below = int((peers < float(values.at[idx])).sum())
+                pct = round(100.0 * below / (len(peers) - 1), 1) if len(peers) > 1 else 50.0
+                percentiles.at[idx] = min(100.0, max(0.0, 100.0 - pct if invert else pct))
+                ranks.at[idx] = (
+                    int((peers > float(values.at[idx])).sum()) + 1
+                    if not invert
+                    else int((peers < float(values.at[idx])).sum()) + 1
+                )
+                cohort_sizes.at[idx] = len(peers)
+        # REFERENCE_BAND no produce ni z ni rango a proposito.
+
+    return z_values.where(values.notna()), origins, percentiles, ranks, cohort_sizes
 
 
 def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
@@ -842,21 +1076,11 @@ def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def calc_mrsi(df: pd.DataFrame) -> pd.DataFrame:
-    """mRSI / RSImod in m/s, using CMJ height and real time-to-takeoff in seconds."""
-    if "TTT_s" in df.columns:
-        ttt_s = _numeric_series(df, "TTT_s")
-    elif "TTT_ms" in df.columns:
-        ttt_s = (_numeric_series(df, "TTT_ms") / 1000).round(3)
-        df["TTT_s"] = ttt_s
-    else:
-        return df
-
-    if "CMJ_cm" in df.columns:
-        cmj_height_m = _numeric_series(df, "CMJ_cm") / 100
-        mask = cmj_height_m.notna() & ttt_s.notna() & (ttt_s > 0)
-        df.loc[mask, "mRSI"] = (cmj_height_m.loc[mask] / ttt_s.loc[mask]).round(3)
-    return df
+# `calc_mrsi` quedo eliminada junto con la metrica. Requeria `TTT_s`/`TTT_ms`
+# (time to takeoff), que ningun parser producia ni el esquema persistia, asi
+# que mRSI y mRSI_Z fueron siempre NaN y el radar caia invariablemente por la
+# rama "TTT no disponible". Para reintroducir RSImod hay que capturar TTT
+# primero: la metrica sin ese dato no es calculable.
 
 
 def calc_dsi(df: pd.DataFrame) -> pd.DataFrame:
@@ -900,48 +1124,120 @@ def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd
     instead of the whole dataset. When omitted, behavior is unchanged.
     """
     zscore_specs = (
-        ("SJ_cm", "SJ_Z", None, False),
-        ("CMJ_cm", "CMJ_Z", "CMJ_cm", False),
-        ("DJ_cm", "DJ_height_Z", None, False),
-        ("DJ_RSI", "DJ_RSI_Z", "DJ_RSI", False),
-        ("DRI", "DRI_Z", None, False),
-        ("DJ_tc_ms", "TC_inv_Z", None, True),
-        ("IMTP_relPF", "IMTP_relPF_Z", "IMTP_relPF", False),
-        ("mRSI", "mRSI_Z", "mRSI", False),
-        ("Jump_Momentum", "Jump_Momentum_Z", None, False),
-        ("EUR", "EUR_Z", None, False),
-        ("DSI", "DSI_Z", None, False),
-        ("IMTP_N", "IMTP_N_Z", "IMTP_N", False),
+        ("SJ_cm", "SJ_Z", False),
+        ("CMJ_cm", "CMJ_Z", False),
+        ("DJ_cm", "DJ_height_Z", False),
+        ("DJ_RSI", "DJ_RSI_Z", False),
+        ("DRI", "DRI_Z", False),
+        ("DJ_tc_ms", "TC_inv_Z", True),
+        ("IMTP_relPF", "IMTP_relPF_Z", False),
+        ("Jump_Momentum", "Jump_Momentum_Z", False),
+        ("EUR", "EUR_Z", False),
+        ("DSI", "DSI_Z", False),
+        ("IMTP_N", "IMTP_N_Z", False),
     )
 
     cohort_cache = build_cohort_cache(df, profile_df) if profile_df is not None else None
+    profile_lookup = _profile_lookup(profile_df)
 
-    for metric_col, z_col, benchmark_key, invert in zscore_specs:
-        computed_z = _resolve_zscore(
+    numeric_z_sources = {str(source) for source in Z_SOURCES_WITH_NUMERIC_Z}
+
+    def _apply(
+        z_col: str,
+        computed_z: pd.Series,
+        origins: pd.Series,
+        percentiles: pd.Series,
+        ranks: pd.Series,
+        cohort_sizes: pd.Series,
+    ) -> None:
+        # Procedencia declarada en el frame que entro, si la trae. Un z solo se
+        # conserva cuando viene acompanado de una procedencia numerica
+        # explicita: eso distingue un z calculado por una corrida anterior de
+        # este mismo resolutor (que hay que respetar, porque quizas se calculo
+        # con un profile_df que esta llamada no recibio) de los z que quedaron
+        # en el CSV del benchmark sintetico, que no traen columna de origen y
+        # por lo tanto se descartan.
+        source_col = f"{z_col}_source"
+        declared = (
+            df[source_col].astype(object).where(df[source_col].notna(), "")
+            if source_col in df.columns
+            else pd.Series("", index=df.index, dtype=object)
+        )
+        stored_is_numeric = declared.isin(numeric_z_sources)
+        stored = _coalesced_numeric_series(df, z_col)
+
+        fresh_is_numeric = origins.isin(numeric_z_sources)
+        # La procedencia fresca gana cuando produce z; si no, se hereda la
+        # declarada, y solo si tampoco hay se cae a banda de criterio.
+        resolved_origin = origins.where(
+            fresh_is_numeric, declared.where(stored_is_numeric, origins)
+        )
+        allows_z = resolved_origin.isin(numeric_z_sources)
+
+        df[z_col] = (
+            computed_z.where(fresh_is_numeric)
+            .combine_first(stored.where(stored_is_numeric))
+            .where(allows_z)
+            .round(2)
+        )
+        # Cada z viaja con su procedencia para que ninguna superficie mezcle
+        # ejes de distinto origen sin declararlo.
+        df[source_col] = resolved_origin
+        df[f"{z_col}_percentile"] = percentiles.round(1)
+        df[f"{z_col}_rank"] = ranks
+        df[f"{z_col}_cohort_n"] = cohort_sizes
+
+    for metric_col, z_col, invert in zscore_specs:
+        _apply(z_col, *_resolve_zscore(
             df,
             metric_col,
-            benchmark_key=benchmark_key,
             invert=invert,
             cohort_cache=cohort_cache,
-        )
-        df[z_col] = computed_z.combine_first(_coalesced_numeric_series(df, z_col)).round(2)
+            profile_lookup=profile_lookup,
+        ))
 
-    computed_rel_impulse_z = _resolve_zscore(
+    _apply("CMJ_rel_impulse_Z", *_resolve_zscore(
         df,
         "CMJ_rel_impulse",
         internal_min_count=3,
         allow_dataset_fallback=False,
-    )
-    df["CMJ_rel_impulse_Z"] = computed_rel_impulse_z.combine_first(
-        _coalesced_numeric_series(df, "CMJ_rel_impulse_Z")
-    ).round(2)
+        profile_lookup=profile_lookup,
+    ))
 
     # Backward-compatible aliases used elsewhere in the app/reporting.
+    # El alias se rellena desde el canonico y viceversa, pero nunca por encima
+    # de una decision de banda de criterio: si no corresponde z, el alias
+    # tampoco puede tenerlo (si no, el z viejo entra por la columna espejo).
     for primary_col, alias_col in ZSCORE_ALIAS_GROUPS:
-        primary = _coalesced_numeric_series(df, primary_col, alias_col).round(2)
-        alias = _coalesced_numeric_series(df, alias_col, primary_col).round(2)
+        source_col = f"{primary_col}_source"
+        alias_source_col = f"{alias_col}_source"
+        # Alias y canonico son la misma medicion escrita de dos formas, asi que
+        # la procedencia vale para ambos. Si solo uno la declara, el otro la
+        # adopta: sin esto un frame que trae el alias legacy con origen valido
+        # perdia el z al no encontrar origen en la columna canonica.
+        blank = pd.Series("", index=df.index, dtype=object)
+        primary_origin = df[source_col].astype(object) if source_col in df.columns else blank
+        alias_origin = df[alias_source_col].astype(object) if alias_source_col in df.columns else blank
+        primary_ok = primary_origin.isin(numeric_z_sources)
+        alias_ok = alias_origin.isin(numeric_z_sources)
+        # El que tenga procedencia numerica se la presta al otro. No alcanza con
+        # copiar cuando la columna falta: el canonico casi siempre existe ya
+        # resuelto a banda, y en ese caso el alias es el unico que sabe de donde
+        # salio el valor.
+        resolved_origin = primary_origin.where(primary_ok, alias_origin.where(alias_ok, primary_origin))
+        df[source_col] = resolved_origin
+        df[alias_source_col] = resolved_origin
+        allows_z = (
+            df[source_col].isin(numeric_z_sources)
+            if source_col in df.columns
+            else pd.Series(True, index=df.index)
+        )
+        primary = _coalesced_numeric_series(df, primary_col, alias_col).round(2).where(allows_z)
+        alias = _coalesced_numeric_series(df, alias_col, primary_col).round(2).where(allows_z)
         df[primary_col] = primary
         df[alias_col] = alias
+        if source_col in df.columns:
+            df[f"{alias_col}_source"] = df[source_col]
     if "DRI_Z" in df.columns:
         df.loc[_numeric_series(df, "DRI").isna(), "DRI_Z"] = np.nan
     return df
@@ -969,11 +1265,65 @@ def calc_nm_profile(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def z_source_of(row: pd.Series | dict[str, object], z_col: str) -> str:
+    """Procedencia declarada de un z, o banda de criterio si no viaja."""
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    declared = str(row_series.get(f"{z_col}_source") or "").strip()
+    return declared or str(ZSource.REFERENCE_BAND)
+
+
+def has_plottable_z(row: pd.Series | dict[str, object], z_col: str) -> bool:
+    """True si ese eje tiene un z que se pueda graficar.
+
+    Exige valor numerico y una procedencia que produzca z. Ni la banda de
+    criterio ni la posicion en cohorte lo hacen: dibujarlas como 0 haria
+    parecer un atleta promedio donde en realidad no hay dato comparable, y
+    mapear un percentil a un eje de z seria disfrazar una posicion de distancia.
+    """
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    value = pd.to_numeric(pd.Series([row_series.get(z_col)]), errors="coerce").iloc[0]
+    if pd.isna(value):
+        return False
+    return z_source_of(row_series, z_col) in {str(source) for source in Z_SOURCES_WITH_NUMERIC_Z}
+
+
+def build_reference_band_reading(
+    row: pd.Series | dict[str, object],
+    metric_col: str,
+    label: str,
+    unit: str = "",
+    *,
+    digits: int = 1,
+) -> dict[str, str]:
+    """Lectura de una metrica que no tiene z aplicable.
+
+    Sin poblacion de referencia lo unico honesto es el valor crudo y el motivo
+    por el que no hay comparacion. No se inventa una banda cualitativa: seria
+    un criterio prestado, que es justo lo que este gate impide.
+    """
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    value = pd.to_numeric(pd.Series([row_series.get(metric_col)]), errors="coerce").iloc[0]
+    return {
+        "Variable": label,
+        "Valor": "-" if pd.isna(value) else f"{float(value):.{digits}f}",
+        "Unidad": unit,
+        "Lectura": "Sin poblacion de referencia aplicable",
+        "Detalle": "Se muestra el valor medido; para compararlo hace falta perfil completo o mas tomas.",
+    }
+
+
 def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tuple[str, str, str, str]], list[str]]:
+    """Ejes del radar que tienen un z real y comparable entre si.
+
+    Ademas de exigir que la metrica exista, se exige que su z sea graficable y
+    que todos los ejes compartan procedencia. Un radar que mezcla un eje
+    calculado contra literatura con otro calculado contra la cohorte propia
+    compara escalas distintas sobre el mismo anillo, y la forma resultante
+    describe de donde salio cada desvio mas que al atleta.
+    """
     row_series = row if isinstance(row, pd.Series) else pd.Series(row)
     has_imtp = pd.notna(row_series.get("IMTP_relPF"))
     has_dj = pd.notna(row_series.get("DJ_cm")) and pd.notna(row_series.get("DJ_RSI"))
-    has_mrsi = pd.notna(row_series.get("mRSI"))
 
     notes: list[str] = []
     if has_dj and has_imtp:
@@ -984,14 +1334,25 @@ def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tupl
     elif has_imtp:
         axes = list(RADAR_NO_DJ_AXES)
         notes.append("DJ no disponible")
-        if not has_mrsi:
-            axes = [axis for axis in axes if axis[1] != "mRSI"]
-            notes.append("TTT no disponible")
     else:
         axes = list(RADAR_NO_IMTP_AXES[:2])
         notes.append("Perfil parcial")
 
-    return axes, notes
+    plottable = [axis for axis in axes if has_plottable_z(row_series, axis[3])]
+    dropped = len(axes) - len(plottable)
+    if dropped:
+        notes.append(f"{dropped} eje(s) sin poblacion de referencia")
+
+    origins = {z_source_of(row_series, axis[3]) for axis in plottable}
+    if len(origins) > 1:
+        # Se conserva el origen mas representado para no mezclar escalas.
+        dominant = max(origins, key=lambda origin: sum(
+            1 for axis in plottable if z_source_of(row_series, axis[3]) == origin
+        ))
+        plottable = [axis for axis in plottable if z_source_of(row_series, axis[3]) == dominant]
+        notes.append("Se omitieron ejes de otra procedencia para no mezclar escalas")
+
+    return plottable, notes
 
 
 def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, str]]:
@@ -1007,32 +1368,29 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
         else:
             flags.append({"level": "red", "text": "EUR bajo: posible bajo aporte del contramovimiento; validar tecnica y fatiga"})
 
+    # DSI no es una metrica de calidad sino un indicador de direccion de
+    # entrenamiento (Sheppard et al.; Comfort et al.). Un DSI alto no es "bueno":
+    # señala que la fuerza maxima queda corta respecto a la expresion balistica.
+    # Un DSI bajo tampoco es "malo": señala superavit de fuerza con deficit
+    # balistico. Antes se pintaba verde el alto y rojo el bajo, lo que invertia
+    # la recomendacion practica. Ahora se muestra en gris con la lectura.
     dsi = pd.to_numeric(pd.Series([row_series.get("DSI")]), errors="coerce").iloc[0]
     if pd.notna(dsi):
-        if dsi >= 1.0:
-            flags.append({"level": "green", "text": "DSI alto: relacion dinamica/isometrica elevada; interpretar con IMTP y CMJ"})
-        elif dsi >= 0.8:
-            flags.append({"level": "yellow", "text": "DSI intermedio: interpretar con IMTP y CMJ"})
+        if dsi >= 0.80:
+            flags.append({
+                "level": "gray",
+                "text": "DSI alto: buena expresion balistica relativa; priorizar fuerza maxima",
+            })
+        elif dsi >= 0.60:
+            flags.append({
+                "level": "gray",
+                "text": "DSI intermedio: fuerza y expresion balistica equilibradas",
+            })
         else:
-            flags.append({"level": "red", "text": "DSI bajo: relacion dinamica/isometrica reducida; interpretar con IMTP y CMJ"})
-
-    has_real_ttt = False
-    for ttt_col in ("TTT_s", "TTT_ms"):
-        ttt_value = pd.to_numeric(pd.Series([row_series.get(ttt_col)]), errors="coerce").iloc[0]
-        if pd.notna(ttt_value) and ttt_value > 0:
-            has_real_ttt = True
-            break
-
-    mrsi = pd.to_numeric(pd.Series([row_series.get("mRSI")]), errors="coerce").iloc[0]
-    if not has_real_ttt:
-        flags.append({"level": "gray", "text": "mRSI — requiere TTT del export"})
-    elif pd.notna(mrsi):
-        if mrsi >= 0.70:
-            flags.append({"level": "green", "text": "mRSI alto: eficiencia temporal del CMJ; no equivalente a DJ RSI"})
-        elif mrsi >= 0.45:
-            flags.append({"level": "yellow", "text": "mRSI intermedio: leer junto con CMJ y el protocolo aplicado"})
-        else:
-            flags.append({"level": "red", "text": "mRSI bajo: eficiencia temporal del CMJ a validar con el protocolo aplicado"})
+            flags.append({
+                "level": "gray",
+                "text": "DSI bajo: superavit de fuerza con deficit balistico; priorizar trabajo balistico/potencia",
+            })
 
     return flags
 
@@ -1045,11 +1403,11 @@ def _pattern_matches(row: pd.Series) -> list[str]:
     eur = pd.to_numeric(pd.Series([row.get("EUR")]), errors="coerce").iloc[0]
 
     patterns: list[str] = []
-    if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z > 0.5 and dj_rsi_z < -0.5:
+    if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z > PATTERN_SIGNAL_BAND and dj_rsi_z < -PATTERN_SIGNAL_BAND:
         patterns.append("A")
-    if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z < -0.5 and dj_rsi_z > 0.5:
+    if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z < -PATTERN_SIGNAL_BAND and dj_rsi_z > PATTERN_SIGNAL_BAND:
         patterns.append("B")
-    if pd.notna(imtp_relpf_z) and pd.notna(cmj_z) and imtp_relpf_z < -0.5 and cmj_z >= -0.5:
+    if pd.notna(imtp_relpf_z) and pd.notna(cmj_z) and imtp_relpf_z < -PATTERN_SIGNAL_BAND and cmj_z >= -PATTERN_SIGNAL_BAND:
         patterns.append("C")
 
     radar_z_cols = [axis[3] for axis in _available_radar_axes(row)[0]]
@@ -1058,7 +1416,7 @@ def _pattern_matches(row: pd.Series) -> list[str]:
         for col in radar_z_cols
     ]
     radar_values = [value for value in radar_values if pd.notna(value)]
-    if radar_values and all(value < -0.5 for value in radar_values):
+    if radar_values and all(value < -PATTERN_SIGNAL_BAND for value in radar_values):
         patterns.append("D")
     if pd.notna(eur) and eur < 1.00:
         patterns.append("E")
@@ -1072,9 +1430,9 @@ def _pattern_text(row: pd.Series, pattern_code: str, field: str) -> str:
 
     dj_rsi_z = resolve_zscore(row, "DJ_RSI_Z")
     sj_z = resolve_zscore(row, "SJ_Z")
-    if dj_rsi_z is not None and dj_rsi_z > 0.5:
+    if dj_rsi_z is not None and dj_rsi_z > PATTERN_SIGNAL_BAND:
         return str(payload.get("bio_dj_rsi_high") or payload.get("bio", "")).strip()
-    if sj_z is not None and sj_z > 0.5:
+    if sj_z is not None and sj_z > PATTERN_SIGNAL_BAND:
         return str(payload.get("bio_sj_high") or payload.get("bio", "")).strip()
     return str(payload.get("bio", "")).strip()
 
@@ -1689,10 +2047,35 @@ def _default_temporal_variables(athlete_df: pd.DataFrame, variables: list[str] |
     return selected
 
 
+def _restrict_history_to_current_source(
+    working_df: pd.DataFrame,
+    current_ts: pd.Timestamp,
+    source: str | None = None,
+) -> pd.DataFrame:
+    """Deja en la serie temporal solo las mediciones de una misma fuente.
+
+    Comparar la toma actual contra una anterior hecha con otro dispositivo
+    convierte el sesgo de metodo en una senal de cambio. Por defecto se toma
+    la fuente de la medicion actual; `source` permite fijarla explicitamente.
+    """
+    if working_df.empty or "Source" not in working_df.columns:
+        return working_df
+
+    normalized = working_df["Source"].map(normalize_source)
+    if source is not None:
+        return working_df[normalized == normalize_source(source)]
+
+    at_current = working_df[normalized.reindex(working_df.index).notna() & (working_df["Date"] == current_ts)]
+    reference_row = at_current.iloc[-1] if not at_current.empty else working_df.iloc[-1]
+    current_source = normalize_source(reference_row.get("Source"))
+    return working_df[normalized == current_source]
+
+
 def compute_swc_delta(
     athlete_df: pd.DataFrame,
     current_date,
     variables: list[str] | None = None,
+    source: str | None = None,
 ) -> pd.DataFrame:
     columns = [
         "Variable",
@@ -1716,6 +2099,10 @@ def compute_swc_delta(
     working_df["Date"] = pd.to_datetime(working_df["Date"], errors="coerce").dt.normalize()
     current_ts = pd.Timestamp(current_date).normalize()
     working_df = working_df[working_df["Date"].notna() & (working_df["Date"] <= current_ts)].sort_values("Date")
+    if working_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    working_df = _restrict_history_to_current_source(working_df, current_ts, source)
     if working_df.empty:
         return pd.DataFrame(columns=columns)
 
@@ -1765,7 +2152,14 @@ def compute_swc_delta(
 
             if pd.notna(threshold_abs):
                 threshold_abs = float(threshold_abs)
-                if bool(meta["higher_is_better"]):
+                direction = _variable_direction(meta)
+                if direction == "context_dependent":
+                    signal = (
+                        "cambio relevante sin direccion"
+                        if abs(delta_abs) > threshold_abs
+                        else "sin cambio relevante sin direccion"
+                    )
+                elif direction == "higher_is_better":
                     if delta_abs > threshold_abs:
                         signal = "mejora relevante"
                     elif delta_abs < -threshold_abs:
@@ -1889,6 +2283,7 @@ def compute_baseline_delta(
     athlete_df: pd.DataFrame,
     current_date,
     variables: list[str] | None = None,
+    source: str | None = None,
 ) -> pd.DataFrame:
     columns = [
         "Variable",
@@ -1912,6 +2307,13 @@ def compute_baseline_delta(
     working_df["Date"] = pd.to_datetime(working_df["Date"], errors="coerce").dt.normalize()
     current_ts = pd.Timestamp(current_date).normalize()
     working_df = working_df[working_df["Date"].notna() & (working_df["Date"] <= current_ts)].sort_values("Date")
+    if working_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    # El baseline son las primeras 3 mediciones validas. Si esas 3 fueran de
+    # plataforma y la actual de alfombra, todo delta posterior seria sesgo de
+    # dispositivo etiquetado como cambio de rendimiento.
+    working_df = _restrict_history_to_current_source(working_df, current_ts, source)
     if working_df.empty:
         return pd.DataFrame(columns=columns)
 
@@ -1954,7 +2356,14 @@ def compute_baseline_delta(
                 if float(baseline_value) > 0:
                     delta_pct = (delta_abs / float(baseline_value)) * 100
 
-                if bool(meta["higher_is_better"]):
+                direction = _variable_direction(meta)
+                if direction == "context_dependent":
+                    signal = (
+                        "cambio vs baseline sin direccion"
+                        if delta_abs != 0
+                        else "sin cambio vs baseline"
+                    )
+                elif direction == "higher_is_better":
                     if delta_abs > 0:
                         signal = "mejora vs baseline"
                     elif delta_abs < 0:
@@ -2161,14 +2570,21 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
             else _coalesced_numeric_value(source_row, "IMTP_N_Z")
         )
         snapshot[source_z_col] = resolved_source_z
+        # La procedencia viaja con el z. Sin esto el perfil compuesto copiaba
+        # el numero pero perdia de donde salio, y toda superficie que lo lee lo
+        # descartaba por no poder verificar que no fuera un desvio prestado.
+        snapshot[f"{source_z_col}_source"] = z_source_of(source_row, source_z_col)
         snapshot[f"{value_col}__source_date"] = source_date
         snapshot[f"{value_col}__source_date_iso"] = source_date_iso
         snapshot[f"{source_value_col}__source_date"] = source_date
         snapshot[f"{source_value_col}__source_date_iso"] = source_date_iso
         if value_col == "DJ_tc_ms":
             tc_z = resolve_zscore(source_row, "TC_inv_Z")
+            tc_origin = z_source_of(source_row, "TC_inv_Z")
             snapshot["TC_inv_Z"] = tc_z
             snapshot["DJtc_Z"] = tc_z
+            snapshot["TC_inv_Z_source"] = tc_origin
+            snapshot["DJtc_Z_source"] = tc_origin
         if value_col == "IMTP_relPF":
             snapshot["IMTP_N"] = source_row.get("IMTP_N")
             if source_value_col == "IMTP_relPF":
@@ -2315,41 +2731,150 @@ def build_jump_metric_table(row: pd.Series | dict[str, object]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def choose_secondary_quadrant_x_spec(df: pd.DataFrame) -> tuple[str, str]:
-    # In heavier collision profiles, jump momentum avoids undervaluing heavier
-    # athletes whose propulsive capability is not fully described by jump height.
-    # Ref2 / Ref6 support this practical decision rule.
-    average_bw = pd.to_numeric(df.get("BW_kg", pd.Series(dtype=float)), errors="coerce").dropna().mean()
-    sport_text = " ".join(
-        str(value).strip().lower()
-        for col in ["Sport", "sport", "Deporte", "deporte"]
-        if col in df.columns
-        for value in df[col].dropna().tolist()
-    )
-    heavy_collision_context = (
-        pd.notna(average_bw) and float(average_bw) > 85
-    ) or any(token in sport_text for token in ("rugby", "handball pesado"))
+# Umbral de masa corporal a partir del cual la altura de salto sola subestima
+# la capacidad propulsiva. En McMahon et al. 2022 los forwards de rugby league
+# saltan 2,3 cm menos que los backs (34,1 vs 36,4 cm) pero tienen 22,3 N*s mas
+# de momentum (262,6 vs 240,3): las dos metricas ordenan a la misma poblacion al
+# revés, asi que el eje decide quien aparece a la derecha del cuadrante.
+HEAVY_BW_THRESHOLD_KG = 85.0
 
-    if heavy_collision_context:
-        return "Jump_Momentum_Z", "Jump Momentum z"
-    return "CMJ_Z", "CMJ z"
+# Unico deporte de `DEPORTE_OPTIONS` con evidencia publicada de momentum en la
+# tabla de referencia. El resto entra por masa corporal si corresponde, en vez
+# de por una lista de deportes que suene a colision.
+COLLISION_DEPORTES: frozenset[str] = frozenset({"Rugby"})
+
+# Cuando la proporcion de atletas por encima del umbral cae en esta banda, el
+# plantel esta repartido y ningun eje unico lo describe bien. No se inventa un
+# criterio: se declara que la eleccion no fue limpia, igual que con las cohortes
+# de 5-7 atletas.
+_HEAVY_SHARE_AMBIGUOUS_BAND = (0.35, 0.65)
+
+
+class SecondaryQuadrantXSpec(NamedTuple):
+    """Eje X del cuadrante secundario, con el motivo que lo eligio.
+
+    Se devuelve el motivo junto al eje porque el eje solo no se puede auditar:
+    un mismo atleta cae en cuadrantes distintos segun la metrica elegida, y sin
+    el motivo no hay forma de saber si la regla acerto.
+    """
+
+    x_col: str
+    x_label: str
+    reason: str
+    is_ambiguous: bool = False
+
+
+def _team_deportes(
+    df: pd.DataFrame, profile_df: pd.DataFrame | None
+) -> pd.Series:
+    """Deporte canonico por atleta.
+
+    El deporte vive en el perfil desde que la cohorte se modela por clase y
+    sexo; el frame de saltos se acepta como respaldo para los llamados que
+    todavia no enhebran el perfil.
+    """
+    for frame in (profile_df, df):
+        if not isinstance(frame, pd.DataFrame) or frame.empty:
+            continue
+        column = next(
+            (col for col in ("Deporte", "deporte", "Sport", "sport") if col in frame.columns),
+            None,
+        )
+        if column is None:
+            continue
+        values = frame[column].map(normalize_deporte).dropna()
+        if not values.empty:
+            return values
+    return pd.Series(dtype=object)
+
+
+def choose_secondary_quadrant_x_spec(
+    df: pd.DataFrame, profile_df: pd.DataFrame | None = None
+) -> SecondaryQuadrantXSpec:
+    """Elige el eje X del cuadrante secundario y declara por que.
+
+    Es el unico punto de decision: el dashboard y el reporte llaman aca, de modo
+    que no pueden divergir. Antes el reporte tomaba la primera columna presente
+    en el frame y la rotulaba siempre "CMJ z", asi que el mismo atleta podia
+    caer en cuadrantes distintos en pantalla y en el PDF, con una etiqueta que
+    podia mentir.
+
+    Decide por mayoria de atletas, no por promedio: un solo pesado no tiene que
+    correr el eje de todo el plantel, porque el eje Y es IMTP relPF (N/kg) y con
+    momentum en X el liviano queda castigado por su masa en un eje y premiado en
+    el otro.
+    """
+    cmj = SecondaryQuadrantXSpec("CMJ_Z", "CMJ z", "")
+    momentum = SecondaryQuadrantXSpec("Jump_Momentum_Z", "Jump Momentum z", "")
+    threshold_text = f"{int(HEAVY_BW_THRESHOLD_KG)} kg"
+
+    deportes = _team_deportes(df, profile_df)
+    if not deportes.empty:
+        collision_share = float(deportes.isin(COLLISION_DEPORTES).mean())
+        if collision_share > 0.5:
+            return momentum._replace(
+                reason=(
+                    f"Eje X: Jump Momentum — la mayoria del plantel practica un deporte de "
+                    f"colision ({collision_share:.0%}), donde la altura de salto sola subestima "
+                    f"la capacidad propulsiva del atleta pesado (McMahon et al. 2022). "
+                    f"Umbral de masa corporal: {threshold_text}."
+                )
+            )
+
+    body_mass = pd.to_numeric(
+        df.get("BW_kg", pd.Series(dtype=float)), errors="coerce"
+    ).dropna()
+    if body_mass.empty:
+        return cmj._replace(
+            reason=(
+                f"Eje X: CMJ — el plantel esta sin peso corporal cargado, asi que no se "
+                f"puede evaluar el umbral de {threshold_text} ni calcular momentum."
+            )
+        )
+
+    heavy_share = float((body_mass > HEAVY_BW_THRESHOLD_KG).mean())
+    low, high = _HEAVY_SHARE_AMBIGUOUS_BAND
+    is_ambiguous = low <= heavy_share <= high
+    chosen = momentum if heavy_share > 0.5 else cmj
+    metric_name = "Jump Momentum" if chosen is momentum else "CMJ"
+    reason = (
+        f"Eje X: {metric_name} — {heavy_share:.0%} del plantel supera los {threshold_text}."
+    )
+    if is_ambiguous:
+        reason += (
+            " El plantel esta repartido a los dos lados del umbral, asi que ningun eje "
+            "unico lo describe bien: leer las posiciones relativas con cautela."
+        )
+    return chosen._replace(reason=reason, is_ambiguous=is_ambiguous)
 
 
 def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
+    """Fusiona tests del mismo atleta, fecha y fuente en una fila.
+
+    La fuente entra en la clave: un CMJ de plataforma y un CMJ de MyJump2 del
+    mismo dia son dos mediciones distintas del mismo fenomeno, no dos partes
+    de una misma bateria. Fusionarlos haria que una pise a la otra.
+    """
     if jump_df.empty or not {"Athlete", "Date"}.issubset(jump_df.columns):
         return jump_df
-    if not jump_df.duplicated(subset=["Athlete", "Date"]).any():
+
+    key_cols = ["Athlete", "Date"]
+    if "Source" in jump_df.columns:
+        key_cols.append("Source")
+
+    if not jump_df.duplicated(subset=key_cols).any():
         return jump_df
 
     merged_rows: list[dict[str, object]] = []
-    grouped = jump_df.sort_values(["Athlete", "Date"]).groupby(["Athlete", "Date"], sort=False, dropna=False)
-    for (_, _), group in grouped:
-        merged_row: dict[str, object] = {
-            "Athlete": group.iloc[-1]["Athlete"],
-            "Date": group.iloc[-1]["Date"],
-        }
+    grouped = jump_df.sort_values(key_cols).groupby(key_cols, sort=False, dropna=False)
+    for _, group in grouped:
+        merged_row: dict[str, object] = {key: group.iloc[-1][key] for key in key_cols}
+        if "Device" in group.columns:
+            device_values = group["Device"].dropna()
+            if not device_values.empty:
+                merged_row["Device"] = device_values.iloc[-1]
         for column in group.columns:
-            if column in {"Athlete", "Date", "NM_Profile", "EUR_Profile", "EUR_based_profile"}:
+            if column in key_cols or column in NON_NUMERIC_EVALUATION_COLUMNS:
                 continue
 
             numeric_values = pd.to_numeric(group[column], errors="coerce")
@@ -2379,11 +2904,23 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
         result["Athlete"] = result["Athlete"].astype(str).str.strip().str.title()
     if "Date" in result.columns:
         result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
+    # Source siempre presente y canonico antes de cualquier calculo: todo lo
+    # que sigue lo usa como clave de particion.
+    result["Source"] = (
+        result["Source"].map(normalize_source)
+        if "Source" in result.columns
+        else DEFAULT_SOURCE
+    )
 
+    # Las columnas `*_Z_source` son texto: declaran de donde salio cada z. Si
+    # entraran al casteo numerico se convertirian en NaN y el z que acompanan
+    # quedaria sin procedencia, o sea descartado. Es la misma trampa que
+    # `NON_NUMERIC_EVALUATION_COLUMNS` evita para Source y Device, pero por
+    # sufijo, porque hay una columna de estas por metrica.
     numeric_cols = [
         col
         for col in result.columns
-        if col not in {"Athlete", "Date", "NM_Profile", "EUR_Profile", "EUR_based_profile"}
+        if col not in NON_NUMERIC_EVALUATION_COLUMNS and not col.endswith("_source")
     ]
     for col in numeric_cols:
         result[col] = pd.to_numeric(result[col], errors="coerce")
@@ -2398,7 +2935,6 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
     result = calc_eur(result)
     result = calc_dj_rsi(result)
     result = calc_dri(result)
-    result = calc_mrsi(result)
     result = calc_dsi(result)
     result = calc_imtp_rel_pf(result)
     result = calc_jump_momentum(result)
@@ -2409,33 +2945,40 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
         ("EUR", 3),
         ("DJ_RSI", 3),
         ("DRI", 3),
-        ("mRSI", 3),
         ("DSI", 3),
         ("IMTP_relPF", 2),
         ("Jump_Momentum", 1),
     ):
         _round_column(result, column, digits)
 
-    return result.sort_values(["Athlete", "Date"]).reset_index(drop=True)
+    result[JUMP_PREPARED_COLUMN] = True
+    return result.sort_values(["Athlete", "Date", "Source"]).reset_index(drop=True)
 
 
 def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
-    """Consolidate individual test records into one row per athlete/date."""
+    """Consolidate individual test records into one row per athlete/date/source."""
     if not records:
         return pd.DataFrame()
 
-    rows: dict[tuple[str, pd.Timestamp], dict[str, object]] = {}
+    rows: dict[tuple[str, pd.Timestamp, str], dict[str, object]] = {}
     for record in records:
         athlete = str(record.get("Athlete", "")).strip().title()
         date = pd.to_datetime(record.get("Date"), errors="coerce")
         if not athlete or pd.isna(date):
             continue
 
-        key = (athlete, date.normalize())
-        row = rows.setdefault(key, {"Athlete": athlete, "Date": date.normalize()})
+        # La fuente forma parte de la clave de consolidacion: tests de
+        # dispositivos distintos no se agrupan en una misma fila aunque
+        # compartan atleta y fecha.
+        source = normalize_source(record.get("Source"))
+        key = (athlete, date.normalize(), source)
+        row = rows.setdefault(
+            key,
+            {"Athlete": athlete, "Date": date.normalize(), "Source": source},
+        )
         for field, value in record.items():
             if (
-                field in {"Athlete", "Date", "test_type"}
+                field in {"Athlete", "Date", "Source", "test_type"}
                 or field.endswith("_reps")
                 or field.startswith("__")
             ):
