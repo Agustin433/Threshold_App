@@ -125,14 +125,17 @@ def _json_safe_value(value):
         return value.date().isoformat()
     if isinstance(value, np.datetime64):
         return pd.Timestamp(value).date().isoformat()
+    # bool va antes que int: en Python `bool` es subclase de `int`
+    # (isinstance(True, int) es True), asi que si el chequeo de int fuera
+    # primero, todo booleano se serializaria como 0/1 en vez de true/false.
+    if isinstance(value, (np.bool_, bool)):
+        return bool(value)
     if isinstance(value, (np.integer, int)):
         return int(value)
     if isinstance(value, (np.floating, float)):
         if not np.isfinite(value):
             return None
         return float(value)
-    if isinstance(value, (np.bool_, bool)):
-        return bool(value)
     return value
 
 
