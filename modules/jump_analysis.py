@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 
 import numpy as np
 import pandas as pd
@@ -276,6 +277,33 @@ DJ_DROP_HEIGHT_BACKFILL_COLUMNS = (
     "DJ_RSI",
     "DRI",
 )
+
+# Altura de caida real medida en banco (30 cm) salvo estos atletas, que
+# testearon con banco de 40 cm. Usado para completar DJ_drop_height_cm en
+# evaluaciones historicas que no la registraron en su momento.
+DJ_DROP_HEIGHT_ATHLETE_OVERRIDES_CM: dict[str, float] = {
+    "christian heredia": 40.0,
+    "agustin esterman": 40.0,
+}
+
+
+def _fold_athlete_key(value: object) -> str:
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return ""
+    text = " ".join(str(value).strip().split())
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
+def resolve_dj_drop_height_cm(athlete: object, default_drop_height_cm: float = 30.0) -> float:
+    """Altura de caida real para un atleta: override conocido o default de banco."""
+    return DJ_DROP_HEIGHT_ATHLETE_OVERRIDES_CM.get(_fold_athlete_key(athlete), float(default_drop_height_cm))
+
+
+def resolve_dj_drop_height_series(athlete_series: pd.Series, default_drop_height_cm: float = 30.0) -> pd.Series:
+    """Serie de alturas de caida reales alineada a una columna Athlete."""
+    default_value = float(default_drop_height_cm)
+    return athlete_series.map(lambda name: resolve_dj_drop_height_cm(name, default_value)).astype(float)
 
 ZSCORE_ALIAS_GROUPS = (
     ("DJ_height_Z", "DJ_Z"),
@@ -785,15 +813,18 @@ def build_dj_drop_height_backfill_candidates(df: pd.DataFrame | None) -> pd.Data
 
 
 def calc_dri(df: pd.DataFrame) -> pd.DataFrame:
-    """DRI 2026 using drop height + jump height over gravity and contact time squared."""
+    """DRI 2026 using drop height + jump height over gravity and contact time squared.
+
+    Preserva el DRI existente (legado o ya calculado) en filas donde todavia
+    no hay DJ_drop_height_cm disponible: antes se pisaba con NaN de entrada,
+    lo que borraba el historico previo al backfill de altura de caida en
+    cada recalculo de jump_df.
+    """
     existing_dri = _numeric_series(df, "DRI").round(3)
     df["DRI"] = existing_dri
-    dj_height_cm = _numeric_series(df, "DJ_cm")
-    dj_tc_ms = _numeric_series(df, "DJ_tc_ms")
-    raw_dj_mask = dj_height_cm.notna() & dj_tc_ms.notna()
-    if raw_dj_mask.any():
-        df.loc[raw_dj_mask, "DRI"] = np.nan
     if {"DJ_drop_height_cm", "DJ_cm", "DJ_tc_ms"}.issubset(df.columns):
+        dj_height_cm = _numeric_series(df, "DJ_cm")
+        dj_tc_ms = _numeric_series(df, "DJ_tc_ms")
         drop_height_m = _numeric_series(df, "DJ_drop_height_cm") / 100
         dj_height_m = dj_height_cm / 100
         dj_tc_s = dj_tc_ms / 1000

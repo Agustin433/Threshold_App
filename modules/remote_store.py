@@ -19,6 +19,7 @@ from modules.jump_analysis import (
     _prepare_jump_df,
     build_dj_drop_height_backfill_candidates,
     dj_drop_height_backfill_mask,
+    resolve_dj_drop_height_series,
 )
 
 SUPABASE_DATASETS_TABLE = "dataset_rows"
@@ -345,7 +346,10 @@ def backfill_remote_evaluations_drop_height(default_drop_height_cm: float = 30.0
         }
 
     updates = frame.loc[dj_drop_height_backfill_mask(frame)].copy()
-    updates["DJ_drop_height_cm"] = default_value
+    if "Athlete" in updates.columns:
+        updates["DJ_drop_height_cm"] = resolve_dj_drop_height_series(updates["Athlete"], default_value)
+    else:
+        updates["DJ_drop_height_cm"] = default_value
     sync_stats = save_remote_evaluations(updates)
     athletes = int(candidates["Athlete"].dropna().nunique()) if "Athlete" in candidates.columns else 0
     return {

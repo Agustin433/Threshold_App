@@ -4682,7 +4682,8 @@ with st.sidebar:
                 target_label = "Supabase y la copia local" if supabase_evaluations_enabled() else "el historial local"
                 st.warning(
                     f"Se detectaron {candidate_count} evaluacion(es) DJ historicas sin altura de caida "
-                    f"en {athlete_count} atleta(s). Esta accion completa 30 cm solo en esas filas "
+                    f"en {athlete_count} atleta(s). Esta accion completa la altura real de banco en esas filas "
+                    f"(30 cm por defecto, 40 cm para Christian Heredia y Agustin Esterman) "
                     f"y recalcula DRI en {target_label}."
                 )
                 preview_cols = [
@@ -4696,7 +4697,7 @@ with st.sidebar:
                     hide_index=True,
                 )
 
-                if st.button("Aplicar backfill DJ historico (30 cm)", key="btn_backfill_dj_drop_height"):
+                if st.button("Aplicar backfill DJ historico", key="btn_backfill_dj_drop_height"):
                     try:
                         if supabase_evaluations_enabled():
                             stats = backfill_remote_evaluations_drop_height(default_drop_height_cm=30.0)
@@ -4711,7 +4712,8 @@ with st.sidebar:
 
                         st.session_state.eval_sync_notice = (
                             f"Backfill DJ historico aplicado: {stats['updated_rows']} evaluacion(es) "
-                            f"de {stats['athletes']} atleta(s) completadas con 30 cm."
+                            f"de {stats['athletes']} atleta(s) completadas con la altura real de banco "
+                            f"(30 cm por defecto, 40 cm para Christian Heredia y Agustin Esterman)."
                         )
                         st.session_state.eval_sync_notice_kind = "success"
                     except Exception as exc:

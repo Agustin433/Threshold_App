@@ -14,6 +14,7 @@ from modules.jump_analysis import (
     _prepare_jump_df,
     build_dj_drop_height_backfill_candidates,
     dj_drop_height_backfill_mask,
+    resolve_dj_drop_height_series,
 )
 from modules.load_monitoring import calc_acwr, calc_monotony_strain
 from modules.metrics import calculate_monotony
@@ -525,7 +526,12 @@ def backfill_jump_drop_height_history(default_drop_height_cm: float = 30.0) -> d
 
     updated = full_df.copy()
     mask = dj_drop_height_backfill_mask(updated)
-    updated.loc[mask, "DJ_drop_height_cm"] = default_value
+    if "Athlete" in updated.columns:
+        updated.loc[mask, "DJ_drop_height_cm"] = resolve_dj_drop_height_series(
+            updated.loc[mask, "Athlete"], default_value
+        )
+    else:
+        updated.loc[mask, "DJ_drop_height_cm"] = default_value
     updated = _prepare_jump_df(updated)
     overwrite_dataset("jump_df", updated)
 

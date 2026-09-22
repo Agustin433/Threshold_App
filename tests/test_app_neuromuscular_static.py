@@ -56,7 +56,8 @@ class AppNeuromuscularStaticTest(unittest.TestCase):
         source = APP_PATH.read_text(encoding="utf-8")
 
         self.assertIn("Mantenimiento DRI historico", source)
-        self.assertIn("Aplicar backfill DJ historico (30 cm)", source)
+        self.assertIn("Aplicar backfill DJ historico", source)
+        self.assertIn("40 cm para Christian Heredia y Agustin Esterman", source)
         self.assertIn('key="btn_backfill_dj_drop_height"', source)
         self.assertIn("build_dj_drop_height_backfill_candidates", source)
 
