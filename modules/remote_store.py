@@ -236,6 +236,13 @@ def jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
     return records
 
 
+_DATASET_UPSERT_CHUNK_SIZE = 500
+
+
+def _chunked_records(records: list[dict], chunk_size: int = _DATASET_UPSERT_CHUNK_SIZE) -> list[list[dict]]:
+    return [records[i : i + chunk_size] for i in range(0, len(records), chunk_size)]
+
+
 def save_remote_dataset(state_key: str, df: pd.DataFrame) -> dict[str, int | bool]:
     if not supabase_dataset_store_enabled() or state_key not in REMOTE_DATASET_KEYS:
         return {"enabled": False, "upserted": 0}
@@ -245,14 +252,22 @@ def save_remote_dataset(state_key: str, df: pd.DataFrame) -> dict[str, int | boo
         return {"enabled": True, "upserted": 0}
 
     _, _, table = _supabase_dataset_store_config()
-    rows = _supabase_request(
-        "POST",
-        table,
-        query={"on_conflict": "dataset_key,row_key"},
-        payload=payload,
-        prefer="resolution=merge-duplicates,return=representation",
-    ) or []
-    return {"enabled": True, "upserted": len(rows) if rows else len(payload)}
+    # Un solo POST con todo el dataset (ej. Raw Workouts, que puede tener
+    # miles de filas) puede superar el limite de tamano de request de
+    # Supabase o el timeout fijo de _supabase_request, y fallar entero sin
+    # guardar nada remoto. Se sube en lotes, igual que ya se lee (paginado)
+    # y se borra (_chunked) en el resto del modulo.
+    upserted = 0
+    for chunk in _chunked_records(payload):
+        rows = _supabase_request(
+            "POST",
+            table,
+            query={"on_conflict": "dataset_key,row_key"},
+            payload=chunk,
+            prefer="resolution=merge-duplicates,return=representation",
+        ) or []
+        upserted += len(rows) if rows else len(chunk)
+    return {"enabled": True, "upserted": upserted}
 
 
 def load_remote_dataset(state_key: str) -> pd.DataFrame:

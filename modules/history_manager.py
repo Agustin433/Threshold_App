@@ -18,6 +18,7 @@ from local_store import (
 from modules.page_state import ensure_page_state
 from modules.remote_store import (
     REMOTE_DATASET_KEYS,
+    _chunked_records,
     _supabase_dataset_store_config,
     _supabase_evaluations_config,
     _supabase_request,
@@ -173,15 +174,15 @@ def _replace_remote_dataset(state_key: str, df: pd.DataFrame | None) -> dict[str
     # y a lo sumo filas viejas de mas por limpiar despues, nunca con datos
     # borrados sin reponer.
     upserted = 0
-    if desired_records:
+    for chunk in _chunked_records(desired_records):
         upserted_rows = _supabase_request(
             "POST",
             table,
             query={"on_conflict": "dataset_key,row_key"},
-            payload=desired_records,
+            payload=chunk,
             prefer="resolution=merge-duplicates,return=representation",
         ) or []
-        upserted = len(upserted_rows) if upserted_rows else len(desired_records)
+        upserted += len(upserted_rows) if upserted_rows else len(chunk)
 
     deleted = 0
     keys_to_delete = sorted(existing_keys - desired_keys)
