@@ -6204,15 +6204,13 @@ elif active_main_view == "Load":
                 st.plotly_chart(chart_monotony_strain(mono_df), width='content', key="monotony_main")
             with c_well:
                 if wdf is not None:
-                    athletes_w = (
-                        sorted(wdf["Athlete"].dropna().unique())
+                    w_sub = (
+                        wdf[wdf["Athlete"] == athlete_sel].sort_values("Date")
                         if "Athlete" in wdf.columns else
-                        [athlete_sel]
-                    ) or [athlete_sel]
-                    w_sel = st.selectbox("Atleta wellness", athletes_w, key="sel_wellness")
-                    w_sub = wdf[wdf["Athlete"] == w_sel].sort_values("Date")
+                        pd.DataFrame()
+                    )
                     render_subsection_header("Wellness", "seguimiento de recuperacion y percepcion diaria", kicker="Recuperacion")
-                    st.plotly_chart(chart_wellness(w_sub, w_sel), width='content', key="wellness_main")
+                    st.plotly_chart(chart_wellness(w_sub, athlete_sel), width='content', key="wellness_main")
                 else:
                     _alert("Cargá questionnaire-report_wellness.xlsx para ver wellness.", "b")
 
@@ -6231,13 +6229,7 @@ elif active_main_view == "Load":
                     "tonelaje, contactos y exposiciones por categoria",
                     kicker="Volumen",
                 )
-                athletes_raw = (
-                    sorted(prepared_raw_df["Athlete"].dropna().unique()) if "Athlete" in prepared_raw_df.columns else
-                    sorted(prepared_raw_df["Name"].dropna().unique()) if "Name" in prepared_raw_df.columns else
-                    [athlete_sel]
-                ) or [athlete_sel]
-                ath_raw = st.selectbox("Atleta", athletes_raw, key="sel_raw_vol")
-                st.plotly_chart(chart_volume_by_tag(prepared_raw_df, ath_raw), width='content', key="volume_tag")
+                st.plotly_chart(chart_volume_by_tag(prepared_raw_df, athlete_sel), width='content', key="volume_tag")
 
     with st.expander("📋 Calidad de datos", expanded=False):
         st.markdown("**Bloque A - Cobertura por dataset**")
