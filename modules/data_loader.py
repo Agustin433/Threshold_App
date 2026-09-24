@@ -271,6 +271,13 @@ _SJ_MAP = {
     "Propuslive Asymmetry Max Force (%)": ("SJ_asym_pct", "mean"),
     "weight (kg)": ("BW_kg", "mean"),
     "Flight Time (ms)": ("SJ_flight_ms", "max"),
+    # Verificado contra export real (carlos_falivene_SJ): el SJ tambien
+    # tiene fase de aterrizaje y se descartaba igual que en CMJ.
+    "Landing Max Force (N)": ("SJ_landing_force_N", "max"),
+    "Landing Asymmetry Max Force (%)": ("SJ_landing_asym_pct", "mean"),
+    "Stabilization Time (ms)": ("SJ_stabilization_ms", "min"),
+    "Propulsive Relative Impulse (N*s/Kg)": ("SJ_rel_impulse", "max"),
+    "Maximum velocity (m/s)": ("SJ_takeoff_velocity_m_s", "max"),
 }
 
 _DJ_MAP = {

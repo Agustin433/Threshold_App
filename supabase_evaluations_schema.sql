@@ -166,6 +166,14 @@ alter table if exists public.evaluations add column if not exists cmj_braking_pf
 alter table if exists public.evaluations add column if not exists cmj_landing_force_l_n double precision;
 alter table if exists public.evaluations add column if not exists cmj_landing_force_r_n double precision;
 
+-- Metricas de SJ recuperadas del mismo export real (carlos_falivene_SJ):
+-- el SJ tambien tiene fase de aterrizaje y se descartaba igual que CMJ.
+alter table if exists public.evaluations add column if not exists sj_landing_force_n double precision;
+alter table if exists public.evaluations add column if not exists sj_landing_asym_pct double precision;
+alter table if exists public.evaluations add column if not exists sj_stabilization_ms double precision;
+alter table if exists public.evaluations add column if not exists sj_rel_impulse double precision;
+alter table if exists public.evaluations add column if not exists sj_takeoff_velocity_m_s double precision;
+
 comment on table public.evaluations is
 'Fuente unica de verdad para evaluaciones individuales de saltos, IMTP e isometricos complementarios.';
 
