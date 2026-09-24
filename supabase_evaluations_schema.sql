@@ -150,6 +150,22 @@ before update on public.evaluations
 for each row
 execute function public.set_evaluations_updated_at();
 
+-- Metricas de CMJ recuperadas del export real de plataforma que antes se
+-- leian y se descartaban en el parseo (RFD propulsivo/frenado, rigidez de
+-- aterrizaje, velocidad de despegue, eficiencia vuelo/contacto, fuerza L/R
+-- por fase). Ver auditoria de evaluaciones.
+alter table if exists public.evaluations add column if not exists cmj_propulsive_rfd_n_s double precision;
+alter table if exists public.evaluations add column if not exists cmj_braking_rfd_n_s double precision;
+alter table if exists public.evaluations add column if not exists cmj_landing_stiffness_n_m double precision;
+alter table if exists public.evaluations add column if not exists cmj_takeoff_velocity_m_s double precision;
+alter table if exists public.evaluations add column if not exists cmj_efficiency_tvtc double precision;
+alter table if exists public.evaluations add column if not exists cmj_propulsive_pf_l_n double precision;
+alter table if exists public.evaluations add column if not exists cmj_propulsive_pf_r_n double precision;
+alter table if exists public.evaluations add column if not exists cmj_braking_pf_l_n double precision;
+alter table if exists public.evaluations add column if not exists cmj_braking_pf_r_n double precision;
+alter table if exists public.evaluations add column if not exists cmj_landing_force_l_n double precision;
+alter table if exists public.evaluations add column if not exists cmj_landing_force_r_n double precision;
+
 comment on table public.evaluations is
 'Fuente unica de verdad para evaluaciones individuales de saltos, IMTP e isometricos complementarios.';
 

@@ -247,6 +247,19 @@ _CMJ_MAP = {
     "Stabilization Time (ms)": ("CMJ_stabilization_ms", "min"),
     "weight (kg)": ("BW_kg", "mean"),
     "Flight Time (ms)": ("CMJ_flight_ms", "max"),
+    # Agregados a partir del export real (verificado byte a byte, no de una
+    # transcripcion): antes se leian y se tiraban en el parseo.
+    "propulsiveRFD": ("CMJ_propulsive_RFD_N_s", "max"),
+    "breakingRFD": ("CMJ_braking_RFD_N_s", "max"),
+    "Landing Stiffness (N/m)": ("CMJ_landing_stiffness_N_m", "max"),
+    "Maximum velocity (m/s)": ("CMJ_takeoff_velocity_m_s", "max"),
+    "Efficiency (TV/TC)": ("CMJ_efficiency_tvtc", "max"),
+    "Fuerza Max Propulsiva Left (N)": ("CMJ_propulsive_PF_L_N", "max"),
+    "Fuerza Max Propulsiva Right (N)": ("CMJ_propulsive_PF_R_N", "max"),
+    "Fuerza Max Frenado Left (N)": ("CMJ_braking_PF_L_N", "max"),
+    "Fuerza Max Frenado Right (N)": ("CMJ_braking_PF_R_N", "max"),
+    "Fuerza Max Aterrizaje Left (N)": ("CMJ_landing_force_L_N", "max"),
+    "Fuerza Max Aterrizaje Right (N)": ("CMJ_landing_force_R_N", "max"),
 }
 
 _SJ_MAP = {
