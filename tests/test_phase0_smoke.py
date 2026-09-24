@@ -119,6 +119,21 @@ def _forceplate_bytes() -> bytes:
     return _build_minimal_xlsx(rows)
 
 
+def _forceplate_bytes_with_mistrigger_rep() -> bytes:
+    # Replica un caso real: el atleta se bajo de la plataforma antes de
+    # tiempo en el rep 2, que quedo con altura/vuelo casi nulos y un tiempo
+    # concentrico falsamente rapido (50ms). Sin filtro de reps invalidos,
+    # ese "50" ganaria como mejor tiempo concentrico (agg="min").
+    rows = [
+        ["Metric", "Rep 1", "Rep 2", "Rep 3", "Rep 4"],
+        ["Height Jump (cm)", 26.29, 0.08, 24.27, 23.80],
+        ["Flight Time (ms)", 472, 27, 443, 426],
+        ["Concentric Time (ms)", 380, 50, 418, 406],
+        ["Propulsive Max Force (N)", 1461.19, 1480.80, 1490.61, 1461.19],
+    ]
+    return _build_minimal_xlsx(rows)
+
+
 def _imtp_involution_bytes() -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
@@ -394,6 +409,38 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertAlmostEqual(float(rpe_df.loc[0, "sRPE"]), 315.0, places=2)
         self.assertAlmostEqual(float(wellness_df.loc[0, "Dolor"]), 3.0, places=2)
         self.assertAlmostEqual(float(wellness_df.loc[0, "Wellness_Score"]), 23.0, places=2)
+
+    def test_parse_forceplate_file_drops_mistrigger_rep_before_aggregating(self):
+        record = data_loader.parse_forceplate_file(
+            _forceplate_bytes_with_mistrigger_rep(),
+            "SJ",
+            filename="sj.xlsx",
+        )
+
+        # El rep 2 (mistrigger) queda afuera: la altura sigue siendo el
+        # maximo real, y el tiempo concentrico "ganador" es el genuino
+        # (380ms), no el falso 50ms del rep invalido.
+        self.assertEqual(record["SJ_cm"], 26.29)
+        self.assertEqual(record["SJ_conc_ms"], 380)
+        self.assertEqual(record["SJ_cm_reps"], [26.29, 24.27, 23.80])
+        self.assertEqual(record["SJ_conc_ms_reps"], [380, 418, 406])
+
+    def test_parse_forceplate_file_keeps_all_reps_if_every_rep_looks_invalid(self):
+        rows = [
+            ["Metric", "Rep 1", "Rep 2"],
+            ["Height Jump (cm)", 0.2, 0.3],
+            ["Flight Time (ms)", 20, 25],
+            ["Concentric Time (ms)", 300, 310],
+        ]
+        record = data_loader.parse_forceplate_file(
+            _build_minimal_xlsx(rows),
+            "SJ",
+            filename="sj.xlsx",
+        )
+
+        # Si "invalidar" dejaria 0 reps, se conservan todos: mejor un dato
+        # ruidoso que borrar el test entero.
+        self.assertEqual(record["SJ_cm_reps"], [0.2, 0.3])
 
     def test_parse_forceplate_file_supports_imtp_involution_summary_exports(self):
         record = data_loader.parse_forceplate_file(

@@ -1951,6 +1951,51 @@ def _read_forceplate_xlsx(file_bytes: bytes) -> dict[str, list[float]]:
     return result
 
 
+# Debajo de esto, un rep de salto (CMJ/SJ/DJ) es un mistrigger, no un salto
+# real: la plataforma alcanza a marcar despegue/aterrizaje aunque el atleta
+# se haya bajado antes de tiempo o pisado mal el borde. Sin este piso,
+# _extract_best puede elegir ese rep como "mejor" tiempo (agg="min") y
+# corromper el dato guardado sin ningun aviso visible en la UI.
+_MIN_VALID_FLIGHT_TIME_MS = 100.0
+_MIN_VALID_JUMP_HEIGHT_CM = 3.0
+_JUMP_TEST_TYPES_WITH_REP_VALIDITY = {"CMJ", "SJ", "DJ"}
+
+
+def _filter_invalid_reps(raw: dict[str, list[float]], test_type: str) -> dict[str, list[float]]:
+    """Drop rep indices whose flight time/height signal looks like a mistrigger.
+
+    Solo aplica a tests de salto (CMJ/SJ/DJ): IMTP e ISO_PUSH_HAMSTRING no
+    tienen un equivalente de "vuelo" y no hay evidencia del mismo patron de
+    falla en esos tests. Si filtrar dejaria 0 reps validos, se prefiere
+    conservar los datos originales antes que devolver el test entero vacio
+    (mejor un dato ruidoso que ningun dato).
+    """
+    if test_type not in _JUMP_TEST_TYPES_WITH_REP_VALIDITY:
+        return raw
+
+    signal = raw.get("Flight Time (ms)")
+    threshold = _MIN_VALID_FLIGHT_TIME_MS
+    if signal is None:
+        signal = raw.get("Height Jump (cm)")
+        threshold = _MIN_VALID_JUMP_HEIGHT_CM
+    if not signal:
+        return raw
+
+    invalid_indices = {i for i, value in enumerate(signal) if value < threshold}
+    if not invalid_indices or len(invalid_indices) >= len(signal):
+        return raw
+
+    filtered: dict[str, list[float]] = {}
+    for metric, values in raw.items():
+        if len(values) != len(signal):
+            # No alineado 1:1 con los reps de referencia: se deja tal cual
+            # antes que arriesgar sacar el indice equivocado.
+            filtered[metric] = values
+            continue
+        filtered[metric] = [value for i, value in enumerate(values) if i not in invalid_indices]
+    return filtered
+
+
 def _extract_best(values: list[float], agg: str) -> float | None:
     if not values:
         return None
@@ -2043,6 +2088,7 @@ def parse_forceplate_file(
         raise ValueError(
             "El archivo de evaluacion debe ser un .xlsx valido exportado desde la plataforma de fuerza."
         ) from exc
+    raw = _filter_invalid_reps(raw, resolved_test_type)
     metric_map = TEST_MAPS.get(resolved_test_type, TEST_MAPS.get(test_type, {}))
     result: dict[str, object] = {
         "test_type": resolved_test_type or test_type,
