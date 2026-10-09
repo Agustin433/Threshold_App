@@ -7524,7 +7524,7 @@ def _build_professional_load_tolerance_payload(
         ("Semana analizada", safe_value(internal_load.get("analysis_week_label"))),
         ("sRPE semanal", _professional_number_text(weekly_total, digits=0, unit="UA")),
         ("Cambio vs semana previa", change_text),
-        ("Sesiones registradas", safe_value(internal_load.get("sessions_registered"))),
+        ("Sesiones con sRPE (semana)", safe_value(internal_load.get("sessions_registered"))),
         ("ACWR EWMA", _professional_number_text(acwr_value, digits=2)),
         ("Zona ACWR", acwr_zone),
         ("Monotonía", _professional_number_text(monotony_value, digits=2)),
@@ -9663,7 +9663,7 @@ def _generate_professional_profile_pdf_reportlab(
         return [
             {"label": "sRPE semanal", "value": weekly_value, "note": sample_note},
             {"label": "sRPE diario", "value": daily_value, "note": sample_note},
-            {"label": "Sesiones registradas", "value": str(int(sessions or 0)) if sessions is not None else PDF_MISSING_TEXT},
+            {"label": "Sesiones con sRPE (semana)", "value": str(int(sessions or 0)) if sessions is not None else PDF_MISSING_TEXT},
             {"label": "Días con registro" if scope == "current_week_partial" else "Días sin sesión registrada", "value": str(int(days)) if days is not None else PDF_MISSING_TEXT},
             {"label": "Cambio vs semana previa", "value": change_text},
         ]
@@ -11689,7 +11689,7 @@ def _generate_visual_report_pdf_reportlab(
                 {"label": "Cambio vs semana previa", "value": change_text},
                 {"label": "ACWR EWMA", "value": _athlete_metric(focus_row.get("ACWR EWMA"), digits=2)},
                 {"label": "Monotonía", "value": _athlete_metric(focus_row.get("Monotonia"), digits=2)},
-                {"label": "Sesiones registradas", "value": sessions_text},
+                {"label": "Sesiones con sRPE (semana)", "value": sessions_text},
             ]
 
         def _athlete_load_summary_line() -> str:
@@ -12882,7 +12882,7 @@ def _generate_visual_report_pdf_reportlab(
                 },
                 {"label": "Cambio reciente", "value": change_text},
                 {
-                    "label": "Sesiones registradas",
+                    "label": "Sesiones con sRPE (semana)",
                     "value": str(int(sessions_registered))
                     if sessions_registered is not None and (_row_has_load_data(focus_row) or str(internal_load.get("analysis_scope") or "") == "current_week_partial")
                     else _client_missing_text("registration"),
