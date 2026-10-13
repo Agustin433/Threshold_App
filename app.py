@@ -149,8 +149,11 @@ from modules.load_monitoring import (
     MONOTONY_HIGH,
     acwr_unavailable_reason,
     build_weekly_acwr_context,
+    compare_weekly_load,
     latest_training_day_row,
 )
+
+WEEKLY_NOT_COMPARABLE_TEXT = "No comparable"
 from modules.jump_analysis import (
     available_sources as jump_available_sources,
     choose_secondary_quadrant_x_spec,
@@ -4961,6 +4964,11 @@ def render_decision_panel():
                 styles.append("color:#41515E; font-weight:700;")
         return styles
 
+    def _missing_sessions_text(row: pd.Series) -> str:
+        missing = int(pd.to_numeric(pd.Series([row.get("sessions_missing")]), errors="coerce").fillna(0).iloc[0])
+        done = int(pd.to_numeric(pd.Series([row.get("sessions_done")]), errors="coerce").fillna(0).iloc[0])
+        return f"{missing}/{done}" if missing > 0 else "-"
+
     def _format_week_range(week_start: pd.Timestamp) -> str:
         week_end = pd.Timestamp(week_start) + pd.Timedelta(days=6)
         return f"{week_start:%d/%m/%Y} - {week_end:%d/%m/%Y}"
@@ -5165,19 +5173,16 @@ def render_decision_panel():
     if current_load.empty:
         st.caption("Sin datos de sRPE para la semana seleccionada.")
     else:
-        risk_df = current_load.merge(
-            previous_load[["Athlete", "weekly_sRPE"]].rename(columns={"weekly_sRPE": "weekly_sRPE_prev"}),
-            on="Athlete",
-            how="left",
-        )
+        risk_df = compare_weekly_load(current_load, previous_load)
         risk_df["Zona"] = risk_df.apply(
             lambda row: _zone_from_acwr_rtp(row["ACWR_EWMA_last"])
             if row["Athlete"] in rtp_athletes
             else _zone_from_acwr(row["ACWR_EWMA_last"]),
             axis=1,
         )
-        risk_df["delta_sRPE"] = risk_df["weekly_sRPE"] - risk_df["weekly_sRPE_prev"].fillna(0)
-        risk_df["delta_sRPE_text"] = risk_df["delta_sRPE"].map(lambda value: f"{value:+.0f}")
+        risk_df["delta_sRPE_text"] = risk_df["delta_sRPE"].map(
+            lambda value: f"{value:+.0f}" if pd.notna(value) else WEEKLY_NOT_COMPARABLE_TEXT
+        )
         risk_df["zone_rank"] = risk_df["Zona"].map(zone_order).fillna(-1)
         risk_df = risk_df.sort_values(["zone_rank", "ACWR_EWMA_last", "strain"], ascending=[False, False, False])
         risk_display = pd.DataFrame(
@@ -5185,7 +5190,8 @@ def render_decision_panel():
                 "Atleta": risk_df["Athlete"].map(
                     lambda name: f"{name}  🔶 RTP" if name in rtp_athletes else name
                 ),
-                "sRPE semana": risk_df["weekly_sRPE"].round(0).astype(int),
+                "sRPE semana (reportado)": risk_df["weekly_sRPE"].round(0).astype(int),
+                "Sesiones sin sRPE": risk_df.apply(_missing_sessions_text, axis=1),
                 "ACWR EWMA": risk_df["ACWR_EWMA_last"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
                 "Monotonia": risk_df.apply(
                     lambda row: _format_monotony_display(row.get("monotony"), row.get("monotony_status")),
@@ -5205,25 +5211,30 @@ def render_decision_panel():
             .apply(_style_signed, subset=["Delta sRPE"])
         )
         st.dataframe(risk_styler, width='stretch', hide_index=True)
+        if (~risk_df["comparable"]).any():
+            st.caption(
+                f"{WEEKLY_NOT_COMPARABLE_TEXT}: esta semana o la anterior tiene sesiones entrenadas sin sRPE "
+                "(más de un tercio), así que la diferencia mediría huecos de reporte, no carga."
+            )
 
     render_subsection_header("Variacion semanal", "como vienen vs semana anterior", kicker="Bloque 2")
     if current_load.empty:
         st.caption("Sin datos de sRPE para comparar contra la semana anterior.")
     else:
-        variation_df = current_load.merge(
-            previous_load[["Athlete", "weekly_sRPE"]].rename(columns={"weekly_sRPE": "weekly_sRPE_prev"}),
-            on="Athlete",
-            how="left",
-        )
-        variation_df["weekly_sRPE_prev"] = variation_df["weekly_sRPE_prev"].fillna(0)
-        variation_df["delta_sRPE"] = variation_df["weekly_sRPE"] - variation_df["weekly_sRPE_prev"]
+        # Barras con la carga del modelo (reportada + sesiones sin sRPE
+        # estimadas): con la carga reportada sola, una semana con huecos se
+        # veia como una baja de carga que no existio.
+        variation_df = compare_weekly_load(current_load, previous_load)
         variation_df["Zona"] = variation_df["ACWR_EWMA_last"].apply(_zone_from_acwr)
-        variation_df = variation_df.sort_values("delta_sRPE", ascending=False)
+        variation_df["Etiqueta"] = np.where(
+            variation_df["comparable"], variation_df["Athlete"], variation_df["Athlete"] + " *"
+        )
+        variation_df = variation_df.sort_values("delta_sRPE", ascending=False, na_position="last")
         fig_variation = go.Figure()
         fig_variation.add_trace(
             go.Bar(
-                y=variation_df["Athlete"],
-                x=variation_df["weekly_sRPE_prev"],
+                y=variation_df["Etiqueta"],
+                x=variation_df["load_model_prev"],
                 orientation="h",
                 name="Semana anterior",
                 marker_color="rgba(112,140,159,0.40)",
@@ -5231,11 +5242,14 @@ def render_decision_panel():
         )
         fig_variation.add_trace(
             go.Bar(
-                y=variation_df["Athlete"],
-                x=variation_df["weekly_sRPE"],
+                y=variation_df["Etiqueta"],
+                x=variation_df["load_model"],
                 orientation="h",
                 name="Semana actual",
-                marker_color=[_zone_color(zone) for zone in variation_df["Zona"]],
+                marker_color=[
+                    _zone_color(zone) if comparable else "rgba(112,140,159,0.25)"
+                    for zone, comparable in zip(variation_df["Zona"], variation_df["comparable"])
+                ],
             )
         )
         fig_variation.update_layout(
@@ -5250,11 +5264,21 @@ def render_decision_panel():
 
         risk_count = int(variation_df["Zona"].isin(["Precaucion", "Alto riesgo"]).sum())
         avg_current = float(variation_df["weekly_sRPE"].mean()) if not variation_df.empty else 0.0
-        avg_delta = float(variation_df["delta_sRPE"].mean()) if not variation_df.empty else 0.0
+        comparable_deltas = variation_df["delta_sRPE"].dropna()
+        excluded = int((~variation_df["comparable"]).sum())
         c_var_1, c_var_2, c_var_3 = st.columns(3)
-        c_var_1.metric("Promedio sRPE equipo", f"{avg_current:.0f}")
-        c_var_2.metric("Delta promedio vs semana anterior", f"{avg_delta:+.0f}")
+        c_var_1.metric("Promedio sRPE equipo (reportado)", f"{avg_current:.0f}")
+        c_var_2.metric(
+            "Delta promedio vs semana anterior",
+            f"{float(comparable_deltas.mean()):+.0f}" if not comparable_deltas.empty else WEEKLY_NOT_COMPARABLE_TEXT,
+            help=f"Promedia solo atletas comparables; {excluded} excluido(s) por sesiones sin sRPE." if excluded else None,
+        )
         c_var_3.metric("Atletas en zona de riesgo", f"{risk_count}")
+        if excluded:
+            st.caption(
+                "Barras con carga reportada + sesiones sin sRPE estimadas. "
+                f"* {excluded} atleta(s) sin comparación válida (sesiones sin sRPE esta semana o la anterior)."
+            )
 
     render_subsection_header("Perfiles de desarrollo", "quien necesita que tipo de trabajo", kicker="Bloque 3")
     if jump_df is None or jump_df.empty:
@@ -5489,7 +5513,11 @@ def render_decision_panel():
     if current_load.empty or current_wellness.empty:
         st.caption("Sin datos suficientes de wellness y carga para la semana seleccionada.")
     else:
-        scatter_df = current_load.merge(
+        # Eje X = carga del modelo: con la reportada sola, un atleta que no
+        # cargo sus sRPE caia en "Fresco"/"Recuperacion" por una carga baja
+        # que no existio. Los que tienen sesiones sin sRPE van con marcador
+        # hueco: su ubicacion es estimada.
+        scatter_df = compare_weekly_load(current_load, None).merge(
             current_wellness[["Athlete", "Wellness_mean", "wellness_compliance"]],
             on="Athlete",
             how="inner",
@@ -5498,33 +5526,36 @@ def render_decision_panel():
             st.caption("Sin coincidencias entre wellness y carga en la semana seleccionada.")
         else:
             scatter_df["Zona"] = scatter_df["ACWR_EWMA_last"].apply(_zone_from_acwr)
-            x_median = float(scatter_df["weekly_sRPE"].median())
+            x_median = float(scatter_df["load_model"].median())
             y_median = float(scatter_df["Wellness_mean"].median())
             fig_scatter = go.Figure()
             fig_scatter.add_trace(
                 go.Scatter(
-                    x=scatter_df["weekly_sRPE"],
+                    x=scatter_df["load_model"],
                     y=scatter_df["Wellness_mean"],
                     mode="markers+text",
                     text=scatter_df["Athlete"],
                     textposition="top center",
+                    customdata=scatter_df.apply(_missing_sessions_text, axis=1),
                     marker=dict(
-                        size=scatter_df["sessions_count"].fillna(0).astype(float) * 6 + 10,
+                        size=scatter_df["sessions_done"].fillna(0).astype(float) * 6 + 10,
                         color=[_zone_color(zone) for zone in scatter_df["Zona"]],
+                        symbol=["circle" if frac <= 0 else "circle-open" for frac in scatter_df["missing_frac"]],
                         line=dict(color="rgba(34,31,32,0.28)", width=1),
                     ),
                     hovertemplate=(
                         "<b>%{text}</b><br>"
-                        "sRPE semana: %{x:.0f}<br>"
+                        "sRPE semana (con estimadas): %{x:.0f}<br>"
                         "Wellness medio: %{y:.2f}<br>"
+                        "Sesiones sin sRPE: %{customdata}<br>"
                         "<extra></extra>"
                     ),
                 )
             )
             fig_scatter.add_vline(x=x_median, line_dash="dash", line_color="rgba(112,140,159,0.55)")
             fig_scatter.add_hline(y=y_median, line_dash="dash", line_color="rgba(112,140,159,0.55)")
-            x_min = float(scatter_df["weekly_sRPE"].min())
-            x_max = float(scatter_df["weekly_sRPE"].max())
+            x_min = float(scatter_df["load_model"].min())
+            x_max = float(scatter_df["load_model"].max())
             y_min = float(scatter_df["Wellness_mean"].min())
             y_max = float(scatter_df["Wellness_mean"].max())
             fig_scatter.add_annotation(x=x_max, y=y_min, text="Zona de alerta", showarrow=False, font=dict(color="#8A2F2F"))
@@ -5534,22 +5565,25 @@ def render_decision_panel():
             fig_scatter.update_layout(
                 height=460,
                 margin=dict(l=24, r=24, t=32, b=24),
-                xaxis_title="sRPE semanal",
+                xaxis_title="sRPE semanal (reportado + sesiones sin sRPE estimadas)",
                 yaxis_title="Wellness medio",
             )
             st.plotly_chart(fig_scatter, width='stretch', key="decision_wellness_scatter")
+            if scatter_df["missing_frac"].gt(0).any():
+                st.caption("Marcador hueco: atleta con sesiones sin sRPE esta semana; su carga incluye sesiones estimadas.")
 
             ratio_df = scatter_df.copy()
             ratio_df["wellness_load_ratio"] = np.where(
-                ratio_df["weekly_sRPE"].fillna(0).gt(0),
-                ratio_df["Wellness_mean"] / ratio_df["weekly_sRPE"],
+                ratio_df["load_model"].fillna(0).gt(0),
+                ratio_df["Wellness_mean"] / ratio_df["load_model"],
                 np.nan,
             )
             ratio_df = ratio_df.sort_values("wellness_load_ratio", ascending=True).head(3)
             ratio_display = pd.DataFrame(
                 {
                     "Atleta": ratio_df["Athlete"],
-                    "sRPE semana": ratio_df["weekly_sRPE"].round(0).astype(int),
+                    "sRPE semana (con estimadas)": ratio_df["load_model"].round(0).astype(int),
+                    "Sesiones sin sRPE": ratio_df.apply(_missing_sessions_text, axis=1),
                     "Wellness medio": ratio_df["Wellness_mean"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
                     "Ratio wellness/carga": ratio_df["wellness_load_ratio"].map(lambda value: f"{value:.4f}" if pd.notna(value) else "-"),
                 }
@@ -5586,12 +5620,9 @@ def render_decision_panel():
                         np.nan,
                     )
 
-        ranking_df = current_load[["Athlete", "sessions_count", "weekly_sRPE"]].copy()
-        ranking_df = ranking_df.merge(
-            previous_load[["Athlete", "weekly_sRPE"]].rename(columns={"weekly_sRPE": "weekly_sRPE_prev"}),
-            on="Athlete",
-            how="left",
-        )
+        ranking_df = compare_weekly_load(current_load, previous_load)[
+            ["Athlete", "sessions_count", "sessions_done", "sessions_missing", "load_model", "load_model_prev", "comparable", "delta_pct"]
+        ]
         ranking_df = ranking_df.merge(
             current_wellness[["Athlete", "wellness_compliance"]],
             on="Athlete",
@@ -5602,32 +5633,47 @@ def render_decision_panel():
             on="Athlete",
             how="left",
         )
-        max_sessions = max(int(ranking_df["sessions_count"].max()) if not ranking_df.empty else 0, 1)
+        # Sesiones = sesiones realizadas (Raw Workouts), no las que tienen
+        # sRPE: el ranking es de trabajo sostenido, no de quien reporta.
+        ranking_df["comparable"] = ranking_df["comparable"].fillna(False).astype(bool)
+        for numeric_col in ["delta_pct", "sessions_done", "sessions_count", "load_model", "load_model_prev", "wellness_compliance", "execution_pct"]:
+            ranking_df[numeric_col] = pd.to_numeric(ranking_df[numeric_col], errors="coerce").astype(float)
+        max_sessions = max(int(ranking_df["sessions_done"].max()) if not ranking_df.empty else 0, 1)
         ranking_df["wellness_compliance"] = ranking_df["wellness_compliance"].clip(lower=0, upper=1).fillna(0)
         ranking_df["execution_pct"] = ranking_df["execution_pct"].clip(lower=0, upper=1).fillna(0)
         ranking_df["delta_pct"] = np.where(
-            ranking_df["weekly_sRPE_prev"].fillna(0).gt(0),
-            ((ranking_df["weekly_sRPE"] - ranking_df["weekly_sRPE_prev"]) / ranking_df["weekly_sRPE_prev"]) * 100,
-            np.where(ranking_df["weekly_sRPE"].fillna(0).gt(0), 100.0, 0.0),
+            ranking_df["comparable"] & ranking_df["load_model_prev"].fillna(0).le(0),
+            np.where(ranking_df["load_model"].fillna(0).gt(0), 100.0, 0.0),
+            ranking_df["delta_pct"],
         )
-        ranking_df["Score"] = (
-            (ranking_df["sessions_count"] / max_sessions) * 30
+        base_score = (
+            (ranking_df["sessions_done"] / max_sessions) * 30
             + ranking_df["wellness_compliance"] * 30
             + ranking_df["execution_pct"] * 20
-            + np.where(ranking_df["delta_pct"] >= -20, 20.0, 0.0)
+        )
+        # Sin comparacion valida de carga el criterio de tendencia (20 pts) no
+        # se puede evaluar: se reescala sobre los 80 restantes en vez de
+        # premiar o castigar un dato que no existe.
+        ranking_df["Score"] = np.where(
+            ranking_df["comparable"],
+            base_score + np.where(ranking_df["delta_pct"] >= -20, 20.0, 0.0),
+            base_score * 100.0 / 80.0,
         ).round(1)
         ranking_df["Tendencia carga"] = np.select(
-            [ranking_df["delta_pct"] > 10, ranking_df["delta_pct"] < -10],
-            ["↑", "↓"],
+            [~ranking_df["comparable"], ranking_df["delta_pct"] > 10, ranking_df["delta_pct"] < -10],
+            ["?", "↑", "↓"],
             default="→",
         )
-        ranking_df = ranking_df.sort_values(["Score", "sessions_count"], ascending=[False, False]).reset_index(drop=True)
+        ranking_df = ranking_df.sort_values(["Score", "sessions_done"], ascending=[False, False]).reset_index(drop=True)
         ranking_display = pd.DataFrame(
             {
                 "Posicion": ranking_df.index + 1,
                 "Atleta": ranking_df["Athlete"],
                 "Score": ranking_df["Score"].map(lambda value: f"{value:.1f}"),
-                "Sessions": ranking_df["sessions_count"].astype(int),
+                "Sesiones": ranking_df["sessions_done"].astype(int),
+                "sRPE reportado": ranking_df.apply(
+                    lambda row: f"{int(row['sessions_count'])}/{int(row['sessions_done'])}", axis=1
+                ),
                 "Wellness %": ranking_df["wellness_compliance"].map(lambda value: f"{value * 100:.0f}%"),
                 "Ejecucion registrada %": ranking_df["execution_pct"].map(lambda value: f"{value * 100:.0f}%"),
                 "Tendencia carga": ranking_df["Tendencia carga"],
@@ -5635,6 +5681,11 @@ def render_decision_panel():
         )
         ranking_styler = ranking_display.style.apply(_style_signed, subset=["Tendencia carga"])
         st.dataframe(ranking_styler, width='stretch', hide_index=True)
+        if (~ranking_df["comparable"]).any():
+            st.caption(
+                "Tendencia \"?\": sesiones sin sRPE esta semana o la anterior; el score de ese atleta "
+                "se calcula sin el criterio de tendencia (reescalado sobre 100)."
+            )
 
     render_subsection_header("Evaluaciones pendientes", "quien lleva mas de 30 dias sin test", kicker="Bloque 8")
     athletes_registry = athletes_registry_decision

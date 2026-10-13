@@ -415,6 +415,79 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     return weekly
 
 
+WEEKLY_COMPARISON_COLUMNS = [
+    "Athlete",
+    "weekly_sRPE",
+    "weekly_sRPE_prev",
+    "load_model",
+    "load_model_prev",
+    "sessions_count",
+    "sessions_done",
+    "sessions_missing",
+    "missing_frac",
+    "missing_frac_prev",
+    "comparable",
+    "delta_sRPE",
+    "delta_pct",
+]
+
+
+def _weekly_session_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    result["weekly_sRPE"] = pd.to_numeric(result.get("weekly_sRPE"), errors="coerce").fillna(0.0)
+    reported = pd.to_numeric(result.get("sessions_count"), errors="coerce").fillna(0.0) if "sessions_count" in result.columns else pd.Series(0.0, index=result.index)
+    result["sessions_count"] = reported
+    result["sessions_done"] = (
+        pd.to_numeric(result["sessions_done"], errors="coerce").fillna(reported) if "sessions_done" in result.columns else reported
+    )
+    result["sessions_missing"] = (
+        pd.to_numeric(result["sessions_missing"], errors="coerce").fillna(0.0) if "sessions_missing" in result.columns else 0.0
+    )
+    result["load_model"] = (
+        pd.to_numeric(result["weekly_sRPE_model"], errors="coerce").fillna(result["weekly_sRPE"])
+        if "weekly_sRPE_model" in result.columns
+        else result["weekly_sRPE"]
+    )
+    result["missing_frac"] = (result["sessions_missing"] / result["sessions_done"].where(result["sessions_done"] > 0)).fillna(0.0)
+    return result
+
+
+def compare_weekly_load(current_load: pd.DataFrame | None, previous_load: pd.DataFrame | None) -> pd.DataFrame:
+    """Comparacion por atleta de una semana contra la anterior (consecutiva).
+
+    Usa la carga del modelo (reportada + sesiones sin sRPE imputadas) y marca
+    `comparable=False` cuando cualquiera de las dos semanas tiene sesiones
+    sin sRPE por encima de ACWR_MAX_MISSING_FRAC_ACUTE: ahi la diferencia
+    mide huecos de reporte, no carga, y `delta_sRPE`/`delta_pct` quedan NaN.
+    Un atleta sin fila la semana anterior no entreno esa semana (las
+    semanas entrenadas sin sRPE se conservan en el resumen semanal), asi
+    que su carga previa es 0 real y la comparacion es valida.
+    """
+    if current_load is None or current_load.empty or "Athlete" not in current_load.columns:
+        return pd.DataFrame(columns=WEEKLY_COMPARISON_COLUMNS)
+    current = _weekly_session_columns(current_load)
+    if previous_load is not None and not previous_load.empty and "Athlete" in previous_load.columns:
+        previous = _weekly_session_columns(previous_load)[["Athlete", "weekly_sRPE", "load_model", "missing_frac"]].rename(
+            columns={"weekly_sRPE": "weekly_sRPE_prev", "load_model": "load_model_prev", "missing_frac": "missing_frac_prev"}
+        )
+        result = current.merge(previous, on="Athlete", how="left")
+    else:
+        result = current.assign(weekly_sRPE_prev=np.nan, load_model_prev=np.nan, missing_frac_prev=np.nan)
+    result["weekly_sRPE_prev"] = result["weekly_sRPE_prev"].fillna(0.0)
+    result["load_model_prev"] = result["load_model_prev"].fillna(0.0)
+    result["missing_frac_prev"] = result["missing_frac_prev"].fillna(0.0)
+    result["missing_frac_prev"] = pd.to_numeric(result["missing_frac_prev"], errors="coerce").fillna(0.0)
+    result["comparable"] = (
+        (result["missing_frac"] <= ACWR_MAX_MISSING_FRAC_ACUTE) & (result["missing_frac_prev"] <= ACWR_MAX_MISSING_FRAC_ACUTE)
+    ).astype(bool)
+    delta = result["load_model"] - result["load_model_prev"]
+    result["delta_sRPE"] = delta.where(result["comparable"])
+    result["delta_pct"] = (delta / result["load_model_prev"].where(result["load_model_prev"] > 0) * 100.0).where(
+        result["comparable"]
+    )
+    return result[[*WEEKLY_COMPARISON_COLUMNS, *[c for c in result.columns if c not in WEEKLY_COMPARISON_COLUMNS]]]
+
+
 def build_weekly_acwr_context(
     weekly_load_df: pd.DataFrame | None,
     athlete: str | None = None,

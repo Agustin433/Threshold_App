@@ -244,5 +244,57 @@ class WeeklyAcwrMissingSessionsTest(unittest.TestCase):
         self.assertNotRegex(rows.get("Cambio vs semana previa", ""), r"^[+-]\d")
 
 
+class CompareWeeklyLoadTest(unittest.TestCase):
+    def _week(self, athlete, reported, model, done, missing):
+        return {
+            "Athlete": athlete,
+            "weekly_sRPE": reported,
+            "weekly_sRPE_model": model,
+            "sessions_count": done - missing,
+            "sessions_done": done,
+            "sessions_missing": missing,
+        }
+
+    def test_week_with_unreported_sessions_is_not_comparable(self):
+        from modules.load_monitoring import compare_weekly_load
+
+        current = pd.DataFrame([self._week("Ana", 480, 1920, 4, 3)])
+        previous = pd.DataFrame([self._week("Ana", 1920, 1920, 4, 0)])
+        row = compare_weekly_load(current, previous).iloc[0]
+
+        self.assertFalse(bool(row["comparable"]))
+        self.assertTrue(pd.isna(row["delta_sRPE"]))
+        self.assertTrue(pd.isna(row["delta_pct"]))
+
+    def test_fully_reported_weeks_compare_model_load(self):
+        from modules.load_monitoring import compare_weekly_load
+
+        current = pd.DataFrame([self._week("Ana", 2400, 2400, 5, 0)])
+        previous = pd.DataFrame([self._week("Ana", 1920, 1920, 4, 0)])
+        row = compare_weekly_load(current, previous).iloc[0]
+
+        self.assertTrue(bool(row["comparable"]))
+        self.assertAlmostEqual(float(row["delta_sRPE"]), 480.0)
+        self.assertAlmostEqual(float(row["delta_pct"]), 25.0)
+
+    def test_no_previous_week_row_means_real_zero_load(self):
+        from modules.load_monitoring import compare_weekly_load
+
+        row = compare_weekly_load(pd.DataFrame([self._week("Ana", 960, 960, 2, 0)]), pd.DataFrame()).iloc[0]
+
+        self.assertTrue(bool(row["comparable"]))
+        self.assertAlmostEqual(float(row["delta_sRPE"]), 960.0)
+
+    def test_frames_without_session_ledger_behave_as_before(self):
+        from modules.load_monitoring import compare_weekly_load
+
+        current = pd.DataFrame([{"Athlete": "Ana", "weekly_sRPE": 900, "sessions_count": 3}])
+        previous = pd.DataFrame([{"Athlete": "Ana", "weekly_sRPE": 600, "sessions_count": 2}])
+        row = compare_weekly_load(current, previous).iloc[0]
+
+        self.assertTrue(bool(row["comparable"]))
+        self.assertAlmostEqual(float(row["delta_sRPE"]), 300.0)
+
+
 if __name__ == "__main__":
     unittest.main()
