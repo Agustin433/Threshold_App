@@ -19,10 +19,14 @@ from local_store import build_weekly_summaries
 from modules.data_loader import _wellness_score as canonical_wellness_score
 from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
+from local_store import training_dates_for_athlete
 from modules.load_monitoring import (
     ACWR_ZONE_DISPLAY_LABELS,
+    acwr_unavailable_reason,
     calc_acwr,
+    calc_monotony_strain,
     classify_acwr_zone,
+    latest_training_day_row,
 )
 from modules.jump_analysis import (
     choose_secondary_quadrant_x_spec,
@@ -744,7 +748,7 @@ def _latest_acwr_row(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.
     acwr_df = acwr_dict.get(athlete)
     if acwr_df is None or acwr_df.empty:
         return None
-    latest = acwr_df[acwr_df["sRPE_diario"] > 0].tail(1)
+    latest = latest_training_day_row(acwr_df)
     if latest.empty:
         return None
     return latest.iloc[-1]
@@ -1005,33 +1009,19 @@ def _quality_athlete_row(quality_report: dict[str, object], athlete: str) -> pd.
     return subset.iloc[0]
 
 
-# Umbral de cobertura de sRPE bajo el cual ACWR/monotonia/strain dejan de
-# mostrarse como una zona ("Optimo", etc.) en el reporte profesional. Auditoria
-# externa (oct/2026): un ACWR "Optimo" calculado sobre <70% de dias con sRPE en
-# los ultimos 42 dias es un artefacto matematico (dias sin registro entran como
-# 0 en el EWMA), no una lectura de carga real, y genera falsa tranquilidad.
-PROFESSIONAL_LOAD_COVERAGE_GATE_PCT = 70.0
+PROFESSIONAL_ACWR_GATED_ZONE_TEXT = "Sin zona (registro insuficiente)"
 
 
-def _professional_srpe_coverage_pct(state: dict[str, pd.DataFrame | None], athlete: str) -> float | None:
-    """% de dias con sRPE>0 en los ultimos 42 dias (misma formula que el panel de calidad).
+def _professional_load_quality_gate(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, str]:
+    """(gated, motivo) leido del propio modelo de ACWR (`calc_acwr`).
 
-    Devuelve None cuando no se puede determinar (p.ej. no hay rpe_df cargado).
-    Un None NO gatea: solo gateamos ante evidencia positiva de cobertura baja,
-    para no silenciar ACWR cuando simplemente no tenemos como medir cobertura.
+    El gate vive en el modelo: `calc_acwr` deja el ACWR en NaN y explica por
+    que en `ACWR_Estado` (sesiones entrenadas sin sRPE, historial corto o sin
+    carga cronica). El reporte solo lo traduce a texto. Un frame sin
+    `ACWR_Estado` (armado a mano o de una version vieja) no gatea.
     """
-    quality_report = _report_quality_report(state)
-    athlete_quality = _quality_athlete_row(quality_report, athlete)
-    if athlete_quality is None:
-        return None
-    return _coerce_float(athlete_quality.get("% cobertura sRPE"))
-
-
-def _professional_load_coverage_gated(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, float | None]:
-    """(gated, coverage_pct): gated=True solo si hay cobertura medida y es baja."""
-    coverage_pct = _professional_srpe_coverage_pct(state, athlete)
-    gated = coverage_pct is not None and coverage_pct < PROFESSIONAL_LOAD_COVERAGE_GATE_PCT
-    return gated, coverage_pct
+    reason = acwr_unavailable_reason(_latest_acwr_row(state, athlete))
+    return bool(reason), reason
 
 
 def _cmj_series(state: dict[str, pd.DataFrame | None], athlete: str) -> list[tuple[str, float]]:
@@ -1470,14 +1460,18 @@ def build_executive_summary_df(
         jump_summary_row = prepared_jump_row if prepared_jump_row is not None else jump_row
 
         row = {"Atleta": athlete}
-        coverage_gated, _ = _professional_load_coverage_gated(state, athlete)
+        acwr_gated, _ = _professional_load_quality_gate(state, athlete)
         if load_row is not None:
             row["Fecha carga"] = pd.to_datetime(load_row["Date"]).strftime("%d/%m/%Y")
             row["sRPE"] = _round_or_none(load_row.get("sRPE_diario"), 0)
-            if not coverage_gated:
+            # Con ACWR no emitido, la zona canonica es "Sin datos"; si llegara
+            # a la narrativa saldria "Operar con zona Sin datos". Se omiten.
+            if not acwr_gated:
                 row["ACWR EWMA"] = _round_or_none(load_row.get("ACWR_EWMA"), 2)
                 row["Zona"] = load_row.get("Zona")
-        if mono_row is not None and not coverage_gated:
+        # La monotonia trae su propio gate desde el modelo (semana con
+        # sesiones sin sRPE -> NaN), independiente del de ACWR.
+        if mono_row is not None:
             row["Monotonia"] = _round_or_none(mono_row.get("Monotonia"), 2)
             row["Strain"] = _round_or_none(mono_row.get("Strain"), 0)
 
@@ -7540,40 +7534,43 @@ def _build_professional_load_tolerance_payload(
     elif _coerce_float(internal_load.get("weekly_change")) is not None:
         change_text = _professional_number_text(internal_load.get("weekly_change"), digits=0, unit="UA")
 
-    has_any_load_data = acwr_row is not None or mono_row is not None
-    coverage_gated_raw, coverage_pct = _professional_load_coverage_gated(state, athlete)
-    # El gate solo tiene sentido cuando HAY un ACWR/monotonia calculado que
-    # podria mostrarse con falsa confianza. Si no hay dato alguno, esto ya cae
-    # en la rama "Faltan datos" de mas abajo y no hace falta un mensaje de gate
-    # distinto.
-    coverage_gated = coverage_gated_raw and has_any_load_data
-    gate_text = (
-        f"No calculable (cobertura sRPE {coverage_pct:.0f}%)" if coverage_gated and coverage_pct is not None else None
-    )
+    acwr_gated, acwr_gate_reason = _professional_load_quality_gate(state, athlete)
+    gate_text = f"No calculable ({acwr_gate_reason})" if acwr_gated else None
 
-    # Gate especifico de monotonia/strain (auditoria externa, oct/2026): con
-    # menos de MONOTONY_MIN_SESSIONS sesiones en la semana analizada, la SD
-    # poblacional de Foster queda fija (p.ej. 1 sesion en 7 dias => SD/media
-    # = 1/sqrt(6) = 0.408 siempre, sea cual sea la carga). Esa monotonia no es
-    # una lectura de homogeneidad de carga, es un artefacto aritmetico, asi
-    # que se gatea aparte del gate de cobertura de 42 dias (que mira ACWR).
+    # Monotonia/strain: el modelo ya las anula en semanas con sesiones sin
+    # sRPE (Monotony_Status "incomplete_log"). Ademas, con menos de
+    # MONOTONY_MIN_SESSIONS sesiones reportadas la SD de Foster queda casi
+    # fijada por la cantidad de ceros (1 sesion en 7 dias => media/SD =
+    # 1/sqrt(6) = 0.408 sea cual sea la carga): no describe homogeneidad.
     MONOTONY_MIN_SESSIONS = 4
     sessions_this_week = _coerce_float(internal_load.get("sessions_registered"))
+    monotony_log_gated = mono_row is not None and str(mono_row.get("Monotony_Status") or "") == "incomplete_log"
     monotony_sessions_gated = (
-        mono_row is not None and sessions_this_week is not None and sessions_this_week < MONOTONY_MIN_SESSIONS
+        mono_row is not None
+        and not monotony_log_gated
+        and sessions_this_week is not None
+        and sessions_this_week < MONOTONY_MIN_SESSIONS
     )
-    monotony_gated = coverage_gated or monotony_sessions_gated
-    monotony_gate_text = gate_text if coverage_gated else (
-        f"No calculable ({int(sessions_this_week)} sesión(es)/semana, mínimo {MONOTONY_MIN_SESSIONS})"
-        if monotony_sessions_gated else None
-    )
+    monotony_gated = monotony_log_gated or monotony_sessions_gated
+    monotony_gate_text = None
+    if monotony_log_gated:
+        missing_week = int(_coerce_float(mono_row.get("Sesiones_sin_registro")) or 0)
+        monotony_gate_text = f"No calculable ({missing_week} sesión(es) de la semana sin sRPE)"
+    elif monotony_sessions_gated:
+        monotony_gate_text = (
+            f"No calculable ({int(sessions_this_week)} sesión(es)/semana, mínimo {MONOTONY_MIN_SESSIONS})"
+        )
 
     risk_line = "Faltan datos para valorar la tolerancia de carga."
-    if coverage_gated:
+    if acwr_gated:
         risk_line = (
-            f"Cobertura de sRPE insuficiente ({coverage_pct:.0f}% de los últimos 42 días, umbral "
-            f"{PROFESSIONAL_LOAD_COVERAGE_GATE_PCT:.0f}%): ACWR, monotonía y strain no son confiables esta semana. "
-            "Prioridad: completar el registro de sRPE antes de usarlos para decidir carga."
+            f"ACWR no calculable: {acwr_gate_reason}. Con sesiones entrenadas sin sRPE, el ACWR depende de los "
+            "huecos y no de la carga; no usarlo para decidir carga hasta completar el registro."
+        )
+    elif monotony_log_gated:
+        risk_line = (
+            "La semana analizada tiene sesiones entrenadas sin sRPE: la monotonía y el strain no se calculan "
+            "porque los días sin reporte entrarían como carga 0."
         )
     elif monotony_sessions_gated:
         risk_line = (
@@ -7598,16 +7595,16 @@ def _build_professional_load_tolerance_payload(
     rows = [
         ("Semana analizada", safe_value(internal_load.get("analysis_week_label"))),
         ("sRPE semanal", _professional_number_text(weekly_total, digits=0, unit="UA")),
-        ("Cambio vs semana previa", gate_text if coverage_gated else change_text),
+        ("Cambio vs semana previa", gate_text if acwr_gated else change_text),
         ("Sesiones con sRPE (semana)", safe_value(internal_load.get("sessions_registered"))),
-        ("ACWR EWMA", gate_text if coverage_gated else _professional_number_text(acwr_value, digits=2)),
-        ("Zona ACWR", "Sin zona (cobertura insuficiente)" if coverage_gated else acwr_zone),
+        ("ACWR EWMA", gate_text if acwr_gated else _professional_number_text(acwr_value, digits=2)),
+        ("Zona ACWR", PROFESSIONAL_ACWR_GATED_ZONE_TEXT if acwr_gated else acwr_zone),
         ("Monotonía", monotony_gate_text if monotony_gated else _professional_number_text(monotony_value, digits=2)),
         ("Strain", monotony_gate_text if monotony_gated else _professional_number_text(strain_value, digits=0)),
     ]
     available_rows = [(label, value) for label, value in rows if value != PDF_MISSING_TEXT]
     state_label = "available" if available_rows else "missing"
-    if state_label == "available" and (coverage_gated or monotony_gated or str(internal_load.get("analysis_scope") or "") == "current_week_partial"):
+    if state_label == "available" and (acwr_gated or monotony_gated or str(internal_load.get("analysis_scope") or "") == "current_week_partial"):
         state_label = "partial"
     return {
         "title": "Carga interna y tolerancia",
@@ -8092,9 +8089,17 @@ def _build_professional_integrated_decision_payload(
     improvements = change_payload.get("improvements", []) if isinstance(change_payload.get("improvements"), list) else []
     declines = change_payload.get("declines", []) if isinstance(change_payload.get("declines"), list) else []
     no_previous = change_payload.get("no_previous", []) if isinstance(change_payload.get("no_previous"), list) else []
-    zone_text = load_rows.get("Zona ACWR", "")
-    acwr_text = load_rows.get("ACWR EWMA", "")
-    monotony_text = load_rows.get("Monotonía", "")
+    def _usable_load_value(value: object) -> str:
+        # Un "No calculable (...)" en la tabla no es un dato de carga: no debe
+        # entrar a frases del tipo "el contexto acompaña una lectura utilizable".
+        text = str(value or "")
+        if text.startswith("No calculable") or text == PROFESSIONAL_ACWR_GATED_ZONE_TEXT:
+            return ""
+        return text
+
+    zone_text = _usable_load_value(load_rows.get("Zona ACWR", ""))
+    acwr_text = _usable_load_value(load_rows.get("ACWR EWMA", ""))
+    monotony_text = _usable_load_value(load_rows.get("Monotonía", ""))
     load_fact = _professional_join_labels(
         [
             f"ACWR {acwr_text}" if _has_text(acwr_text) else "",
@@ -8433,18 +8438,9 @@ def _build_professional_executive_payload(
         if declines:
             change_parts.append(f"Caen {_professional_join_labels(declines[:3])}.")
         signals.append(_clip_signal(" ".join(change_parts)))
-    # No recalcula el gate: lee si `load_payload` (que ya sabe si hay ACWR/
-    # monotonia reales para gatear) marco la zona como no disponible.
-    load_coverage_gated = load_rows.get("Zona ACWR") == "Sin zona (cobertura insuficiente)"
-    _, load_coverage_pct = _professional_load_coverage_gated(state, athlete)
-    if load_coverage_gated:
-        signals.append(
-            _clip_signal(
-                f"Cobertura de sRPE insuficiente ({load_coverage_pct:.0f}%): ACWR/monotonía/strain no calculables esta semana."
-                if load_coverage_pct is not None
-                else "Cobertura de sRPE insuficiente: ACWR/monotonía/strain no calculables esta semana."
-            )
-        )
+    acwr_gated, acwr_gate_reason = _professional_load_quality_gate(state, athlete)
+    if acwr_gated and load_rows:
+        signals.append(_clip_signal(f"ACWR no calculable: {acwr_gate_reason}."))
     elif load_rows:
         load_parts = []
         if _has_text(load_rows.get("ACWR EWMA")):
@@ -10334,48 +10330,46 @@ def _generate_professional_profile_pdf_reportlab(
         canonical = classify_acwr_zone(value)
         return ACWR_ZONE_DISPLAY_LABELS.get(canonical, canonical)
 
-    def _build_acwr_ewma_frame_for_pdf() -> pd.DataFrame:
+    def _acwr_model_frame_for_pdf() -> pd.DataFrame:
+        # Se usa `calc_acwr` con el mismo registro de sesiones (Raw Workouts)
+        # que alimenta `acwr_dict`: graficos, tablas y narrativa del PDF y el
+        # dashboard leen el mismo modelo. Antes el PDF recalculaba con alphas
+        # propios y, despues, sin el registro de sesiones.
         daily = _rpe_daily_frame_for_pdf()
-        if daily.empty or len(daily) < 7:
+        if daily.empty:
             return pd.DataFrame()
-        # Se usa `calc_acwr`, la misma funcion que alimenta `acwr_dict` y las
-        # tablas ejecutivas. Antes el PDF recalculaba con alphas propios
-        # (0.25 / 2÷29) distintos a los del dashboard (0.28 / 0.07), asi que el
-        # grafico y la narrativa mostraban un ACWR y las tablas del mismo
-        # documento mostraban otro.
-        result = calc_acwr(daily["sRPE_diario"], pd.DatetimeIndex(daily["Date"]))
+        reported = daily[pd.to_numeric(daily["sRPE_diario"], errors="coerce") > 0]
+        raw_source = state.get("prepared_raw_df") if state.get("prepared_raw_df") is not None else state.get("raw_df")
+        return calc_acwr(
+            reported["sRPE_diario"],
+            pd.DatetimeIndex(reported["Date"]),
+            training_dates=training_dates_for_athlete(raw_source, report_athlete),
+        )
+
+    def _build_acwr_ewma_frame_for_pdf() -> pd.DataFrame:
+        result = _acwr_model_frame_for_pdf()
+        if result.empty or len(result) < 7:
+            return pd.DataFrame()
         result["Zona"] = result["ACWR_EWMA"].map(lambda value: _acwr_zone_label(_coerce_float(value)))
         return result
 
     def _build_monotony_strain_frame_for_pdf() -> pd.DataFrame:
-        daily = _rpe_daily_frame_for_pdf()
-        if daily.empty:
+        # Misma funcion que el dashboard (`calc_monotony_strain`) sobre el
+        # mismo modelo: semanas con sesiones sin sRPE quedan sin monotonia en
+        # vez de leer los dias sin reporte como carga 0.
+        model = _acwr_model_frame_for_pdf()
+        if model.empty:
             return pd.DataFrame()
-        result = daily.copy()
-        result["week_start"] = result["Date"] - pd.to_timedelta(result["Date"].dt.weekday, unit="D")
+        weekly = calc_monotony_strain(model)
+        if weekly.empty:
+            return pd.DataFrame()
+        weekly = weekly.copy()
+        weekly["Semana"] = pd.to_datetime(weekly["Semana"], errors="coerce").dt.normalize() - pd.Timedelta(days=6)
         current_week_start = _professional_week_start(_professional_report_today())
-        result = result[result["week_start"] < current_week_start]
-        if result.empty:
+        weekly = weekly[weekly["Semana"] < current_week_start]
+        if weekly.empty:
             return pd.DataFrame()
-        rows: list[dict[str, object]] = []
-        for week_start, week_df in result.groupby("week_start"):
-            values = week_df.sort_values("Date")["sRPE_diario"].astype(float).tolist()
-            if len(values) < 7:
-                values.extend([0.0] * (7 - len(values)))
-            series = pd.Series(values[:7], dtype=float)
-            mean_value = float(series.mean())
-            std_value = float(series.std(ddof=0))
-            monotony_value = None if std_value == 0 else (mean_value / std_value)
-            strain_value = (float(series.sum()) * monotony_value) if monotony_value is not None else None
-            rows.append(
-                {
-                    "Semana": pd.Timestamp(week_start).normalize(),
-                    "Monotonia": monotony_value,
-                    "Strain": strain_value,
-                    "Alerta": bool(monotony_value is not None and monotony_value > 2.0),
-                }
-            )
-        return pd.DataFrame(rows).sort_values("Semana").tail(16).reset_index(drop=True) if rows else pd.DataFrame()
+        return weekly[["Semana", "Monotonia", "Strain", "Alerta"]].sort_values("Semana").tail(16).reset_index(drop=True)
 
     def _plotly_chart_image(
         figure: object | None,
@@ -10469,12 +10463,20 @@ def _generate_professional_profile_pdf_reportlab(
             target.append(_collapsed_box("No se pudo renderizar el gráfico de ACWR para este reporte."))
             return
         target.append(acwr_image)
-        latest_acwr = _coerce_float(acwr_frame.dropna(subset=["ACWR_EWMA"]).tail(1).iloc[0].get("ACWR_EWMA")) if not acwr_frame.dropna(subset=["ACWR_EWMA"]).empty else None
-        zone_label = _acwr_zone_label(latest_acwr)
+        # El ultimo dia ENTRENADO, no el ultimo ACWR valido: con el ACWR no
+        # emitido, "zona actual" seria la de semanas atras.
+        latest_row = latest_training_day_row(acwr_frame)
+        latest_reason = acwr_unavailable_reason(latest_row.iloc[0]) if not latest_row.empty else ""
+        latest_acwr = _coerce_float(latest_row.iloc[0].get("ACWR_EWMA")) if not latest_row.empty else None
+        interpretation = (
+            f"Interpretación: ACWR actual no calculable ({latest_reason})."
+            if latest_reason
+            else f"Interpretación: zona actual = {_acwr_zone_label(latest_acwr)}."
+        )
         caption = (
             "ACWR EWMA: rango operativo habitual 0.80–1.30. Valores >1.50 sugieren exposición aguda relativamente alta y requieren revisar contexto, calendario y tolerancia individual "
             "(Gabbett, 2016, BJSM; Hulin et al., 2016, BJSM). "
-            f"Interpretación: zona actual = {zone_label}."
+            f"{interpretation}"
         )
         target.append(_box([_p(caption, "ProfMuted")], padding=5 if compact else 6))
 

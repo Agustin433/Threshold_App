@@ -87,35 +87,216 @@ def _acwr_color(value: float) -> str:
     return _ACWR_ZONE_COLORS.get(_classify_acwr(value), "#D94F4F")
 
 
-def calc_acwr(srpe_series: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
-    """Build the canonical ACWR EWMA daily series used across the app."""
-    daily = pd.Series(srpe_series.values, index=dates).sort_index()
-    daily = daily.resample("D").sum().fillna(0)
+# --- Calidad del dato para ACWR ------------------------------------------
+# Un dia sin sRPE puede ser descanso (carga 0 real) o una sesion entrenada que
+# el atleta no reporto (dato faltante). El modelo anterior trataba ambos como
+# 0, lo que deprime la carga cronica y produce ACWR ~1 "Optimo" a partir de
+# dos numeros chicos (auditoria externa, oct/2026; ver Williams 2017 y Lolli
+# 2019 sobre sensibilidad del ACWR a la serie de entrada). Cuando hay un
+# registro de sesiones realizadas (Raw Workouts), los dias entrenados sin
+# sRPE se marcan como faltantes en vez de 0.
+DAY_STATUS_LOGGED = "registrado"
+DAY_STATUS_MISSING = "sin_registro"
+DAY_STATUS_REST = "descanso"
 
-    result = pd.DataFrame({"Date": daily.index, "sRPE_diario": daily.values})
-    result["Aguda_7d"] = result["sRPE_diario"].rolling(7, min_periods=1).mean()
-    result["Cronica_28d"] = result["sRPE_diario"].rolling(28, min_periods=1).mean()
+ACWR_STATUS_OK = "ok"
+ACWR_STATUS_INCOMPLETE = "registro_incompleto"
+ACWR_STATUS_SHORT_HISTORY = "historial_insuficiente"
+ACWR_STATUS_NO_CHRONIC = "sin_carga_cronica"
+
+# Con la ventana cronica sin llenar, el EWMA (adjust=False) arranca en el
+# primer valor y el ACWR da exactamente 1.0 el primer dia: zona "Optimo" por
+# construccion, no por carga.
+ACWR_MIN_HISTORY_DAYS = ACWR_CHRONIC_DAYS
+# Fraccion maxima de sesiones entrenadas sin sRPE tolerada en cada ventana.
+# Por encima, el ACWR depende mas de los huecos (o de la imputacion) que de
+# la carga reportada y no se emite.
+ACWR_MAX_MISSING_FRAC_CHRONIC = 0.30
+ACWR_MAX_MISSING_FRAC_ACUTE = 0.34
+# Monotonia (Foster) de una semana con sesiones sin reportar: la SD semanal
+# queda dominada por los ceros falsos, no por la variabilidad real.
+MONOTONY_MAX_MISSING_FRAC = 0.34
+
+
+def _normalized_training_dates(training_dates) -> pd.DatetimeIndex:
+    if training_dates is None:
+        return pd.DatetimeIndex([])
+    values = pd.to_datetime(pd.Series(list(training_dates)), errors="coerce").dropna()
+    if values.empty:
+        return pd.DatetimeIndex([])
+    return pd.DatetimeIndex(values.dt.normalize().unique()).sort_values()
+
+
+def _rolling_logged_median(logged: pd.Series, window: int) -> pd.Series:
+    """Mediana movil de las sesiones REPORTADAS (sRPE>0) de los dias previos.
+
+    Se usa solo para imputar sesiones entrenadas sin sRPE. Toma la mediana
+    individual del propio atleta (no del grupo) y excluye el dia actual para
+    no imputar un dia con un valor que depende de si mismo.
+    """
+    sessions_only = logged.where(logged > 0)
+    trailing = sessions_only.shift(1).rolling(window, min_periods=1).median()
+    expanding = sessions_only.shift(1).expanding(min_periods=1).median()
+    return trailing.fillna(expanding)
+
+
+def calc_acwr(
+    srpe_series: pd.Series,
+    dates: pd.DatetimeIndex,
+    training_dates=None,
+) -> pd.DataFrame:
+    """Serie diaria canonica de ACWR EWMA usada en toda la app.
+
+    `training_dates` (opcional) son las fechas con sesion realizada segun un
+    registro independiente del sRPE (Raw Workouts). Con ese registro:
+
+    - dia con sRPE           -> "registrado"
+    - dia entrenado sin sRPE -> "sin_registro" (faltante, NO 0)
+    - dia sin ninguno de los dos -> "descanso" (0 real)
+
+    `sRPE_diario` conserva solo la carga reportada (faltantes y descansos en
+    0), igual que antes, para que totales semanales y conteos de sesiones no
+    mezclen carga inventada. El EWMA usa `sRPE_modelo`, donde cada faltante se
+    imputa con la mediana individual de sus sesiones reportadas de los 28 dias
+    previos. El ACWR solo se emite (`ACWR_Estado == "ok"`) si el historial
+    llena la ventana cronica y la fraccion de faltantes en las ventanas
+    aguda y cronica esta bajo umbral; si no, queda NaN y zona "Sin datos".
+
+    Sin `training_dates` no hay forma de distinguir descanso de faltante: los
+    dias sin sRPE se tratan como descanso y el gate de faltantes no actua.
+    """
+    raw = pd.Series(pd.to_numeric(pd.Series(srpe_series).values, errors="coerce"), index=pd.DatetimeIndex(dates).normalize())
+    # sRPE <= 0 no es un reporte de sesion (suele ser RPE o duracion vacios
+    # que dieron 0): se trata como dia sin reporte, no como carga 0 reportada.
+    raw = raw[raw > 0]
+    logged_by_day = raw.groupby(raw.index).sum().sort_index()
+    trained = _normalized_training_dates(training_dates)
+
+    if logged_by_day.empty:
+        start = trained.min() if len(trained) else None
+    else:
+        start = logged_by_day.index.min()
+    if start is None:
+        return pd.DataFrame(
+            columns=[
+                "Date", "sRPE_diario", "Dia_Estado", "sRPE_modelo", "sRPE_imputado",
+                "Aguda_7d", "Cronica_28d", "ACWR_Classic", "EWMA_Aguda", "EWMA_Cronica",
+                "Sesiones_7d", "Sesiones_28d",
+                "Faltantes_7d", "Faltantes_28d", "Frac_faltante_7d", "Frac_faltante_28d",
+                "Dias_historial", "ACWR_EWMA", "ACWR_Estado", "ACWR", "Zona", "Zona_Color",
+            ]
+        )
+    end_candidates = [logged_by_day.index.max()] if not logged_by_day.empty else []
+    trained = trained[trained >= start]
+    if len(trained):
+        end_candidates.append(trained.max())
+    end = max(end_candidates)
+    calendar = pd.date_range(start, end, freq="D")
+
+    logged = logged_by_day.reindex(calendar)
+    has_log = logged.notna()
+    is_trained = pd.Series(calendar.isin(trained), index=calendar)
+    status = pd.Series(DAY_STATUS_REST, index=calendar, dtype=object)
+    status[has_log] = DAY_STATUS_LOGGED
+    status[~has_log & is_trained] = DAY_STATUS_MISSING
+    is_missing = status.eq(DAY_STATUS_MISSING)
+
+    logged_filled = logged.fillna(0.0)
+    imputation = _rolling_logged_median(logged_filled, ACWR_CHRONIC_DAYS)
+    model_load = logged_filled.copy()
+    model_load[is_missing] = imputation[is_missing]
+    # Un faltante sin ninguna sesion reportada previa no se puede imputar; se
+    # deja en 0 para el EWMA, pero el gate de faltantes ya lo marca.
+    model_load = model_load.fillna(0.0)
+
+    result = pd.DataFrame(
+        {
+            "Date": calendar,
+            "sRPE_diario": logged_filled.to_numpy(dtype=float),
+            "Dia_Estado": status.to_numpy(),
+            "sRPE_modelo": model_load.to_numpy(dtype=float),
+            "sRPE_imputado": is_missing.to_numpy(dtype=bool),
+        }
+    )
+    result["Aguda_7d"] = result["sRPE_modelo"].rolling(7, min_periods=1).mean()
+    result["Cronica_28d"] = result["sRPE_modelo"].rolling(28, min_periods=1).mean()
     # DEPRECATED: kept only as a legacy reference for historical inspection.
     result["ACWR_Classic"] = np.where(
         result["Cronica_28d"] > 0,
-        result["Aguda_7d"] / result["Cronica_28d"],
-        0,
+        result["Aguda_7d"] / result["Cronica_28d"].where(result["Cronica_28d"] > 0),
+        np.nan,
     )
 
     # Williams et al. 2017. Antes se usaban 0.28 y 0.07, que no corresponden a
     # ninguna ventana entera: implicaban ~6.1 y ~27.6 dias en vez de 7 y 28.
-    result["EWMA_Aguda"] = result["sRPE_diario"].ewm(alpha=ACWR_ACUTE_ALPHA, adjust=False).mean()
-    result["EWMA_Cronica"] = result["sRPE_diario"].ewm(alpha=ACWR_CHRONIC_ALPHA, adjust=False).mean()
-    result["ACWR_EWMA"] = np.where(
-        result["EWMA_Cronica"] > 0,
-        result["EWMA_Aguda"] / result["EWMA_Cronica"],
-        0,
+    result["EWMA_Aguda"] = result["sRPE_modelo"].ewm(alpha=ACWR_ACUTE_ALPHA, adjust=False).mean()
+    result["EWMA_Cronica"] = result["sRPE_modelo"].ewm(alpha=ACWR_CHRONIC_ALPHA, adjust=False).mean()
+
+    missing_int = is_missing.astype(int).reset_index(drop=True)
+    trained_int = status.isin([DAY_STATUS_LOGGED, DAY_STATUS_MISSING]).astype(int).reset_index(drop=True)
+    result["Faltantes_7d"] = missing_int.rolling(ACWR_ACUTE_DAYS, min_periods=1).sum().astype(int)
+    result["Faltantes_28d"] = missing_int.rolling(ACWR_CHRONIC_DAYS, min_periods=1).sum().astype(int)
+    trained_7 = trained_int.rolling(ACWR_ACUTE_DAYS, min_periods=1).sum()
+    trained_28 = trained_int.rolling(ACWR_CHRONIC_DAYS, min_periods=1).sum()
+    result["Sesiones_7d"] = trained_7.astype(int)
+    result["Sesiones_28d"] = trained_28.astype(int)
+    result["Frac_faltante_7d"] = (result["Faltantes_7d"] / trained_7.where(trained_7 > 0)).fillna(0.0)
+    result["Frac_faltante_28d"] = (result["Faltantes_28d"] / trained_28.where(trained_28 > 0)).fillna(0.0)
+    result["Dias_historial"] = np.arange(1, len(result) + 1)
+
+    ratio = result["EWMA_Aguda"] / result["EWMA_Cronica"].where(result["EWMA_Cronica"] > 0)
+    acwr_status = pd.Series(ACWR_STATUS_OK, index=result.index, dtype=object)
+    acwr_status[ratio.isna()] = ACWR_STATUS_NO_CHRONIC
+    acwr_status[result["Dias_historial"] < ACWR_MIN_HISTORY_DAYS] = ACWR_STATUS_SHORT_HISTORY
+    incomplete = (result["Frac_faltante_28d"] > ACWR_MAX_MISSING_FRAC_CHRONIC) | (
+        result["Frac_faltante_7d"] > ACWR_MAX_MISSING_FRAC_ACUTE
     )
+    acwr_status[incomplete & acwr_status.eq(ACWR_STATUS_OK)] = ACWR_STATUS_INCOMPLETE
+    result["ACWR_EWMA"] = ratio.where(acwr_status.eq(ACWR_STATUS_OK))
+    result["ACWR_Estado"] = acwr_status
 
     result["ACWR"] = result["ACWR_EWMA"]
     result["Zona"] = result["ACWR"].apply(_classify_acwr)
     result["Zona_Color"] = result["ACWR"].apply(_acwr_color)
     return result
+
+
+def latest_training_day_row(acwr_df: pd.DataFrame | None) -> pd.DataFrame:
+    """Fila del ultimo dia entrenado (reportado o no) de un frame de `calc_acwr`.
+
+    Antes cada superficie tomaba el ultimo dia con sRPE>0: un atleta que
+    entrena pero dejo de reportar quedaba mostrando para siempre el ACWR de su
+    ultimo registro. Frames sin `Dia_Estado` (viejos o armados a mano) siguen
+    usando la regla anterior.
+    """
+    if acwr_df is None or acwr_df.empty:
+        return pd.DataFrame()
+    if "Dia_Estado" in acwr_df.columns:
+        return acwr_df[acwr_df["Dia_Estado"].ne(DAY_STATUS_REST)].tail(1)
+    if "sRPE_diario" not in acwr_df.columns:
+        return acwr_df.tail(1)
+    return acwr_df[pd.to_numeric(acwr_df["sRPE_diario"], errors="coerce") > 0].tail(1)
+
+
+def acwr_unavailable_reason(row: pd.Series | None) -> str:
+    """Motivo legible de un ACWR no emitido; "" si el ACWR es valido."""
+    if row is None:
+        return ""
+    status = str(row.get("ACWR_Estado") or "").strip()
+    if not status or status == ACWR_STATUS_OK:
+        return ""
+    if status == ACWR_STATUS_INCOMPLETE:
+        missing = pd.to_numeric(pd.Series([row.get("Faltantes_28d")]), errors="coerce").iloc[0]
+        sessions = pd.to_numeric(pd.Series([row.get("Sesiones_28d")]), errors="coerce").iloc[0]
+        if pd.notna(missing) and pd.notna(sessions):
+            return f"{int(missing)} de {int(sessions)} sesiones sin sRPE en 28 días"
+        return "sesiones entrenadas sin sRPE"
+    if status == ACWR_STATUS_SHORT_HISTORY:
+        days = pd.to_numeric(pd.Series([row.get("Dias_historial")]), errors="coerce").iloc[0]
+        if pd.notna(days):
+            return f"historial de {int(days)} de {ACWR_MIN_HISTORY_DAYS} días"
+        return "historial insuficiente"
+    return "sin carga crónica"
 
 
 def _calendar_week_loads(series: pd.Series, week_end: pd.Timestamp) -> pd.Series:
@@ -162,6 +343,18 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     weekly["Monotony_Status"] = weekly["Semana"].map(lambda week: monotony_by_week[week].method)
     weekly["Monotony_Warning"] = weekly["Semana"].map(lambda week: monotony_by_week[week].warning)
     weekly["Monotonia"] = pd.to_numeric(weekly["Monotonia"], errors="coerce")
+    if "Dia_Estado" in srpe_daily.columns:
+        status = srpe_daily[["Date", "Dia_Estado"]].copy()
+        status["Date"] = pd.to_datetime(status["Date"], errors="coerce").dt.normalize()
+        status = status.dropna(subset=["Date"]).set_index("Date")["Dia_Estado"]
+        missing_by_week = status.eq(DAY_STATUS_MISSING).resample("W").sum()
+        trained_by_week = status.isin([DAY_STATUS_LOGGED, DAY_STATUS_MISSING]).resample("W").sum()
+        missing_frac = (missing_by_week / trained_by_week.where(trained_by_week > 0)).fillna(0.0)
+        weekly["Sesiones_sin_registro"] = weekly["Semana"].map(missing_by_week).fillna(0).astype(int)
+        incomplete_weeks = weekly["Semana"].map(missing_frac).fillna(0.0) > MONOTONY_MAX_MISSING_FRAC
+        weekly.loc[incomplete_weeks, "Monotonia"] = np.nan
+        weekly.loc[incomplete_weeks, "Monotony_Status"] = "incomplete_log"
+        weekly.loc[incomplete_weeks, "Monotony_Warning"] = "sesiones_sin_registro"
     weekly["Strain"] = np.where(
         weekly["Monotony_Status"].eq("standard"),
         weekly["Carga_Total"] * weekly["Monotonia"],

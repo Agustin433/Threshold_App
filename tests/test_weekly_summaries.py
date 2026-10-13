@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
@@ -296,7 +297,13 @@ class WeeklySummariesTest(unittest.TestCase):
         self.assertEqual(load_row["sessions_count"], 2)
         self.assertAlmostEqual(float(load_row["weekly_sRPE"]), 700.0, places=3)
         self.assertAlmostEqual(float(load_row["sRPE_mean_session"]), 350.0, places=3)
-        self.assertAlmostEqual(float(load_row["ACWR_EWMA_last"]), float(expected_acwr), places=6)
+        # Paridad diaria/semanal. Con 2 semanas de historia la ventana cronica
+        # (28 dias) no esta llena y el modelo no emite ACWR en ninguno de los
+        # dos lados: ambos deben ser NaN, no un 1.0 "Optimo" por construccion.
+        np.testing.assert_allclose(
+            float(load_row["ACWR_EWMA_last"]), float(expected_acwr), atol=1e-6, equal_nan=True
+        )
+        self.assertTrue(pd.isna(expected_acwr))
 
         wellness_row = weekly_wellness.loc[weekly_wellness["week_start"] == week_one].iloc[0]
         self.assertEqual(wellness_row["wellness_days"], 2)

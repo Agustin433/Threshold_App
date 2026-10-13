@@ -145,7 +145,12 @@ from modules.alerts import (
     select_executive_alerts,
 )
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
-from modules.load_monitoring import MONOTONY_HIGH, build_weekly_acwr_context
+from modules.load_monitoring import (
+    MONOTONY_HIGH,
+    acwr_unavailable_reason,
+    build_weekly_acwr_context,
+    latest_training_day_row,
+)
 from modules.jump_analysis import (
     available_sources as jump_available_sources,
     choose_secondary_quadrant_x_spec,
@@ -6145,7 +6150,9 @@ elif active_main_view == "Load":
         else:
             # ── KPIs ──
             last_sessions = sub_rpe.tail(3)
-            last_acwr = acwr_df[acwr_df["sRPE_diario"] > 0].tail(1)
+            last_acwr = latest_training_day_row(acwr_df)
+            last_acwr_value = last_acwr["ACWR_EWMA"].values[0] if not last_acwr.empty else np.nan
+            last_acwr_reason = acwr_unavailable_reason(last_acwr.iloc[0]) if not last_acwr.empty else ""
             last_mono = mono_df.tail(1) if mono_df is not None else pd.DataFrame()
             last_mono_status = (
                 last_mono["Monotony_Status"].values[0]
@@ -6158,8 +6165,8 @@ elif active_main_view == "Load":
             c2.metric("RPE última sesión",
                       f"{last_sessions['RPE'].iloc[-1]:.1f}" if not last_sessions.empty else "—")
             c3.metric(acwr_label,
-                      f"{last_acwr['ACWR_EWMA'].values[0]:.2f}" if not last_acwr.empty else "—",
-                      help="Óptimo: 0.8–1.3")
+                      f"{last_acwr_value:.2f}" if pd.notna(last_acwr_value) else ("No calc." if last_acwr_reason else "—"),
+                      help=f"No calculable: {last_acwr_reason}" if last_acwr_reason else "Óptimo: 0.8–1.3")
             c4.metric("Monotonía (sem)",
                       _format_monotony_display(last_mono["Monotonia"].values[0], last_mono_status) if not last_mono.empty else "—",
                       help="Foster 2001 — límite: 2.0")
@@ -6167,8 +6174,14 @@ elif active_main_view == "Load":
                       _format_strain_display(last_mono["Strain"].values[0], last_mono_status) if not last_mono.empty else "—")
 
             # Alertas ACWR
-            if not last_acwr.empty:
-                v = last_acwr["ACWR_EWMA"].values[0]
+            if last_acwr_reason:
+                _alert(
+                    f"ACWR EWMA no calculable: {last_acwr_reason}. Con sesiones entrenadas sin sRPE el ACWR "
+                    "refleja los huecos, no la carga. Completar el registro antes de usarlo.",
+                    "y",
+                )
+            elif not last_acwr.empty and pd.notna(last_acwr_value):
+                v = last_acwr_value
                 if v > 1.5:
                     _alert(f"ACWR EWMA = {v:.2f} — alto riesgo. Reducir carga aguda inmediatamente.", "r")
                 elif v > 1.3:
@@ -6731,13 +6744,16 @@ elif active_main_view == "Profile":
 
             # ACWR
             if st.session_state.acwr_dict and ath_p in st.session_state.acwr_dict:
-                acwr_last = st.session_state.acwr_dict[ath_p][
-                    st.session_state.acwr_dict[ath_p]["sRPE_diario"] > 0].tail(1)
+                acwr_last = latest_training_day_row(st.session_state.acwr_dict[ath_p])
                 if not acwr_last.empty:
                     v = acwr_last["ACWR_EWMA"].values[0]
                     zona = acwr_last["Zona"].values[0]
-                    color_map = {"Óptimo": "g", "Precaución": "y", "Alto riesgo": "r", "Subcarga": "b"}
-                    _alert(f"**ACWR EWMA:** {v:.2f} — {zona}", color_map.get(zona, "b"))
+                    color_map = {"Optimo": "g", "Precaucion": "y", "Alto riesgo": "r", "Subcarga": "b"}
+                    if pd.isna(v):
+                        reason = acwr_unavailable_reason(acwr_last.iloc[0]) or "sin dato"
+                        _alert(f"**ACWR EWMA:** no calculable — {reason}", "y")
+                    else:
+                        _alert(f"**ACWR EWMA:** {v:.2f} — {zona}", color_map.get(zona, "b"))
 
             # Wellness
             if wdf is not None and ath_p in wdf["Athlete"].values:
@@ -6818,16 +6834,18 @@ elif active_main_view == "Team":
         render_subsection_header("Estado de carga", "foto actual del equipo a partir de la ultima sesion", kicker="Equipo")
         team_rows = []
         for ath, adf in st.session_state.acwr_dict.items():
-            last = adf[adf["sRPE_diario"] > 0].tail(1)
+            last = latest_training_day_row(adf)
             mono_src = (st.session_state.mono_dict or {}).get(ath)
             mono = mono_src.tail(1) if mono_src is not None else pd.DataFrame()
             if last.empty: continue
             acwr_val = last["ACWR_EWMA"].values[0]
+            last_logged = adf[pd.to_numeric(adf["sRPE_diario"], errors="coerce") > 0].tail(1)
+            acwr_reason = acwr_unavailable_reason(last.iloc[0])
             team_rows.append({
                 "Atleta": ath,
-                "sRPE últimas sesión": f"{last['sRPE_diario'].values[0]:.0f} UA",
-                "ACWR EWMA": round(acwr_val, 2),
-                "Zona": last["Zona"].values[0],
+                "sRPE últimas sesión": f"{last_logged['sRPE_diario'].values[0]:.0f} UA" if not last_logged.empty else "—",
+                "ACWR EWMA": round(acwr_val, 2) if pd.notna(acwr_val) else None,
+                "Zona": last["Zona"].values[0] if not acwr_reason else f"No calc. ({acwr_reason})",
                 "Monotonía": round(mono["Monotonia"].values[0], 2) if not mono.empty else None,
                 "Strain": round(mono["Strain"].values[0], 0) if not mono.empty else None,
             })

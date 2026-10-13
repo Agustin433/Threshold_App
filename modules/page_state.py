@@ -511,7 +511,10 @@ def ensure_load_state(
             return False
 
         prepared_raw_df = ensure_prepared_raw_workouts(ensure_base_state=False)
-        acwr_dict, mono_dict = build_load_models(st.session_state.get("rpe_df"))
+        acwr_dict, mono_dict = build_load_models(
+            st.session_state.get("rpe_df"),
+            raw_df=prepared_raw_df if prepared_raw_df is not None else st.session_state.get("raw_df"),
+        )
         st.session_state["acwr_dict"] = acwr_dict or None
         st.session_state["mono_dict"] = mono_dict or None
         st.session_state["weekly_summaries"] = build_weekly_summaries(
@@ -564,7 +567,11 @@ def ensure_history_mode_load_state(
         wellness_df = full_state.get("wellness_df")
         raw_df = full_state.get("raw_df")
         prepared_raw_df = prepare_raw_workouts_df(raw_df)
-        acwr_dict, mono_dict = build_load_models(rpe_df, weeks=None)
+        acwr_dict, mono_dict = build_load_models(
+            rpe_df,
+            weeks=None,
+            raw_df=prepared_raw_df if prepared_raw_df is not None else raw_df,
+        )
         cached_state = {
             "rpe_df": rpe_df,
             "wellness_df": wellness_df,
