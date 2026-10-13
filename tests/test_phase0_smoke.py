@@ -404,9 +404,12 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         self.assertEqual(len(rpe_df), 2)
         self.assertEqual(len(wellness_df), 1)
         self.assertEqual(rpe_df.loc[0, "Athlete"], "Exequiel Heredia Garcia")
-        self.assertAlmostEqual(float(rpe_df.loc[0, "RPE"]), 6.0, places=2)
-        self.assertAlmostEqual(float(rpe_df.loc[0, "Duration_min"]), 52.5, places=2)
-        self.assertAlmostEqual(float(rpe_df.loc[0, "sRPE"]), 315.0, places=2)
+        # Dos sesiones el 10/04 (7x60 y 5x45): la carga del dia es la suma
+        # (420 + 225 = 645 UA en 105 min, RPE ponderado 645/105). Antes se
+        # esperaba el promedio (6 x 52.5 = 315), la mitad de la carga real.
+        self.assertAlmostEqual(float(rpe_df.loc[0, "RPE"]), 645.0 / 105.0, places=2)
+        self.assertAlmostEqual(float(rpe_df.loc[0, "Duration_min"]), 105.0, places=2)
+        self.assertAlmostEqual(float(rpe_df.loc[0, "sRPE"]), 645.0, places=2)
         self.assertAlmostEqual(float(wellness_df.loc[0, "Dolor"]), 3.0, places=2)
         self.assertAlmostEqual(float(wellness_df.loc[0, "Wellness_Score"]), 23.0, places=2)
 

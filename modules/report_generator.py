@@ -22,6 +22,7 @@ from modules.data_loader import (
     STRENGTH_PATTERN_REGION,
     add_strength_detail_columns,
     prepare_raw_workouts_df,
+    raw_session_date_column,
 )
 from modules.data_quality import compute_data_quality_report
 from modules.load_monitoring import (
@@ -5710,8 +5711,8 @@ def _professional_latest_data_date(state: dict[str, pd.DataFrame | None], athlet
     add_dates(state.get("rpe_df"), ("Date",))
     add_dates(state.get("wellness_df"), ("Date",))
     add_dates(state.get("completion_df"), ("Date",))
-    add_dates(state.get("raw_df"), ("Assigned Date", "Date"))
-    add_dates(state.get("prepared_raw_df"), ("Assigned Date", "Date"))
+    add_dates(state.get("raw_df"), ("Session Date", "Completed Date", "Assigned Date", "Date"))
+    add_dates(state.get("prepared_raw_df"), ("Session Date", "Completed Date", "Assigned Date", "Date"))
 
     weekly_summaries = state.get("weekly_summaries")
     if isinstance(weekly_summaries, dict):
@@ -7818,9 +7819,10 @@ def _build_professional_exposure_payload(
     exercise_col = "Exercise" if "Exercise" in athlete_df.columns else "Exercise Name" if "Exercise Name" in athlete_df.columns else None
 
     def _sessions(frame: pd.DataFrame) -> int:
-        if frame.empty or "Assigned Date" not in frame.columns:
+        date_col = raw_session_date_column(frame)
+        if frame.empty or date_col is None:
             return 0
-        return int(pd.to_datetime(frame["Assigned Date"], errors="coerce").dropna().dt.normalize().nunique())
+        return int(pd.to_datetime(frame[date_col], errors="coerce").dropna().dt.normalize().nunique())
 
     def _sum(frame: pd.DataFrame, column: str) -> float | None:
         if frame.empty or column not in frame.columns:
@@ -8608,7 +8610,7 @@ def _professional_period_label(state: dict[str, pd.DataFrame | None], athlete: s
     add_dates(state.get("rpe_df"), ("Date",))
     add_dates(state.get("wellness_df"), ("Date",))
     add_dates(state.get("completion_df"), ("Date",))
-    add_dates(state.get("raw_df"), ("Assigned Date", "Date"))
+    add_dates(state.get("raw_df"), ("Session Date", "Completed Date", "Assigned Date", "Date"))
 
     if not dates:
         return PDF_MISSING_TEXT

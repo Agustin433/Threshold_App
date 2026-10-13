@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from modules.athlete_profile import ATHLETE_PROFILE_COLUMNS
-from modules.data_loader import prepare_raw_workouts_df
+from modules.data_loader import prepare_raw_workouts_df, raw_session_date_column
 from modules.evaluation_sources import DEFAULT_SOURCE, normalize_source
 from modules.jump_analysis import (
     _prepare_jump_df,
@@ -494,6 +494,49 @@ def read_full_dataset(state_key: str) -> pd.DataFrame:
         # stored CSV schema.
         normalized = _prepare_jump_df(normalized)
     return normalized
+
+
+def dataset_span(state_key: str, df: pd.DataFrame | None) -> tuple[pd.Timestamp, pd.Timestamp, set[str]] | None:
+    """(inicio, fin, atletas) que cubre un archivo entrante, para reemplazo por rango."""
+    spec = DATASET_SPECS[state_key]
+    date_col, athlete_col = spec.get("date_col"), spec.get("athlete_col")
+    if df is None or df.empty or date_col not in df.columns or athlete_col not in df.columns:
+        return None
+    dates = pd.to_datetime(df[date_col], errors="coerce").dt.normalize().dropna()
+    athletes = {name for name in df[athlete_col].map(normalize_athlete_name) if name}
+    if dates.empty or not athletes:
+        return None
+    return dates.min(), dates.max(), athletes
+
+
+def replace_dataset_span(
+    state_key: str,
+    df: pd.DataFrame,
+    span: tuple[pd.Timestamp, pd.Timestamp, set[str]] | None,
+) -> pd.DataFrame:
+    """Reemplaza el historial guardado de esos atletas dentro de [inicio, fin].
+
+    Para exports que son la fuente completa de su periodo (el cuestionario
+    de TeamBuildr trae todas las respuestas del rango): mezclar fila a fila
+    deja vivas las filas viejas cuya fecha cambio (p.ej. la correccion de
+    UTC a hora local movio respuestas al dia anterior) y quedarian dos
+    registros de la misma sesion. Fuera del rango y de esos atletas no se
+    toca nada.
+    """
+    if df is None or df.empty or span is None:
+        return read_full_dataset(state_key)
+    spec = DATASET_SPECS[state_key]
+    start, end, athletes = span
+    existing = read_full_dataset(state_key)
+    if not existing.empty:
+        existing_dates = pd.to_datetime(existing[spec["date_col"]], errors="coerce").dt.normalize()
+        existing_athletes = existing[spec["athlete_col"]].map(normalize_athlete_name)
+        inside = existing_athletes.isin(athletes) & existing_dates.between(start, end)
+        existing = existing.loc[~inside].reset_index(drop=True)
+    _ensure_store_dir()
+    merged = merge_dataset(existing, df, state_key)
+    merged.to_csv(_dataset_path(state_key), index=False)
+    return merged
 
 
 def save_dataset(state_key: str, df: pd.DataFrame) -> pd.DataFrame:
@@ -1033,7 +1076,7 @@ def _build_weekly_external_summary(
         return _empty_weekly_frame(WEEKLY_EXTERNAL_COLUMNS)
 
     athlete_col = "Athlete" if "Athlete" in prepared.columns else None
-    date_col = "Assigned Date" if "Assigned Date" in prepared.columns else "Date" if "Date" in prepared.columns else None
+    date_col = raw_session_date_column(prepared)
     if athlete_col is None or date_col is None:
         return _empty_weekly_frame(WEEKLY_EXTERNAL_COLUMNS)
 
@@ -1331,7 +1374,7 @@ def _ensure_current_week_external(
     if not result.empty and result["week_start"].eq(current_week).any():
         return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 
-    date_col = "Assigned Date" if "Assigned Date" in source_df.columns else "Date" if "Date" in source_df.columns else None
+    date_col = raw_session_date_column(source_df)
     if date_col is None:
         return result.sort_values(["Athlete", "week_start"]).reset_index(drop=True)
 

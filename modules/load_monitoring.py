@@ -7,6 +7,7 @@ import unicodedata
 import numpy as np
 import pandas as pd
 
+from modules.data_loader import raw_session_date_column
 from modules.metrics import calculate_monotony
 
 ACWR_ZONES = (
@@ -149,7 +150,10 @@ def training_dates_by_athlete(raw_df: pd.DataFrame | None) -> dict[str, pd.Datet
     if raw_df is None or raw_df.empty:
         return {}
     athlete_col = "Athlete" if "Athlete" in raw_df.columns else "Name" if "Name" in raw_df.columns else None
-    date_col = "Assigned Date" if "Assigned Date" in raw_df.columns else "Date" if "Date" in raw_df.columns else None
+    # Dia en que la sesion se hizo, no el asignado: con la fecha asignada,
+    # solo el 59% de los dias con sRPE caia en un dia "entrenado" del export
+    # real (91% con la fecha completada) y el modelo inventaba faltantes.
+    date_col = raw_session_date_column(raw_df)
     if athlete_col is None or date_col is None:
         return {}
     ledger = pd.DataFrame(

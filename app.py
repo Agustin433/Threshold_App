@@ -71,6 +71,8 @@ from local_store import (
     normalize_athlete_name,
     persist_athlete_names,
     rename_athlete_in_store,
+    dataset_span,
+    replace_dataset_span,
     save_dataset,
     upsert_athlete_profile,
 )
@@ -104,6 +106,7 @@ from modules.data_loader import (
     parse_maxes_health as shared_parse_maxes_health,
     parse_questionnaire_raw_csv as shared_parse_questionnaire_raw_csv,
     prepare_raw_workouts_df as shared_prepare_raw_workouts_df,
+    raw_session_date_column,
     parse_raw_workouts as shared_parse_raw_workouts,
     parse_rep_load_report as shared_parse_rep_load_report,
     parse_session_notes_pdf as shared_parse_session_notes_pdf,
@@ -200,6 +203,7 @@ from modules.remote_store import (
     jump_df_to_db_records as shared_jump_df_to_db_records,
     load_remote_dataset as shared_load_remote_dataset,
     load_remote_evaluations as shared_load_remote_evaluations,
+    replace_remote_dataset_span,
     save_remote_dataset as shared_save_remote_dataset,
     save_remote_evaluations as shared_save_remote_evaluations,
     supabase_dataset_store_enabled,
@@ -2941,7 +2945,7 @@ def _report_time_window_label(state: dict[str, object]) -> str:
         ("wellness_df", ["Date"]),
         ("completion_df", ["Date"]),
         ("rep_load_df", ["Date"]),
-        ("raw_df", ["Assigned Date", "Date"]),
+        ("raw_df", ["Session Date", "Completed Date", "Assigned Date", "Date"]),
         ("session_notes_df", ["Assigned Date", "Date"]),
         ("maxes_df", ["Added Date", "Date"]),
         ("jump_df", ["Date"]),
@@ -3416,8 +3420,19 @@ def _run_questionnaire_raw_job(filename: str, loader, source_file=None) -> bool:
         rpe_sessions = int(rpe_df.attrs.get("source_session_count", len(rpe_df)))
         wellness_days = int(len(wellness_df)) if wellness_df is not None else 0
 
-        save_dataset("rpe_df", rpe_df)
-        save_dataset("wellness_df", wellness_df)
+        # El export del cuestionario es la fuente completa de su periodo: se
+        # reemplaza el historial de esos atletas en ese rango en vez de
+        # mezclar. Asi una respuesta cuya fecha cambio (correccion UTC -> hora
+        # local, o dos sesiones del dia ahora sumadas) no queda duplicada con
+        # su version vieja. El fin se extiende 1 dia porque la fecha vieja en
+        # UTC podia caer al dia siguiente de la ultima respuesta del archivo.
+        spans: dict[str, tuple[pd.Timestamp, pd.Timestamp, set[str]] | None] = {}
+        for state_key, dataset in (("rpe_df", rpe_df), ("wellness_df", wellness_df)):
+            span = dataset_span(state_key, dataset)
+            if span is not None:
+                span = (span[0], span[1] + pd.Timedelta(days=1), span[2])
+            spans[state_key] = span
+            replace_dataset_span(state_key, dataset, span)
 
         remote_suffix_parts: list[str] = []
         if supabase_dataset_store_enabled():
@@ -3425,7 +3440,7 @@ def _run_questionnaire_raw_job(filename: str, loader, source_file=None) -> bool:
                 if state_key not in REMOTE_DATASET_KEYS:
                     continue
                 try:
-                    sync_stats = save_remote_dataset(state_key, dataset)
+                    sync_stats = replace_remote_dataset_span(state_key, dataset, spans.get(state_key))
                     st.session_state.datasets_loaded_from_store = False
                     remote_suffix_parts.append(f"{state_key}: {sync_stats['upserted']}")
                 except Exception as remote_exc:
@@ -5597,7 +5612,7 @@ def render_decision_panel():
         raw_execution = pd.DataFrame(columns=["Athlete", "execution_pct"])
         if prepared_raw_df is not None and not prepared_raw_df.empty:
             prepared_week = prepared_raw_df.copy()
-            date_col = "Assigned Date" if "Assigned Date" in prepared_week.columns else "Date" if "Date" in prepared_week.columns else None
+            date_col = raw_session_date_column(prepared_week)
             if date_col is not None:
                 prepared_week[date_col] = pd.to_datetime(prepared_week[date_col], errors="coerce").dt.normalize()
                 week_end = reference_date

@@ -103,6 +103,39 @@ Se pueden calibrar con datos reales si bloquean demasiado.
 
 ---
 
+## 5c. Verificación con exports reales de TeamBuildr (13/10/2026)
+
+Se usaron el Raw Data Report (25 237 series), el cuestionario (RPE, duración y wellness), los Maxes y el Completion Report. Este último viene agregado por atleta y sin fechas, así que no sirve para cruzar día por día.
+
+**Confirmado:**
+- El export trae una fila por serie (`Set Number`), así que el conteo de series es correcto.
+- Las columnas de velocidad están vacías (57 valores sobre 25 mil filas).
+
+**Errores encontrados y corregidos:**
+
+| Error | Impacto real | Corrección |
+|---|---|---|
+| El registro de sesiones usaba `Assigned Date`, no `Completed Date`. | El 45% de las sesiones se hizo otro día que el asignado. Solo el 59% de los días con sRPE caía en un día "entrenado": el modelo inventaba sesiones sin sRPE. Con la fecha real, el 91%. | Nueva columna `Session Date` (fecha completada, o la asignada si no hay) para todo el análisis. `Assigned Date` no se toca porque es la clave de deduplicación del historial y cambiarla duplicaría filas. |
+| El sRPE se fechaba en UTC. | 48 de 562 respuestas de RPE caían en el día siguiente. | Fecha en hora de Argentina (`APP_TIMEZONE`). |
+| Dos sesiones el mismo día se promediaban. | 66 de 445 días quedaban con la mitad de la carga. | sRPE por sesión sumado por día; el RPE del día queda ponderado por duración. |
+| Al re-subir el cuestionario se mezclaba fila a fila. | Una respuesta con fecha corregida habría quedado duplicada con su versión vieja. | `replace_dataset_span` (local) y `replace_remote_dataset_span` (Supabase) reemplazan solo esos atletas dentro del rango del archivo, más 1 día. Nunca reemplazan el dataset completo. |
+| Tags reales que la app no reconocía (`Core_Plank`, `Core_Dead_Bug`, `Core_V_Ups`, `Core_Carry`, `Tejidos`, `Breathing`, `Mobility MMII`) y `Ballistic MMSS` escrito "Balistic" en el mapa. Además, ejercicios frecuentes sin tag sin palabra clave (Glute Bridge, Farmer Carry, Face Pull, dorsiflexión, Hip Airplane, etc.). | El 22% de las filas quedaba sin clasificar y fuera de "Contenido entrenado". | Tags y palabras clave agregados: quedan ~4% sin clasificar. |
+
+**Resultado real (42 días al 13/10):**
+
+| Atleta | Cobertura sRPE | ACWR |
+|---|---|---|
+| Mariano Díaz Romero | 7/10 sesiones (70%); el PDF viejo decía 17% | No calculable (3 de 8 sin sRPE en 28 días) |
+| Nadia Norniella | 7/9 (78%) | 1.22 Óptimo |
+| Ignacio Rothe | 16/16 (100%) | 1.29 Óptimo |
+| Sergio Reinoso | 16/20 (80%) | 1.36 Precaución |
+
+En series de fuerza, Ignacio hizo 36 de tren inferior contra 143 de superior en 6 semanas: es un desbalance real, no un artefacto del tonelaje.
+
+**Para que las correcciones de fecha lleguen a los datos ya guardados:** volver a subir el cuestionario completo y el Raw Workouts. El Raw guardado ya trae `Completed Date`, así que la fecha de sesión se calcula al leer, sin re-subir. El cuestionario sí necesita re-subirse para corregir las fechas UTC y las sumas.
+
+---
+
 ## 6. Referencias citadas
 
 Son de memoria: verificar DOI/PMID antes de citarlas.

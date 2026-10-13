@@ -11,6 +11,7 @@ from modules.data_loader import (
     add_strength_detail_columns,
     is_prepared_raw_workouts_df,
     prepare_raw_workouts_df,
+    raw_session_date_column,
 )
 
 
@@ -237,8 +238,9 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> g
         )
         return fig
 
-    athlete_df["Week_Start"] = athlete_df["Assigned Date"].dt.normalize() - pd.to_timedelta(
-        athlete_df["Assigned Date"].dt.weekday,
+    session_dates = pd.to_datetime(athlete_df[raw_session_date_column(athlete_df) or "Assigned Date"], errors="coerce")
+    athlete_df["Week_Start"] = session_dates.dt.normalize() - pd.to_timedelta(
+        session_dates.dt.weekday,
         unit="D",
     )
 

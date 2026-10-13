@@ -65,6 +65,18 @@ TAG_CATEGORY_MAP = {
     "Jump_Ballistic": "plyo_jump",
     "Jump_Plyo": "plyo_jump",
     "Balistic MMSS": "plyo_jump",
+    # Tags reales del export de TeamBuildr (oct/2026) que no estaban
+    # mapeados; "Ballistic MMSS" es la grafia real ("Balistic" queda por
+    # compatibilidad con historial viejo).
+    "Ballistic MMSS": "plyo_jump",
+    "Core_Plank": "core_stability",
+    "Core_Dead_Bug": "core_stability",
+    "Core_V_Ups": "core_stability",
+    "Core_Carry": "core_stability",
+    "Mobility MMII": "mobility_prehab",
+    "Mobility MMSS": "mobility_prehab",
+    "Tejidos": "mobility_prehab",
+    "Breathing": "mobility_prehab",
     "Plyo MMSS": "plyo_jump",
     "Split_Jump": "plyo_jump",
     "Catch_Landing": "landing_mechanics",
@@ -111,6 +123,8 @@ EXERCISE_KEYWORDS = {
         "10m +",
         "20m +",
         "30m +",
+        "deceleration",
+        "decel",
     ],
     "iso": [
         "iso-hold",
@@ -125,6 +139,8 @@ EXERCISE_KEYWORDS = {
         "drop catch",
         "catch",
         "landing",
+        "box depth",
+        "depth drop",
     ],
     "plyo_jump": [
         "jump",
@@ -138,6 +154,9 @@ EXERCISE_KEYWORDS = {
         "split squat jump",
         "hop",
         "bound",
+        "throw",
+        "chest pass",
+        "slam",
     ],
     "core_stability": [
         "deadbug",
@@ -148,6 +167,8 @@ EXERCISE_KEYWORDS = {
         "hollow",
         "core",
         "rotation",
+        "carry",
+        "stir the pot",
     ],
     "mobility_prehab": [
         "stretch",
@@ -162,6 +183,20 @@ EXERCISE_KEYWORDS = {
         "hip stretch",
         "thoracic",
         "prayer",
+        "dorsiflexion",
+        "airplane",
+        "wall angel",
+        "circumduction",
+        "rock back",
+        "lateral walk",
+        "monster walk",
+        "wall slide",
+        "dislocat",
+        "ytw",
+        "y lift",
+        "halo",
+        "shoulder snow",
+        "snow angel",
     ],
     "strength_loaded": [
         "pull-up",
@@ -188,6 +223,16 @@ EXERCISE_KEYWORDS = {
         "bench",
         "military",
         "overhead",
+        "bridge",
+        "face pull",
+        "push up",
+        "push-up",
+        "pushup",
+        "walkout",
+        "facepull",
+        "step down",
+        "step-down",
+        "fly",
     ],
 }
 
@@ -283,7 +328,7 @@ _STRENGTH_PATTERN_TAG_PRIORITY = (
 _STRENGTH_PATTERN_KEYWORDS = (
     # Primero los accesorios de MMII con nombre compuesto, para que
     # "leg curl" / "calf raise" no caigan en curl/raise de MMSS.
-    ("accesorios_mmii", ("calf", "hamstring curl", "leg curl", "leg extension", "tibialis")),
+    ("accesorios_mmii", ("calf", "hamstring curl", "hamstring walkout", "leg curl", "leg extension", "tibialis")),
     ("dominante_cadera", ("deadlift", "rdl", "hip thrust", "thrust", "hinge", "good morning", "glute bridge", "swing", "back extension")),
     ("dominante_rodilla", ("squat", "lunge", "step-up", "step up", "leg press", "split squat", "bulgarian")),
     ("empuje_vertical", ("overhead press", "military", "push press", "landmine press", "shoulder press", "overhead")),
@@ -743,6 +788,10 @@ def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     ) from first_error
 
 
+# Zona horaria del gimnasio: los timestamps de TeamBuildr vienen en epoch UTC
+# y el "dia" de una respuesta es el dia local en que se respondio.
+APP_TIMEZONE = "America/Argentina/Buenos_Aires"
+
 QUESTIONNAIRE_RAW_ID_MAP: dict[int, str] = {
     103496: "RPE",
     103497: "Duration_min",
@@ -1139,7 +1188,15 @@ def parse_questionnaire_raw_csv(filepath_or_buffer) -> tuple[pd.DataFrame, pd.Da
     dataframe["Athlete"] = athlete.mask(athlete.eq(""), pd.NA)
 
     complete_ts = pd.to_numeric(dataframe["Timestamp Complete"], errors="coerce")
-    dataframe["Date"] = pd.to_datetime(complete_ts, unit="s", errors="coerce").dt.normalize()
+    # El timestamp es epoch (UTC). Normalizar en UTC mandaba al dia siguiente
+    # todo cuestionario respondido despues de las 21:00 de Argentina (48 de
+    # 562 respuestas de RPE en el export real de oct/2026).
+    dataframe["Date"] = (
+        pd.to_datetime(complete_ts, unit="s", errors="coerce", utc=True)
+        .dt.tz_convert(APP_TIMEZONE)
+        .dt.tz_localize(None)
+        .dt.normalize()
+    )
     dataframe["Question_ID"] = pd.to_numeric(dataframe["Question ID"], errors="coerce").astype("Int64")
     dataframe["Mapped_Field"] = dataframe["Question_ID"].map(QUESTIONNAIRE_RAW_ID_MAP)
 
@@ -1193,22 +1250,32 @@ def parse_questionnaire_raw_csv(filepath_or_buffer) -> tuple[pd.DataFrame, pd.Da
     for column in rpe_columns:
         if column not in rpe_sessions.columns:
             rpe_sessions[column] = pd.NA
+    for column in rpe_columns:
+        rpe_sessions[column] = pd.to_numeric(rpe_sessions[column], errors="coerce")
+    # sRPE por sesion (Workout_Key) y despues suma por dia. Antes se
+    # promediaban RPE y duracion del dia: con dos sesiones (66 de 445 dias en
+    # el export real) el dia quedaba con la mitad de la carga.
+    valid_session = (
+        rpe_sessions["RPE"].gt(0) & rpe_sessions["Duration_min"].gt(0)
+    )
+    rpe_sessions["_session_srpe"] = (rpe_sessions["RPE"] * rpe_sessions["Duration_min"]).where(valid_session)
+    rpe_sessions["_valid_duration"] = rpe_sessions["Duration_min"].where(valid_session)
     rpe_df = (
         rpe_sessions.groupby(["Date", "Athlete"], as_index=False)
-        .agg({"RPE": "mean", "Duration_min": "mean"})
+        .agg(
+            _rpe_mean=("RPE", "mean"),
+            _duration_mean=("Duration_min", "mean"),
+            sRPE=("_session_srpe", lambda s: s.sum(min_count=1)),
+            _valid_duration=("_valid_duration", lambda s: s.sum(min_count=1)),
+        )
         .sort_values(["Date", "Athlete"])
         .reset_index(drop=True)
     )
-    valid_srpe_mask = (
-        rpe_df["RPE"].notna()
-        & rpe_df["Duration_min"].notna()
-        & (rpe_df["RPE"] > 0)
-        & (rpe_df["Duration_min"] > 0)
-    )
-    rpe_df["sRPE"] = pd.NA
-    rpe_df.loc[valid_srpe_mask, "sRPE"] = (
-        rpe_df.loc[valid_srpe_mask, "RPE"] * rpe_df.loc[valid_srpe_mask, "Duration_min"]
-    )
+    has_srpe = rpe_df["sRPE"].notna()
+    # Con sRPE valido: duracion total del dia y RPE ponderado por duracion
+    # (RPE x minutos / minutos), consistente con sRPE = RPE x duracion.
+    rpe_df["Duration_min"] = rpe_df["_valid_duration"].where(has_srpe, rpe_df["_duration_mean"])
+    rpe_df["RPE"] = (rpe_df["sRPE"] / rpe_df["_valid_duration"]).where(has_srpe, rpe_df["_rpe_mean"])
     rpe_df = rpe_df[["Date", "Athlete", "RPE", "Duration_min", "sRPE"]]
     for column in ["RPE", "Duration_min", "sRPE"]:
         rpe_df[column] = pd.to_numeric(rpe_df[column], errors="coerce")
@@ -1641,6 +1708,45 @@ def is_prepared_raw_workouts_df(raw_df: pd.DataFrame | None) -> bool:
     return PREPARED_RAW_WORKOUT_COLUMNS.issubset(raw_df.columns)
 
 
+RAW_SESSION_DATE_COL = "Session Date"
+_RAW_SESSION_DATE_CANDIDATES = (RAW_SESSION_DATE_COL, "Completed Date", "Assigned Date", "Date")
+
+
+def raw_session_date_column(df: pd.DataFrame | None) -> str | None:
+    """Columna con el dia en que la sesion se HIZO (no el dia asignado).
+
+    En el export real de TeamBuildr (oct/2026) el 45% de las sesiones se
+    completo otro dia que el asignado. Todo analisis por dia/semana (registro
+    de sesiones del ACWR, cobertura de sRPE, volumen semanal) debe usar esta
+    columna; "Assigned Date" queda solo como clave de almacenamiento.
+    """
+    if df is None:
+        return None
+    return next((column for column in _RAW_SESSION_DATE_CANDIDATES if column in df.columns), None)
+
+
+def _ensure_session_date(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Agrega "Session Date" = Completed Date (si existe) o Assigned Date.
+
+    No modifica "Assigned Date": es parte de la clave de dedupe del
+    historial guardado y cambiarla duplicaria filas en la proxima subida.
+    """
+    if df is None or df.empty or RAW_SESSION_DATE_COL in df.columns:
+        return df
+    session = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+    if "Completed Date" in df.columns:
+        session = pd.to_datetime(df["Completed Date"], errors="coerce")
+    if "Assigned Date" in df.columns:
+        session = session.fillna(pd.to_datetime(df["Assigned Date"], errors="coerce"))
+    elif "Date" in df.columns:
+        session = session.fillna(pd.to_datetime(df["Date"], errors="coerce"))
+    result = df.copy()
+    result[RAW_SESSION_DATE_COL] = session.dt.normalize()
+    for key, value in getattr(df, "attrs", {}).items():
+        result.attrs[key] = value
+    return result
+
+
 def add_strength_detail_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:
     """Agrega `strength_pattern` y `Series` a las filas de fuerza si faltan.
 
@@ -1692,7 +1798,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     if raw_df is None:
         return None
     if is_prepared_raw_workouts_df(raw_df):
-        return _mark_prepared_raw_workouts_df(add_strength_detail_columns(raw_df.copy()))
+        return _mark_prepared_raw_workouts_df(_ensure_session_date(add_strength_detail_columns(raw_df.copy())))
 
     df = raw_df.copy()
     column_aliases = {
@@ -1835,7 +1941,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     valid_strength = strength_mask & result.gt(0) & reps.gt(0)
     df.loc[valid_strength, "Volume_Load_kg"] = (result.loc[valid_strength] * reps.loc[valid_strength]).round(3)
 
-    df = add_strength_detail_columns(df)
+    df = _ensure_session_date(add_strength_detail_columns(df))
 
     contacts_mask = df["stimulus_category"].isin(["plyo_jump", "landing_mechanics"]) & reps.gt(0)
     df.loc[contacts_mask, "Contacts"] = reps.loc[contacts_mask]

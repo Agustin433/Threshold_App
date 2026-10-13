@@ -14,7 +14,7 @@ DATASET_CONFIG = (
     ("rpe_df", "RPE + Tiempo", ("Date",)),
     ("wellness_df", "Wellness", ("Date",)),
     ("completion_df", "Completion", ("Date",)),
-    ("raw_df", "Raw Workouts", ("Assigned Date", "Date")),
+    ("raw_df", "Raw Workouts", ("Session Date", "Completed Date", "Assigned Date", "Date")),
     ("maxes_df", "Maxes", ("Added Date", "Date")),
     ("jump_df", "Evaluaciones", ("Date",)),
 )
@@ -225,7 +225,7 @@ def _build_raw_category_breakdown(
     if raw_df is None or raw_df.empty or "stimulus_category" not in raw_df.columns:
         return pd.DataFrame(columns=columns), summary
 
-    raw_dates = _coerce_dates(raw_df, ("Assigned Date", "Date"))
+    raw_dates = _coerce_dates(raw_df, ("Session Date", "Completed Date", "Assigned Date", "Date"))
     raw_window = raw_df.loc[(raw_dates >= window_start) & (raw_dates <= reference_ts)].copy()
     if raw_window.empty:
         return pd.DataFrame(columns=columns), summary
@@ -430,7 +430,7 @@ def _build_alerts(
 
     raw_df = dataset_frames.get("raw_df")
     if raw_df is not None and not raw_df.empty:
-        raw_dates = _coerce_dates(raw_df, ("Assigned Date", "Date"))
+        raw_dates = _coerce_dates(raw_df, ("Session Date", "Completed Date", "Assigned Date", "Date"))
         raw_window = raw_df.loc[(raw_dates >= window_start) & (raw_dates <= reference_ts)].copy()
         if not raw_window.empty:
             if "is_untagged" in raw_window.columns:

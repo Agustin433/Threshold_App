@@ -270,6 +270,61 @@ def save_remote_dataset(state_key: str, df: pd.DataFrame) -> dict[str, int | boo
     return {"enabled": True, "upserted": upserted}
 
 
+def replace_remote_dataset_span(
+    state_key: str,
+    df: pd.DataFrame,
+    span: tuple[pd.Timestamp, pd.Timestamp, set[str]] | None,
+) -> dict[str, int | bool]:
+    """Version remota de `local_store.replace_dataset_span`.
+
+    Upsert primero y delete despues (mismo criterio que el reemplazo total):
+    si se corta a mitad, quedan a lo sumo filas viejas de mas, nunca datos
+    borrados sin reponer. Solo borra filas de esos atletas dentro del rango
+    que no vienen en el archivo; nunca reemplaza el dataset completo.
+    """
+    if not supabase_dataset_store_enabled() or state_key not in REMOTE_DATASET_KEYS:
+        return {"enabled": False, "upserted": 0, "deleted": 0}
+    stats = save_remote_dataset(state_key, df)
+    if span is None:
+        return {**stats, "deleted": 0}
+
+    start, end, athletes = span
+    desired_keys = {record["row_key"] for record in dataset_df_to_remote_records(state_key, df)}
+    _, _, table = _supabase_dataset_store_config()
+    deleted = 0
+    for athlete in sorted(athletes):
+        existing: list[dict] = []
+        offset = 0
+        while True:
+            batch = _supabase_request(
+                "GET",
+                table,
+                query={
+                    "select": "row_key",
+                    "dataset_key": f"eq.{state_key}",
+                    "athlete": f"eq.{athlete}",
+                    "event_date": [f"gte.{start.date().isoformat()}", f"lte.{end.date().isoformat()}"],
+                    "limit": 1000,
+                    "offset": offset,
+                },
+            ) or []
+            existing.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+        stale = sorted({row.get("row_key") for row in existing if row.get("row_key")} - desired_keys)
+        for chunk in _chunked_records([{"k": key} for key in stale], chunk_size=100):
+            keys = ",".join(item["k"] for item in chunk)
+            rows = _supabase_request(
+                "DELETE",
+                table,
+                query={"dataset_key": f"eq.{state_key}", "row_key": f"in.({keys})"},
+                prefer="return=representation",
+            ) or []
+            deleted += len(rows) if rows else len(chunk)
+    return {**stats, "deleted": deleted}
+
+
 def load_remote_dataset(state_key: str) -> pd.DataFrame:
     if not supabase_dataset_store_enabled() or state_key not in REMOTE_DATASET_KEYS:
         return pd.DataFrame()
