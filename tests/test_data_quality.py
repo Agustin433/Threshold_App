@@ -264,5 +264,64 @@ class DataQualityReportTest(unittest.TestCase):
         self.assertEqual(athlete_summary.loc["Ana Lopez", "Semaforo"], "🔴 Rojo")
 
 
+class SrpeCoverageBasisTest(unittest.TestCase):
+    # 6 semanas, 3 sesiones/semana (lun-mie-vie) segun Raw Workouts.
+    DAYS = pd.date_range("2026-08-24", "2026-10-04", freq="D")
+    TRAINED = [day for day in DAYS if day.weekday() in (0, 2, 4)]
+
+    def _summary(self, logged_dates, *, with_raw=True):
+        rpe_df = pd.DataFrame([{"Athlete": "Mariano Díaz", "Date": day, "sRPE": 450} for day in logged_dates])
+        wellness_df = pd.DataFrame([{"Athlete": "Mariano Díaz", "Date": day, "Wellness_Score": 20} for day in logged_dates])
+        raw_df = (
+            pd.DataFrame([{"Athlete": "mariano diaz", "Assigned Date": day, "Exercise": "Back Squat"} for day in self.TRAINED])
+            if with_raw
+            else None
+        )
+        report = compute_data_quality_report(
+            rpe_df=rpe_df,
+            wellness_df=wellness_df,
+            completion_df=None,
+            raw_df=raw_df,
+            maxes_df=None,
+            jump_df=None,
+            athletes_list=["Mariano Díaz"],
+            window_days=42,
+            reference_date="2026-10-04",
+        )
+        return report["athlete_summary"].set_index("Atleta").loc["Mariano Díaz"]
+
+    def test_perfect_reporting_three_days_a_week_is_full_coverage(self):
+        # Con la base calendario esto daba 18/42 = 43% y semaforo rojo.
+        row = self._summary(self.TRAINED)
+
+        self.assertEqual(row["Base cobertura sRPE"], "sesiones")
+        self.assertEqual(int(row["Sesiones realizadas"]), 18)
+        self.assertEqual(float(row["% cobertura sRPE"]), 100.0)
+        self.assertEqual(row["Semaforo"], "🟢 Verde")
+
+    def test_partial_reporting_is_measured_against_sessions_done(self):
+        row = self._summary(self.TRAINED[::3])
+
+        self.assertEqual(int(row["Dias con sRPE"]), 6)
+        self.assertAlmostEqual(float(row["% cobertura sRPE"]), round(6 / 18 * 100, 1))
+        self.assertEqual(row["Semaforo"], "🔴 Rojo")
+
+    def test_without_raw_workouts_falls_back_to_calendar_and_says_so(self):
+        row = self._summary(self.TRAINED, with_raw=False)
+
+        self.assertEqual(row["Base cobertura sRPE"], "dias calendario")
+        self.assertTrue(pd.isna(row["Sesiones realizadas"]))
+        self.assertAlmostEqual(float(row["% cobertura sRPE"]), round(18 / 42 * 100, 1))
+
+    def test_pdf_detail_names_the_coverage_basis(self):
+        from modules.report_generator import _quality_detail_text
+
+        with_sessions = _quality_detail_text(self._summary(self.TRAINED[::3]))
+        without_raw = _quality_detail_text(self._summary(self.TRAINED, with_raw=False))
+
+        self.assertIn("de sesiones (6/18)", with_sessions)
+        self.assertIn("de días (sin registro de sesiones)", without_raw)
+
+
 if __name__ == "__main__":
     unittest.main()

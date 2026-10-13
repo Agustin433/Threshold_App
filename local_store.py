@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import unicodedata
 from difflib import SequenceMatcher
 from itertools import combinations
 from pathlib import Path
@@ -18,7 +17,12 @@ from modules.jump_analysis import (
     dj_drop_height_backfill_mask,
     resolve_dj_drop_height_series,
 )
-from modules.load_monitoring import calc_acwr, calc_monotony_strain
+from modules.load_monitoring import (
+    athlete_match_key,
+    calc_acwr,
+    calc_monotony_strain,
+    training_dates_by_athlete,
+)
 from modules.metrics import calculate_monotony
 
 RECENT_WEEKS = 6
@@ -725,46 +729,6 @@ def load_full_history_state(keys: list[str] | None = None) -> dict[str, pd.DataF
     return state
 
 
-def training_dates_by_athlete(raw_df: pd.DataFrame | None) -> dict[str, pd.DatetimeIndex]:
-    """Fechas con sesion realizada por atleta, segun Raw Workouts.
-
-    Es el registro independiente que permite distinguir un dia de descanso de
-    una sesion entrenada sin sRPE en `calc_acwr`. Supone que el export de Raw
-    Workouts solo trae series efectivamente registradas (los bloques "No
-    Exercises Completed Yet" se descartan al parsear).
-    """
-    if raw_df is None or raw_df.empty:
-        return {}
-    athlete_col = "Athlete" if "Athlete" in raw_df.columns else "Name" if "Name" in raw_df.columns else None
-    date_col = "Assigned Date" if "Assigned Date" in raw_df.columns else "Date" if "Date" in raw_df.columns else None
-    if athlete_col is None or date_col is None:
-        return {}
-    ledger = pd.DataFrame(
-        {
-            "Athlete": raw_df[athlete_col].map(normalize_athlete_name),
-            "Date": pd.to_datetime(raw_df[date_col], errors="coerce").dt.normalize(),
-        }
-    ).dropna()
-    ledger = ledger[ledger["Athlete"].astype(str).str.strip() != ""]
-    # Clave sin tildes ni mayusculas: el RPE y el Raw Workouts vienen de
-    # exports distintos y "Díaz" vs "Diaz" haria que el registro no matchee
-    # en silencio (y el ACWR volveria a contar faltantes como 0).
-    ledger["key"] = ledger["Athlete"].map(_athlete_match_key)
-    return {
-        key: pd.DatetimeIndex(group["Date"].unique()).sort_values()
-        for key, group in ledger.groupby("key")
-    }
-
-
-def training_dates_for_athlete(raw_df: pd.DataFrame | None, athlete: object) -> pd.DatetimeIndex | None:
-    return training_dates_by_athlete(raw_df).get(_athlete_match_key(athlete))
-
-
-def _athlete_match_key(value: object) -> str:
-    text = unicodedata.normalize("NFKD", normalize_athlete_name(value))
-    return "".join(char for char in text if not unicodedata.combining(char)).casefold()
-
-
 def build_load_models(
     rpe_df: pd.DataFrame | None,
     *,
@@ -793,7 +757,7 @@ def build_load_models(
         acwr_df = calc_acwr(
             athlete_df["sRPE"],
             pd.DatetimeIndex(athlete_df["Date"]),
-            training_dates=training_ledger.get(_athlete_match_key(athlete)),
+            training_dates=training_ledger.get(athlete_match_key(athlete)),
         )
         mono_df = calc_monotony_strain(acwr_df)
         if weeks is None:

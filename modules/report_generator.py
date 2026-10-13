@@ -19,8 +19,8 @@ from local_store import build_weekly_summaries
 from modules.data_loader import _wellness_score as canonical_wellness_score
 from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
-from local_store import training_dates_for_athlete
 from modules.load_monitoring import (
+    training_dates_for_athlete,
     ACWR_ZONE_DISPLAY_LABELS,
     acwr_unavailable_reason,
     calc_acwr,
@@ -1569,9 +1569,22 @@ def _quality_detail_text(athlete_quality: pd.Series | None) -> str | None:
         suffix = " (registros adicionales)" if float(value) > 100.0 else ""
         return f"{label} {_display_metric(display_value, digits=0, suffix='%')}{suffix}"
 
+    srpe_text = coverage_text("sRPE", srpe_cov)
+    if srpe_text:
+        # La base cambia segun haya Raw Workouts del atleta: sin rotularla,
+        # "17%" de dias calendario y "17%" de sesiones se leen igual.
+        if str(athlete_quality.get("Base cobertura sRPE") or "") == "sesiones":
+            sessions = _coerce_float(athlete_quality.get("Sesiones realizadas"))
+            srpe_days = _coerce_float(athlete_quality.get("Dias con sRPE"))
+            if sessions is not None and srpe_days is not None:
+                srpe_text = f"{srpe_text} de sesiones ({int(srpe_days)}/{int(sessions)})"
+            else:
+                srpe_text = f"{srpe_text} de sesiones"
+        else:
+            srpe_text = f"{srpe_text} de días (sin registro de sesiones)"
     parts = _compact_lines(
         [
-            coverage_text("sRPE", srpe_cov),
+            srpe_text,
             # "Wellness" aca es dias-con-wellness / dias-con-sRPE, no dias-con-wellness
             # / ventana. Rotulado explicito para no leerlo como cobertura de ventana.
             coverage_text("Wellness/sRPE", wellness_cov),

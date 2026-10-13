@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import unicodedata
+
 import numpy as np
 import pandas as pd
 
@@ -116,6 +118,50 @@ ACWR_MAX_MISSING_FRAC_ACUTE = 0.34
 # Monotonia (Foster) de una semana con sesiones sin reportar: la SD semanal
 # queda dominada por los ceros falsos, no por la variabilidad real.
 MONOTONY_MAX_MISSING_FRAC = 0.34
+
+
+def athlete_match_key(value: object) -> str:
+    """Clave de cruce entre exports: sin tildes, espacios repetidos ni mayusculas.
+
+    El RPE y el Raw Workouts vienen de exports distintos; "Díaz" vs "Diaz"
+    haria que el registro de sesiones no matchee en silencio (y el ACWR y la
+    cobertura volverian a tratar las sesiones sin sRPE como descanso).
+    """
+    if value is None or pd.isna(value):
+        return ""
+    text = unicodedata.normalize("NFKD", " ".join(str(value).strip().split()))
+    return "".join(char for char in text if not unicodedata.combining(char)).casefold()
+
+
+def training_dates_by_athlete(raw_df: pd.DataFrame | None) -> dict[str, pd.DatetimeIndex]:
+    """Fechas con sesion realizada por atleta (clave `athlete_match_key`), segun Raw Workouts.
+
+    Es el registro independiente que permite distinguir un dia de descanso de
+    una sesion entrenada sin sRPE. Supone que el export de Raw Workouts solo
+    trae series efectivamente registradas (los bloques "No Exercises Completed
+    Yet" se descartan al parsear).
+    """
+    if raw_df is None or raw_df.empty:
+        return {}
+    athlete_col = "Athlete" if "Athlete" in raw_df.columns else "Name" if "Name" in raw_df.columns else None
+    date_col = "Assigned Date" if "Assigned Date" in raw_df.columns else "Date" if "Date" in raw_df.columns else None
+    if athlete_col is None or date_col is None:
+        return {}
+    ledger = pd.DataFrame(
+        {
+            "key": raw_df[athlete_col].map(athlete_match_key),
+            "Date": pd.to_datetime(raw_df[date_col], errors="coerce").dt.normalize(),
+        }
+    ).dropna()
+    ledger = ledger[ledger["key"] != ""]
+    return {
+        key: pd.DatetimeIndex(group["Date"].unique()).sort_values()
+        for key, group in ledger.groupby("key")
+    }
+
+
+def training_dates_for_athlete(raw_df: pd.DataFrame | None, athlete: object) -> pd.DatetimeIndex | None:
+    return training_dates_by_athlete(raw_df).get(athlete_match_key(athlete))
 
 
 def _normalized_training_dates(training_dates) -> pd.DatetimeIndex:

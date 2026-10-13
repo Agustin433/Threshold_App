@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from modules.athlete_profile import missing_profile_fields
+from modules.load_monitoring import athlete_match_key, training_dates_by_athlete
 
 
 DATASET_CONFIG = (
@@ -258,6 +259,10 @@ def _build_raw_category_breakdown(
     return breakdown[columns], summary
 
 
+COVERAGE_BASIS_SESSIONS = "sesiones"
+COVERAGE_BASIS_CALENDAR = "dias calendario"
+
+
 def _build_athlete_summary(
     rpe_df: pd.DataFrame | None,
     wellness_df: pd.DataFrame | None,
@@ -265,17 +270,21 @@ def _build_athlete_summary(
     window_start: pd.Timestamp,
     reference_ts: pd.Timestamp,
     window_days: int,
+    raw_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     columns = [
         "Atleta",
         "Dias con sRPE",
+        "Sesiones realizadas",
         "Dias con Wellness",
         "% cobertura sRPE",
+        "Base cobertura sRPE",
         "% cobertura Wellness",
         "Ultimo sRPE",
         "Ultimo Wellness",
         "Semaforo",
     ]
+    training_ledger = training_dates_by_athlete(raw_df)
     has_rpe_source = rpe_df is not None and not rpe_df.empty
     has_wellness_source = wellness_df is not None and not wellness_df.empty
     if not has_rpe_source and not has_wellness_source:
@@ -322,9 +331,26 @@ def _build_athlete_summary(
         athlete_rpe = rpe_window[rpe_window["_athlete"] == athlete] if not rpe_window.empty else rpe_window
         athlete_wellness = wellness_window[wellness_window["_athlete"] == athlete] if not wellness_window.empty else wellness_window
 
-        srpe_days = int(athlete_rpe["_quality_date"].dropna().nunique())
+        srpe_dates = set(pd.to_datetime(athlete_rpe["_quality_date"].dropna()).dt.normalize())
+        srpe_days = len(srpe_dates)
         wellness_days = int(athlete_wellness["_quality_date"].dropna().nunique())
-        srpe_pct = round((srpe_days / window_days) * 100, 1) if window_days > 0 else 0.0
+        # Cobertura de sRPE = sesiones con sRPE / sesiones realizadas. Antes el
+        # denominador era la ventana en dias calendario: un atleta que entrena
+        # 3 veces por semana y reporta todo no podia superar ~43% y quedaba en
+        # rojo siempre. Las sesiones realizadas salen del Raw Workouts (mas
+        # cualquier dia con sRPE, que tambien implica sesion). Sin Raw
+        # Workouts del atleta en la ventana no hay forma de saber cuantas
+        # sesiones hizo: se conserva la base calendario y se rotula.
+        ledger_dates = training_ledger.get(athlete_match_key(athlete), pd.DatetimeIndex([]))
+        ledger_in_window = {day for day in ledger_dates if window_start <= day <= reference_ts}
+        if ledger_in_window:
+            sessions_done = len(ledger_in_window | srpe_dates)
+            srpe_pct = round((srpe_days / sessions_done) * 100, 1)
+            coverage_basis = COVERAGE_BASIS_SESSIONS
+        else:
+            sessions_done = None
+            srpe_pct = round((srpe_days / window_days) * 100, 1) if window_days > 0 else 0.0
+            coverage_basis = COVERAGE_BASIS_CALENDAR
         wellness_pct = round((wellness_days / srpe_days) * 100, 1) if srpe_days > 0 else 0.0
 
         athlete_rpe_full = rpe_full[rpe_full["_athlete"] == athlete] if not rpe_full.empty else rpe_full
@@ -343,8 +369,10 @@ def _build_athlete_summary(
             {
                 "Atleta": athlete,
                 "Dias con sRPE": srpe_days,
+                "Sesiones realizadas": sessions_done,
                 "Dias con Wellness": wellness_days,
                 "% cobertura sRPE": srpe_pct,
+                "Base cobertura sRPE": coverage_basis,
                 "% cobertura Wellness": wellness_pct,
                 "Ultimo sRPE": _format_date(athlete_rpe_full["_quality_date"].max() if not athlete_rpe_full.empty else pd.NaT),
                 "Ultimo Wellness": _format_date(
@@ -476,6 +504,7 @@ def compute_data_quality_report(
         window_start,
         reference_ts,
         window_days,
+        raw_df=raw_df,
     )
     alerts = _build_alerts(dataset_summary, athlete_summary, dataset_frames, resolved_athletes, window_start, reference_ts)
 
