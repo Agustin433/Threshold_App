@@ -18,6 +18,8 @@ from modules.jump_analysis import (
     resolve_dj_drop_height_series,
 )
 from modules.load_monitoring import (
+    DAY_STATUS_MISSING,
+    MONOTONY_MAX_MISSING_FRAC,
     athlete_match_key,
     calc_acwr,
     calc_monotony_strain,
@@ -147,6 +149,9 @@ WEEKLY_LOAD_COLUMNS = [
     "monotony_warning",
     "strain",
     "ACWR_EWMA_last",
+    "sessions_done",
+    "sessions_missing",
+    "weekly_sRPE_model",
 ]
 WEEKLY_WELLNESS_COLUMNS = [
     "Athlete",
@@ -886,11 +891,27 @@ def _build_weekly_load_summary(
         if athlete_df.empty:
             continue
 
+        # Con registro de sesiones (Dia_Estado), la semana sabe cuantas
+        # sesiones se entrenaron y cuantas quedaron sin sRPE; sin el, las
+        # sesiones realizadas son las reportadas, como antes.
+        if "Dia_Estado" in athlete_df.columns:
+            athlete_df["_missing"] = athlete_df["Dia_Estado"].eq(DAY_STATUS_MISSING).astype(int)
+        else:
+            athlete_df["_missing"] = 0
+        athlete_df["_done"] = athlete_df["sRPE_diario"].gt(0).astype(int) + athlete_df["_missing"]
+        if "sRPE_modelo" in athlete_df.columns:
+            athlete_df["_model_load"] = pd.to_numeric(athlete_df["sRPE_modelo"], errors="coerce").fillna(0.0)
+        else:
+            athlete_df["_model_load"] = athlete_df["sRPE_diario"]
+
         athlete_df["week_start"] = _week_start(athlete_df["Date"])
         weekly = (
             athlete_df.groupby("week_start", as_index=False)
             .agg(
                 weekly_sRPE=("sRPE_diario", "sum"),
+                weekly_sRPE_model=("_model_load", "sum"),
+                sessions_done=("_done", "sum"),
+                sessions_missing=("_missing", "sum"),
                 sessions_count=("sRPE_diario", lambda s: int(pd.Series(s).gt(0).sum())),
                 sRPE_mean_session=(
                     "sRPE_diario",
@@ -927,6 +948,14 @@ def _build_weekly_load_summary(
             how="left",
         )
         weekly["monotony"] = pd.to_numeric(weekly["monotony"], errors="coerce")
+        # Misma regla que calc_monotony_strain: con sesiones sin sRPE, los
+        # dias sin reporte entrarian como carga 0 y la monotonia mediria los
+        # huecos, no la distribucion real de la carga.
+        missing_frac = weekly["sessions_missing"] / weekly["sessions_done"].where(weekly["sessions_done"] > 0)
+        incomplete = missing_frac.fillna(0.0) > MONOTONY_MAX_MISSING_FRAC
+        weekly.loc[incomplete, "monotony"] = np.nan
+        weekly.loc[incomplete, "monotony_status"] = "incomplete_log"
+        weekly.loc[incomplete, "monotony_warning"] = "sesiones_sin_registro"
         weekly["strain"] = np.where(
             weekly["monotony_status"].eq("standard"),
             weekly["weekly_sRPE"] * weekly["monotony"],
@@ -934,7 +963,9 @@ def _build_weekly_load_summary(
         )
         weekly["Athlete"] = athlete
         weekly["is_current_week"] = False
-        weekly = weekly[~((weekly["weekly_sRPE"] <= 0) & (weekly["sessions_count"] <= 0))]
+        # Una semana entrenada sin ningun sRPE se conserva: si se borrara, la
+        # cronica "4 semanas previas" del ACWR semanal tomaria otras semanas.
+        weekly = weekly[~((weekly["weekly_sRPE"] <= 0) & (weekly["sessions_done"] <= 0))]
         rows.append(weekly[WEEKLY_LOAD_COLUMNS])
 
     if not rows:
@@ -1155,14 +1186,34 @@ def _ensure_current_week_load(
         scoped = scoped[scoped["Date"].between(current_week, today_ts)].sort_values("Date")
         if scoped.empty:
             continue
+        logged_days = int(pd.to_numeric(scoped["sRPE_diario"], errors="coerce").gt(0).sum()) if "sRPE_diario" in scoped.columns else 0
+        missing_days = int(scoped["Dia_Estado"].eq(DAY_STATUS_MISSING).sum()) if "Dia_Estado" in scoped.columns else 0
+        model_load = (
+            float(pd.to_numeric(scoped["sRPE_modelo"], errors="coerce").fillna(0.0).sum())
+            if "sRPE_modelo" in scoped.columns
+            else np.nan
+        )
         acwr_last_rows.append(
             {
                 "Athlete": athlete,
                 "week_start": current_week,
                 "ACWR_EWMA_last": pd.to_numeric(scoped.iloc[-1].get("ACWR_EWMA"), errors="coerce"),
+                "sessions_done": logged_days + missing_days,
+                "sessions_missing": missing_days,
+                "weekly_sRPE_model": model_load,
             }
         )
-    current_rows = current_rows.merge(pd.DataFrame(acwr_last_rows), on=["Athlete", "week_start"], how="left")
+    current_rows = current_rows.merge(
+        pd.DataFrame(
+            acwr_last_rows,
+            columns=["Athlete", "week_start", "ACWR_EWMA_last", "sessions_done", "sessions_missing", "weekly_sRPE_model"],
+        ),
+        on=["Athlete", "week_start"],
+        how="left",
+    )
+    current_rows["sessions_done"] = current_rows["sessions_done"].fillna(current_rows["sessions_count"])
+    current_rows["sessions_missing"] = current_rows["sessions_missing"].fillna(0)
+    current_rows["weekly_sRPE_model"] = current_rows["weekly_sRPE_model"].fillna(current_rows["weekly_sRPE"])
     monotony_rows = []
     for athlete, athlete_daily in current_daily.groupby("Athlete"):
         calendar_loads = _calendar_load_series(
@@ -1186,6 +1237,11 @@ def _ensure_current_week_load(
         how="left",
     )
     current_rows["monotony"] = pd.to_numeric(current_rows["monotony"], errors="coerce")
+    current_missing_frac = current_rows["sessions_missing"] / current_rows["sessions_done"].where(current_rows["sessions_done"] > 0)
+    current_incomplete = current_missing_frac.fillna(0.0) > MONOTONY_MAX_MISSING_FRAC
+    current_rows.loc[current_incomplete, "monotony"] = np.nan
+    current_rows.loc[current_incomplete, "monotony_status"] = "incomplete_log"
+    current_rows.loc[current_incomplete, "monotony_warning"] = "sesiones_sin_registro"
     current_rows["strain"] = np.where(
         current_rows["monotony_status"].eq("standard"),
         current_rows["weekly_sRPE"] * current_rows["monotony"],

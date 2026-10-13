@@ -21,6 +21,7 @@ from modules.data_loader import prepare_raw_workouts_df
 from modules.data_quality import compute_data_quality_report
 from modules.load_monitoring import (
     training_dates_for_athlete,
+    ACWR_MAX_MISSING_FRAC_ACUTE,
     ACWR_ZONE_DISPLAY_LABELS,
     acwr_unavailable_reason,
     calc_acwr,
@@ -1010,6 +1011,16 @@ def _quality_athlete_row(quality_report: dict[str, object], athlete: str) -> pd.
 
 
 PROFESSIONAL_ACWR_GATED_ZONE_TEXT = "Sin zona (registro insuficiente)"
+PROFESSIONAL_WEEKLY_CHANGE_BLOCKED_TEXT = "No comparable (sesiones sin sRPE o semana previa sin registro)"
+
+
+def _weekly_missing_frac(row: pd.Series) -> float:
+    """Fraccion de sesiones de la semana sin sRPE; 0 si la fila no trae el registro."""
+    done = _coerce_float(row.get("sessions_done"))
+    missing = _coerce_float(row.get("sessions_missing"))
+    if done is None or missing is None or done <= 0:
+        return 0.0
+    return missing / done
 
 
 def _professional_load_quality_gate(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, str]:
@@ -5940,6 +5951,7 @@ def _build_professional_internal_load_context(
                     "value": float(row["weekly_sRPE"]),
                     "ema": float(row["EMA6"]),
                     "sessions": _coerce_float(row.get("sessions_count")),
+                    "missing_frac": _weekly_missing_frac(row),
                     "evaluation": pd.Timestamp(row["week_start"]).normalize() in eval_weeks,
                 }
                 for _, row in weekly_chart_source.iterrows()
@@ -5979,7 +5991,18 @@ def _build_professional_internal_load_context(
     current_week_daily_mean = (current_week_total / current_week_days) if current_week_total is not None and current_week_days > 0 else None
     weekly_change = None
     weekly_change_pct = None
-    if analysis_scope == "last_complete_week" and len(weekly_points) >= 2:
+    # Con sesiones sin sRPE en cualquiera de las dos semanas, la variacion
+    # compara huecos de reporte, no carga (p.ej. "-54.8%" con 1 de 4 sesiones
+    # reportadas): no se emite.
+    # Ademas las dos semanas deben ser consecutivas: las semanas sin ningun
+    # sRPE no entran a `weekly_points`, y "vs semana previa" terminaba
+    # comparando contra una semana de hace 14 dias o mas.
+    change_comparable = (
+        len(weekly_points) >= 2
+        and all(float(point.get("missing_frac") or 0.0) <= ACWR_MAX_MISSING_FRAC_ACUTE for point in weekly_points[-2:])
+        and (pd.Timestamp(weekly_points[-1]["week_start"]) - pd.Timestamp(weekly_points[-2]["week_start"])).days == 7
+    )
+    if analysis_scope == "last_complete_week" and len(weekly_points) >= 2 and change_comparable:
         current_week_value = _coerce_float(weekly_points[-1].get("value"))
         previous_week_value = _coerce_float(weekly_points[-2].get("value"))
         if current_week_value is not None and previous_week_value is not None:
@@ -6021,6 +6044,7 @@ def _build_professional_internal_load_context(
         "days_without_data": max(0, 7 - days_with_data) if has_daily else None,
         "weekly_change": weekly_change,
         "weekly_change_pct": weekly_change_pct,
+        "weekly_change_blocked": len(weekly_points) >= 2 and not change_comparable,
         "daily_explanation": {
             "what": "sRPE diario de la última semana completa." if analysis_scope == "last_complete_week" else "sRPE acumulado de la semana en curso.",
             "meaning": "Contexto agudo de carga interna percibida y duración acumulada.",
@@ -7542,6 +7566,8 @@ def _build_professional_load_tolerance_payload(
     change_text = PDF_MISSING_TEXT
     if str(internal_load.get("analysis_scope") or "") == "current_week_partial":
         change_text = "Semana en curso incompleta"
+    elif internal_load.get("weekly_change_blocked"):
+        change_text = PROFESSIONAL_WEEKLY_CHANGE_BLOCKED_TEXT
     elif weekly_change_pct is not None:
         change_text = f"{weekly_change_pct:+.1f}%"
     elif _coerce_float(internal_load.get("weekly_change")) is not None:
@@ -9778,6 +9804,8 @@ def _generate_professional_profile_pdf_reportlab(
         change = _coerce_float(payload.get("weekly_change"))
         if scope == "current_week_partial":
             change_text = "Semana en curso incompleta"
+        elif payload.get("weekly_change_blocked"):
+            change_text = PROFESSIONAL_WEEKLY_CHANGE_BLOCKED_TEXT
         elif change_pct is not None:
             change_text = f"{change_pct:+.1f}%"
         elif change is not None:

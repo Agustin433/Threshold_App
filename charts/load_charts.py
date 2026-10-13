@@ -485,9 +485,27 @@ def chart_weekly_acwr_context(acwr_context_df: pd.DataFrame, athlete: str, *, th
         return fig
 
     athlete_df = athlete_df.sort_values("week_start").copy()
-    for column in ["weekly_sRPE", "chronic_4w", "acwr_rolling_1_4", "acwr_rolling_ma4", "weekly_change_pct"]:
+    for column in [
+        "weekly_sRPE",
+        "weekly_sRPE_model",
+        "sessions_missing",
+        "chronic_4w",
+        "acwr_rolling_1_4",
+        "acwr_rolling_ma4",
+        "weekly_change_pct",
+    ]:
         if column in athlete_df.columns:
             athlete_df[column] = pd.to_numeric(athlete_df[column], errors="coerce")
+    # La cronica se calcula sobre la carga del modelo (reportada + sesiones
+    # sin sRPE estimadas). Si las barras mostraran solo lo reportado, una
+    # semana con huecos se veria como descarga frente a esa cronica.
+    model_load = athlete_df["weekly_sRPE_model"] if "weekly_sRPE_model" in athlete_df.columns else athlete_df["weekly_sRPE"]
+    estimated_load = (model_load.fillna(athlete_df["weekly_sRPE"]) - athlete_df["weekly_sRPE"]).clip(lower=0).fillna(0.0)
+    missing_sessions = (
+        athlete_df["sessions_missing"].fillna(0)
+        if "sessions_missing" in athlete_df.columns
+        else pd.Series(0.0, index=athlete_df.index)
+    )
 
     fig = make_subplots(
         rows=2,
@@ -513,7 +531,7 @@ def chart_weekly_acwr_context(acwr_context_df: pd.DataFrame, athlete: str, *, th
             marker_color=colors["steel"],
             customdata=hover_data.to_numpy(),
             hovertemplate=(
-                "%{x|Sem %d/%m}<br>Carga semanal: %{y:.0f} UA"
+                "%{x|Sem %d/%m}<br>Carga semanal reportada: %{y:.0f} UA"
                 "<br>Cronica 4 sem previas: %{customdata[0]:.0f} UA"
                 "<br>ACWR semanal: %{customdata[1]:.2f}"
                 "<br>ACWR MA4: %{customdata[2]:.2f}"
@@ -523,6 +541,23 @@ def chart_weekly_acwr_context(acwr_context_df: pd.DataFrame, athlete: str, *, th
         row=1,
         col=1,
     )
+    if estimated_load.gt(0).any():
+        fig.add_trace(
+            go.Bar(
+                x=athlete_df["week_start"],
+                y=estimated_load,
+                name="Estimada (sesiones sin sRPE)",
+                marker=dict(color=colors["steel"], opacity=0.35, pattern=dict(shape="/")),
+                customdata=missing_sessions.to_numpy(),
+                hovertemplate=(
+                    "%{x|Sem %d/%m}<br>Carga estimada: %{y:.0f} UA"
+                    "<br>Sesiones sin sRPE: %{customdata:.0f}<extra></extra>"
+                ),
+            ),
+            row=1,
+            col=1,
+        )
+        fig.update_layout(barmode="stack")
     fig.add_trace(
         go.Scatter(
             x=athlete_df["week_start"],
@@ -547,7 +582,7 @@ def chart_weekly_acwr_context(acwr_context_df: pd.DataFrame, athlete: str, *, th
         fig.add_trace(
             go.Scatter(
                 x=spikes["week_start"],
-                y=spikes["weekly_sRPE"],
+                y=model_load.loc[spikes.index].fillna(spikes["weekly_sRPE"]),
                 name="Spike semanal",
                 mode="markers",
                 marker=dict(size=11, color=colors["red"], symbol="diamond"),
@@ -602,6 +637,21 @@ def chart_weekly_acwr_context(acwr_context_df: pd.DataFrame, athlete: str, *, th
         row=2,
         col=1,
     )
+    if "context_status" in athlete_df.columns:
+        incomplete_weeks = athlete_df[athlete_df["context_status"].eq("incomplete_log")]
+        if not incomplete_weeks.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=incomplete_weeks["week_start"],
+                    y=[0.1] * len(incomplete_weeks),
+                    name="ACWR no calculable (sesiones sin sRPE)",
+                    mode="markers",
+                    marker=dict(size=10, color=colors["muted"], symbol="x"),
+                    hovertemplate="%{x|Sem %d/%m}<br>ACWR no calculable: sesiones sin sRPE<extra></extra>",
+                ),
+                row=2,
+                col=1,
+            )
 
     fig.update_layout(
         **layout,

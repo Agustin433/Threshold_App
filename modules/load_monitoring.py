@@ -43,7 +43,12 @@ ACWR_CONTEXT_COLUMNS = [
     "week_start",
     "is_current_week",
     "weekly_sRPE",
+    "weekly_sRPE_model",
     "sessions_count",
+    "sessions_done",
+    "sessions_missing",
+    "missing_frac_acute",
+    "missing_frac_chronic",
     "chronic_4w",
     "chronic_weeks",
     "acwr_rolling_1_4",
@@ -443,6 +448,22 @@ def build_weekly_acwr_context(
             source[column] = pd.to_numeric(source[column], errors="coerce")
         else:
             source[column] = np.nan
+    # Sin registro de sesiones (frames viejos o armados a mano) la semana
+    # cuenta como completamente reportada, igual que antes.
+    if "sessions_done" in source.columns:
+        source["sessions_done"] = pd.to_numeric(source["sessions_done"], errors="coerce").fillna(source["sessions_count"])
+    else:
+        source["sessions_done"] = source["sessions_count"]
+    source["sessions_missing"] = (
+        pd.to_numeric(source["sessions_missing"], errors="coerce").fillna(0.0)
+        if "sessions_missing" in source.columns
+        else 0.0
+    )
+    source["weekly_sRPE_model"] = (
+        pd.to_numeric(source["weekly_sRPE_model"], errors="coerce").fillna(source["weekly_sRPE"])
+        if "weekly_sRPE_model" in source.columns
+        else source["weekly_sRPE"]
+    )
     if "is_current_week" not in source.columns:
         source["is_current_week"] = False
     source["is_current_week"] = source["is_current_week"].fillna(False).astype(bool)
@@ -450,32 +471,59 @@ def build_weekly_acwr_context(
     rows: list[pd.DataFrame] = []
     for athlete_name, athlete_df in source.sort_values("week_start").groupby("Athlete", sort=True):
         athlete_df = athlete_df.sort_values("week_start").reset_index(drop=True)
-        load = athlete_df["weekly_sRPE"].astype(float)
+        # El cociente usa la carga del modelo (reportada + sesiones sin sRPE
+        # imputadas con la mediana individual). La carga reportada sola hacia
+        # que una semana con sesiones sin reportar pareciera una descarga.
+        load = athlete_df["weekly_sRPE_model"].astype(float)
         chronic = load.shift(1).rolling(4, min_periods=1).mean()
         chronic_weeks = load.shift(1).rolling(4, min_periods=1).count()
+        done = athlete_df["sessions_done"].astype(float)
+        missing = athlete_df["sessions_missing"].astype(float)
+        acute_missing_frac = (missing / done.where(done > 0)).fillna(0.0)
+        chronic_done = done.shift(1).rolling(4, min_periods=1).sum()
+        chronic_missing = missing.shift(1).rolling(4, min_periods=1).sum()
+        chronic_missing_frac = (chronic_missing / chronic_done.where(chronic_done > 0)).fillna(0.0)
+        incomplete = (acute_missing_frac > ACWR_MAX_MISSING_FRAC_ACUTE) | (
+            chronic_missing_frac > ACWR_MAX_MISSING_FRAC_CHRONIC
+        )
+        athlete_df["missing_frac_acute"] = acute_missing_frac
+        athlete_df["missing_frac_chronic"] = chronic_missing_frac
         athlete_df["chronic_4w"] = chronic
         athlete_df["chronic_weeks"] = chronic_weeks.astype("Int64")
-        athlete_df["acwr_rolling_1_4"] = np.where(chronic.gt(0), load / chronic, np.nan)
+        acwr = pd.Series(np.where(chronic.gt(0), load / chronic, np.nan), index=athlete_df.index)
+        athlete_df["acwr_rolling_1_4"] = acwr.where(~incomplete)
+        # La media movil promedia solo semanas validas, pero no se muestra en
+        # una semana incompleta: ahi taparia el ACWR no emitido.
         athlete_df["acwr_rolling_ma4"] = (
             pd.Series(athlete_df["acwr_rolling_1_4"])
             .rolling(4, min_periods=1)
             .mean()
+            .where(~incomplete)
             .to_numpy()
         )
         previous_load = load.shift(1)
-        athlete_df["weekly_change_pct"] = np.where(
-            previous_load.gt(0),
-            ((load - previous_load) / previous_load) * 100.0,
-            np.nan,
+        # La variacion semanal compara dos semanas: si cualquiera de las dos
+        # tiene sesiones sin sRPE por encima del umbral, el % mide huecos.
+        change_incomplete = (acute_missing_frac > ACWR_MAX_MISSING_FRAC_ACUTE) | (
+            acute_missing_frac.shift(1).fillna(0.0) > ACWR_MAX_MISSING_FRAC_ACUTE
         )
+        athlete_df["weekly_change_pct"] = pd.Series(
+            np.where(
+                previous_load.gt(0),
+                ((load - previous_load) / previous_load) * 100.0,
+                np.nan,
+            ),
+            index=athlete_df.index,
+        ).where(~change_incomplete)
         athlete_df["spike_flag"] = athlete_df["weekly_change_pct"].ge(spike_threshold_pct).fillna(False)
         athlete_df["context_status"] = np.select(
             [
                 athlete_df["chronic_weeks"].fillna(0).eq(0),
                 athlete_df["chronic_4w"].fillna(0).le(0),
+                incomplete,
                 athlete_df["chronic_weeks"].fillna(0).lt(4),
             ],
-            ["insufficient_history", "invalid_chronic", "limited_history"],
+            ["insufficient_history", "invalid_chronic", "incomplete_log", "limited_history"],
             default="standard",
         )
         athlete_df["Athlete"] = athlete_name

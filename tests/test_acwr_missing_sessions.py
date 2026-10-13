@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 
 import numpy as np
 import pandas as pd
@@ -162,6 +163,85 @@ class ProfessionalReportUsesModelGateTest(unittest.TestCase):
 
         self.assertFalse(rows["ACWR EWMA"].startswith("No calculable"))
         self.assertEqual(rows["Zona ACWR"], "Optimo")
+
+
+class WeeklyAcwrMissingSessionsTest(unittest.TestCase):
+    def _weekly(self, logged_dates):
+        rpe_df = pd.DataFrame([{"Athlete": "Ana Lopez", "Date": day, "sRPE": 480.0} for day in logged_dates])
+        raw_df = pd.DataFrame([{"Athlete": "Ana Lopez", "Assigned Date": day, "Exercise": "Back Squat"} for day in TRAINED])
+        acwr_dict, _ = local_store.build_load_models(rpe_df, weeks=None, raw_df=raw_df)
+        summaries = local_store.build_weekly_summaries(
+            rpe_df, None, raw_df, acwr_dict=acwr_dict, today=pd.Timestamp("2026-10-12")
+        )
+        return summaries["weekly_load"]
+
+    def test_weekly_summary_counts_sessions_done_and_missing(self):
+        weekly = self._weekly(TRAINED[::4])
+        last = weekly.iloc[-1]
+
+        self.assertEqual(int(last["sessions_done"]), 4)
+        self.assertGreater(int(last["sessions_missing"]), 0)
+        self.assertGreater(float(last["weekly_sRPE_model"]), float(last["weekly_sRPE"]))
+
+    def test_trained_week_without_any_srpe_is_kept(self):
+        # Semana 21/09: entrena 4 veces, no reporta ninguna. Si se borrara,
+        # la cronica "4 semanas previas" tomaria otras semanas.
+        logged = [day for day in TRAINED if not pd.Timestamp("2026-09-21") <= day <= pd.Timestamp("2026-09-27")]
+        weekly = self._weekly(logged)
+
+        self.assertIn(pd.Timestamp("2026-09-21"), set(pd.to_datetime(weekly["week_start"])))
+
+    def test_weekly_acwr_not_emitted_with_unreported_sessions(self):
+        from modules.load_monitoring import build_weekly_acwr_context
+
+        context = build_weekly_acwr_context(self._weekly(TRAINED[::4]), "Ana Lopez", weeks=None)
+        last = context.iloc[-1]
+
+        self.assertEqual(last["context_status"], "incomplete_log")
+        self.assertTrue(pd.isna(last["acwr_rolling_1_4"]))
+        self.assertTrue(pd.isna(last["acwr_rolling_ma4"]))
+        self.assertTrue(pd.isna(last["weekly_change_pct"]))
+        self.assertFalse(bool(last["spike_flag"]))
+
+    def test_weekly_acwr_full_compliance_is_standard(self):
+        from modules.load_monitoring import build_weekly_acwr_context
+
+        context = build_weekly_acwr_context(self._weekly(TRAINED), "Ana Lopez", weeks=None)
+        last = context.iloc[-1]
+
+        self.assertEqual(last["context_status"], "standard")
+        self.assertAlmostEqual(float(last["acwr_rolling_1_4"]), 1.0, places=2)
+
+    def test_chart_stacks_estimated_load_and_marks_incomplete_weeks(self):
+        from charts.load_charts import chart_weekly_acwr_context
+        from modules.load_monitoring import build_weekly_acwr_context
+        from tests.test_weekly_acwr_context import _chart_theme
+
+        context = build_weekly_acwr_context(self._weekly(TRAINED[::4]), "Ana Lopez", weeks=None)
+        names = [trace.name for trace in chart_weekly_acwr_context(context, "Ana Lopez", theme=_chart_theme()).data]
+
+        self.assertIn("Carga semanal", names)
+        self.assertIn("Estimada (sesiones sin sRPE)", names)
+        self.assertIn("ACWR no calculable (sesiones sin sRPE)", names)
+
+    def test_pdf_weekly_change_is_blocked_with_unreported_sessions(self):
+        from modules import report_generator
+
+        state = {"rpe_df": pd.DataFrame([{"Athlete": "Ana Lopez", "Date": day, "sRPE": 480.0} for day in TRAINED[::4]])}
+        state["raw_df"] = pd.DataFrame([{"Athlete": "Ana Lopez", "Assigned Date": day, "Exercise": "Squat"} for day in TRAINED])
+        acwr_dict, mono_dict = local_store.build_load_models(state["rpe_df"], weeks=None, raw_df=state["raw_df"])
+        state.update({"acwr_dict": acwr_dict, "mono_dict": mono_dict})
+        state["weekly_summaries"] = local_store.build_weekly_summaries(
+            state["rpe_df"], None, state["raw_df"], acwr_dict=acwr_dict, today=pd.Timestamp("2026-10-06")
+        )
+        with unittest.mock.patch.object(report_generator, "_professional_report_today", return_value=pd.Timestamp("2026-10-06")):
+            internal = report_generator._build_professional_internal_load_context(state, "Ana Lopez")
+            payload = report_generator._build_professional_load_tolerance_payload(state, "Ana Lopez", internal)
+
+        self.assertTrue(internal["weekly_change_blocked"])
+        self.assertIsNone(internal["weekly_change_pct"])
+        rows = dict(payload["rows"])
+        self.assertNotRegex(rows.get("Cambio vs semana previa", ""), r"^[+-]\d")
 
 
 if __name__ == "__main__":
