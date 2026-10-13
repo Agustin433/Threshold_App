@@ -1643,7 +1643,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
     def test_quality_detail_caps_wellness_coverage_over_one_hundred(self):
         detail = _quality_detail_text(pd.Series({"% cobertura sRPE": 88, "% cobertura Wellness": 105}))
 
-        self.assertIn("Wellness 100%", detail)
+        self.assertIn("Wellness/sRPE 100%", detail)
         self.assertIn("registros adicionales", detail)
         self.assertNotIn("105%", detail)
 

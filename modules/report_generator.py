@@ -450,6 +450,9 @@ def _report_sample_warning(n: int | None) -> str:
 # misma que produce `data_loader._wellness_score` y que persiste el store.
 WELLNESS_SCORE_MAX = 30.0
 WELLNESS_SCORE_UNIT = f"/{WELLNESS_SCORE_MAX:.0f}"
+# Auditoria externa (oct/2026): no clasificar wellness (Optimo/Aceptable/...)
+# con menos de esta cantidad de dias con registro en la semana.
+WELLNESS_MIN_DAYS_FOR_CLASSIFICATION = 5
 
 
 def _report_wellness_score_label(value: float | None) -> dict[str, object]:
@@ -1002,6 +1005,35 @@ def _quality_athlete_row(quality_report: dict[str, object], athlete: str) -> pd.
     return subset.iloc[0]
 
 
+# Umbral de cobertura de sRPE bajo el cual ACWR/monotonia/strain dejan de
+# mostrarse como una zona ("Optimo", etc.) en el reporte profesional. Auditoria
+# externa (oct/2026): un ACWR "Optimo" calculado sobre <70% de dias con sRPE en
+# los ultimos 42 dias es un artefacto matematico (dias sin registro entran como
+# 0 en el EWMA), no una lectura de carga real, y genera falsa tranquilidad.
+PROFESSIONAL_LOAD_COVERAGE_GATE_PCT = 70.0
+
+
+def _professional_srpe_coverage_pct(state: dict[str, pd.DataFrame | None], athlete: str) -> float | None:
+    """% de dias con sRPE>0 en los ultimos 42 dias (misma formula que el panel de calidad).
+
+    Devuelve None cuando no se puede determinar (p.ej. no hay rpe_df cargado).
+    Un None NO gatea: solo gateamos ante evidencia positiva de cobertura baja,
+    para no silenciar ACWR cuando simplemente no tenemos como medir cobertura.
+    """
+    quality_report = _report_quality_report(state)
+    athlete_quality = _quality_athlete_row(quality_report, athlete)
+    if athlete_quality is None:
+        return None
+    return _coerce_float(athlete_quality.get("% cobertura sRPE"))
+
+
+def _professional_load_coverage_gated(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, float | None]:
+    """(gated, coverage_pct): gated=True solo si hay cobertura medida y es baja."""
+    coverage_pct = _professional_srpe_coverage_pct(state, athlete)
+    gated = coverage_pct is not None and coverage_pct < PROFESSIONAL_LOAD_COVERAGE_GATE_PCT
+    return gated, coverage_pct
+
+
 def _cmj_series(state: dict[str, pd.DataFrame | None], athlete: str) -> list[tuple[str, float]]:
     jdf = state.get("jump_df")
     if jdf is None or jdf.empty or "Athlete" not in jdf.columns or "CMJ_cm" not in jdf.columns:
@@ -1438,12 +1470,14 @@ def build_executive_summary_df(
         jump_summary_row = prepared_jump_row if prepared_jump_row is not None else jump_row
 
         row = {"Atleta": athlete}
+        coverage_gated, _ = _professional_load_coverage_gated(state, athlete)
         if load_row is not None:
             row["Fecha carga"] = pd.to_datetime(load_row["Date"]).strftime("%d/%m/%Y")
             row["sRPE"] = _round_or_none(load_row.get("sRPE_diario"), 0)
-            row["ACWR EWMA"] = _round_or_none(load_row.get("ACWR_EWMA"), 2)
-            row["Zona"] = load_row.get("Zona")
-        if mono_row is not None:
+            if not coverage_gated:
+                row["ACWR EWMA"] = _round_or_none(load_row.get("ACWR_EWMA"), 2)
+                row["Zona"] = load_row.get("Zona")
+        if mono_row is not None and not coverage_gated:
             row["Monotonia"] = _round_or_none(mono_row.get("Monotonia"), 2)
             row["Strain"] = _round_or_none(mono_row.get("Strain"), 0)
 
@@ -1544,7 +1578,9 @@ def _quality_detail_text(athlete_quality: pd.Series | None) -> str | None:
     parts = _compact_lines(
         [
             coverage_text("sRPE", srpe_cov),
-            coverage_text("Wellness", wellness_cov),
+            # "Wellness" aca es dias-con-wellness / dias-con-sRPE, no dias-con-wellness
+            # / ventana. Rotulado explicito para no leerlo como cobertura de ventana.
+            coverage_text("Wellness/sRPE", wellness_cov),
         ]
     )
     return " | ".join(parts) if parts else None
@@ -7504,8 +7540,47 @@ def _build_professional_load_tolerance_payload(
     elif _coerce_float(internal_load.get("weekly_change")) is not None:
         change_text = _professional_number_text(internal_load.get("weekly_change"), digits=0, unit="UA")
 
+    has_any_load_data = acwr_row is not None or mono_row is not None
+    coverage_gated_raw, coverage_pct = _professional_load_coverage_gated(state, athlete)
+    # El gate solo tiene sentido cuando HAY un ACWR/monotonia calculado que
+    # podria mostrarse con falsa confianza. Si no hay dato alguno, esto ya cae
+    # en la rama "Faltan datos" de mas abajo y no hace falta un mensaje de gate
+    # distinto.
+    coverage_gated = coverage_gated_raw and has_any_load_data
+    gate_text = (
+        f"No calculable (cobertura sRPE {coverage_pct:.0f}%)" if coverage_gated and coverage_pct is not None else None
+    )
+
+    # Gate especifico de monotonia/strain (auditoria externa, oct/2026): con
+    # menos de MONOTONY_MIN_SESSIONS sesiones en la semana analizada, la SD
+    # poblacional de Foster queda fija (p.ej. 1 sesion en 7 dias => SD/media
+    # = 1/sqrt(6) = 0.408 siempre, sea cual sea la carga). Esa monotonia no es
+    # una lectura de homogeneidad de carga, es un artefacto aritmetico, asi
+    # que se gatea aparte del gate de cobertura de 42 dias (que mira ACWR).
+    MONOTONY_MIN_SESSIONS = 4
+    sessions_this_week = _coerce_float(internal_load.get("sessions_registered"))
+    monotony_sessions_gated = (
+        mono_row is not None and sessions_this_week is not None and sessions_this_week < MONOTONY_MIN_SESSIONS
+    )
+    monotony_gated = coverage_gated or monotony_sessions_gated
+    monotony_gate_text = gate_text if coverage_gated else (
+        f"No calculable ({int(sessions_this_week)} sesión(es)/semana, mínimo {MONOTONY_MIN_SESSIONS})"
+        if monotony_sessions_gated else None
+    )
+
     risk_line = "Faltan datos para valorar la tolerancia de carga."
-    if str(internal_load.get("analysis_scope") or "") == "current_week_partial":
+    if coverage_gated:
+        risk_line = (
+            f"Cobertura de sRPE insuficiente ({coverage_pct:.0f}% de los últimos 42 días, umbral "
+            f"{PROFESSIONAL_LOAD_COVERAGE_GATE_PCT:.0f}%): ACWR, monotonía y strain no son confiables esta semana. "
+            "Prioridad: completar el registro de sRPE antes de usarlos para decidir carga."
+        )
+    elif monotony_sessions_gated:
+        risk_line = (
+            f"Solo {int(sessions_this_week)} sesión(es) con sRPE esta semana: la monotonía y el strain no son "
+            "interpretables con tan pocos días (la SD queda fija por aritmética, no refleja homogeneidad real)."
+        )
+    elif str(internal_load.get("analysis_scope") or "") == "current_week_partial":
         risk_line = "La semana actual sigue abierta; usar el acumulado parcial solo como señal operativa."
     elif acwr_value is not None and acwr_value > 1.5:
         risk_line = "La carga reciente luce alta y con riesgo de acumulación; revisar densidad, calendario y tolerancia."
@@ -7523,16 +7598,16 @@ def _build_professional_load_tolerance_payload(
     rows = [
         ("Semana analizada", safe_value(internal_load.get("analysis_week_label"))),
         ("sRPE semanal", _professional_number_text(weekly_total, digits=0, unit="UA")),
-        ("Cambio vs semana previa", change_text),
+        ("Cambio vs semana previa", gate_text if coverage_gated else change_text),
         ("Sesiones con sRPE (semana)", safe_value(internal_load.get("sessions_registered"))),
-        ("ACWR EWMA", _professional_number_text(acwr_value, digits=2)),
-        ("Zona ACWR", acwr_zone),
-        ("Monotonía", _professional_number_text(monotony_value, digits=2)),
-        ("Strain", _professional_number_text(strain_value, digits=0)),
+        ("ACWR EWMA", gate_text if coverage_gated else _professional_number_text(acwr_value, digits=2)),
+        ("Zona ACWR", "Sin zona (cobertura insuficiente)" if coverage_gated else acwr_zone),
+        ("Monotonía", monotony_gate_text if monotony_gated else _professional_number_text(monotony_value, digits=2)),
+        ("Strain", monotony_gate_text if monotony_gated else _professional_number_text(strain_value, digits=0)),
     ]
     available_rows = [(label, value) for label, value in rows if value != PDF_MISSING_TEXT]
     state_label = "available" if available_rows else "missing"
-    if state_label == "available" and str(internal_load.get("analysis_scope") or "") == "current_week_partial":
+    if state_label == "available" and (coverage_gated or monotony_gated or str(internal_load.get("analysis_scope") or "") == "current_week_partial"):
         state_label = "partial"
     return {
         "title": "Carga interna y tolerancia",
@@ -7567,11 +7642,6 @@ def _build_professional_wellness_availability_payload(
             return f"{numeric:.{digits}f}{scale}"
         return f"{numeric:.{digits}f}"
 
-    score_value = _coerce_float(summary.get("score_mean"))
-    score_label = PDF_MISSING_TEXT
-    if score_value is not None:
-        score_meta = _report_wellness_score_label(score_value)
-        score_label = f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']})"
     day_candidates = [
         _coerce_float(summary.get("days")),
         _coerce_float(summary.get("score_n")),
@@ -7582,7 +7652,21 @@ def _build_professional_wellness_availability_payload(
     days_count = max([int(value) for value in day_candidates if value is not None] or [0])
     days_with_record = safe_value(days_count if days_count > 0 else None)
 
+    score_value = _coerce_float(summary.get("score_mean"))
+    score_label = PDF_MISSING_TEXT
+    if score_value is not None:
+        score_meta = _report_wellness_score_label(score_value)
+        # Auditoria externa (oct/2026): clasificar "Optimo"/"Aceptable"/etc con
+        # muy pocos registros da una etiqueta de confianza que el dato no
+        # respalda. Por debajo del umbral se muestra el numero crudo sin
+        # clasificar, con el n a la vista.
+        if days_count >= WELLNESS_MIN_DAYS_FOR_CLASSIFICATION:
+            score_label = f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']})"
+        else:
+            score_label = f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} (sin clasificar, n={days_count})"
+
     rows = [
+        ("Semana analizada", safe_value(wellness_context.get("analysis_week_label"))),
         ("Wellness score", score_label),
         ("Sueño", _with_scale(summary.get("sleep_mean"), "sleep")),
         ("Estrés", _with_scale(summary.get("stress_mean"), "stress")),
@@ -7721,17 +7805,36 @@ def _build_professional_exposure_payload(
                 {
                     "title": str(spec["title"]),
                     "sessions": sessions,
-                    "value": value_sum or 0.0,
+                    # None = dosis desconocida (no cuantificable para este
+                    # estimulo). Antes se coercionaba a 0.0, lo que hacia que
+                    # una categoria sin dato de dosis "ganara" por defecto el
+                    # puesto de menor exposicion aunque no supieramos su dosis
+                    # real (auditoria externa, oct/2026: "no se puede ordenar
+                    # lo desconocido"). Abajo se trata como el peor caso en
+                    # cada direccion de orden, nunca como el mejor.
+                    "value": value_sum,
                 }
             )
 
-    active_titles = [row["title"] for row in sorted(ranking_rows, key=lambda item: (-int(item["sessions"]), -float(item["value"]), item["title"]))]
+    def _dominant_sort_key(item: dict[str, object]) -> tuple[object, ...]:
+        value = item["value"]
+        # Para "mas dominante" (orden descendente), una dosis desconocida no
+        # debe poder ganar el primer puesto: se trata como el valor mas bajo.
+        return (-int(item["sessions"]), -float(value) if value is not None else float("inf"), item["title"])
+
+    def _low_sort_key(item: dict[str, object]) -> tuple[object, ...]:
+        value = item["value"]
+        # Para "menor exposicion" (orden ascendente), una dosis desconocida no
+        # debe poder ganar el ultimo puesto: se trata como el valor mas alto.
+        return (int(item["sessions"]), float(value) if value is not None else float("inf"), item["title"])
+
+    active_titles = [row["title"] for row in sorted(ranking_rows, key=_dominant_sort_key)]
     active_titles = [_professional_visible_metric_text(title) for title in active_titles]
     dominant = active_titles[:2]
     secondary = active_titles[2:4]
     low_or_absent: list[str] = []
     if len(ranking_rows) >= 2:
-        lowest_row = sorted(ranking_rows, key=lambda item: (int(item["sessions"]), float(item["value"]), item["title"]))[0]
+        lowest_row = sorted(ranking_rows, key=_low_sort_key)[0]
         low_or_absent = [str(lowest_row["title"])]
     low_or_absent = [_professional_visible_metric_text(title) for title in low_or_absent]
 
@@ -8157,8 +8260,15 @@ def _build_professional_action_plan_payload(
     high_norm = _professional_normalized_text(high_text)
     low_text = _professional_normalized_text(feedback.get("low", ""))
     decline_text = _professional_join_labels(change_payload.get("declines", []), fallback="").casefold()
+    # Sin evaluacion de referencia no existe "perfil actual" que sostener: la
+    # seccion de Perfil Fisico (p.2) ya dice explicitamente que faltan
+    # evaluaciones. Afirmar aca "Mantener el perfil actual" contradice esa
+    # misma pagina (auditoria externa, oct/2026).
+    no_eval_reference = str(evaluation_state).strip().lower() not in {"available", "partial"}
     maintain: list[str] = []
-    if any(token in high_norm for token in ("sj", "dj", "dri", "react", "tiempo de contacto")):
+    if no_eval_reference:
+        maintain.append("Completar CMJ, SJ, DJ e IMTP para tener una primera referencia de perfil físico.")
+    elif any(token in high_norm for token in ("sj", "dj", "dri", "react", "tiempo de contacto")):
         maintain.append("Mantener volumen y calidad de trabajo concéntrico/reactivo sin subir densidad pliométrica.")
     elif any(token in high_norm for token in ("imtp", "fuerza")):
         maintain.append("Mantener frecuencia de fuerza máxima/isométricos, mínimo 2 exposiciones semanales si el microciclo lo permite.")
@@ -8183,7 +8293,8 @@ def _build_professional_action_plan_payload(
         adjust.append(f"Revisar carga, protocolo y prioridades si persisten caídas en {_professional_join_labels(change_payload.get('declines', []))}.")
     if not adjust and has_clear_lagging:
         adjust.append("Ajustar solo una prioridad principal del bloque para evitar dispersar el estímulo.")
-
+    elif not adjust and no_eval_reference:
+        adjust.append("Ajustar la próxima evaluación para tener una referencia real antes de priorizar una cualidad física del bloque.")
     elif not adjust:
         adjust.append("Sostener el perfil actual, consolidar calidad técnica y reforzar la base solo si el contexto de carga o wellness lo pide.")
 
@@ -8278,7 +8389,12 @@ def _build_professional_executive_payload(
     quality_detail = _quality_detail_text(athlete_quality)
     coverage_parts = []
     if athlete_quality is not None:
-        coverage_parts.append(f"Cobertura: {safe_value(athlete_quality.get('Semaforo'))}")
+        # "Semaforo" trae un emoji (🔴/🟡/🟢) pensado para Streamlit; la fuente
+        # Type1 del PDF no tiene esos glifos y los renderiza como un cuadrado
+        # negro solido (auditoria externa, oct/2026). Se muestra solo la
+        # palabra para no perder el semaforo en un glifo roto.
+        semaforo_text = re.sub(r"[^\x00-\x7F]+\s*", "", safe_value(athlete_quality.get("Semaforo"))).strip()
+        coverage_parts.append(f"Cobertura: {semaforo_text or safe_value(athlete_quality.get('Semaforo'))}")
     if quality_detail:
         coverage_parts.append(quality_detail)
     if not coverage_parts:
@@ -8317,7 +8433,19 @@ def _build_professional_executive_payload(
         if declines:
             change_parts.append(f"Caen {_professional_join_labels(declines[:3])}.")
         signals.append(_clip_signal(" ".join(change_parts)))
-    if load_rows:
+    # No recalcula el gate: lee si `load_payload` (que ya sabe si hay ACWR/
+    # monotonia reales para gatear) marco la zona como no disponible.
+    load_coverage_gated = load_rows.get("Zona ACWR") == "Sin zona (cobertura insuficiente)"
+    _, load_coverage_pct = _professional_load_coverage_gated(state, athlete)
+    if load_coverage_gated:
+        signals.append(
+            _clip_signal(
+                f"Cobertura de sRPE insuficiente ({load_coverage_pct:.0f}%): ACWR/monotonía/strain no calculables esta semana."
+                if load_coverage_pct is not None
+                else "Cobertura de sRPE insuficiente: ACWR/monotonía/strain no calculables esta semana."
+            )
+        )
+    elif load_rows:
         load_parts = []
         if _has_text(load_rows.get("ACWR EWMA")):
             load_parts.append(f"ACWR {load_rows['ACWR EWMA']}")
