@@ -17,7 +17,12 @@ from openpyxl.utils import get_column_letter
 
 from local_store import build_weekly_summaries
 from modules.data_loader import _wellness_score as canonical_wellness_score
-from modules.data_loader import prepare_raw_workouts_df
+from modules.data_loader import (
+    STRENGTH_PATTERN_LABELS,
+    STRENGTH_PATTERN_REGION,
+    add_strength_detail_columns,
+    prepare_raw_workouts_df,
+)
 from modules.data_quality import compute_data_quality_report
 from modules.load_monitoring import (
     training_dates_for_athlete,
@@ -408,14 +413,22 @@ PROFESSIONAL_EXPOSURE_CATEGORY_SPECS = (
         "value_col": "Exposures",
         "unit": "exposiciones",
     },
+    # Isometricos de fuerza y core/anti-rotacion son estimulos con fines
+    # distintos: antes iban juntos y un Pallof contaba como "isometrico".
     {
-        "title": "Isométricos y estabilidad",
-        "categories": ("iso", "core_stability"),
+        "title": "Isométricos",
+        "categories": ("iso",),
         "value_col": "Exposures",
         "unit": "exposiciones",
     },
     {
-        "title": "Movilidad y prehab",
+        "title": "Core / anti-rotación",
+        "categories": ("core_stability",),
+        "value_col": "Exposures",
+        "unit": "exposiciones",
+    },
+    {
+        "title": "Prehab y movilidad",
         "categories": ("mobility_prehab",),
         "value_col": "Exposures",
         "unit": "exposiciones",
@@ -7801,77 +7814,95 @@ def _build_professional_exposure_payload(
             "context_link": "",
         }
 
+    athlete_df = add_strength_detail_columns(athlete_df)
     exercise_col = "Exercise" if "Exercise" in athlete_df.columns else "Exercise Name" if "Exercise Name" in athlete_df.columns else None
+
+    def _sessions(frame: pd.DataFrame) -> int:
+        if frame.empty or "Assigned Date" not in frame.columns:
+            return 0
+        return int(pd.to_datetime(frame["Assigned Date"], errors="coerce").dropna().dt.normalize().nunique())
+
+    def _sum(frame: pd.DataFrame, column: str) -> float | None:
+        if frame.empty or column not in frame.columns:
+            return None
+        return _coerce_float(pd.to_numeric(frame[column], errors="coerce").sum(min_count=1))
+
+    def _top_exercises(frame: pd.DataFrame, limit: int = 3) -> list[str]:
+        if frame.empty or not exercise_col:
+            return []
+        return (
+            frame[exercise_col].dropna().astype(str).str.strip().replace("", pd.NA).dropna()
+            .value_counts().head(limit).index.tolist()
+        )
+
+    def _strength_dose(frame: pd.DataFrame) -> str:
+        # Series primero: es la metrica comparable entre patrones. El
+        # tonelaje queda como dato secundario, nunca para comparar patrones.
+        series = _sum(frame, "Series")
+        tonnage = _sum(frame, "Volume_Load_kg")
+        parts = []
+        if series is not None and series > 0:
+            parts.append(f"{series:.0f} series")
+        if tonnage is not None and tonnage > 0:
+            parts.append(_professional_number_text(tonnage, digits=0, unit="kg x rep"))
+        return " · ".join(parts) if parts else PDF_MISSING_TEXT
+
     rows: list[dict[str, object]] = []
     ranking_rows: list[dict[str, object]] = []
+    region_series: dict[str, float] = {}
     for spec in PROFESSIONAL_EXPOSURE_CATEGORY_SPECS:
         subset = athlete_df[athlete_df["stimulus_category"].isin(spec["categories"])].copy()
-        sessions = 0
-        if not subset.empty and "Assigned Date" in subset.columns:
-            sessions = int(pd.to_datetime(subset["Assigned Date"], errors="coerce").dropna().dt.normalize().nunique())
-        value_col = str(spec["value_col"])
-        value_sum = None
-        if not subset.empty and value_col in subset.columns:
-            value_sum = _coerce_float(pd.to_numeric(subset[value_col], errors="coerce").sum(min_count=1))
-        top_exercises = []
-        if not subset.empty and exercise_col:
-            top_exercises = (
-                subset[exercise_col]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .replace("", pd.NA)
-                .dropna()
-                .value_counts()
-                .head(3)
-                .index
-                .tolist()
-            )
-        if sessions > 0 or value_sum is not None:
+        sessions = _sessions(subset)
+        is_strength = tuple(spec["categories"]) == ("strength_loaded",)
+        value_sum = _sum(subset, str(spec["value_col"]))
+        if sessions <= 0 and value_sum is None:
+            continue
+        if is_strength:
+            dose_text = _strength_dose(subset)
+        else:
             dose_text = _professional_number_text(value_sum, digits=0, unit=str(spec["unit"])) if value_sum is not None else PDF_MISSING_TEXT
-            rows.append(
-                {
-                    "Estímulo": str(spec["title"]),
-                    "Dosis": dose_text,
-                    "Sesiones": str(sessions) if sessions > 0 else PDF_MISSING_TEXT,
-                    "Ejercicios clave": _professional_join_labels(top_exercises),
-                }
-            )
-            ranking_rows.append(
-                {
-                    "title": str(spec["title"]),
-                    "sessions": sessions,
-                    # None = dosis desconocida (no cuantificable para este
-                    # estimulo). Antes se coercionaba a 0.0, lo que hacia que
-                    # una categoria sin dato de dosis "ganara" por defecto el
-                    # puesto de menor exposicion aunque no supieramos su dosis
-                    # real (auditoria externa, oct/2026: "no se puede ordenar
-                    # lo desconocido"). Abajo se trata como el peor caso en
-                    # cada direccion de orden, nunca como el mejor.
-                    "value": value_sum,
-                }
-            )
+        rows.append(
+            {
+                "Estímulo": str(spec["title"]),
+                "Dosis": dose_text,
+                "Sesiones": str(sessions) if sessions > 0 else PDF_MISSING_TEXT,
+                "Ejercicios clave": _professional_join_labels(_top_exercises(subset)),
+            }
+        )
+        ranking_rows.append({"title": str(spec["title"]), "sessions": sessions})
+        if is_strength and "strength_pattern" in subset.columns:
+            pattern_rows = []
+            for pattern, pattern_df in subset.groupby(subset["strength_pattern"].fillna("sin_patron")):
+                pattern_series = _sum(pattern_df, "Series") or 0.0
+                region = STRENGTH_PATTERN_REGION.get(str(pattern), "sin_patron")
+                region_series[region] = region_series.get(region, 0.0) + pattern_series
+                pattern_rows.append(
+                    (
+                        pattern_series,
+                        {
+                            "Estímulo": f"  · {STRENGTH_PATTERN_LABELS.get(str(pattern), str(pattern))}",
+                            "Dosis": _strength_dose(pattern_df),
+                            "Sesiones": str(_sessions(pattern_df)) if _sessions(pattern_df) > 0 else PDF_MISSING_TEXT,
+                            "Ejercicios clave": _professional_join_labels(_top_exercises(pattern_df, limit=2)),
+                        },
+                    )
+                )
+            rows.extend(row for _, row in sorted(pattern_rows, key=lambda item: -item[0]))
 
-    def _dominant_sort_key(item: dict[str, object]) -> tuple[object, ...]:
-        value = item["value"]
-        # Para "mas dominante" (orden descendente), una dosis desconocida no
-        # debe poder ganar el primer puesto: se trata como el valor mas bajo.
-        return (-int(item["sessions"]), -float(value) if value is not None else float("inf"), item["title"])
-
-    def _low_sort_key(item: dict[str, object]) -> tuple[object, ...]:
-        value = item["value"]
-        # Para "menor exposicion" (orden ascendente), una dosis desconocida no
-        # debe poder ganar el ultimo puesto: se trata como el valor mas alto.
-        return (int(item["sessions"]), float(value) if value is not None else float("inf"), item["title"])
-
-    active_titles = [row["title"] for row in sorted(ranking_rows, key=_dominant_sort_key)]
+    # Entre estimulos solo se ordena por sesiones: las dosis estan en
+    # unidades no comparables (series, contactos, exposiciones), asi que
+    # usarlas para desempatar ordenaba magnitudes que no se pueden comparar
+    # (auditoria externa, oct/2026). Empate en el minimo => se nombran todos.
+    active_titles = [row["title"] for row in sorted(ranking_rows, key=lambda item: (-int(item["sessions"]), item["title"]))]
     active_titles = [_professional_visible_metric_text(title) for title in active_titles]
     dominant = active_titles[:2]
     secondary = active_titles[2:4]
     low_or_absent: list[str] = []
     if len(ranking_rows) >= 2:
-        lowest_row = sorted(ranking_rows, key=_low_sort_key)[0]
-        low_or_absent = [str(lowest_row["title"])]
+        min_sessions = min(int(item["sessions"]) for item in ranking_rows)
+        max_sessions = max(int(item["sessions"]) for item in ranking_rows)
+        if min_sessions < max_sessions:
+            low_or_absent = [str(item["title"]) for item in ranking_rows if int(item["sessions"]) == min_sessions]
     low_or_absent = [_professional_visible_metric_text(title) for title in low_or_absent]
 
     change_payload = change_payload or {}
@@ -7882,14 +7913,22 @@ def _build_professional_exposure_payload(
         context_link = "El bloque tuvo predominio de fuerza con carga y es compatible con la señal actual de fuerza/salida vertical."
     elif dominant_text and "Pliometría y aterrizajes" in dominant_text and any(token in improved_labels for token in ("DRI", "RSI", "Contact")):
         context_link = "El bloque tuvo predominio reactivo y es compatible con la señal actual de reactividad/contacto."
-    elif dominant_text and "Movilidad y prehab" in dominant_text:
+    elif dominant_text and "Prehab y movilidad" in dominant_text:
         context_link = "El bloque visible parece orientado a soporte/prehab; conviene no sobreinterpretar cambios como respuesta a un bloque principal de rendimiento."
 
     summary_line = ""
     if dominant:
-        summary_line = f"Estímulos dominantes: {_professional_join_labels(dominant)}."
+        summary_line = f"Estímulos dominantes (por sesiones): {_professional_join_labels(dominant)}."
         if secondary:
             summary_line = f"{summary_line} Estímulos secundarios: {_professional_join_labels(secondary)}."
+    lower = region_series.get("inferior", 0.0)
+    upper = region_series.get("superior", 0.0)
+    unpatterned = region_series.get("sin_patron", 0.0)
+    if lower > 0 or upper > 0:
+        region_text = f"Fuerza por región: tren inferior {lower:.0f} series · tren superior {upper:.0f} series"
+        if unpatterned > 0:
+            region_text = f"{region_text} · sin patrón {unpatterned:.0f} series"
+        summary_line = f"{summary_line} {region_text}.".strip()
 
     table = pd.DataFrame(rows, columns=["Estímulo", "Dosis", "Sesiones", "Ejercicios clave"])
     if not table.empty:

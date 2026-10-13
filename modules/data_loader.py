@@ -230,6 +230,81 @@ CATEGORY_DISPLAY_LABELS = {
 
 _TAG_CATEGORY_LOOKUP = {str(tag).strip().lower(): category for tag, category in TAG_CATEGORY_MAP.items()}
 
+# Patron de movimiento de cada ejercicio de fuerza. Se toma del tag cuando
+# hay uno de patron (en orden de prioridad: un "Stance_Split|Dominante de
+# Rodilla" es dominante de rodilla, no "unilateral"); si no, del nombre con
+# palabras clave conservadoras; si tampoco, queda "sin_patron" y no se asigna
+# a ninguna region.
+STRENGTH_PATTERN_LABELS = {
+    "dominante_cadera": "Dominante de cadera",
+    "dominante_rodilla": "Dominante de rodilla",
+    "empuje_horizontal": "Empuje horizontal",
+    "empuje_vertical": "Empuje vertical",
+    "traccion_horizontal": "Tracción horizontal",
+    "traccion_vertical": "Tracción vertical",
+    "salto_con_carga": "Saltos con carga",
+    "accesorios_mmii": "Accesorios MMII",
+    "accesorios_mmss": "Accesorios MMSS",
+    "cuello": "Cuello",
+    "sin_patron": "Sin patrón",
+}
+STRENGTH_PATTERN_REGION = {
+    "dominante_cadera": "inferior",
+    "dominante_rodilla": "inferior",
+    "salto_con_carga": "inferior",
+    "accesorios_mmii": "inferior",
+    "empuje_horizontal": "superior",
+    "empuje_vertical": "superior",
+    "traccion_horizontal": "superior",
+    "traccion_vertical": "superior",
+    "accesorios_mmss": "superior",
+    "cuello": "otro",
+    "sin_patron": "sin_patron",
+}
+_STRENGTH_PATTERN_TAG_PRIORITY = (
+    ("dominante de cadera", "dominante_cadera"),
+    ("dominante de rodilla", "dominante_rodilla"),
+    ("empuje horizontal", "empuje_horizontal"),
+    ("empuje vertical", "empuje_vertical"),
+    ("traccion horizontal", "traccion_horizontal"),
+    ("traccion vertical", "traccion_vertical"),
+    ("jump_loaded", "salto_con_carga"),
+    ("ham_curl", "accesorios_mmii"),
+    ("accessories mmii", "accesorios_mmii"),
+    ("stance_singleleg", "accesorios_mmii"),
+    ("stance_split", "accesorios_mmii"),
+    ("biceps", "accesorios_mmss"),
+    ("triceps", "accesorios_mmss"),
+    ("accessories mmss", "accesorios_mmss"),
+    ("neck", "cuello"),
+)
+# Orden importa: "romanian deadlift" debe caer en cadera antes que "lift";
+# "overhead press" en empuje vertical antes que "press" horizontal.
+_STRENGTH_PATTERN_KEYWORDS = (
+    # Primero los accesorios de MMII con nombre compuesto, para que
+    # "leg curl" / "calf raise" no caigan en curl/raise de MMSS.
+    ("accesorios_mmii", ("calf", "hamstring curl", "leg curl", "leg extension", "tibialis")),
+    ("dominante_cadera", ("deadlift", "rdl", "hip thrust", "thrust", "hinge", "good morning", "glute bridge", "swing", "back extension")),
+    ("dominante_rodilla", ("squat", "lunge", "step-up", "step up", "leg press", "split squat", "bulgarian")),
+    ("empuje_vertical", ("overhead press", "military", "push press", "landmine press", "shoulder press", "overhead")),
+    ("empuje_horizontal", ("bench", "push up", "push-up", "pushup", "floor press", "chest press", "dip")),
+    ("traccion_vertical", ("pull up", "pull-up", "pullup", "chin up", "chin-up", "lat pulldown", "pulldown")),
+    ("traccion_horizontal", ("row", "face pull", "seal row")),
+    ("accesorios_mmss", ("curl", "triceps", "tricep", "lateral raise", "raise", "extension")),
+)
+
+
+def _strength_pattern(tag: object, exercise_name: object) -> str:
+    tokens = {token.strip().lower() for token in _split_tag_tokens("" if pd.isna(tag) else tag)}
+    for tag_key, pattern in _STRENGTH_PATTERN_TAG_PRIORITY:
+        if tag_key in tokens:
+            return pattern
+    text = str(exercise_name or "").strip().lower()
+    for pattern, keywords in _STRENGTH_PATTERN_KEYWORDS:
+        if any(keyword in text for keyword in keywords):
+            return pattern
+    return "sin_patron"
+
 _CMJ_MAP = {
     "Height Jump (cm)": ("CMJ_cm", "max"),
     "RSI": ("CMJ_RSI", "max"),
@@ -1466,7 +1541,32 @@ def _infer_exercise_category(exercise_name: str) -> str:
     return "untagged"
 
 
+# Ejercicios cuya funcion principal es preventiva, que se clasifican como
+# prehab por nombre aunque el tag diga otra cosa ("Core", "Ham_Curl"):
+# Copenhagen/aductores (Harøy et al. 2019, lesion de ingle) y Nordic
+# (isquiotibiales). Decision del entrenador (oct/2026). Para revertir un caso
+# basta con sacar su palabra clave de esta lista.
+EXERCISE_CATEGORY_OVERRIDES = (
+    ("copenhagen", "mobility_prehab"),
+    ("adductor squeeze", "mobility_prehab"),
+    ("nordic", "mobility_prehab"),
+)
+
+
+def _exercise_category_override(exercise_name: object) -> str | None:
+    text = str(exercise_name or "").strip().lower()
+    if not text:
+        return None
+    for keyword, category in EXERCISE_CATEGORY_OVERRIDES:
+        if keyword in text:
+            return category
+    return None
+
+
 def classify_exercise(tag: str, exercise_name: str) -> str:
+    override = _exercise_category_override(exercise_name)
+    if override:
+        return override
     cleaned_tag = str(tag or "").strip()
     if cleaned_tag:
         direct_category = _tag_category(cleaned_tag)
@@ -1541,6 +1641,47 @@ def is_prepared_raw_workouts_df(raw_df: pd.DataFrame | None) -> bool:
     return PREPARED_RAW_WORKOUT_COLUMNS.issubset(raw_df.columns)
 
 
+def add_strength_detail_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Agrega `strength_pattern` y `Series` a las filas de fuerza si faltan.
+
+    Series: metrica de volumen comparable entre patrones (el tonelaje
+    sobrepondera lo que mueve mas kilos externos). El Raw Workouts trae una
+    fila por serie (la clave de dedupe incluye Set Number); si una fila trae
+    "Sets" agregado se usa ese valor. Cuenta toda serie con reps, tambien las
+    de peso corporal (sin Result). Es idempotente: no pisa columnas ya
+    calculadas, asi sirve para frames preparados antes de que existieran.
+    """
+    if df is None or df.empty or "stimulus_category" not in df.columns:
+        return df
+    if {"strength_pattern", "Series"}.issubset(df.columns):
+        return df
+    result = df.copy()
+    strength_mask = result["stimulus_category"].eq("strength_loaded")
+    tags = result["Tags"] if "Tags" in result.columns else pd.Series("", index=result.index, dtype=object)
+    exercise_col = "Exercise Name" if "Exercise Name" in result.columns else "Exercise" if "Exercise" in result.columns else None
+    exercises = result[exercise_col] if exercise_col else pd.Series("", index=result.index, dtype=object)
+    if "strength_pattern" not in result.columns:
+        result["strength_pattern"] = pd.Series(pd.NA, index=result.index, dtype=object)
+        result.loc[strength_mask, "strength_pattern"] = [
+            _strength_pattern(tag_value, exercise_value)
+            for tag_value, exercise_value in zip(tags.loc[strength_mask].tolist(), exercises.loc[strength_mask].tolist())
+        ]
+    if "Series" not in result.columns:
+        reps = pd.to_numeric(result.get("Reps", pd.Series(index=result.index, dtype="float64")), errors="coerce")
+        sets = pd.to_numeric(result.get("Sets", pd.Series(index=result.index, dtype="float64")), errors="coerce")
+        rows_as_sets = (
+            pd.Series(1.0, index=result.index)
+            if "Set Number" in result.columns
+            else sets.where(sets.notna() & sets.gt(0), 1.0)
+        )
+        result["Series"] = pd.Series(index=result.index, dtype="float64")
+        performed = strength_mask & reps.gt(0)
+        result.loc[performed, "Series"] = rows_as_sets.loc[performed]
+    for key, value in getattr(df, "attrs", {}).items():
+        result.attrs[key] = value
+    return result
+
+
 def _mark_prepared_raw_workouts_df(df: pd.DataFrame | None) -> pd.DataFrame | None:
     if df is not None:
         df.attrs[PREPARED_RAW_WORKOUT_FLAG] = True
@@ -1551,7 +1692,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     if raw_df is None:
         return None
     if is_prepared_raw_workouts_df(raw_df):
-        return _mark_prepared_raw_workouts_df(raw_df.copy())
+        return _mark_prepared_raw_workouts_df(add_strength_detail_columns(raw_df.copy()))
 
     df = raw_df.copy()
     column_aliases = {
@@ -1590,11 +1731,13 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
             "Contacts",
             "Exposures",
             "Distance_m",
+            "Series",
+            "strength_pattern",
             "is_invalid",
             "is_untagged",
         ]:
             if column not in df.columns:
-                df[column] = pd.Series(dtype=object if column in {"Category", "stimulus_category"} else "float64")
+                df[column] = pd.Series(dtype=object if column in {"Category", "stimulus_category", "strength_pattern"} else "float64")
         if "is_invalid" in df.columns:
             df["is_invalid"] = df["is_invalid"].astype(bool)
         if "is_untagged" in df.columns:
@@ -1691,6 +1834,8 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     strength_mask = df["stimulus_category"].eq("strength_loaded")
     valid_strength = strength_mask & result.gt(0) & reps.gt(0)
     df.loc[valid_strength, "Volume_Load_kg"] = (result.loc[valid_strength] * reps.loc[valid_strength]).round(3)
+
+    df = add_strength_detail_columns(df)
 
     contacts_mask = df["stimulus_category"].isin(["plyo_jump", "landing_mechanics"]) & reps.gt(0)
     df.loc[contacts_mask, "Contacts"] = reps.loc[contacts_mask]

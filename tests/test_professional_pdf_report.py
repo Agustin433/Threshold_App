@@ -2361,6 +2361,20 @@ class ProfessionalPdfReportTest(unittest.TestCase):
                         "is_invalid": False,
                         "is_untagged": False,
                     },
+                    # Segunda sesion de fuerza: el menor se define por
+                    # sesiones, no desempatando con dosis de unidades
+                    # distintas (kg x rep vs exposiciones).
+                    {
+                        "Athlete": "Ana Lopez",
+                        "Assigned Date": "2026-05-01",
+                        "Exercise": "Back Squat",
+                        "stimulus_category": "strength_loaded",
+                        "Volume_Load_kg": 2400,
+                        "Contacts": 0,
+                        "Exposures": 1,
+                        "is_invalid": False,
+                        "is_untagged": False,
+                    },
                     {
                         "Athlete": "Ana Lopez",
                         "Assigned Date": "2026-04-30",

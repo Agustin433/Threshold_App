@@ -761,7 +761,9 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
     def test_classify_exercise_uses_specificity_and_keywords(self):
         cases = [
             ("", "10m + COD 90° + 5m", "sprint_cod"),
-            ("", "Nordic Hamstring Curl", "strength_loaded"),
+            ("", "Barbell Hip Thrust", "strength_loaded"),
+            # Nordic y Copenhagen son prehab por nombre (decision oct/2026).
+            ("", "Nordic Hamstring Curl", "mobility_prehab"),
             ("", "Barbell Back Squat ISO-Hold", "iso"),
             ("", "Hang High Pull (Snatch Grip)", "olympic_derivatives"),
             ("", "Box Jump", "plyo_jump"),
@@ -795,7 +797,9 @@ Exequiel,Heredia Garcia,1,,19,9003,Ignorar,999999,Other,99,{ts_day_2}
         trace_names = {trace.name for trace in figure.data}
         annotation_texts = [annotation.text for annotation in figure.layout.annotations]
 
-        self.assertIn("Dominante de Rodilla", trace_names)
+        # Fuerza se grafica por patron de movimiento (etiqueta canonica), no
+        # por el texto crudo del tag.
+        self.assertIn("Dominante de rodilla", trace_names)
         self.assertIn("Jump_Plyo", trace_names)
         self.assertIn("DLO", trace_names)
         self.assertIn("Sprint / COD", trace_names)

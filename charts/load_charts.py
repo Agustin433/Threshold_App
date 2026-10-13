@@ -6,7 +6,12 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from modules.data_loader import is_prepared_raw_workouts_df, prepare_raw_workouts_df
+from modules.data_loader import (
+    STRENGTH_PATTERN_LABELS,
+    add_strength_detail_columns,
+    is_prepared_raw_workouts_df,
+    prepare_raw_workouts_df,
+)
 
 
 def _theme_parts(theme: dict) -> tuple[dict, dict, str, str, dict]:
@@ -237,13 +242,24 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> g
         unit="D",
     )
 
+    # Fuerza en series por patron de movimiento: el tonelaje sobrepondera los
+    # patrones que mueven mas kilos (un press de banca "gana" a un split
+    # squat con el mismo trabajo), asi que no sirve para comparar patrones.
+    athlete_df = add_strength_detail_columns(athlete_df)
+    if "strength_pattern" in athlete_df.columns:
+        strength_rows = athlete_df["stimulus_category"].eq("strength_loaded")
+        athlete_df.loc[strength_rows, "Category"] = (
+            athlete_df.loc[strength_rows, "strength_pattern"].fillna("sin_patron").map(
+                lambda pattern: STRENGTH_PATTERN_LABELS.get(str(pattern), str(pattern))
+            )
+        )
     sections = [
         {
             "title": "Fuerza con carga",
-            "question": "Como se distribuyo el tonelaje por patron",
+            "question": "Cuantas series por patron de movimiento",
             "categories": ["strength_loaded"],
-            "value_col": "Volume_Load_kg",
-            "yaxis": "kg x rep",
+            "value_col": "Series",
+            "yaxis": "Series",
         },
         {
             "title": "Pliometria y aterrizajes",
@@ -260,14 +276,21 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> g
             "yaxis": "Exposiciones",
         },
         {
-            "title": "Iso y estabilidad",
-            "question": "Cuanto trabajo de iso y estabilidad",
-            "categories": ["iso", "core_stability"],
+            "title": "Isometricos",
+            "question": "Cuanto trabajo isometrico de fuerza",
+            "categories": ["iso"],
             "value_col": "Exposures",
             "yaxis": "Exposiciones",
         },
         {
-            "title": "Movilidad y prehab",
+            "title": "Core / anti-rotacion",
+            "question": "Cuanto trabajo de core y anti-rotacion",
+            "categories": ["core_stability"],
+            "value_col": "Exposures",
+            "yaxis": "Exposiciones",
+        },
+        {
+            "title": "Prehab y movilidad",
             "question": "Cuanta exposicion a prehab y movilidad",
             "categories": ["mobility_prehab"],
             "value_col": "Exposures",

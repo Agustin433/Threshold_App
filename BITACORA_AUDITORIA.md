@@ -89,6 +89,20 @@ Se pueden calibrar con datos reales si bloquean demasiado.
 
 ---
 
+## 5b. Contenido entrenado (decisiones del entrenador, oct/2026)
+
+| Decisión | Implementación |
+|---|---|
+| **Volumen de fuerza: series + tonelaje.** Las series son la métrica comparable entre patrones. El tonelaje (kg×rep) queda como dato secundario, nunca para comparar patrones. | `add_strength_detail_columns` en `data_loader`. El Raw Workouts trae una fila por serie (la clave de deduplicación incluye `Set Number`); si una fila trae `Sets` agregado, se usa ese valor. Se cuentan también las series con peso corporal. |
+| **Desglose por patrón completo:** dominante de cadera/rodilla, empuje H/V, tracción H/V, saltos con carga, accesorios MMII/MMSS, cuello y sin patrón. | El patrón sale primero del tag (el patrón principal gana sobre el de postura: "Stance_Split\|Dominante de Rodilla" cuenta como rodilla). Si no hay tag de patrón, se infiere del nombre con palabras clave conservadoras; si tampoco, queda "Sin patrón" y no se asigna a ninguna región. El PDF suma la línea "tren inferior N series · tren superior M series". |
+| **Copenhagen → prehab, y también aductores y Nordic** ("isquio preventivo en general"). | `EXERCISE_CATEGORY_OVERRIDES` clasifica por nombre del ejercicio, por encima del tag. Para revertir un caso basta con sacar su palabra clave de la lista. |
+| **Isométricos separados de Core / anti-rotación.** | El PDF y el gráfico de Load ahora tienen filas separadas. Antes un Pallof contaba como "isométrico". |
+| **Ranking entre estímulos solo por sesiones.** | Las dosis vienen en unidades no comparables y ya no se usan para desempatar. Si hay empate en el mínimo, no se nombra un "menor" o se nombran todos los empatados. |
+
+**Supuesto a confirmar con un archivo real:** que el Raw Workouts sigue trayendo una fila por serie.
+
+---
+
 ## 6. Referencias citadas
 
 Son de memoria: verificar DOI/PMID antes de citarlas.
@@ -104,9 +118,8 @@ Son de memoria: verificar DOI/PMID antes de citarlas.
 ## 7. Pendiente
 
 ### Puntos de la auditoría que necesitan tu criterio
-1. **Contenido entrenado:** mezcla unidades no comparables (kg×rep, contactos, exposiciones) y el tonelaje sesga hacia el tren superior. *Es el bloque que sigue.*
-2. **Clasificación de ejercicios:** Copenhagen Plank y Pallof caen en "Isométricos" y no en prehab/core.
-3. **Wellness por ítems:** la dirección de las escalas es ambigua y el sueño queda escondido en el puntaje compuesto.
+1. ~~Contenido entrenado~~ y ~~clasificación de ejercicios~~: hechos (ver 5b).
+2. **Wellness por ítems:** la dirección de las escalas es ambigua y el sueño queda escondido en el puntaje compuesto. *Es el bloque que sigue.*
 
 ### Pendientes menores
 - Zonas de referencia para monotonía y strain, y definición de DSI/DRI dentro del reporte.
