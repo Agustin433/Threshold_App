@@ -230,6 +230,7 @@ EXERCISE_KEYWORDS = {
         "pushup",
         "walkout",
         "facepull",
+        "pull apart",
         "step down",
         "step-down",
         "fly",
@@ -334,7 +335,7 @@ _STRENGTH_PATTERN_KEYWORDS = (
     ("empuje_vertical", ("overhead press", "military", "push press", "landmine press", "shoulder press", "overhead")),
     ("empuje_horizontal", ("bench", "push up", "push-up", "pushup", "floor press", "chest press", "dip")),
     ("traccion_vertical", ("pull up", "pull-up", "pullup", "chin up", "chin-up", "lat pulldown", "pulldown")),
-    ("traccion_horizontal", ("row", "face pull", "seal row")),
+    ("traccion_horizontal", ("row", "face pull", "facepull", "seal row", "pull apart")),
     ("accesorios_mmss", ("curl", "triceps", "tricep", "lateral raise", "raise", "extension")),
 )
 
@@ -1926,6 +1927,12 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     result = pd.to_numeric(df.get("Result", pd.Series(index=df.index, dtype="float64")), errors="coerce")
     reps = pd.to_numeric(df.get("Reps", pd.Series(index=df.index, dtype="float64")), errors="coerce")
     sets = pd.to_numeric(df.get("Sets", pd.Series(index=df.index, dtype="float64")), errors="coerce")
+    if "Set Number" in df.columns:
+        # Export por serie (TeamBuildr): cada fila ES una serie. Sin esto,
+        # core/prehab/iso caian a contar repeticiones (o nada, si la fila no
+        # trae reps): en el reporte real Prehab sumaba 118 "exposiciones" que
+        # eran repeticiones y Core quedaba en "Faltan datos".
+        sets = sets.where(sets.notna() & sets.gt(0), 1.0)
     duration_s = pd.to_numeric(df.get("Duration_s", pd.Series(index=df.index, dtype="float64")), errors="coerce")
 
     df["Volume_Load_legacy"] = result * reps

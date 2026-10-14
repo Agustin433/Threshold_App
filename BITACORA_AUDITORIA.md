@@ -134,6 +134,19 @@ En series de fuerza, Ignacio hizo 36 de tren inferior contra 143 de superior en 
 
 **Para que las correcciones de fecha lleguen a los datos ya guardados:** volver a subir el cuestionario completo y el Raw Workouts. El Raw guardado ya trae `Completed Date`, así que la fecha de sesión se calcula al leer, sin re-subir. El cuestionario sí necesita re-subirse para corregir las fechas UTC y las sumas.
 
+### 5d. Segunda revisión del PDF de Mariano (14/10/2026)
+
+El PDF que generaste en producción confirmó que los arreglos de 5c estaban activos: cobertura 7/10 y ACWR bloqueado con su motivo. Igual tenía seis problemas, y los seis están corregidos:
+
+| Problema en el PDF | Causa | Corrección |
+|---|---|---|
+| "Semana analizada 28/09–04/10" aunque había datos hasta el 13/10. | La semana de referencia se calculaba con la última fecha de sRPE/wellness del atleta, no con la última sesión entrenada. | `_professional_completeness_reference` usa el horizonte de datos (incluye sesiones del Raw). Ahora muestra 05/10–11/10. |
+| Core decía "Faltan datos" y prehab se contaba en reps. | Ejercicios sin carga ni series cargadas quedaban con 0 series. | Cada fila del Raw con `Set Number` cuenta como una serie, aunque no tenga carga. |
+| El Facepull quedaba "sin patrón". | El nombre "Facepull" (junto) no matcheaba "face pull". | Palabras clave "facepull" y "pull apart" agregadas a tracción horizontal. |
+| "Wellness 3d 23.0" no coincidía con la tarjeta de wellness. | Tomaba los últimos 3 registros sin mirar la fecha, aunque fueran de semanas atrás. | Solo usa registros de los últimos 7 días antes del horizonte. La etiqueta ahora dice "Wellness reciente X /30". |
+| Aparecía la frase rota "Recontrolar No aparece una fortaleza clara…". | El texto alternativo se insertaba como si fuera el nombre de una variable. | Si no hay variable rezagada ni fortaleza clara, la línea no se genera. |
+| "Evitar monotonía excesiva" con la monotonía no calculable. | La línea de "Mantener" no revisaba si había monotonía. | Solo menciona monotonía si hay un valor numérico. |
+
 ---
 
 ## 6. Referencias citadas

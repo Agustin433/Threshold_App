@@ -167,3 +167,39 @@ class ReplaceDatasetSpanTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PerSetExposureTest(unittest.TestCase):
+    """Segunda revision del PDF real de Mariano (14/10/2026)."""
+
+    def test_core_and_prehab_rows_count_one_series_each(self):
+        raw = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Exercise Name": "Banded Pallof Press", "Assigned Date": "2026-10-06",
+                 "Set Number": n, "Reps": 10, "Tags": "Core_Anti_Rotacion"}
+                for n in (1, 2, 3)
+            ]
+            + [
+                {"Athlete": "Ana Lopez", "Exercise Name": "Short Copenhagen Plank", "Assigned Date": "2026-10-06",
+                 "Set Number": n, "Reps": None, "Tags": ""}
+                for n in (1, 2)
+            ]
+        )
+        prepared = prepare_raw_workouts_df(raw)
+        by_category = prepared.groupby("stimulus_category")["Exposures"].sum()
+
+        # Antes: 30 (repeticiones) y 0 (sin reps -> "Faltan datos").
+        self.assertEqual(by_category["core_stability"], 3)
+        self.assertEqual(by_category["mobility_prehab"], 2)
+
+    def test_facepull_written_together_is_horizontal_pull(self):
+        raw = pd.DataFrame(
+            [
+                {"Athlete": "Ana Lopez", "Exercise Name": 'Cable Half Kneeling "Facepull"',
+                 "Assigned Date": "2026-10-06", "Set Number": 1, "Result": 15, "Reps": 12, "Tags": ""},
+                {"Athlete": "Ana Lopez", "Exercise Name": "Band Pull Apart",
+                 "Assigned Date": "2026-10-06", "Set Number": 1, "Result": 0, "Reps": 15, "Tags": ""},
+            ]
+        )
+        prepared = prepare_raw_workouts_df(raw)
+        self.assertEqual(prepared["strength_pattern"].tolist(), ["traccion_horizontal", "traccion_horizontal"])

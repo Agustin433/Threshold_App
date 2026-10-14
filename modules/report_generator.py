@@ -784,7 +784,16 @@ def _recent_wellness_mean(state: dict[str, pd.DataFrame | None], athlete: str) -
     wdf = state.get("wellness_df")
     if wdf is None or wdf.empty or "Athlete" not in wdf.columns:
         return None
-    athlete_df = wdf[wdf["Athlete"] == athlete].sort_values("Date").tail(3)
+    athlete_df = wdf[wdf["Athlete"] == athlete].copy()
+    if athlete_df.empty or "Date" not in athlete_df.columns:
+        return None
+    # Solo registros recientes: antes se tomaban los ultimos 3 sin mirar la
+    # fecha, y el reporte decia "Wellness 3d 23.0" con registros de semanas
+    # atras mientras la tarjeta de wellness mostraba otro valor.
+    athlete_df["Date"] = pd.to_datetime(athlete_df["Date"], errors="coerce").dt.normalize()
+    horizon = _professional_data_horizon(state) or pd.Timestamp(_professional_report_today()).normalize()
+    athlete_df = athlete_df[athlete_df["Date"].between(horizon - pd.Timedelta(days=6), horizon)]
+    athlete_df = athlete_df.sort_values("Date").tail(3)
     if athlete_df.empty:
         return None
     score_series = _report_wellness_score_series(athlete_df).dropna()
@@ -1252,7 +1261,7 @@ def _focus_metric_context(row: pd.Series) -> dict[str, str]:
         "dri": _focus_metric_phrase("DRI", row.get("DRI"), digits=2),
         "eur": _focus_metric_phrase("EUR", _summary_eur_value(row), digits=2),
         "imtp": _focus_metric_phrase("IMTP", row.get("IMTP N"), suffix=" N"),
-        "wellness": _focus_metric_phrase("Wellness 3d", row.get("Wellness 3d"), digits=1),
+        "wellness": _focus_metric_phrase("Wellness reciente", row.get("Wellness 3d"), digits=1, suffix=" /30"),
         "cmj_delta_value": _display_metric(cmj_delta, digits=1, suffix="%") if cmj_delta is not None else "",
     }
 
@@ -5741,6 +5750,44 @@ def _professional_latest_data_date(state: dict[str, pd.DataFrame | None], athlet
     return max(dates)
 
 
+def _professional_data_horizon(state: dict[str, pd.DataFrame | None]) -> pd.Timestamp | None:
+    """Ultima fecha con datos cargados para cualquier atleta (tope: hoy).
+
+    Define si una semana esta "completa": antes se usaba el ultimo dato del
+    propio atleta, asi que si entreno por ultima vez un jueves, la semana de
+    ese jueves nunca cerraba y el reporte quedaba una semana atrasado aunque
+    los datos del equipo llegaran hasta el domingo o despues.
+    """
+    dates: list[pd.Timestamp] = []
+    for key, columns in (
+        ("rpe_df", ("Date",)),
+        ("wellness_df", ("Date",)),
+        ("prepared_raw_df", ("Session Date", "Completed Date", "Assigned Date", "Date")),
+        ("raw_df", ("Session Date", "Completed Date", "Assigned Date", "Date")),
+    ):
+        frame = state.get(key)
+        if not isinstance(frame, pd.DataFrame) or frame.empty:
+            continue
+        column = next((candidate for candidate in columns if candidate in frame.columns), None)
+        if column is None:
+            continue
+        parsed = pd.to_datetime(frame[column], errors="coerce").dropna()
+        if not parsed.empty:
+            dates.append(pd.Timestamp(parsed.max()).normalize())
+    if not dates:
+        return None
+    return min(max(dates), pd.Timestamp(_professional_report_today()).normalize())
+
+
+def _professional_completeness_reference(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.Timestamp:
+    athlete_reference = _professional_latest_data_date(state, athlete)
+    horizon = _professional_data_horizon(state)
+    candidates = [pd.Timestamp(value).normalize() for value in (athlete_reference, horizon) if value is not None]
+    if not candidates:
+        return pd.Timestamp(_professional_report_today()).normalize()
+    return max(candidates)
+
+
 def _professional_week_points_from_daily(
     frame: pd.DataFrame,
     week_start: pd.Timestamp,
@@ -5879,7 +5926,7 @@ def _build_professional_internal_load_context(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
 ) -> dict[str, object]:
-    reference_date = _professional_latest_data_date(state, athlete) or _professional_report_today()
+    reference_date = _professional_completeness_reference(state, athlete)
     reference_date = pd.Timestamp(reference_date).normalize()
     reference_week_start = _professional_week_start(reference_date)
     rpe_df = state.get("rpe_df")
@@ -5910,6 +5957,11 @@ def _build_professional_internal_load_context(
         valid_mask = weekly_load["weekly_sRPE"].fillna(0).gt(0)
         if "sessions_count" in weekly_load.columns:
             valid_mask = valid_mask | pd.to_numeric(weekly_load["sessions_count"], errors="coerce").fillna(0).gt(0)
+        # Una semana entrenada sin ningun sRPE tambien es candidata a "semana
+        # analizada": si no, el reporte salta a la ultima semana reportada y
+        # oculta que la mas reciente se entreno sin registro.
+        if "sessions_done" in weekly_load.columns:
+            valid_mask = valid_mask | pd.to_numeric(weekly_load["sessions_done"], errors="coerce").fillna(0).gt(0)
         weekly_valid = weekly_load[valid_mask & (weekly_load["week_start"] <= reference_week_start)].copy()
 
     daily_weeks = set(pd.to_datetime(rpe_data.get("week_start", pd.Series(dtype="datetime64[ns]")), errors="coerce").dropna().tolist()) if not rpe_data.empty else set()
@@ -6202,7 +6254,7 @@ def _professional_wellness_context(state: dict[str, pd.DataFrame | None], athlet
     current_week_points: list[dict[str, object]] = []
     last_week_summary: dict[str, object] = {}
     current_week_summary: dict[str, object] = {}
-    reference_date = _professional_latest_data_date(state, athlete) or _professional_report_today()
+    reference_date = _professional_completeness_reference(state, athlete)
     reference_date = pd.Timestamp(reference_date).normalize()
     current_week_start = _professional_week_start(reference_date)
     complete_week_start = _professional_last_complete_week_start(reference_date)
@@ -8315,7 +8367,11 @@ def _build_professional_integrated_decision_payload(
         monitor.append(
             f"Monitorear si la baja exposición en {_professional_join_labels(low_or_absent[:2])} empieza a generar una limitación futura del perfil."
         )
-    metric_recheck = _professional_join_labels(declines[:2], fallback=low_text if has_clear_lagging else high_text)
+    # Solo se recontrola una variable con nombre. Antes, sin fortaleza clara,
+    # el fallback era la frase "No aparece una fortaleza clara..." y salia
+    # "Recontrolar No aparece una fortaleza clara... antes de 6-8 semanas".
+    recheck_fallback = low_text if has_clear_lagging else (high_text if has_clear_strength else "")
+    metric_recheck = _professional_join_labels(declines[:2], fallback=recheck_fallback)
     if _has_text(metric_recheck):
         monitor.append(f"Recontrolar {metric_recheck} antes de 6-8 semanas si el contexto competitivo necesita una verificación puntual.")
 
@@ -8363,8 +8419,12 @@ def _build_professional_action_plan_payload(
         maintain.append("Mantener el perfil actual y reforzar consistencia técnica con control de carga.")
     else:
         maintain.append("Mantener la estructura actual y reforzar consistencia técnica con control de carga.")
-    load_context_available = _latest_acwr_row(state, athlete) is not None or _latest_mono_row(state, athlete) is not None
-    if load_context_available:
+    # Hablar de "monotonia excesiva" solo si hay una monotonia calculada: con
+    # monotonia no calculable (semana con sesiones sin sRPE) es una
+    # recomendacion sin dato que la respalde.
+    mono_row = _latest_mono_row(state, athlete)
+    monotony_available = mono_row is not None and _coerce_float(mono_row.get("Monotonia")) is not None
+    if monotony_available:
         maintain.append("Sostener variabilidad del microciclo y evitar monotonía excesiva para proteger la tolerancia actual.")
     else:
         maintain.append("Sostener variabilidad del microciclo y proteger la tolerancia actual.")
