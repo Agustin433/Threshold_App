@@ -24,6 +24,7 @@ from modules.data_loader import (
     prepare_raw_workouts_df,
     raw_session_date_column,
 )
+from modules.app_version import app_version
 from modules.data_quality import compute_data_quality_report
 from modules.load_monitoring import (
     training_dates_for_athlete,
@@ -10839,7 +10840,7 @@ def _generate_professional_profile_pdf_reportlab(
                     _p("REPORTE PROFESIONAL", "ProfEyebrow"),
                     _p(report_athlete, "ProfHeroTitle"),
                     _p(
-                        f"Generado el {datetime.now():%d/%m/%Y %H:%M} · Ventana {executive_payload.get('period', PDF_MISSING_TEXT)}",
+                        f"Generado el {datetime.now():%d/%m/%Y %H:%M} · Ventana {executive_payload.get('period', PDF_MISSING_TEXT)} · v{app_version()}",
                         "ProfHeroMeta",
                     ),
                     _p(

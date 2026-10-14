@@ -93,6 +93,7 @@ from modules.athlete_profile import (
     suggest_objective_from_text,
     validate_profile_fields,
 )
+from modules.app_version import app_version
 from modules.data_loader import (
     EVALUATION_DB_COLUMN_MAP as SHARED_EVALUATION_DB_COLUMN_MAP,
     EVALUATION_PERSIST_COLUMNS as SHARED_EVALUATION_PERSIST_COLUMNS,
@@ -3901,6 +3902,7 @@ with st.sidebar:
   </div>
 </div>
 """, unsafe_allow_html=True)
+    st.caption(f"Versión del código: {app_version()}")
 
     if _LOGO_WORDMARK_PATH and _LOGO_ICON_PATH:
         st.caption("Marca oficial cargada desde assets/brand.")
