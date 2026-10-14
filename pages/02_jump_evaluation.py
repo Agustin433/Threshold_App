@@ -45,6 +45,7 @@ from modules.jump_analysis import (
     compute_swc_delta,
     select_primary_profile_row,
 )
+from modules.auth import require_login
 from modules.page_state import ensure_page_state
 from modules.page_visuals import build_page_theme
 
@@ -355,6 +356,8 @@ def _render_history_chart(
     st.plotly_chart(figure, use_container_width=True)
 
 
+# Cada pagina corre como script propio: la puerta de app.py no la cubre.
+require_login()
 ensure_page_state(load_models=False)
 
 st.header("Evaluacion de Saltos")

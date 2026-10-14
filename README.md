@@ -57,6 +57,12 @@ Claves esperadas:
 
 Si no configuras Supabase, la app sigue funcionando en modo local.
 
+## Login (obligatorio)
+
+La app exige login con Google (OIDC) antes de mostrar datos. Sin la seccion
+`[auth]` y `ALLOWED_EMAILS` en `.streamlit/secrets.toml` no entra nadie.
+Pasos de configuracion en `RUNBOOK.md`, seccion 5b.
+
 ## Documentacion util
 
 - `RUNBOOK.md`: guia operativa para levantar y revisar la app

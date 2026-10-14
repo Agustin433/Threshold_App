@@ -74,6 +74,7 @@ from local_store import (
     save_dataset,
     upsert_athlete_profile,
 )
+from modules.auth import require_login
 from modules.athlete_profile import (
     CONTEXTO_OPTIONS,
     DEPORTE_SELECT_OPTIONS,
@@ -333,6 +334,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Puerta de acceso: nada de lo que sigue (hidratacion local, Supabase,
+# uploads) corre sin un usuario autorizado. Ver modules/auth.py.
+require_login()
 
 # Colores — Threshold S&C Brand Palette
 # Extraídos del logo: negro puro, azul navy, azul acero, blanco

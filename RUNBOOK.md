@@ -80,6 +80,42 @@ Si Supabase no esta configurado:
 - la gestion de historial local sigue funcionando
 - lo que no esta disponible es la sincronizacion remota
 
+## 5b. Login obligatorio (OIDC con Google)
+
+La app no muestra ni carga datos sin login. Falla cerrada: si falta la
+seccion `[auth]` o `ALLOWED_EMAILS` en `.streamlit/secrets.toml`, no entra
+nadie. Motivo: la app usa la `service_role` key de Supabase, que ignora RLS,
+asi que el login es la unica barrera entre los datos de los atletas y
+cualquiera que tenga la URL.
+
+Configurar una vez en Google Cloud Console (https://console.cloud.google.com):
+
+1. Crear (o elegir) un proyecto.
+2. `APIs & Services -> OAuth consent screen`: tipo External, completar nombre
+   de la app y email de soporte. En modo Testing, agregar en "Test users" los
+   mismos emails que vayan en `ALLOWED_EMAILS`.
+3. `APIs & Services -> Credentials -> Create credentials -> OAuth client ID`,
+   tipo "Web application".
+4. En "Authorized redirect URIs" agregar, tal cual:
+   - `http://localhost:8501/oauth2callback` (uso local)
+   - `https://<url-de-la-app-publicada>/oauth2callback` (si esta publicada)
+5. Copiar `client_id` y `client_secret` a la seccion `[auth]` de
+   `.streamlit/secrets.toml` (ver `secrets.example.toml`).
+6. Generar `cookie_secret`:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+7. Completar `ALLOWED_EMAILS` con los emails que pueden entrar.
+
+Si la app esta publicada (por ejemplo Streamlit Community Cloud), el mismo
+contenido va en la configuracion de secrets de la plataforma, con
+`redirect_uri` apuntando a la URL publicada.
+
+Solo para desarrollo en tu propia maquina se puede apagar el login con
+`THRESHOLD_AUTH_DISABLED = true` en `secrets.toml`. Nunca en una app publicada.
+
 ## 6. Que deberias ver si arranca bien
 
 - Streamlit abre `app.py`

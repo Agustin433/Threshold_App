@@ -27,6 +27,11 @@ TODAY = pd.Timestamp.today().normalize()
 @contextmanager
 def isolated_store():
     original_store = os.environ.get("THRESHOLD_STORE_DIR")
+    # Estos tests cubren el Panel de Decision, no el login (ver
+    # test_auth_gate): sin esto la puerta de modules/auth.py corta app.py
+    # antes del panel en cada at.run().
+    original_auth_flag = os.environ.get("THRESHOLD_AUTH_DISABLED")
+    os.environ["THRESHOLD_AUTH_DISABLED"] = "true"
     tmp_root = None
     try:
         TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
@@ -40,6 +45,10 @@ def isolated_store():
             os.environ.pop("THRESHOLD_STORE_DIR", None)
         else:
             os.environ["THRESHOLD_STORE_DIR"] = original_store
+        if original_auth_flag is None:
+            os.environ.pop("THRESHOLD_AUTH_DISABLED", None)
+        else:
+            os.environ["THRESHOLD_AUTH_DISABLED"] = original_auth_flag
         if tmp_root is not None:
             shutil.rmtree(tmp_root, ignore_errors=True)
         if TEST_TMP_ROOT.exists() and not any(TEST_TMP_ROOT.iterdir()):
