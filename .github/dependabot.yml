@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # Dependencias de Python: requirements.txt es el lockfile (versiones
+  # exactas, generado con `uv pip compile` desde requirements.in).
+  # Un solo PR semanal agrupado para no llenar el repo de PRs; el Smoke
+  # Check corre la suite completa sobre el lockfile propuesto.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Argentina/Buenos_Aires"
+    open-pull-requests-limit: 5
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps"
+
+  # Versiones de las GitHub Actions usadas en .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Argentina/Buenos_Aires"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
