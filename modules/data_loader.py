@@ -15,6 +15,11 @@ import zlib
 import pandas as pd
 from openpyxl.utils.exceptions import InvalidFileException
 
+from modules.athlete_names import (
+    AthleteNameEncodingError,
+    normalize_athlete_name,
+    normalize_athlete_series,
+)
 from modules.evaluation_registry import get_evaluation_spec, get_storage_mapping
 from modules.evaluation_sources import SOURCE_PLATFORM
 from modules.involution_parser import parse_involution_summary_excel
@@ -742,6 +747,9 @@ def _is_completion_aggregate_row(value: object) -> bool:
     return normalized in {"average", "avg", "total"}
 
 
+CSV_TEXT_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
+
+
 def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     """Read CSV exports with multiple encoding fallbacks."""
     if isinstance(file, (str, os.PathLike, Path)):
@@ -760,7 +768,11 @@ def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
     if isinstance(raw_bytes, str):
         raw_bytes = raw_bytes.encode("utf-8")
 
-    encodings = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
+    # Siempre en modo estricto: el primer encoding que decodifica sin errores
+    # gana. utf-8-sig lee UTF-8 con o sin BOM (con "utf-8" a secas el BOM
+    # quedaba pegado al nombre de la primera columna). cp1252 antes que
+    # latin-1: es lo que exporta Windows y difiere en 0x80-0x9F.
+    encodings = CSV_TEXT_ENCODINGS
     first_error = None
 
     for encoding in encodings:
@@ -812,7 +824,9 @@ def _read_binary_content(file_or_buffer) -> bytes:
         raise ValueError("No se pudo leer el archivo de cuestionarios raw.")
 
     if isinstance(raw_bytes, str):
-        return raw_bytes.encode("utf-8", errors="replace")
+        # Sin errors="replace": un str de Python siempre se puede codificar en
+        # UTF-8; si no se puede, es un dato roto y tiene que fallar.
+        return raw_bytes.encode("utf-8")
     if raw_bytes is None:
         raise ValueError("El archivo de cuestionarios raw esta vacio.")
     return raw_bytes
@@ -974,7 +988,7 @@ def _session_note_row(raw_row: dict[str, object], *, source: str, source_page: i
 
     return {
         "Date": date_recorded,
-        "Athlete": athlete.title(),
+        "Athlete": normalize_athlete_name(athlete),
         "Date_Assigned": date_assigned,
         "Assigned_Exercise": assigned_exercise or pd.NA,
         "Opt_Out_Type": opt_out_type or pd.NA,
@@ -1091,7 +1105,7 @@ def _normalize_session_notes_df(rows: list[dict[str, object]]) -> pd.DataFrame:
     ]
     for column in text_cols:
         df[column] = df[column].map(lambda value: pd.NA if value is None or pd.isna(value) or not _clean_pdf_text(value) else _clean_pdf_text(value))
-    df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
+    df["Athlete"] = normalize_athlete_series(df["Athlete"], source_label="Notas de sesion (PDF)")
     df["Source_Page"] = pd.to_numeric(df["Source_Page"], errors="coerce").fillna(1).astype(int)
     dedupe_cols = ["Athlete", "Date", "Date_Assigned", "Assigned_Exercise", "Opt_Out_Type", "Explanation_Text"]
     existing = [column for column in dedupe_cols if column in df.columns]
@@ -1145,21 +1159,22 @@ def parse_questionnaire_raw_csv(filepath_or_buffer) -> tuple[pd.DataFrame, pd.Da
     raw_bytes = _read_binary_content(filepath_or_buffer)
     first_error = None
     dataframe = None
-    for encoding, encoding_errors in (("utf-8", "replace"), ("latin-1", "replace")):
+    # Modo estricto en todos los intentos. Antes el primero era
+    # ("utf-8", errors="replace"), que nunca falla: el fallback a latin-1 no
+    # corria jamas y los exports de TeamBuildr en Windows-1252 terminaban con
+    # U+FFFD en los nombres ("Gaston Casta\ufffdO").
+    for encoding in CSV_TEXT_ENCODINGS:
         try:
-            dataframe = pd.read_csv(
-                BytesIO(raw_bytes),
-                encoding=encoding,
-                encoding_errors=encoding_errors,
-            )
+            dataframe = pd.read_csv(BytesIO(raw_bytes), encoding=encoding)
             break
-        except Exception as exc:
+        except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
             if first_error is None:
                 first_error = exc
 
     if dataframe is None:
         raise ValueError(
-            "Questionnaire Raw CSV: no se pudo leer el archivo como CSV valido."
+            "Questionnaire Raw CSV: no se pudo leer el archivo como CSV valido "
+            "(probe UTF-8, Windows-1252 y Latin-1)."
         ) from first_error
 
     dataframe.columns = [str(col).strip() for col in dataframe.columns]
@@ -1181,8 +1196,9 @@ def parse_questionnaire_raw_csv(filepath_or_buffer) -> tuple[pd.DataFrame, pd.Da
 
     first_name = dataframe["First Name"].fillna("").astype(str).map(lambda value: html.unescape(value).strip())
     last_name = dataframe["Last Name"].fillna("").astype(str).map(lambda value: html.unescape(value).strip())
-    athlete = (first_name + " " + last_name).str.replace(r"\s+", " ", regex=True).str.strip()
-    dataframe["Athlete"] = athlete.mask(athlete.eq(""), pd.NA)
+    dataframe["Athlete"] = normalize_athlete_series(
+        first_name + " " + last_name, source_label="Questionnaire Raw CSV"
+    )
 
     complete_ts = pd.to_numeric(dataframe["Timestamp Complete"], errors="coerce")
     # El timestamp es epoch (UTC). Normalizar en UTC mandaba al dia siguiente
@@ -1459,7 +1475,7 @@ def parse_completion_report(file) -> pd.DataFrame:
         ).copy()
         result["Athlete"] = result["Athlete"].astype(str).str.strip()
         result = result[~result["Athlete"].map(_is_completion_aggregate_row)]
-        result["Athlete"] = result["Athlete"].str.title()
+        result["Athlete"] = normalize_athlete_series(result["Athlete"], source_label="Completion Report")
         result["Assigned"] = pd.to_numeric(_clean_numeric_text(result["Assigned"]), errors="coerce")
         result["Completed"] = pd.to_numeric(_clean_numeric_text(result["Completed"]), errors="coerce")
         result["Pct"] = _parse_completion_percent_series(result["Percent"])
@@ -1491,7 +1507,7 @@ def parse_completion_report(file) -> pd.DataFrame:
     df["Assigned"] = pd.to_numeric(df[assigned_col], errors="coerce")
     df["Completed"] = pd.to_numeric(df[completed_col], errors="coerce")
     if athlete_col:
-        df["Athlete"] = df[athlete_col].astype(str).str.strip().str.title()
+        df["Athlete"] = normalize_athlete_series(df[athlete_col], source_label="Completion Report")
     if percent_col and percent_col in df.columns:
         parsed_pct = _parse_completion_percent_series(df[percent_col])
         df["Pct"] = parsed_pct
@@ -1561,7 +1577,7 @@ def parse_rep_load_report(file) -> pd.DataFrame:
     if "Reps_Completed" in df.columns:
         df["Reps_Completed"] = pd.to_numeric(df["Reps_Completed"].astype(str).str.replace("--", ""), errors="coerce")
     if "Athlete" in df.columns:
-        df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
+        df["Athlete"] = normalize_athlete_series(df["Athlete"], source_label="Rep/Load Report")
     df = _require_valid_dates(df, "Rep/Load Report", "Date", "Date")
     _require_any_numeric_content(
         df,
@@ -1860,14 +1876,9 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
             df[column] = pd.to_numeric(df[column], errors="coerce")
 
     if "Athlete" in df.columns:
-        df["Athlete"] = (
-            df["Athlete"]
-            .where(df["Athlete"].notna(), "")
-            .astype(str)
-            .str.strip()
-            .str.title()
-            .replace("", pd.NA)
-        )
+        # Tambien corre sobre historial ya guardado: normaliza pero no rechaza
+        # U+FFFD (eso se valida al parsear el archivo, no al releerlo).
+        df["Athlete"] = normalize_athlete_series(df["Athlete"], reject_replacement_char=False)
     if "Exercise" in df.columns:
         df["Exercise"] = (
             df["Exercise"]
@@ -2109,7 +2120,7 @@ def parse_raw_workouts(file) -> pd.DataFrame:
     if "Duration_s" in df.columns:
         df["Duration_s"] = pd.to_numeric(df["Duration_s"], errors="coerce")
     if "Athlete" in df.columns:
-        df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
+        df["Athlete"] = normalize_athlete_series(df["Athlete"], source_label="Raw Data Report - Workouts")
     df = _require_valid_dates(df, "Raw Data Report - Workouts", "Assigned Date", "Assigned Date")
     _require_any_numeric_content(
         df,
@@ -2156,13 +2167,12 @@ def parse_maxes_health(file) -> pd.DataFrame:
     df["Added Date"] = pd.to_datetime(df[date_col], errors="coerce")
     df["Max Value"] = pd.to_numeric(df[value_col], errors="coerce")
     if athlete_col:
-        df["Athlete"] = df[athlete_col].astype(str).str.strip().str.title()
+        df["Athlete"] = normalize_athlete_series(df[athlete_col], source_label="Raw Maxes")
     elif first_name_col and last_name_col:
-        df["Athlete"] = (
-            df[first_name_col].astype(str).str.strip()
-            + " "
-            + df[last_name_col].astype(str).str.strip()
-        ).str.strip().str.title()
+        df["Athlete"] = normalize_athlete_series(
+            df[first_name_col].fillna("").astype(str) + " " + df[last_name_col].fillna("").astype(str),
+            source_label="Raw Maxes",
+        )
     else:
         df["Athlete"] = "Sin atleta"
     if exercise_col:

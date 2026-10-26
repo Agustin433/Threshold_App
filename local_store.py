@@ -262,11 +262,9 @@ def _persist_empty_dataset(state_key: str, columns: list[str] | None = None) -> 
     return empty_df
 
 
-def normalize_athlete_name(value: object) -> str:
-    if value is None or pd.isna(value):
-        return ""
-    text = " ".join(str(value).strip().split())
-    return text.title()
+# La normalizacion vive en modules.athlete_names (unica fuente); se reexporta
+# aca porque muchos modulos la importan desde local_store.
+from modules.athlete_names import normalize_athlete_name  # noqa: E402
 
 
 def collect_athlete_names(*frames: pd.DataFrame | None) -> list[str]:

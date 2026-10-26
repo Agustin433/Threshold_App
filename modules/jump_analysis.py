@@ -9,6 +9,8 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
+from modules.athlete_names import normalize_athlete_name
+
 from modules.athlete_profile import get_comparison_cohort, normalize_deporte
 from modules.data_loader import _normalize_legacy_imtp_rfd_aliases_frame
 from modules.evaluation_sources import (
@@ -2906,7 +2908,7 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
     result = jump_df.copy()
     result = _normalize_legacy_imtp_rfd_aliases_frame(result)
     if "Athlete" in result.columns:
-        result["Athlete"] = result["Athlete"].astype(str).str.strip().str.title()
+        result["Athlete"] = result["Athlete"].map(normalize_athlete_name)
     if "Date" in result.columns:
         result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
     # Source siempre presente y canonico antes de cualquier calculo: todo lo
@@ -2967,7 +2969,7 @@ def _records_to_jump_df(records: list[dict]) -> pd.DataFrame:
 
     rows: dict[tuple[str, pd.Timestamp, str], dict[str, object]] = {}
     for record in records:
-        athlete = str(record.get("Athlete", "")).strip().title()
+        athlete = normalize_athlete_name(record.get("Athlete", ""))
         date = pd.to_datetime(record.get("Date"), errors="coerce")
         if not athlete or pd.isna(date):
             continue
