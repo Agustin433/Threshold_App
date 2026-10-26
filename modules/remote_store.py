@@ -47,12 +47,15 @@ def _get_secret_or_env(name: str, default=None):
     return os.getenv(name, default)
 
 
+# Sin fallback a SUPABASE_ANON_KEY a proposito: anon no tiene grants ni
+# policies sobre evaluations/dataset_rows, asi que con esa key la app leeria
+# tablas vacias sin error y los guardados fallarian. Mejor "sin persistencia"
+# explicito que una persistencia que no persiste.
 def _supabase_dataset_store_config() -> tuple[str | None, str | None, str]:
     url = _get_secret_or_env("SUPABASE_URL") or _get_secret_or_env("THRESHOLD_SUPABASE_URL")
     key = (
         _get_secret_or_env("SUPABASE_SERVICE_ROLE_KEY")
         or _get_secret_or_env("SUPABASE_KEY")
-        or _get_secret_or_env("SUPABASE_ANON_KEY")
         or _get_secret_or_env("THRESHOLD_SUPABASE_KEY")
     )
     table = _get_secret_or_env("SUPABASE_DATASETS_TABLE") or SUPABASE_DATASETS_TABLE
@@ -64,7 +67,6 @@ def _supabase_evaluations_config() -> tuple[str | None, str | None, str]:
     key = (
         _get_secret_or_env("SUPABASE_SERVICE_ROLE_KEY")
         or _get_secret_or_env("SUPABASE_KEY")
-        or _get_secret_or_env("SUPABASE_ANON_KEY")
         or _get_secret_or_env("THRESHOLD_SUPABASE_KEY")
     )
     table = _get_secret_or_env("SUPABASE_EVALUATIONS_TABLE") or SUPABASE_EVALUATIONS_TABLE
@@ -79,6 +81,30 @@ def supabase_dataset_store_enabled() -> bool:
 def supabase_evaluations_enabled() -> bool:
     url, key, table = _supabase_evaluations_config()
     return bool(url and key and table)
+
+
+class SupabaseHTTPError(RuntimeError):
+    """Respuesta HTTP de error de PostgREST. Conserva status y cuerpo."""
+
+    def __init__(self, status: int, reason: str, body: str):
+        self.status = int(status)
+        self.reason = reason
+        self.body = body
+        super().__init__(f"{status} {reason}: {body}")
+
+
+class RemoteSaveError(RuntimeError):
+    """Un guardado en Supabase no se completo. Dice cuantas filas quedaron afuera."""
+
+    def __init__(self, *, saved: int, total: int, detail: str):
+        self.saved = int(saved)
+        self.total = int(total)
+        self.failed = max(self.total - self.saved, 0)
+        self.detail = detail
+        super().__init__(
+            f"Supabase NO guardo {self.failed} de {self.total} fila(s) "
+            f"({self.saved} confirmadas). Detalle: {detail}"
+        )
 
 
 def _supabase_request(
@@ -113,7 +139,7 @@ def _supabase_request(
             return json.loads(body) if body else None
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"{exc.code} {exc.reason}: {detail}") from exc
+        raise SupabaseHTTPError(exc.code, exc.reason, detail) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"No se pudo conectar a Supabase: {exc.reason}") from exc
 
@@ -286,16 +312,28 @@ def save_remote_dataset(state_key: str, df: pd.DataFrame) -> dict[str, int | boo
     # Supabase o el timeout fijo de _supabase_request, y fallar entero sin
     # guardar nada remoto. Se sube en lotes, igual que ya se lee (paginado)
     # y se borra (_chunked) en el resto del modulo.
+    # Solo cuenta lo que Supabase devuelve (return=representation). Una
+    # respuesta vacia no es "guardado": antes se asumia exito con len(chunk).
     upserted = 0
+    total = len(payload)
     for chunk in _chunked_records(payload):
-        rows = _supabase_request(
-            "POST",
-            table,
-            query={"on_conflict": "dataset_key,row_key"},
-            payload=chunk,
-            prefer="resolution=merge-duplicates,return=representation",
-        ) or []
-        upserted += len(rows) if rows else len(chunk)
+        try:
+            rows = _supabase_request(
+                "POST",
+                table,
+                query={"on_conflict": "dataset_key,row_key"},
+                payload=chunk,
+                prefer="resolution=merge-duplicates,return=representation",
+            ) or []
+        except Exception as exc:
+            raise RemoteSaveError(saved=upserted, total=total, detail=str(exc)) from exc
+        if not rows:
+            raise RemoteSaveError(
+                saved=upserted,
+                total=total,
+                detail="Supabase respondio sin filas: el lote no se confirmo como guardado.",
+            )
+        upserted += len(rows)
     return {"enabled": True, "upserted": upserted}
 
 
@@ -390,45 +428,23 @@ def save_remote_evaluations(df: pd.DataFrame) -> dict[str, int | bool]:
     if not supabase_evaluations_enabled():
         return {"enabled": False, "inserted": 0, "updated": 0, "total": 0}
 
-    payload = jump_df_to_db_records(df)
+    try:
+        payload = jump_df_to_db_records(df)
+    except EvaluationColumnMappingError as exc:
+        raise RemoteSaveError(saved=0, total=len(df), detail=str(exc)) from exc
     if not payload:
         return {"enabled": True, "inserted": 0, "updated": 0, "total": 0}
 
     _, _, table = _supabase_evaluations_config()
     inserted = 0
     updated = 0
-
-    for record in payload:
-        # La fuente entra en el filtro del PATCH: sin ella, una evaluacion de
-        # alfombra sobrescribiria la de plataforma del mismo atleta y fecha.
-        record_source = normalize_source(record.get("source"))
-        record["source"] = record_source
-        filters = {
-            "select": "athlete,date,source",
-            "athlete": f"eq.{record['athlete']}",
-            "date": f"eq.{record['date']}",
-            "source": f"eq.{record_source}",
-        }
-        updated_rows = _supabase_request(
-            "PATCH",
-            table,
-            query=filters,
-            payload=record,
-            prefer="return=representation",
-            evaluations=True,
-        )
-        if updated_rows:
-            updated += len(updated_rows)
-            continue
-
-        inserted_rows = _supabase_request(
-            "POST",
-            table,
-            payload=record,
-            prefer="return=representation",
-            evaluations=True,
-        )
-        inserted += len(inserted_rows or [record])
+    try:
+        for record in payload:
+            inserted_now, updated_now = _save_one_remote_evaluation(table, record)
+            inserted += inserted_now
+            updated += updated_now
+    except Exception as exc:
+        raise RemoteSaveError(saved=inserted + updated, total=len(payload), detail=str(exc)) from exc
 
     return {
         "enabled": True,
@@ -436,6 +452,44 @@ def save_remote_evaluations(df: pd.DataFrame) -> dict[str, int | bool]:
         "updated": updated,
         "total": inserted + updated,
     }
+
+
+def _save_one_remote_evaluation(table: str, record: dict) -> tuple[int, int]:
+    """PATCH si existe la fila, POST si no. Devuelve (insertadas, actualizadas)."""
+    # La fuente entra en el filtro del PATCH: sin ella, una evaluacion de
+    # alfombra sobrescribiria la de plataforma del mismo atleta y fecha.
+    record_source = normalize_source(record.get("source"))
+    record["source"] = record_source
+    filters = {
+        "select": "athlete,date,source",
+        "athlete": f"eq.{record['athlete']}",
+        "date": f"eq.{record['date']}",
+        "source": f"eq.{record_source}",
+    }
+    updated_rows = _supabase_request(
+        "PATCH",
+        table,
+        query=filters,
+        payload=record,
+        prefer="return=representation",
+        evaluations=True,
+    )
+    if updated_rows:
+        return 0, len(updated_rows)
+
+    inserted_rows = _supabase_request(
+        "POST",
+        table,
+        payload=record,
+        prefer="return=representation",
+        evaluations=True,
+    )
+    if not inserted_rows:
+        raise RuntimeError(
+            f"Supabase no confirmo el alta de {record.get('athlete')} {record.get('date')} "
+            "(respuesta vacia)."
+        )
+    return len(inserted_rows), 0
 
 
 def backfill_remote_evaluations_drop_height(default_drop_height_cm: float = 30.0) -> dict[str, int | float | bool]:
@@ -520,3 +574,109 @@ def load_remote_evaluations() -> pd.DataFrame:
 
     keep_cols = [app_col for app_col in EVALUATION_DB_COLUMN_MAP if app_col in frame.columns]
     return _prepare_jump_df(frame[keep_cols])
+
+
+# ── Chequeo de esquema contra la base real ─────────────────────────────────
+
+DATASET_ROWS_REQUIRED_COLUMNS = (
+    "dataset_key",
+    "row_key",
+    "event_date",
+    "athlete",
+    "payload",
+)
+
+
+def supabase_key_role(key: str | None) -> str | None:
+    """Rol de la key configurada: 'anon', 'service_role', o None si no se sabe.
+
+    Las keys legacy son JWT con el claim `role`. Las nuevas publishable
+    (sb_publishable_...) equivalen a anon; las secret (sb_secret_...) a
+    service_role. No valida firma: solo detecta una key equivocada.
+    """
+    if not key:
+        return None
+    key = str(key).strip()
+    if key.startswith("sb_publishable_"):
+        return "anon"
+    if key.startswith("sb_secret_"):
+        return "service_role"
+    parts = key.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        import base64
+
+        padded = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
+    except Exception:
+        return None
+    role = claims.get("role") if isinstance(claims, dict) else None
+    return str(role) if role else None
+
+
+def _missing_columns_from_probe(
+    table: str, columns: list[str], *, evaluations: bool
+) -> list[str]:
+    """PostgREST solo nombra la primera columna inexistente: se prueba una por una."""
+    missing: list[str] = []
+    for column in columns:
+        try:
+            _supabase_request(
+                "GET", table, query={"select": column, "limit": 0}, evaluations=evaluations
+            )
+        except SupabaseHTTPError as exc:
+            if exc.status == 400:
+                missing.append(column)
+            else:
+                raise
+    return missing
+
+
+def _check_table_columns(table: str, columns: list[str], *, evaluations: bool) -> dict:
+    try:
+        _supabase_request(
+            "GET",
+            table,
+            query={"select": ",".join(columns), "limit": 0},
+            evaluations=evaluations,
+        )
+        return {"table": table, "ok": True, "missing": [], "detail": ""}
+    except SupabaseHTTPError as exc:
+        if exc.status != 400:
+            return {"table": table, "ok": False, "missing": [], "detail": str(exc)}
+        try:
+            missing = _missing_columns_from_probe(table, columns, evaluations=evaluations)
+        except Exception as probe_exc:
+            return {"table": table, "ok": False, "missing": [], "detail": f"{exc} | {probe_exc}"}
+        return {"table": table, "ok": False, "missing": missing, "detail": str(exc)}
+    except Exception as exc:
+        return {"table": table, "ok": False, "missing": [], "detail": str(exc)}
+
+
+def check_remote_schema() -> dict:
+    """Unica verificacion contra la base real: ¿existen las columnas que la app guarda?
+
+    GET /rest/v1/<tabla>?select=<columnas>&limit=0 no trae datos. Si PostgREST
+    responde 400 es porque falta alguna columna y se identifica cual.
+    Devuelve {"enabled", "ok", "key_role", "tables": [...]}.
+    """
+    if not (supabase_evaluations_enabled() or supabase_dataset_store_enabled()):
+        return {"enabled": False, "ok": False, "key_role": None, "tables": []}
+
+    _, key, _ = _supabase_evaluations_config()
+    role = supabase_key_role(key)
+    tables: list[dict] = []
+    if supabase_evaluations_enabled():
+        _, _, eval_table = _supabase_evaluations_config()
+        eval_columns = list(dict.fromkeys(EVALUATION_DB_COLUMN_MAP.values()))
+        tables.append(_check_table_columns(eval_table, eval_columns, evaluations=True))
+    if supabase_dataset_store_enabled():
+        _, _, dataset_table = _supabase_dataset_store_config()
+        tables.append(
+            _check_table_columns(
+                dataset_table, list(DATASET_ROWS_REQUIRED_COLUMNS), evaluations=False
+            )
+        )
+    ok = role != "anon" and all(item["ok"] for item in tables)
+    return {"enabled": True, "ok": ok, "key_role": role, "tables": tables}

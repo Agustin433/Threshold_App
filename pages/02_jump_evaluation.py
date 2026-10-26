@@ -46,6 +46,7 @@ from modules.jump_analysis import (
     select_primary_profile_row,
 )
 from modules.page_state import ensure_page_state
+from modules.persistence_guard import render_persistence_banners
 from modules.page_visuals import build_page_theme
 
 
@@ -360,6 +361,7 @@ ensure_page_state(load_models=False)
 st.header("Evaluacion de Saltos")
 st.caption("Esta vista usa solo evaluaciones individuales cargadas desde la app principal.")
 st.page_link("app.py", label="Abrir dashboard principal")
+render_persistence_banners()
 
 theme = build_page_theme()
 jdf = st.session_state.jump_df
