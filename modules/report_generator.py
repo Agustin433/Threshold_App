@@ -12,6 +12,8 @@ import unicodedata
 import warnings
 
 import pandas as pd
+
+from modules.athlete_names import normalize_athlete_name
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -1661,7 +1663,7 @@ def _session_notes_source(state: dict[str, pd.DataFrame | None]) -> pd.DataFrame
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
     if "Date_Assigned" in result.columns:
         result["Date_Assigned"] = pd.to_datetime(result["Date_Assigned"], errors="coerce").dt.normalize()
-    result["Athlete"] = result["Athlete"].astype(str).str.strip().str.title()
+    result["Athlete"] = result["Athlete"].map(normalize_athlete_name)
     return result.dropna(subset=["Date", "Athlete"])
 
 
@@ -2131,7 +2133,7 @@ def build_report_sheets(
                 and {"Athlete", "Date", "EUR_Profile"}.issubset(prepared_jumps.columns)
                 and {"Athlete", "Date"}.issubset(df.columns)
             ):
-                df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
+                df["Athlete"] = df["Athlete"].map(normalize_athlete_name)
                 df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
                 df = df.merge(
                     prepared_jumps[["Athlete", "Date", "EUR_Profile"]],

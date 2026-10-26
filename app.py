@@ -1217,7 +1217,7 @@ def parse_rep_load_report(file) -> pd.DataFrame:
     if "Reps_Completed" in df.columns:
         df["Reps_Completed"] = pd.to_numeric(df["Reps_Completed"].astype(str).str.replace("--",""), errors="coerce")
     if "Athlete" in df.columns:
-        df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
+        df["Athlete"] = df["Athlete"].map(normalize_athlete_name)
     return df.dropna(subset=["Date"])
 
 
@@ -1497,7 +1497,7 @@ def parse_raw_workouts(file) -> pd.DataFrame:
     # DEPRECATED: runtime now uses modules.data_loader.parse_raw_workouts.
     df["Volume_Load"] = df["Result"] * df["Reps"]
     if "Athlete" in df.columns:
-        df["Athlete"] = df["Athlete"].astype(str).str.strip().str.title()
+        df["Athlete"] = df["Athlete"].map(normalize_athlete_name)
     df["Category"] = df.get("Tags", pd.Series(index=df.index, dtype=object)).map(TAG_CATEGORIES).fillna("Sin categoria")
     return df.dropna(subset=["Assigned Date"])
 
@@ -1518,13 +1518,11 @@ def parse_maxes_health(file) -> pd.DataFrame:
     df["Added Date"] = pd.to_datetime(df[date_col], errors="coerce")
     df["Max Value"] = pd.to_numeric(df[value_col], errors="coerce")
     if athlete_col:
-        df["Athlete"] = df[athlete_col].astype(str).str.strip().str.title()
+        df["Athlete"] = df[athlete_col].map(normalize_athlete_name)
     elif first_name_col and last_name_col:
         df["Athlete"] = (
-            df[first_name_col].astype(str).str.strip()
-            + " "
-            + df[last_name_col].astype(str).str.strip()
-        ).str.strip().str.title()
+            df[first_name_col].fillna("").astype(str) + " " + df[last_name_col].fillna("").astype(str)
+        ).map(normalize_athlete_name)
     else:
         df["Athlete"] = "Sin atleta"
     if exercise_col:
@@ -1709,7 +1707,7 @@ def _jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
             if app_col == "Date":
                 record[db_col] = pd.Timestamp(value).date().isoformat()
             elif app_col == "Athlete":
-                record[db_col] = str(value).strip().title()
+                record[db_col] = normalize_athlete_name(value)
             elif isinstance(value, (np.integer, int)):
                 record[db_col] = int(value)
             elif isinstance(value, (np.floating, float)):
@@ -3824,7 +3822,7 @@ def _pending_evaluation_impact(record: dict[str, object], pending_records: list[
 
     history_match = False
     if history_df is not None and not history_df.empty and {"Athlete", "Date"}.issubset(history_df.columns):
-        athlete_series = history_df["Athlete"].astype(str).str.strip().str.title()
+        athlete_series = history_df["Athlete"].map(normalize_athlete_name)
         date_series = pd.to_datetime(history_df["Date"], errors="coerce").dt.normalize()
         match_mask = (athlete_series == athlete) & (date_series == record_date)
         # Solo actualiza historial si la fila existente es de la misma fuente:
