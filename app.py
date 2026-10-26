@@ -210,6 +210,11 @@ from modules.remote_store import (
     supabase_dataset_store_enabled,
     supabase_evaluations_enabled,
 )
+from modules.persistence_guard import (
+    clear_remote_save_failure,
+    record_remote_save_failure,
+    render_persistence_banners,
+)
 from modules.report_generator import (
     REPORT_AUDIENCE_OPTIONS,
     REPORT_SHEET_ORDER,
@@ -3444,11 +3449,16 @@ def _run_questionnaire_raw_job(filename: str, loader, source_file=None) -> bool:
                     sync_stats = replace_remote_dataset_span(state_key, dataset, spans.get(state_key))
                     st.session_state.datasets_loaded_from_store = False
                     remote_suffix_parts.append(f"{state_key}: {sync_stats['upserted']}")
+                    clear_remote_save_failure(state_key)
                 except Exception as remote_exc:
                     _push_notice(
-                        "warning",
-                        f"Questionnaire Raw CSV ({filename}): {state_key} se guardo en local, "
-                        f"pero no se pudo sincronizar con Supabase ({remote_exc}).",
+                        "error",
+                        record_remote_save_failure(
+                            state_key,
+                            f"Questionnaire Raw CSV ({filename}) · {state_key}",
+                            remote_exc,
+                            total_hint=len(dataset) if dataset is not None else None,
+                        ),
                     )
 
         rpe_visible = load_recent_dataset("rpe_df", weeks=RECENT_WEEKS)
@@ -3543,9 +3553,10 @@ def hydrate_remote_datasets(force: bool = False, show_success: bool = False):
             st.session_state.dataset_sync_notice_kind = "info"
     except Exception as exc:
         st.session_state.dataset_sync_notice = (
-            f"No se pudieron sincronizar datasets TeamBuildr con Supabase: {exc}"
+            f"No se pudieron leer los datasets TeamBuildr de Supabase: {exc}. "
+            "Lo que ves puede estar incompleto."
         )
-        st.session_state.dataset_sync_notice_kind = "warning"
+        st.session_state.dataset_sync_notice_kind = "error"
     finally:
         st.session_state.datasets_loaded_from_store = True
 
@@ -3575,8 +3586,11 @@ def hydrate_evaluations_from_store(force: bool = False, show_success: bool = Fal
             st.session_state.eval_sync_notice = "No hay evaluaciones guardadas en Supabase todavia."
             st.session_state.eval_sync_notice_kind = "info"
     except Exception as exc:
-        st.session_state.eval_sync_notice = f"No se pudo sincronizar evaluaciones con Supabase: {exc}"
-        st.session_state.eval_sync_notice_kind = "warning"
+        st.session_state.eval_sync_notice = (
+            f"No se pudo leer el historial de evaluaciones de Supabase: {exc}. "
+            "Lo que ves puede estar incompleto."
+        )
+        st.session_state.eval_sync_notice_kind = "error"
     finally:
         st.session_state.evaluations_loaded_from_store = True
 
@@ -3584,6 +3598,10 @@ def hydrate_evaluations_from_store(force: bool = False, show_success: bool = Fal
 ensure_local_store_hydrated()
 hydrate_remote_datasets()
 hydrate_evaluations_from_store()
+# Los avisos de persistencia se reservan arriba y se pintan al final de la
+# corrida (render_persistence_banners), asi reflejan la cola y los guardados
+# que pasaron en esta misma corrida.
+_persistence_banner_slot = st.container()
 
 
 def _data_loaded():
@@ -3610,15 +3628,19 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader, source_f
         incoming_rows = len(df)
         save_dataset(state_key, df)
         remote_suffix = ""
+        summary_kind = "success"
         if supabase_dataset_store_enabled() and state_key in REMOTE_DATASET_KEYS:
             try:
                 sync_stats = save_remote_dataset(state_key, df)
                 st.session_state.datasets_loaded_from_store = False
-                remote_suffix = f" · Supabase: {sync_stats['upserted']} fila(s)."
+                remote_suffix = f" · Supabase: {sync_stats['upserted']} fila(s) confirmadas."
+                clear_remote_save_failure(state_key)
             except Exception as remote_exc:
+                summary_kind = "info"
+                remote_suffix = " · SOLO EN LOCAL (Supabase fallo)."
                 _push_notice(
-                    "warning",
-                    f"{label} ({filename}): se guardo en local, pero no se pudo sincronizar con Supabase ({remote_exc}).",
+                    "error",
+                    record_remote_save_failure(state_key, f"{label} ({filename})", remote_exc, total_hint=len(df)),
                 )
         visible_df = load_recent_dataset(state_key, weeks=RECENT_WEEKS)
         summary_rows = build_dataset_summaries({state_key: visible_df}, weeks=RECENT_WEEKS, keys=[state_key])
@@ -3628,12 +3650,12 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader, source_f
             if row.get("Atletas") is not None:
                 athlete_text = f" · {row['Atletas']} atleta(s)"
             _push_notice(
-                "success",
+                summary_kind,
                 f"{label} ({filename}): {incoming_rows} fila(s) leidas{athlete_text} · "
                 f"{row['Registros']} registro(s) visibles · {row['Ventana activa']}.{remote_suffix}",
             )
         else:
-            _push_notice("success", f"{label} ({filename}): {incoming_rows} fila(s) leidas.{remote_suffix}")
+            _push_notice(summary_kind, f"{label} ({filename}): {incoming_rows} fila(s) leidas.{remote_suffix}")
         _mark_file_as_processed(file_hash)
         return True
     except Exception as exc:
@@ -4107,14 +4129,21 @@ with st.sidebar:
                 try:
                     merged_profiles = upsert_athlete_profile(profile_payload)
                     st.session_state.athlete_profile_df = None if merged_profiles.empty else merged_profiles
+                    profile_saved_remote = not supabase_dataset_store_enabled()
                     if supabase_dataset_store_enabled() and not merged_profiles.empty:
                         try:
                             save_remote_dataset("athlete_profile_df", merged_profiles)
+                            clear_remote_save_failure("athlete_profile_df")
+                            profile_saved_remote = True
                         except Exception as remote_profile_exc:
                             _push_notice(
-                                "warning",
-                                f"Perfil de atleta: se guardo en local, pero no se pudo sincronizar "
-                                f"con Supabase ({remote_profile_exc}).",
+                                "error",
+                                record_remote_save_failure(
+                                    "athlete_profile_df",
+                                    "Perfil de atleta",
+                                    remote_profile_exc,
+                                    total_hint=len(merged_profiles),
+                                ),
                             )
                     profile_suggestion = suggest_objective_from_text(profile_objetivo_otro_texto)
                     summary_bits = [
@@ -4126,13 +4155,16 @@ with st.sidebar:
                         summary_bits.append("RTP activo")
                     profile_message = (
                         f"Perfil guardado para {profile_athlete_name} ({'; '.join(summary_bits)})."
+                        if profile_saved_remote
+                        else f"Perfil de {profile_athlete_name} guardado SOLO en local "
+                        f"({'; '.join(summary_bits)}): Supabase no lo confirmo."
                     )
                     if profile_suggestion and profile_suggestion != profile_objetivo_primario:
                         profile_message += (
                             f" Sugerencia segun el texto libre: '{profile_suggestion}' "
                             "(podes editar el perfil para aplicarla)."
                         )
-                    _push_notice("success", profile_message)
+                    _push_notice("success" if profile_saved_remote else "error", profile_message)
                     st.session_state.athlete_profile_prefill_name = ""
                     st.session_state.athlete_profile_expanded = False
                     st.session_state.athlete_profile_form_nonce += 1
@@ -4160,6 +4192,8 @@ with st.sidebar:
             st.success(dataset_notice)
         elif dataset_kind == "warning":
             st.warning(dataset_notice)
+        elif dataset_kind == "error":
+            st.error(dataset_notice)
         else:
             st.info(dataset_notice)
         st.session_state.dataset_sync_notice = None
@@ -4710,6 +4744,8 @@ with st.sidebar:
                 st.success(notice)
             elif kind == "warning":
                 st.warning(notice)
+            elif kind == "error":
+                st.error(notice)
             else:
                 st.info(notice)
             st.session_state.eval_sync_notice = None
@@ -4775,21 +4811,24 @@ with st.sidebar:
                                 f"Evaluaciones individuales: {jump_row['Registros']} registro(s) en historial{visible_suffix}.",
                             )
 
+                        remote_eval_failed = False
                         if supabase_evaluations_enabled():
                             try:
                                 sync_stats = save_evaluation(jdf)
                                 st.session_state.evaluations_loaded_from_store = False
                                 hydrate_evaluations_from_store(force=True, show_success=False)
                                 st.session_state.eval_sync_notice = (
-                                    f"Evaluaciones sincronizadas con Supabase: "
+                                    f"Evaluaciones guardadas en Supabase: "
                                     f"{sync_stats['inserted']} nuevas, {sync_stats['updated']} actualizadas."
                                 )
                                 st.session_state.eval_sync_notice_kind = "success"
+                                clear_remote_save_failure("jump_df")
                             except Exception as exc:
-                                st.session_state.eval_sync_notice = (
-                                    f"Evaluaciones procesadas en local, pero no se pudieron guardar en Supabase: {exc}"
-                                )
-                                st.session_state.eval_sync_notice_kind = "warning"
+                                remote_eval_failed = True
+                                st.session_state.eval_sync_notice = record_remote_save_failure(
+                                    "jump_df", "Evaluaciones individuales", exc, total_hint=len(jdf)
+                                ) + " La cola se mantiene: corregí el problema y volvé a Procesar todo."
+                                st.session_state.eval_sync_notice_kind = "error"
                         else:
                             st.session_state.eval_sync_notice = (
                                 f"{len(records)} test(s) consolidados en local para {jdf['Athlete'].nunique()} atleta(s). "
@@ -4797,8 +4836,11 @@ with st.sidebar:
                             )
                             st.session_state.eval_sync_notice_kind = "success"
 
-                        st.session_state.eval_records = []
-                        st.session_state.sidebar_upload_expanded = False
+                        # Si Supabase fallo, la cola NO se vacia: es la unica copia
+                        # fuera del disco efimero, y Procesar todo es idempotente.
+                        if not remote_eval_failed:
+                            st.session_state.eval_records = []
+                        st.session_state.sidebar_upload_expanded = remote_eval_failed
                         processed_any = True
                     except Exception as exc:
                         st.session_state.sidebar_upload_expanded = True
@@ -7446,3 +7488,4 @@ record_performance_debug_timing(
     accumulate=False,
 )
 _render_performance_debug_panel(performance_debug_panel_placeholder, active_main_view)
+render_persistence_banners(_persistence_banner_slot)
