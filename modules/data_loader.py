@@ -458,13 +458,6 @@ TEST_MAPS = {
     "IMTP": _IMTP_MAP,
     "ISO_PUSH_HAMSTRING": _ISO_PUSH_HAMSTRING_MAP,
 }
-LOCAL_ONLY_EVALUATION_COLUMNS = {
-    "CMJ_propulsive_PF_N",
-    "CMJ_rel_impulse",
-    "CMJ_landing_force_N",
-    "CMJ_landing_asym_pct",
-    "CMJ_stabilization_ms",
-}
 RAW_EVALUATION_COLUMNS = sorted(
     {
         metric_name
@@ -480,7 +473,10 @@ EVALUATION_DB_COLUMN_MAP = {
     "Date": "date",
     "Source": "source",
     "Device": "device",
-    **{col: col.lower() for col in RAW_EVALUATION_COLUMNS if col not in LOCAL_ONLY_EVALUATION_COLUMNS},
+    # Toda metrica parseada se persiste: la columna en Supabase es el nombre en
+    # minusculas. Si se agrega una metrica nueva al parser, hace falta su
+    # migracion (add column) o el guardado falla con un error que la nombra.
+    **{col: col.lower() for col in RAW_EVALUATION_COLUMNS},
     **{col: col.lower() for col in _IMTP_LEGACY_STORAGE_ALIASES},
 }
 SUPABASE_EVALUATIONS_TABLE = "evaluations"

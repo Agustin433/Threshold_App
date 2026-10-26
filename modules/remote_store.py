@@ -203,9 +203,38 @@ def dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict]
     return records
 
 
+class EvaluationColumnMappingError(ValueError):
+    """Una columna de evaluacion a persistir no tiene columna destino en Supabase."""
+
+
+def unmapped_evaluation_persist_columns(columns=None) -> list[str]:
+    """Columnas de EVALUATION_PERSIST_COLUMNS sin mapeo a la base.
+
+    Con `columns` se limita a las que estan presentes en ese conjunto (las que
+    efectivamente se intentarian guardar).
+    """
+    present = None if columns is None else set(columns)
+    return [
+        col
+        for col in EVALUATION_PERSIST_COLUMNS
+        if col not in EVALUATION_DB_COLUMN_MAP and (present is None or col in present)
+    ]
+
+
 def jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
     if df is None or df.empty:
         return []
+
+    # Se valida antes de recorrer filas: un hueco en el mapeo antes era un
+    # KeyError crudo a mitad del guardado y no decia que faltaba.
+    unmapped = unmapped_evaluation_persist_columns(df.columns)
+    if unmapped:
+        raise EvaluationColumnMappingError(
+            "No se puede guardar en Supabase: estas columnas de evaluacion no tienen "
+            f"columna destino en la tabla evaluations: {', '.join(unmapped)}. "
+            "Agregalas a EVALUATION_DB_COLUMN_MAP (modules/data_loader.py) y crea la "
+            "migracion con su add column."
+        )
 
     records: list[dict] = []
     for _, row in df.iterrows():

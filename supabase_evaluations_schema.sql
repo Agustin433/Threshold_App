@@ -13,9 +13,14 @@ create table if not exists public.evaluations (
     cmj_conc_ms double precision,
     cmj_contraction_ms double precision,
     cmj_flight_ms double precision,
+    cmj_landing_asym_pct double precision,
+    cmj_landing_force_n double precision,
     cmj_peak_force_n double precision,
     cmj_peak_power_w double precision,
+    cmj_propulsive_pf_n double precision,
+    cmj_rel_impulse double precision,
     cmj_rsi double precision,
+    cmj_stabilization_ms double precision,
     dj_asym_pct double precision,
     dj_cm double precision,
     dj_drop_height_cm double precision,
@@ -23,6 +28,7 @@ create table if not exists public.evaluations (
     dj_force_l_n double precision,
     dj_force_r_n double precision,
     dj_peak_force_n double precision,
+    dj_rsi double precision,
     dj_tc_ms double precision,
     dri double precision,
     iso_ham_asym_pct double precision,
@@ -165,6 +171,18 @@ alter table if exists public.evaluations add column if not exists cmj_braking_pf
 alter table if exists public.evaluations add column if not exists cmj_braking_pf_r_n double precision;
 alter table if exists public.evaluations add column if not exists cmj_landing_force_l_n double precision;
 alter table if exists public.evaluations add column if not exists cmj_landing_force_r_n double precision;
+
+-- Metricas de CMJ que antes eran "solo local" y no se guardaban
+-- (supabase/migrations/20261026140000_evaluations_cmj_local_metrics.sql).
+alter table if exists public.evaluations add column if not exists cmj_propulsive_pf_n double precision;
+alter table if exists public.evaluations add column if not exists cmj_rel_impulse double precision;
+alter table if exists public.evaluations add column if not exists cmj_landing_force_n double precision;
+alter table if exists public.evaluations add column if not exists cmj_landing_asym_pct double precision;
+alter table if exists public.evaluations add column if not exists cmj_stabilization_ms double precision;
+
+-- dj_rsi se persistia desde la app pero faltaba en este script
+-- (supabase/migrations/20261026140100_evaluations_dj_rsi.sql).
+alter table if exists public.evaluations add column if not exists dj_rsi double precision;
 
 -- Metricas de SJ recuperadas del mismo export real (carlos_falivene_SJ):
 -- el SJ tambien tiene fase de aterrizaje y se descartaba igual que CMJ.
