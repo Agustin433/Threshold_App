@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -12,15 +15,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Misma version que Streamlit Community Cloud.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
-      - name: Install dependencies
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      # requirements.txt es el lockfile generado desde requirements.in. Se
+      # recompila respetando los pines actuales: si alguien edito
+      # requirements.in sin regenerar el lockfile, el diff no es vacio.
+      - name: Check lockfile is in sync with requirements.in
+        run: |
+          cp requirements.txt /tmp/requirements.lock.check
+          uv pip compile requirements.in --universal --python-version 3.11 \
+            -o /tmp/requirements.lock.check --quiet
+          if ! diff -u <(grep -v '^#' requirements.txt) <(grep -v '^#' /tmp/requirements.lock.check); then
+            echo "::error::requirements.txt no coincide con requirements.in. Regeneralo con: uv pip compile requirements.in --universal --python-version 3.11 -o requirements.txt"
+            exit 1
+          fi
+
+      - name: Install dependencies from lockfile
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip check
 
       - name: Compile root entrypoints
         run: python -m py_compile app.py local_store.py
