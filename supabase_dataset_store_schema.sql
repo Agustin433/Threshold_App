@@ -1,3 +1,9 @@
+-- ⚠️ REFERENCIA HISTORICA. NO EJECUTAR NI EDITAR.
+-- La fuente de verdad del esquema es supabase/migrations/ (ver
+-- docs/supabase-grants.md). Este script describia lo que "deberia" haber en
+-- la base, no lo que habia: el 26/10/2026 listaba 17 columnas que produccion
+-- no tenia y el guardado de evaluaciones fallaba.
+--
 -- Threshold S&C
 -- Tabla generica para persistir datasets TeamBuildr sin depender de un schema rigido.
 -- Guarda una fila por registro operativo usando payload JSONB y clave de upsert estable.

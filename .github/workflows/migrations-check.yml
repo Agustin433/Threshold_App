@@ -1,0 +1,75 @@
+name: Migrations Check
+
+# Crea una base vacia SOLO con supabase/migrations/ (dos veces, para probar
+# idempotencia) y verifica que tenga todas las columnas que la app guarda.
+# Es el chequeo que hubiera atrapado el desfase de esquema del 26/10.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create Supabase roles
+        run: |
+          psql -v ON_ERROR_STOP=1 -c "create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;"
+
+      - name: Apply migrations twice (idempotencia)
+        run: |
+          set -euo pipefail
+          for pass in 1 2; do
+            for f in $(ls supabase/migrations/*.sql | sort); do
+              echo "pass $pass: $f"
+              psql -q -v ON_ERROR_STOP=1 -f "$f"
+            done
+          done
+
+      - name: Check RLS and grants
+        run: |
+          set -euo pipefail
+          rls=$(psql -At -c "select count(*) from pg_class where relnamespace='public'::regnamespace and relkind='r' and not relrowsecurity")
+          if [ "$rls" != "0" ]; then echo "::error::Hay tablas en public sin RLS"; exit 1; fi
+          anon=$(psql -At -c "select count(*) from information_schema.role_table_grants where table_schema='public' and grantee='anon' and table_name in ('evaluations','dataset_rows')")
+          if [ "$anon" != "0" ]; then echo "::error::anon tiene grants sobre evaluations/dataset_rows"; exit 1; fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compare columns with the app mapping
+        run: |
+          psql -At -c "select column_name from information_schema.columns where table_schema='public' and table_name='evaluations'" > evaluations_columns.txt
+          python scripts/check_migrations_schema.py evaluations_columns.txt

@@ -92,28 +92,61 @@ from pg_class
 where relnamespace = 'public'::regnamespace and relkind = 'r';
 ```
 
-## Versionar el esquema real
+## Fuente de verdad: `supabase/migrations/`
 
-Hoy las tablas `evaluations` y `dataset_rows` se crearon corriendo a mano los
-scripts de la raíz (`supabase_*_schema.sql`) en el SQL editor. No hay historial de
-migraciones en la base. Para tener una línea base fiel a producción:
+**Todo cambio de esquema va como un archivo nuevo en `supabase/migrations/`.**
+Nada se aplica a mano desde el SQL Editor sin su archivo commiteado. El 26/10
+producción estaba desfasada del repo justamente por eso: había cambios pegados a
+mano y otros que estaban en un script pero nunca se aplicaron, y el guardado de
+evaluaciones falló sin que nadie se enterara.
+
+- Una base nueva creada **solo** con `supabase/migrations/` queda igual a producción.
+  Lo verifica el workflow `Migrations Check` (aplica todo dos veces sobre un
+  Postgres vacío y compara con las columnas que guarda la app) y el test
+  `tests/test_evaluation_db_contract.py`, que lee **solo** migraciones.
+- `supabase_evaluations_schema.sql` y `supabase_dataset_store_schema.sql` (raíz)
+  son **referencia histórica**. No se ejecutan ni se editan: describían lo que
+  "debería" haber, no lo que había.
+- Archivos: `YYYYMMDDHHMMSS_descripcion.sql`, idempotentes (`if not exists`,
+  `create or replace`, bloques `do $$` que chequean antes de cambiar).
+
+```bash
+supabase migration new evaluations_nueva_columna   # crea el archivo vacío
+# editar, probar en local (supabase db reset), commitear, PR
+supabase db push                                   # recién después del merge
+```
+
+### Linkear la CLI por primera vez (historial de migraciones)
+
+Las migraciones de abajo ya están reflejadas en producción, pero se aplicaron a
+mano, fuera del historial de la CLI (`supabase_migrations.schema_migrations`).
+Antes del primer `db push` hay que marcarlas como aplicadas, o la CLI intentará
+correrlas:
 
 ```bash
 npm i -g supabase            # o: brew install supabase/tap/supabase
 supabase login
 supabase link --project-ref qeeajsquggrolobiqffa
-supabase db pull             # genera supabase/migrations/<ts>_remote_schema.sql
+supabase migration list      # muestra Local vs Remote
+supabase migration repair --status applied \
+  20260501000000 20261026120000 20261026140000 20261026140100 20261026150000
+supabase migration list      # ahora todas deben figurar en Remote
 ```
 
-`db pull` necesita Docker corriendo. Revisar el archivo generado, commitearlo y
-desde ahí todo cambio de esquema va como migración nueva (`supabase migration new <nombre>`).
+`migration repair` escribe en el historial de producción (no toca tablas), así que
+hacelo a conciencia. **Marcá solo las versiones que de verdad estén aplicadas.**
+Si una no lo está (por ejemplo, si nunca se creó `heartbeat`), sacala del
+`repair` y dejá que `supabase db push` la aplique. Para chequear:
 
-Ojo con dos cosas:
+```sql
+-- 20261026120000: ¿existe heartbeat?
+select to_regclass('public.heartbeat');
+-- 20261026140100: ¿existe dj_rsi?
+select column_name from information_schema.columns
+where table_schema = 'public' and table_name = 'evaluations' and column_name = 'dj_rsi';
+```
 
-- La primera vez, `db pull` ofrece marcar la migración base como ya aplicada en la
-  base remota (escribe en `supabase_migrations.schema_migrations`). Es correcto
-  aceptarlo, pero es una escritura en producción: hacerlo a conciencia.
-- Hacer el `db pull` **antes** de aplicar `20261026120000_heartbeat.sql`. Si la
-  base generada por el pull queda con un timestamp más nuevo que el heartbeat,
-  renombrar el archivo del heartbeat a un timestamp posterior antes de
-  `supabase db push`, para que el orden de migraciones sea coherente.
+No uses `supabase db pull` para crear una línea base: la base ya está en
+`20260501000000_baseline_evaluations_dataset_rows.sql`. Un pull generaría una
+segunda línea base duplicada. Sí sirve `supabase db diff --linked` para detectar
+desfase entre producción y las migraciones (necesita Docker).
