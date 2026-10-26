@@ -44,3 +44,12 @@ comment on table public.dataset_rows is
 -- SUPABASE_SERVICE_ROLE_KEY (bypassa RLS por diseno en Postgres/Supabase),
 -- nunca la anon key, para leer o escribir estos datasets.
 alter table public.dataset_rows enable row level security;
+
+-- Grants explicitos para la Data API (PostgREST). Desde el 30/10/2026 las
+-- tablas nuevas en public no reciben grants automaticos; las existentes
+-- conservan los suyos, asi que en produccion esto no cambia nada. Sirve para
+-- que este script funcione igual si se recrea la tabla en un proyecto nuevo.
+-- Solo service_role: la app es server-side y usa SUPABASE_SERVICE_ROLE_KEY.
+-- anon y authenticated no reciben nada a proposito: son datos de atletas y
+-- la tabla no tiene policies para ellos.
+grant select, insert, update, delete on table public.dataset_rows to service_role;

@@ -1,0 +1,56 @@
+name: Supabase Keepalive
+
+# El plan free de Supabase pausa el proyecto tras ~7 dias sin actividad.
+# Este job hace una consulta real (PostgREST -> Postgres) cada 3 dias.
+# Si la respuesta no es 200 el job falla y GitHub manda el mail de fallo.
+#
+# Secrets requeridos (Settings > Secrets and variables > Actions):
+#   SUPABASE_URL       https://<project-ref>.supabase.co
+#   SUPABASE_ANON_KEY  anon (legacy JWT) o publishable key (sb_publishable_...)
+#
+# Lee public.heartbeat (supabase/migrations/20261026120000_heartbeat.sql):
+# una fila fija, sin datos de atletas, legible por anon via RLS.
+
+on:
+  schedule:
+    # 12:00 UTC los dias 1, 4, 7, ... 31 de cada mes: nunca mas de 3 dias
+    # entre corridas. Solo corre desde la rama por defecto (main).
+    - cron: "0 12 */3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query heartbeat table via REST
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "::error::Faltan los secrets SUPABASE_URL y/o SUPABASE_ANON_KEY"
+            exit 1
+          fi
+
+          endpoint="${SUPABASE_URL%/}/rest/v1/heartbeat?select=id&limit=1"
+          # Solo el header apikey: funciona con la anon key legacy (JWT) y con
+          # la publishable key nueva, que no es un JWT y no va en Authorization.
+          status=$(curl -sS -o body.json -w '%{http_code}' \
+            --retry 3 --retry-delay 10 --retry-all-errors --max-time 30 \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Accept: application/json" \
+            "$endpoint") || status="000"
+
+          echo "HTTP ${status}"
+          head -c 500 body.json 2>/dev/null || true
+          echo
+
+          if [ "$status" != "200" ]; then
+            echo "::error::Supabase respondio ${status} (esperado 200). Puede estar pausado, la tabla heartbeat no existe o la key es invalida."
+            exit 1
+          fi
