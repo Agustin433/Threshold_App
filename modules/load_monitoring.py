@@ -407,9 +407,13 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
         missing_frac = (missing_by_week / trained_by_week.where(trained_by_week > 0)).fillna(0.0)
         weekly["Sesiones_sin_registro"] = weekly["Semana"].map(missing_by_week).fillna(0).astype(int)
         incomplete_weeks = weekly["Semana"].map(missing_frac).fillna(0.0) > MONOTONY_MAX_MISSING_FRAC
-        weekly.loc[incomplete_weeks, "Monotonia"] = np.nan
-        weekly.loc[incomplete_weeks, "Monotony_Status"] = "incomplete_log"
-        weekly.loc[incomplete_weeks, "Monotony_Warning"] = "sesiones_sin_registro"
+        # .mask() arma columnas nuevas en lugar de escribir in-place con .loc:
+        # con pandas 3 (copy-on-write) las columnas creadas con .map pueden
+        # quedar respaldadas por arrays de solo lectura y .loc[...] = ... falla
+        # con "Cannot modify read-only array".
+        weekly["Monotonia"] = weekly["Monotonia"].mask(incomplete_weeks, np.nan)
+        weekly["Monotony_Status"] = weekly["Monotony_Status"].mask(incomplete_weeks, "incomplete_log")
+        weekly["Monotony_Warning"] = weekly["Monotony_Warning"].mask(incomplete_weeks, "sesiones_sin_registro")
     weekly["Strain"] = np.where(
         weekly["Monotony_Status"].eq("standard"),
         weekly["Carga_Total"] * weekly["Monotonia"],
