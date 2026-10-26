@@ -37,15 +37,22 @@ _IDENT = r"([a-z_][a-z0-9_]*)"
 _NOT_COLUMNS = {"primary", "constraint", "unique", "foreign", "check"}
 
 
+MIGRATIONS_DIR = REPO_ROOT / "supabase" / "migrations"
+
+
 def _evaluations_schema_columns() -> set[str]:
-    """Columnas de public.evaluations segun el script base y las migraciones."""
-    sources = [REPO_ROOT / "supabase_evaluations_schema.sql"]
-    sources += sorted((REPO_ROOT / "supabase" / "migrations").glob("*.sql"))
+    """Columnas de public.evaluations segun SOLO supabase/migrations/.
+
+    Nunca se lee supabase_evaluations_schema.sql: ese script describe lo que
+    "deberia" haber y llego a listar 17 columnas que produccion no tenia,
+    con este mismo test en verde. Las migraciones se recorren en orden de
+    version, igual que las aplica la CLI de Supabase.
+    """
     columns: set[str] = set()
-    for path in sources:
+    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
         sql = re.sub(r"--[^\n]*", "", path.read_text(encoding="utf-8").lower())
         create = re.search(
-            r"create table if not exists public\.evaluations\s*\((.*?)\n\);", sql, re.S
+            r"create table (?:if not exists )?public\.evaluations\s*\((.*?)\n\);", sql, re.S
         )
         if create:
             for line in create.group(1).splitlines():
@@ -54,9 +61,13 @@ def _evaluations_schema_columns() -> set[str]:
                     columns.add(match.group(1))
         columns.update(
             re.findall(
-                r"public\.evaluations\s+add column if not exists\s+" + _IDENT, sql
+                r"public\.evaluations\s+add column (?:if not exists )?" + _IDENT, sql
             )
         )
+        for dropped in re.findall(
+            r"public\.evaluations\s+drop column (?:if exists )?" + _IDENT, sql
+        ):
+            columns.discard(dropped)
     return columns
 
 
@@ -71,8 +82,8 @@ class EvaluationDbContractTest(unittest.TestCase):
         self.assertEqual(
             missing,
             [],
-            "Columnas mapeadas sin create/add column en supabase_evaluations_schema.sql "
-            f"ni en supabase/migrations: {missing}",
+            "Columnas mapeadas que ninguna migracion de supabase/migrations/ crea: "
+            f"{missing}. Agrega un archivo de migracion con su add column.",
         )
 
     def test_former_local_only_cmj_columns_are_persisted(self):

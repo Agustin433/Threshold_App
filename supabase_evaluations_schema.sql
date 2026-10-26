@@ -1,3 +1,9 @@
+-- ⚠️ REFERENCIA HISTORICA. NO EJECUTAR NI EDITAR.
+-- La fuente de verdad del esquema es supabase/migrations/ (ver
+-- docs/supabase-grants.md). Este script describia lo que "deberia" haber en
+-- la base, no lo que habia: el 26/10/2026 listaba 17 columnas que produccion
+-- no tenia y el guardado de evaluaciones fallaba.
+--
 -- Threshold S&C
 -- Tabla unica para persistir evaluaciones individuales de plataforma de fuerza.
 -- La app recalcula EUR, z-scores y NM_Profile al cargar, por eso no se guardan aca.

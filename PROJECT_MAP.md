@@ -190,13 +190,14 @@ Estado actual:
 
 ## SQL y soporte externo
 
-### `supabase_evaluations_schema.sql`
+### `supabase/migrations/`
 
-- Esquema para persistencia de evaluaciones.
+- Fuente de verdad del esquema de Supabase. Todo cambio va como migracion nueva
+  (ver `docs/supabase-grants.md`). Lo verifica el workflow `Migrations Check`.
 
-### `supabase_dataset_store_schema.sql`
+### `supabase_evaluations_schema.sql` / `supabase_dataset_store_schema.sql`
 
-- Esquema para persistencia generica de datasets TeamBuildr.
+- Referencia historica. No ejecutar ni editar.
 
 ## Documentacion auxiliar del repo
 
