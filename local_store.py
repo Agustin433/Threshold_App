@@ -581,10 +581,7 @@ def upsert_athlete_profile(profile: dict[str, object]) -> pd.DataFrame:
 
     row: dict[str, object] = {column: profile.get(column) for column in ATHLETE_PROFILE_COLUMNS}
     row["Athlete"] = athlete_norm
-    # Un import (ej. Google Form) trae su propia fecha: la marca temporal de
-    # la respuesta. Sin fecha, es una edicion hecha ahora.
-    provided = pd.to_datetime(profile.get("Fecha_actualizacion"), errors="coerce")
-    row["Fecha_actualizacion"] = provided if pd.notna(provided) else pd.Timestamp.now()
+    row["Fecha_actualizacion"] = pd.Timestamp.now()
     new_row_df = pd.DataFrame([row], columns=ATHLETE_PROFILE_COLUMNS)
 
     existing = read_full_dataset("athlete_profile_df")
