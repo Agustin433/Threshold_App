@@ -11,7 +11,9 @@ import pandas as pd
 from modules.athlete_profile import ATHLETE_PROFILE_COLUMNS
 from modules.data_loader import (
     RAW_FECHA_REF_COL,
+    RAW_FECHA_SESION_COL,
     ensure_raw_fecha_ref,
+    ensure_raw_fecha_sesion,
     prepare_raw_workouts_df,
     raw_session_date_column,
 )
@@ -89,6 +91,10 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
         # "Assigned Date" como date_col, _normalize_frame descartaba en
         # silencio los ejercicios auto-registrados (Assigned Date="0").
         "date_col": RAW_FECHA_REF_COL,
+        # Fecha de ANALISIS (ventanas "ultimas N semanas", event_date en
+        # Supabase): el dia en que la serie se hizo. 9% de las series reales
+        # se completan antes del dia asignado. No entra en la clave.
+        "analysis_date_col": RAW_FECHA_SESION_COL,
         "athlete_col": "Athlete",
         # WorkoutId es el slot de un ejercicio y se reusa cuando la plantilla
         # se reasigna otro dia: solo junto con Fecha_ref identifica la serie.
@@ -323,6 +329,12 @@ def persist_athlete_names(names: list[str]) -> list[str]:
     return merged
 
 
+def analysis_date_col(spec: dict[str, object]) -> str | None:
+    """Columna para todo calculo temporal del dataset (no para la clave)."""
+    column = spec.get("analysis_date_col") or spec.get("date_col")
+    return str(column) if column else None
+
+
 def _normalize_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -332,8 +344,13 @@ def _normalize_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
     date_col = spec.get("date_col")
     source_col = spec.get("source_col")
     if date_col == RAW_FECHA_REF_COL:
-        # Historial guardado antes de Fecha_ref: se deriva antes de filtrar.
-        result = ensure_raw_fecha_ref(result)
+        # Historial guardado antes de Fecha_ref/Fecha_sesion: se derivan
+        # antes de filtrar.
+        result = ensure_raw_fecha_sesion(ensure_raw_fecha_ref(result))
+        if RAW_FECHA_SESION_COL in result.columns:
+            result[RAW_FECHA_SESION_COL] = pd.to_datetime(
+                result[RAW_FECHA_SESION_COL], errors="coerce"
+            ).dt.normalize()
     allow_missing_date = bool(spec.get("allow_missing_date"))
 
     # Punto de paso unico: toda lectura y escritura del store atraviesa esta
@@ -743,7 +760,7 @@ def filter_recent_window(
 def load_recent_dataset(state_key: str, weeks: int = RECENT_WEEKS) -> pd.DataFrame:
     spec = DATASET_SPECS[state_key]
     df = read_full_dataset(state_key)
-    date_col = str(spec["date_col"])
+    date_col = analysis_date_col(spec)
     df = filter_recent_window(
         df,
         date_col,
@@ -766,7 +783,7 @@ def load_dataset_for_history_mode(
     return _sort_frame(
         filter_recent_window(
             df,
-            str(spec["date_col"]),
+            analysis_date_col(spec),
             weeks=weeks,
             include_undated=bool(spec.get("include_undated_in_recent")),
         ),
@@ -1483,7 +1500,9 @@ def build_dataset_summaries(
         if df is None or df.empty:
             continue
 
-        date_col = str(spec["date_col"])
+        date_col = analysis_date_col(spec) or ""
+        if date_col not in df.columns:
+            date_col = str(spec["date_col"])
         athlete_col = spec.get("athlete_col")
         latest = None
         earliest = None

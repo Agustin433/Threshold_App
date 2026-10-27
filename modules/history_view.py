@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from local_store import DATASET_LABELS, DATASET_SPECS, build_dataset_summaries
+from modules.data_loader import summarize_completed_before_assigned
 from modules.history_manager import (
     create_history_backup,
     filter_history_frame,
@@ -42,6 +43,32 @@ def _render_operation_error(prefix: str, exc: Exception, backup_info: dict[str, 
     detail = _backup_notice(backup_info) if backup_info else "No se genero backup previo."
     st.error(f"{prefix}. {detail}")
     st.caption(f"Detalle tecnico: {exc}")
+
+
+def _thousands(value: int) -> str:
+    return f"{int(value):,}".replace(",", ".")
+
+
+def completed_before_assigned_caption(df: pd.DataFrame | None) -> str | None:
+    """Texto para Historial: series completadas antes de su fecha asignada."""
+    stats = summarize_completed_before_assigned(df)
+    if not stats["total"] or not stats["comparable"]:
+        return None
+    note = "Volumen, monotonia y ventanas se calculan por Fecha_sesion (Completed Date), no por Assigned Date."
+    total = _thousands(stats["total"])
+    if not stats["early"]:
+        return f"0 de {total} series se completaron antes de la fecha asignada. {note}"
+    return (
+        f"{_thousands(stats['early'])} de {total} series ({stats['pct_early']:.0f}%) "
+        "se completaron ANTES de la fecha asignada "
+        f"(mediana {stats['median_days']:+.0f} dia(s), minimo {stats['min_days']:+d}). {note}"
+    )
+
+
+def _render_completed_before_assigned(df: pd.DataFrame) -> None:
+    caption = completed_before_assigned_caption(df)
+    if caption:
+        st.info(caption)
 
 
 def render_history_manager() -> None:
@@ -140,6 +167,9 @@ def render_history_manager() -> None:
         metrics[3].metric("Ultima fecha", latest_date.max().strftime("%d/%m/%Y") if not latest_date.empty else "-")
     else:
         metrics[3].metric("Ultima fecha", "-")
+
+    if selected_key == "raw_df" and not full_df.empty:
+        _render_completed_before_assigned(full_df)
 
     if full_df.empty:
         st.info("Todavia no hay historial local para este dataset.")

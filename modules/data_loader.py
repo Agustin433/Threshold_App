@@ -1744,6 +1744,10 @@ def is_prepared_raw_workouts_df(raw_df: pd.DataFrame | None) -> bool:
 
 RAW_SESSION_DATE_COL = "Session Date"
 RAW_FECHA_REF_COL = "Fecha_ref"
+# Dia en que la serie se HIZO: Completed Date valida, si no Fecha_ref. Es la
+# fecha de ANALISIS (volumen diario/semanal, monotonia, ACWR, ventanas y
+# event_date). Fecha_ref sigue siendo solo identidad (dedupe_cols/row_key).
+RAW_FECHA_SESION_COL = "Fecha_sesion"
 DISCARDED_ROWS_ATTR = "discarded_rows"
 _MIN_VALID_DATE = pd.Timestamp("2000-01-01")
 
@@ -1805,42 +1809,90 @@ def describe_discarded_rows(df: pd.DataFrame | None) -> str:
     total = sum(discarded.values())
     detail = "; ".join(f"{reason}: {count}" for reason, count in discarded.items())
     return f"{total} fila(s) descartadas ({detail})."
-_RAW_SESSION_DATE_CANDIDATES = (RAW_SESSION_DATE_COL, "Completed Date", "Assigned Date", "Date")
+_RAW_SESSION_DATE_CANDIDATES = (
+    RAW_FECHA_SESION_COL,
+    RAW_SESSION_DATE_COL,
+    "Completed Date",
+    RAW_FECHA_REF_COL,
+    "Assigned Date",
+    "Date",
+)
 
 
 def raw_session_date_column(df: pd.DataFrame | None) -> str | None:
-    """Columna con el dia en que la sesion se HIZO (no el dia asignado).
+    """Columna con el dia en que la serie se HIZO (no el dia asignado).
 
-    En el export real de TeamBuildr (oct/2026) el 45% de las sesiones se
-    completo otro dia que el asignado. Todo analisis por dia/semana (registro
-    de sesiones del ACWR, cobertura de sRPE, volumen semanal) debe usar esta
-    columna; "Assigned Date" queda solo como clave de almacenamiento.
+    En el export real de TeamBuildr (oct/2026) 7.599 de 82.791 series (9%) se
+    completaron ANTES de la fecha asignada (mediana -1 dia, minimo -29). Todo
+    analisis por dia/semana (volumen, monotonia, strain, ACWR, ventanas) usa
+    esta columna; Fecha_ref / "Assigned Date" quedan como clave de
+    almacenamiento.
     """
     if df is None:
         return None
     return next((column for column in _RAW_SESSION_DATE_CANDIDATES if column in df.columns), None)
 
 
-def _ensure_session_date(df: pd.DataFrame | None) -> pd.DataFrame | None:
-    """Agrega "Session Date" = Completed Date (si existe) o Assigned Date.
+def ensure_raw_fecha_sesion(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Agrega Fecha_sesion = Completed Date valida, si no Fecha_ref.
 
-    No modifica "Assigned Date": es parte de la clave de dedupe del
-    historial guardado y cambiarla duplicaria filas en la proxima subida.
+    Se recalcula siempre que el frame traiga "Completed Date" (es una funcion
+    pura de columnas del export, asi corrige historial guardado con la regla
+    vieja). Sin "Completed Date" respeta una Fecha_sesion existente. Tambien
+    alinea "Session Date" (alias legacy) con Fecha_sesion. No toca Fecha_ref
+    ni "Assigned Date": son la clave de dedupe del historial.
     """
-    if df is None or df.empty or RAW_SESSION_DATE_COL in df.columns:
+    if df is None or df.empty:
         return df
-    session = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
-    if "Completed Date" in df.columns:
-        session = pd.to_datetime(df["Completed Date"], errors="coerce")
-    if "Assigned Date" in df.columns:
-        session = session.fillna(pd.to_datetime(df["Assigned Date"], errors="coerce"))
-    elif "Date" in df.columns:
-        session = session.fillna(pd.to_datetime(df["Date"], errors="coerce"))
-    result = df.copy()
-    result[RAW_SESSION_DATE_COL] = session.dt.normalize()
+    if RAW_FECHA_SESION_COL in df.columns and "Completed Date" not in df.columns:
+        return df
+    base = ensure_raw_fecha_ref(df)
+    fecha_ref = (
+        pd.to_datetime(base[RAW_FECHA_REF_COL], errors="coerce")
+        if RAW_FECHA_REF_COL in base.columns
+        else pd.Series(pd.NaT, index=base.index, dtype="datetime64[ns]")
+    )
+    if "Completed Date" in base.columns:
+        sesion = _parse_export_dates(base["Completed Date"]).fillna(fecha_ref)
+    else:
+        sesion = fecha_ref
+    result = base.copy()
+    result[RAW_FECHA_SESION_COL] = pd.to_datetime(sesion, errors="coerce").dt.normalize()
+    result[RAW_SESSION_DATE_COL] = result[RAW_FECHA_SESION_COL]
     for key, value in getattr(df, "attrs", {}).items():
         result.attrs[key] = value
     return result
+
+
+def _ensure_session_date(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Compatibilidad: "Session Date" ahora es un alias de Fecha_sesion."""
+    return ensure_raw_fecha_sesion(df)
+
+
+def summarize_completed_before_assigned(df: pd.DataFrame | None) -> dict[str, object]:
+    """Cuantas series se completaron antes de su fecha asignada.
+
+    Compara Completed Date valida contra Assigned Date valida (las
+    auto-registradas, con Assigned Date="0", no cuentan). Diferencia en dias
+    = Completed - Assigned (negativa = adelantada).
+    """
+    empty = {"total": 0, "comparable": 0, "early": 0, "pct_early": None, "median_days": None, "min_days": None}
+    if df is None or df.empty or "Completed Date" not in df.columns or "Assigned Date" not in df.columns:
+        return {**empty, "total": 0 if df is None else int(len(df))}
+    completed = _parse_export_dates(df["Completed Date"]).dt.normalize()
+    assigned = _parse_export_dates(df["Assigned Date"]).dt.normalize()
+    diff_days = (completed - assigned).dt.days
+    comparable = diff_days.notna()
+    early = diff_days[comparable & diff_days.lt(0)]
+    total = int(len(df))
+    return {
+        "total": total,
+        "comparable": int(comparable.sum()),
+        "early": int(len(early)),
+        "pct_early": (len(early) / total * 100.0) if total else None,
+        "median_days": float(early.median()) if not early.empty else None,
+        "min_days": int(early.min()) if not early.empty else None,
+    }
 
 
 def add_strength_detail_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -1884,6 +1936,18 @@ def add_strength_detail_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:
     return result
 
 
+def _align_raw_analysis_date(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Fecha_ref + Fecha_sesion presentes y "Date" = Fecha_sesion.
+
+    "Date" es la columna que consume todo el analisis aguas abajo; antes era
+    Fecha_ref y el volumen se imputaba al dia asignado.
+    """
+    df = ensure_raw_fecha_sesion(ensure_raw_fecha_ref(df))
+    if df is not None and not df.empty and RAW_FECHA_SESION_COL in df.columns:
+        df["Date"] = pd.to_datetime(df[RAW_FECHA_SESION_COL], errors="coerce")
+    return df
+
+
 def _mark_prepared_raw_workouts_df(df: pd.DataFrame | None) -> pd.DataFrame | None:
     if df is not None:
         df.attrs[PREPARED_RAW_WORKOUT_FLAG] = True
@@ -1895,7 +1959,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
         return None
     if is_prepared_raw_workouts_df(raw_df):
         return _mark_prepared_raw_workouts_df(
-            ensure_raw_fecha_ref(_ensure_session_date(add_strength_detail_columns(raw_df.copy())))
+            _align_raw_analysis_date(add_strength_detail_columns(raw_df.copy()))
         )
 
     df = raw_df.copy()
@@ -1956,9 +2020,8 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
         df["Assigned Date"] = pd.NaT
     df = ensure_raw_fecha_ref(df)
     df[RAW_FECHA_REF_COL] = pd.to_datetime(df[RAW_FECHA_REF_COL], errors="coerce")
-    # Date = Fecha_ref: igual a Assigned Date salvo en los ejercicios
-    # auto-registrados (Assigned Date="0"), que antes quedaban sin fecha.
-    df["Date"] = df[RAW_FECHA_REF_COL]
+    # Date = Fecha_sesion (dia del estimulo). Fecha_ref queda solo como clave.
+    df = _align_raw_analysis_date(df)
 
     for column in ["Result", "Reps", "Sets", "Duration_s"]:
         if column in df.columns:
@@ -2044,7 +2107,7 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     valid_strength = strength_mask & result.gt(0) & reps.gt(0)
     df.loc[valid_strength, "Volume_Load_kg"] = (result.loc[valid_strength] * reps.loc[valid_strength]).round(3)
 
-    df = _ensure_session_date(add_strength_detail_columns(df))
+    df = add_strength_detail_columns(df)
 
     contacts_mask = df["stimulus_category"].isin(["plyo_jump", "landing_mechanics"]) & reps.gt(0)
     df.loc[contacts_mask, "Contacts"] = reps.loc[contacts_mask]

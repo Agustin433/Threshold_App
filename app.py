@@ -1603,7 +1603,10 @@ def _dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict
         return []
 
     spec = DATASET_SPECS.get(state_key, {})
-    date_col = spec.get("date_col")
+    # event_date = fecha de analisis (Raw Workouts: Fecha_sesion, el dia en
+    # que se hizo la serie). La identidad (row_key) sigue en dedupe_cols.
+    date_col = spec.get("analysis_date_col") or spec.get("date_col")
+    key_date_col = spec.get("date_col")
     athlete_col = spec.get("athlete_col")
     records: list[dict] = []
 
@@ -1630,6 +1633,8 @@ def _dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict
             record["athlete"] = normalize_athlete_name(payload[athlete_col])
 
         event_date = _dataset_event_date(payload.get(date_col)) if date_col else None
+        if not event_date and key_date_col:
+            event_date = _dataset_event_date(payload.get(key_date_col))
         if event_date:
             record["event_date"] = event_date
 
@@ -2950,7 +2955,7 @@ def _report_time_window_label(state: dict[str, object]) -> str:
         ("wellness_df", ["Date"]),
         ("completion_df", ["Date"]),
         ("rep_load_df", ["Date"]),
-        ("raw_df", ["Session Date", "Completed Date", "Assigned Date", "Date"]),
+        ("raw_df", ["Fecha_sesion", "Session Date", "Completed Date", "Assigned Date", "Date"]),
         ("session_notes_df", ["Assigned Date", "Date"]),
         ("maxes_df", ["Added Date", "Date"]),
         ("jump_df", ["Date"]),

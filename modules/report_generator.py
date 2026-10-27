@@ -1805,10 +1805,10 @@ def _build_raw_external_volume_sheet(
     if result.empty:
         return pd.DataFrame()
 
-    if "Assigned Date" in result.columns:
-        result["Date"] = pd.to_datetime(result["Assigned Date"], errors="coerce")
-    elif "Date" in result.columns:
-        result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
+    # Date = dia en que se hizo la serie (Fecha_sesion), no el asignado.
+    session_col = raw_session_date_column(result)
+    if session_col is not None:
+        result["Date"] = pd.to_datetime(result[session_col], errors="coerce")
     result["Source"] = "Raw Workouts"
     columns = [
         "Source",
@@ -5723,8 +5723,8 @@ def _professional_latest_data_date(state: dict[str, pd.DataFrame | None], athlet
     add_dates(state.get("rpe_df"), ("Date",))
     add_dates(state.get("wellness_df"), ("Date",))
     add_dates(state.get("completion_df"), ("Date",))
-    add_dates(state.get("raw_df"), ("Session Date", "Completed Date", "Assigned Date", "Date"))
-    add_dates(state.get("prepared_raw_df"), ("Session Date", "Completed Date", "Assigned Date", "Date"))
+    add_dates(state.get("raw_df"), ("Fecha_sesion", "Session Date", "Completed Date", "Assigned Date", "Date"))
+    add_dates(state.get("prepared_raw_df"), ("Fecha_sesion", "Session Date", "Completed Date", "Assigned Date", "Date"))
 
     weekly_summaries = state.get("weekly_summaries")
     if isinstance(weekly_summaries, dict):
@@ -5765,8 +5765,8 @@ def _professional_data_horizon(state: dict[str, pd.DataFrame | None]) -> pd.Time
     for key, columns in (
         ("rpe_df", ("Date",)),
         ("wellness_df", ("Date",)),
-        ("prepared_raw_df", ("Session Date", "Completed Date", "Assigned Date", "Date")),
-        ("raw_df", ("Session Date", "Completed Date", "Assigned Date", "Date")),
+        ("prepared_raw_df", ("Fecha_sesion", "Session Date", "Completed Date", "Assigned Date", "Date")),
+        ("raw_df", ("Fecha_sesion", "Session Date", "Completed Date", "Assigned Date", "Date")),
     ):
         frame = state.get(key)
         if not isinstance(frame, pd.DataFrame) or frame.empty:
@@ -8673,7 +8673,7 @@ def _professional_period_label(state: dict[str, pd.DataFrame | None], athlete: s
     add_dates(state.get("rpe_df"), ("Date",))
     add_dates(state.get("wellness_df"), ("Date",))
     add_dates(state.get("completion_df"), ("Date",))
-    add_dates(state.get("raw_df"), ("Session Date", "Completed Date", "Assigned Date", "Date"))
+    add_dates(state.get("raw_df"), ("Fecha_sesion", "Session Date", "Completed Date", "Assigned Date", "Date"))
 
     if not dates:
         return PDF_MISSING_TEXT

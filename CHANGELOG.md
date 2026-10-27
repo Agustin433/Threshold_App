@@ -2,6 +2,23 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-10-27 - Raw Workouts: fecha de analisis = Completed Date
+
+En el export real 7.599 de 82.791 series (9%) se completaron antes de la fecha
+asignada (mediana -1 dia, minimo -29). El volumen y el registro de sesiones se
+imputaban al dia asignado, no al dia del estimulo.
+
+- nueva columna `Fecha_sesion` = Completed Date valida, si no `Fecha_ref`
+- `Date` de Raw Workouts preparado = `Fecha_sesion` (volumen diario/semanal,
+  monotonia, strain, ACWR de volumen, hoja de volumen externo del reporte)
+- ventanas "ultimas N semanas" y `event_date` en Supabase usan `Fecha_sesion`
+  (`analysis_date_col` en `DATASET_SPECS`)
+- sin cambios en `dedupe_cols` ni `row_key`: `Fecha_ref` sigue siendo la identidad
+- `Session Date` queda como alias de `Fecha_sesion`
+- Historial muestra cuantas series tienen Completed Date < Assigned Date
+- el `event_date` de filas ya guardadas en Supabase se corrige al volver a
+  guardar Raw Workouts (mismo `row_key`, el upsert lo actualiza)
+
 ## 2026-04-07 - Consolidacion documental
 
 Se actualizaron o crearon los documentos principales del proyecto para reflejar el estado actual:

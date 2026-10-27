@@ -207,7 +207,10 @@ def dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict]
         return []
 
     spec = DATASET_SPECS.get(state_key, {})
-    date_col = spec.get("date_col")
+    # event_date = fecha de analisis (Raw Workouts: Fecha_sesion, el dia en
+    # que se hizo la serie). La identidad (row_key) sigue en dedupe_cols.
+    date_col = spec.get("analysis_date_col") or spec.get("date_col")
+    key_date_col = spec.get("date_col")
     athlete_col = spec.get("athlete_col")
     records: list[dict] = []
 
@@ -232,6 +235,8 @@ def dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict]
             record["athlete"] = normalize_athlete_name(payload[athlete_col])
         if date_col:
             event_date = _dataset_event_date(payload.get(date_col))
+            if not event_date and key_date_col:
+                event_date = _dataset_event_date(payload.get(key_date_col))
             if event_date:
                 record["event_date"] = event_date
         records.append(record)

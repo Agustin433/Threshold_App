@@ -75,7 +75,7 @@ class SessionDateTest(unittest.TestCase):
     def test_session_date_is_completed_date_and_assigned_is_untouched(self):
         prepared = prepare_raw_workouts_df(self._raw())
 
-        self.assertEqual(raw_session_date_column(prepared), "Session Date")
+        self.assertEqual(raw_session_date_column(prepared), "Fecha_sesion")
         self.assertEqual(pd.Timestamp(prepared.iloc[0]["Session Date"]), pd.Timestamp("2026-09-29"))
         # Assigned Date es clave de dedupe del historial: no se reescribe.
         self.assertEqual(pd.Timestamp(prepared.iloc[0]["Assigned Date"]), pd.Timestamp("2026-09-26"))
