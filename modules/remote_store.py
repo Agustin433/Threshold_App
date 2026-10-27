@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 import os
 import hashlib
 import urllib.error
@@ -183,10 +184,18 @@ def _dataset_event_date(value) -> str | None:
     return parsed.date().isoformat()
 
 
+def _canonical_key_value(value):
+    # 1 y 1.0 son la misma serie/ID: sin esto el row_key dependia de si la
+    # columna llego como int o como float (basta un NaN en el export).
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 def _dataset_row_signature(state_key: str, payload: dict[str, object]) -> str:
     spec = DATASET_SPECS.get(state_key, {})
     dedupe_cols = spec.get("dedupe_cols") or sorted(payload.keys())
-    key_payload = {col: payload.get(col) for col in dedupe_cols if col in payload}
+    key_payload = {col: _canonical_key_value(payload.get(col)) for col in dedupe_cols if col in payload}
     if not key_payload:
         key_payload = payload
     serialized = json.dumps(key_payload, sort_keys=True, ensure_ascii=False, default=str)
@@ -298,25 +307,47 @@ def _chunked_records(records: list[dict], chunk_size: int = _DATASET_UPSERT_CHUN
     return [records[i : i + chunk_size] for i in range(0, len(records), chunk_size)]
 
 
-def save_remote_dataset(state_key: str, df: pd.DataFrame) -> dict[str, int | bool]:
-    if not supabase_dataset_store_enabled() or state_key not in REMOTE_DATASET_KEYS:
-        return {"enabled": False, "upserted": 0}
+_CONFLICT_EXAMPLE_LIMIT = 3
+_CHUNK_ERROR_DETAIL_LIMIT = 3
 
-    payload = dataset_df_to_remote_records(state_key, df)
-    if not payload:
-        return {"enabled": True, "upserted": 0}
 
-    _, _, table = _supabase_dataset_store_config()
-    # Un solo POST con todo el dataset (ej. Raw Workouts, que puede tener
-    # miles de filas) puede superar el limite de tamano de request de
-    # Supabase o el timeout fijo de _supabase_request, y fallar entero sin
-    # guardar nada remoto. Se sube en lotes, igual que ya se lee (paginado)
-    # y se borra (_chunked) en el resto del modulo.
-    # Solo cuenta lo que Supabase devuelve (return=representation). Una
-    # respuesta vacia no es "guardado": antes se asumia exito con len(chunk).
-    upserted = 0
-    total = len(payload)
-    for chunk in _chunked_records(payload):
+def _describe_dataset_record(record: dict) -> str:
+    payload = record.get("payload") or {}
+    athlete = record.get("athlete") or payload.get("Athlete") or "sin atleta"
+    event_date = record.get("event_date") or "sin fecha"
+    exercise = payload.get("Exercise Name") or payload.get("Exercise") or "-"
+    return f"{athlete} · {event_date} · {exercise}"
+
+
+def _upsert_dataset_records(table: str, records: list[dict]) -> int:
+    """Upsert por lotes que nunca deja pasar un 500 crudo de PostgREST.
+
+    - Filas con row_key repetido dentro del envio no se mandan: PostgreSQL
+      rechaza el lote entero con 21000 ("ON CONFLICT DO UPDATE command cannot
+      affect row a second time"). Se reportan con ejemplos.
+    - Si un lote falla, se sigue con los demas y al final se informa el total
+      no guardado. Solo cuenta lo que Supabase devuelve confirmado.
+    Lanza RemoteSaveError si algo no se guardo. Devuelve filas confirmadas.
+    """
+    total = len(records)
+    problems: list[str] = []
+    key_counts = Counter(record["row_key"] for record in records)
+    duplicated_keys = {key for key, count in key_counts.items() if count > 1}
+    if duplicated_keys:
+        duplicated = [record for record in records if record["row_key"] in duplicated_keys]
+        examples: list[str] = []
+        for key in sorted(duplicated_keys)[:_CONFLICT_EXAMPLE_LIMIT]:
+            first = next(record for record in duplicated if record["row_key"] == key)
+            examples.append(f"{_describe_dataset_record(first)} (x{key_counts[key]})")
+        problems.append(
+            f"{len(duplicated)} fila(s) en {len(duplicated_keys)} grupo(s) comparten la misma clave "
+            f"y no se enviaron. Ejemplos (atleta · fecha · ejercicio): {'; '.join(examples)}"
+        )
+        records = [record for record in records if record["row_key"] not in duplicated_keys]
+
+    saved = 0
+    chunk_errors: list[str] = []
+    for chunk in _chunked_records(records):
         try:
             rows = _supabase_request(
                 "POST",
@@ -326,14 +357,35 @@ def save_remote_dataset(state_key: str, df: pd.DataFrame) -> dict[str, int | boo
                 prefer="resolution=merge-duplicates,return=representation",
             ) or []
         except Exception as exc:
-            raise RemoteSaveError(saved=upserted, total=total, detail=str(exc)) from exc
+            chunk_errors.append(f"lote de {len(chunk)} fila(s): {exc}")
+            continue
         if not rows:
-            raise RemoteSaveError(
-                saved=upserted,
-                total=total,
-                detail="Supabase respondio sin filas: el lote no se confirmo como guardado.",
-            )
-        upserted += len(rows)
+            chunk_errors.append(f"lote de {len(chunk)} fila(s): Supabase respondio sin filas")
+            continue
+        saved += len(rows)
+    if chunk_errors:
+        shown = chunk_errors[:_CHUNK_ERROR_DETAIL_LIMIT]
+        more = len(chunk_errors) - len(shown)
+        problems.append(
+            f"{len(chunk_errors)} lote(s) fallaron: " + " | ".join(shown) + (f" | y {more} mas" if more else "")
+        )
+    if problems:
+        raise RemoteSaveError(saved=saved, total=total, detail=" || ".join(problems))
+    return saved
+
+
+def save_remote_dataset(state_key: str, df: pd.DataFrame) -> dict[str, int | bool]:
+    if not supabase_dataset_store_enabled() or state_key not in REMOTE_DATASET_KEYS:
+        return {"enabled": False, "upserted": 0}
+
+    payload = dataset_df_to_remote_records(state_key, df)
+    if not payload:
+        return {"enabled": True, "upserted": 0}
+
+    _, _, table = _supabase_dataset_store_config()
+    # En lotes: un solo POST con miles de filas (Raw Workouts) puede superar el
+    # limite de tamano o el timeout de Supabase.
+    upserted = _upsert_dataset_records(table, payload)
     return {"enabled": True, "upserted": upserted}
 
 
