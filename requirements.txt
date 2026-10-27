@@ -12,6 +12,8 @@ attrs==26.1.0
     #   referencing
 certifi==2026.10.23
     # via requests
+cffi==2.1.1 ; platform_python_implementation != 'PyPy'
+    # via cryptography
 charset-normalizer==3.5.2
     # via
     #   reportlab
@@ -24,8 +26,12 @@ click==8.5.0
     #   uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
+cryptography==50.0.2
+    # via google-auth
 et-xmlfile==2.0.0
     # via openpyxl
+google-auth==2.62.0
+    # via -r requirements.in
 h11==0.16.0
     # via uvicorn
 idna==3.20
@@ -98,6 +104,12 @@ protobuf==7.36.2
     # via streamlit
 pyarrow==26.0.0
     # via streamlit
+pyasn1==0.6.5
+    # via pyasn1-modules
+pyasn1-modules==0.4.2
+    # via google-auth
+pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+    # via cffi
 pydeck==0.9.3
     # via streamlit
 pygments==2.21.0
