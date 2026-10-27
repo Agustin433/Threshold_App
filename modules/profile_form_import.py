@@ -13,6 +13,7 @@ motivo) o rechazada (con el motivo). Nada se guarda sin pasar por la UI.
 
 from __future__ import annotations
 
+import datetime
 import io
 import json
 import re
@@ -53,9 +54,11 @@ FORM_COLUMNS: dict[str, str] = {
     "autorizacion": "Autorizo a usar estos datos para diseñar mi entrenamiento y darme de alta en sus plataformas.",
 }
 REQUIRED_FORM_KEYS = ("timestamp", "nombre", "nacimiento", "altura", "peso", "sexo", "objetivo",
-                      "nivel", "rtp", "modalidad", "autorizacion")
-# Email y años de entrenamiento se pueden leer, pero no existen en el esquema
-# de athlete_profile_df: no se guardan.
+                      "rtp", "modalidad", "autorizacion")
+# Email, años de entrenamiento y "nivel actual" se pueden leer, pero no se
+# guardan: no existen en el esquema de athlete_profile_df. "Nivel actual" es
+# experiencia (Principiante/Intermedio/Avanzado), no nivel competitivo: solo
+# se muestra como pista al elegir el Nivel (ver _resolve_nivel).
 
 AUTHORIZED_ANSWER = "Sí, autorizo"
 
@@ -86,6 +89,11 @@ def _header_key(text: object) -> str:
 # "requiere confirmacion" por palabra clave, o en Otro / rechazo).
 _OBJETIVO_EXACT: dict[str, str] = {
     **{_key(option): option for option in OBJETIVO_OPTIONS if option != OTRO_OBJETIVO},
+    # Opciones del formulario "Perfil de Cliente" (planilla real, oct/2026).
+    _key("Salud y longevidad"): "Salud general y calidad de vida",
+    _key("Rendimiento deportivo"): "Rendimiento deportivo específico",
+    _key("Composición corporal / estética"): "Recomposición corporal",
+    _key("Recuperación / regreso de una lesión"): RTP_OPTION,
     _key("Rehabilitación y retorno deportivo"): RTP_OPTION,
     _key("Mejorar rendimiento deportivo específico"): "Rendimiento deportivo específico",
     _key("Aumentar fuerza máxima"): "Fuerza máxima",
@@ -93,6 +101,13 @@ _OBJETIVO_EXACT: dict[str, str] = {
     _key("Perder grasa corporal"): "Recomposición corporal",
     _key("Mejorar resistencia física"): "Resistencia física",
     _key("Mejorar salud general y calidad de vida"): "Salud general y calidad de vida",
+}
+# Respuestas que combinan dos objetivos: (primario, secundarios).
+_OBJETIVO_COMBOS: dict[str, tuple[str, tuple[str, ...]]] = {
+    _key("Combinación rendimiento deportivo + composición corporal/estetico"): (
+        "Rendimiento deportivo específico",
+        ("Recomposición corporal",),
+    ),
 }
 _OBJETIVO_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("rehabilit", RTP_OPTION),
@@ -108,26 +123,6 @@ _OBJETIVO_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("salud", "Salud general y calidad de vida"),
     ("calidad de vida", "Salud general y calidad de vida"),
     ("rendimiento", "Rendimiento deportivo específico"),
-)
-
-_NIVEL_EXACT: dict[str, str] = {
-    **{_key(option): option for option in NIVEL_OPTIONS},
-    _key("Recreativo / amateur"): "Recreativo",
-    _key("Competitivo local / provincial"): "Competitivo",
-    _key("Nacional"): "Alto rendimiento",
-}
-_NIVEL_KEYWORDS: tuple[tuple[str, str], ...] = (
-    ("alto rendimiento", "Alto rendimiento"),
-    ("profesional", "Alto rendimiento"),
-    ("internacional", "Alto rendimiento"),
-    ("nacional", "Alto rendimiento"),
-    ("competitiv", "Competitivo"),
-    ("federad", "Competitivo"),
-    ("recreativ", "Recreativo"),
-    ("amateur", "Recreativo"),
-    ("principiante", "Población general"),
-    ("poblacion general", "Población general"),
-    ("no entreno", "Población general"),
 )
 
 _MODALIDAD_EXACT: dict[str, str] = {
@@ -215,6 +210,37 @@ def read_form_csv(file) -> pd.DataFrame:
     raise ValueError("No se pudo leer el CSV de respuestas (probe UTF-8 y Windows-1252).") from last_error
 
 
+def read_form_xlsx(file, worksheet: str | None = None) -> pd.DataFrame:
+    """Planilla descargada como .xlsx. Lee la fila de encabezados y despues
+    SOLO las celdas de las columnas permitidas (openpyxl en modo lectura):
+    las demas columnas no se cargan en ningun DataFrame."""
+    import openpyxl
+
+    workbook = openpyxl.load_workbook(file, read_only=True, data_only=True)
+    try:
+        sheet = workbook[worksheet] if worksheet and worksheet in workbook.sheetnames else workbook.worksheets[0]
+        rows = sheet.iter_rows(values_only=True)
+        header = next(rows, None) or ()
+        positions = match_form_headers(header)
+        data: dict[str, list[object]] = {key: [] for key in positions}
+        for row in rows:
+            if row is None or not any(value not in (None, "") for value in row):
+                continue
+            for key, position in positions.items():
+                data[key].append(row[position] if position < len(row) else None)
+        return pd.DataFrame(data)
+    finally:
+        workbook.close()
+
+
+def read_form_file(file) -> pd.DataFrame:
+    """CSV o .xlsx exportado a mano desde la planilla."""
+    name = str(getattr(file, "name", "")).lower()
+    if name.endswith(".xlsx"):
+        return read_form_xlsx(file)
+    return read_form_csv(file)
+
+
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
 
@@ -289,7 +315,17 @@ def read_form_sheet(
 # ── Validacion y mapeo ──────────────────────────────────────────────────────
 
 
+def _as_timestamp(value: object) -> pd.Timestamp | None:
+    """Celdas de .xlsx llegan como fecha real (datetime), no como texto."""
+    if isinstance(value, (pd.Timestamp, datetime.datetime, datetime.date)):
+        return pd.Timestamp(value)
+    return None
+
+
 def _parse_form_date(value: object) -> pd.Timestamp | None:
+    native = _as_timestamp(value)
+    if native is not None:
+        return native.normalize()
     text = str(value or "").strip()
     if not text:
         return None
@@ -302,6 +338,9 @@ def _parse_form_date(value: object) -> pd.Timestamp | None:
 
 
 def _parse_form_timestamp(value: object) -> pd.Timestamp | None:
+    native = _as_timestamp(value)
+    if native is not None:
+        return native
     text = str(value or "").strip()
     if not text:
         return None
@@ -314,6 +353,8 @@ def _parse_form_timestamp(value: object) -> pd.Timestamp | None:
 
 
 def _parse_number(value: object) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
     text = str(value or "").strip().replace(" ", "")
     if not text:
         return None
@@ -356,7 +397,7 @@ def _age_on(birth: pd.Timestamp, today: pd.Timestamp) -> int:
 def _parse_deporte(value: object) -> str | None:
     text = str(value or "").strip()
     key = _key(text)
-    if not key or key in {"no", "ninguno", "ninguna", "nada", "-"}:
+    if not key or key in {"no", "nop", "nope", "none", "ninguno", "ninguna", "nada", "-"}:
         return None
     text = re.sub(r"^(s[ií])\s*[,.:;-]?\s*", "", text, flags=re.IGNORECASE).strip()
     return normalize_deporte(text) if text else None
@@ -411,6 +452,7 @@ class ImportItem:
     errors: list[str] = field(default_factory=list)
     diff: list[tuple[str, object, object]] = field(default_factory=list)
     unchanged: bool = False  # ya tiene un perfil identico: no se reimporta
+    nivel_choice_needed: bool = False  # practica deporte: la UI pide el nivel competitivo
 
     @property
     def status(self) -> str:
@@ -466,6 +508,29 @@ def profile_diff(existing: Mapping[str, object], new: Mapping[str, object]) -> l
     return changes
 
 
+NIVEL_SIN_DEPORTE = "Población general"
+NIVEL_DEPORTE_DEFAULT = "Recreativo"
+NIVEL_DEPORTE_OPTIONS: tuple[str, ...] = tuple(option for option in NIVEL_OPTIONS if option != NIVEL_SIN_DEPORTE)
+
+
+def _resolve_nivel(deporte: str | None, experiencia: object, item: ImportItem) -> str:
+    """Nivel competitivo (define cohorte y referencias de z), nunca la experiencia.
+
+    Sin deporte -> Poblacion general. Con deporte el formulario no dice a que
+    nivel compite: queda Recreativo propuesto y la UI pide elegirlo.
+    """
+    if not deporte:
+        return NIVEL_SIN_DEPORTE
+    item.nivel_choice_needed = True
+    hint = str(experiencia or "").strip()
+    item.confirmations.append(
+        f"Practica {deporte}: elegí el nivel competitivo"
+        + (f" (en el formulario dijo experiencia '{hint}', que no define el nivel)" if hint else "")
+        + "."
+    )
+    return NIVEL_DEPORTE_DEFAULT
+
+
 def _build_profile(row: Mapping[str, object], item: ImportItem, today: pd.Timestamp) -> None:
     birth = _parse_form_date(row.get("nacimiento"))
     if birth is None:
@@ -486,11 +551,8 @@ def _build_profile(row: Mapping[str, object], item: ImportItem, today: pd.Timest
     if weight_error:
         item.errors.append(weight_error)
 
-    nivel = _map_option(row.get("nivel"), _NIVEL_EXACT, _NIVEL_KEYWORDS)
-    if nivel is None:
-        item.errors.append(f"nivel no reconocido: '{row.get('nivel')}'")
-    elif not nivel.certain:
-        item.confirmations.append(f"Nivel: {nivel.note}")
+    deporte = _parse_deporte(row.get("deporte"))
+    nivel = _resolve_nivel(deporte, row.get("nivel"), item)
 
     contexto = _map_option(row.get("modalidad"), _MODALIDAD_EXACT, _MODALIDAD_KEYWORDS)
     if contexto is None:
@@ -498,17 +560,24 @@ def _build_profile(row: Mapping[str, object], item: ImportItem, today: pd.Timest
     elif not contexto.certain:
         item.confirmations.append(f"Contexto: {contexto.note}")
 
+    # Es_RTP es true SOLO con "Sí". Vacio (pregunta opcional) o "No" -> false.
+    # Cualquier otro texto ("Terminé hace poco") tambien es false, pero se
+    # muestra para confirmar.
     rtp_key = _key(row.get("rtp"))
-    if rtp_key in {"si", "sí"}:
-        es_rtp = True
-    elif rtp_key == "no":
-        es_rtp = False
-    else:
-        es_rtp = False
-        item.errors.append(f"respuesta de tratamiento/rehabilitación no reconocida: '{row.get('rtp')}'")
+    es_rtp = rtp_key == "si"
+    if rtp_key not in {"", "si", "no", "none", "nan"}:
+        item.confirmations.append(
+            f"Tratamiento/rehabilitación: '{row.get('rtp')}' → Es_RTP = No (solo \"Sí\" es RTP)"
+        )
 
     objetivo_texto = str(row.get("objetivo_texto") or "").strip()
-    objetivo = _map_option(row.get("objetivo"), _OBJETIVO_EXACT, _OBJETIVO_KEYWORDS)
+    secundarios: tuple[str, ...] = ()
+    combo = _OBJETIVO_COMBOS.get(_key(row.get("objetivo")))
+    objetivo = FieldMapping(combo[0], True) if combo else _map_option(
+        row.get("objetivo"), _OBJETIVO_EXACT, _OBJETIVO_KEYWORDS
+    )
+    if combo:
+        secundarios = combo[1]
     otro_texto_parts: list[str] = []
     if objetivo is None:
         objetivo_primario = OTRO_OBJETIVO
@@ -527,10 +596,10 @@ def _build_profile(row: Mapping[str, object], item: ImportItem, today: pd.Timest
         "Altura_cm": height,
         "Peso_kg": weight,
         "Contexto": contexto.value if contexto else None,
-        "Deporte": _parse_deporte(row.get("deporte")),
-        "Nivel": nivel.value if nivel else None,
+        "Deporte": deporte,
+        "Nivel": nivel,
         "Objetivo_primario": objetivo_primario,
-        "Objetivos_secundarios": "",
+        "Objetivos_secundarios": "|".join(secundarios),
         "Objetivo_otro_texto": " | ".join(otro_texto_parts) or None,
         "Es_RTP": es_rtp,
         "Fecha_actualizacion": item.timestamp,

@@ -74,8 +74,8 @@ TEAMBUILDR_NAMES = [
 ]
 
 
-def _row(ts, name, birth, height, weight, *, sexo="Femenino", objetivo="Fuerza máxima", nivel="Recreativo",
-         rtp="No", modalidad="Presencial", autorizacion="Sí, autorizo", deporte="Sí, fútbol", texto=""):
+def _row(ts, name, birth, height, weight, *, sexo="Femenino", objetivo="Salud y longevidad", nivel="Intermedio",
+         rtp="No", modalidad="Presencial", autorizacion="Sí, autorizo", deporte="No", texto=""):
     values = {
         FORM_COLUMNS["timestamp"]: ts,
         FORM_COLUMNS["nombre"]: name,
@@ -109,17 +109,19 @@ ROWS = [
     _row("20/10/2026 10:15:00", "Ana Lopez", "15/03/1998", "168", "61", autorizacion="No autorizo"),
     # fila 6: nombre invertido
     _row("20/10/2026 10:20:00", "Amarillo Celina", "10/10/2000", "165", "58", modalidad="Online",
-         objetivo="Quiero correr una maratón", texto="Terminar los 42k en abril"),
+         objetivo="Quiero correr una maratón", texto="Terminar los 42k en abril", deporte="Handball"),
     # filas 7 y 8: misma persona dos veces (vale la mas reciente)
-    _row("21/10/2026 09:00:00", "Agustin Lopez Muñoz", "01/01/1990", "175", "70", sexo="Masculino"),
-    _row("22/10/2026 09:00:00", "Agustin Lopez Muñoz", "01/01/1990", "175", "72", sexo="Masculino"),
+    _row("21/10/2026 09:00:00", "Agustin Lopez Muñoz", "01/01/1990", "175", "70", sexo="Masculino",
+         objetivo="Fuerza máxima"),
+    _row("22/10/2026 09:00:00", "Agustin Lopez Muñoz", "01/01/1990", "175", "72", sexo="Masculino",
+         objetivo="Fuerza máxima"),
 ]
 
 EXISTING_PROFILES = pd.DataFrame(
     [
         {
             "Athlete": "Agustin Lopez Muñoz", "Fecha_nacimiento": "1990-01-01", "Sexo": "M", "Altura_cm": 175,
-            "Peso_kg": 70, "Contexto": "Gimnasio", "Deporte": "Fútbol", "Nivel": "Recreativo",
+            "Peso_kg": 70, "Contexto": "Gimnasio", "Deporte": None, "Nivel": "Población general",
             "Objetivo_primario": "Fuerza máxima", "Objetivos_secundarios": "", "Objetivo_otro_texto": None,
             "Es_RTP": False, "Fecha_actualizacion": "2026-09-01",
         }
@@ -192,6 +194,37 @@ class ReadOnlyAllowedColumnsTest(unittest.TestCase):
         for letter in sensitive_letters:
             self.assertNotIn(f"!{letter}2:{letter}", batch)
 
+    def test_xlsx_reader_reads_only_allowed_columns_with_native_dates(self):
+        import datetime
+
+        import openpyxl
+
+        from modules.profile_form_import import read_form_file
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Respuestas de formulario 1"
+        sheet.append(HEADERS)
+        row = _row("x", "Ana Lopez", "x", 1.68, 61.0)
+        row[HEADERS.index(FORM_COLUMNS["timestamp"])] = datetime.datetime(2026, 10, 20, 10, 0)
+        row[HEADERS.index(FORM_COLUMNS["nacimiento"])] = datetime.datetime(1998, 3, 15)
+        sheet.append(row)
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        buffer.name = "respuestas.xlsx"
+
+        frame = read_form_file(buffer)
+        self.assertEqual(set(frame.columns), set(FORM_COLUMNS))
+        dumped = frame.to_csv()
+        for value in SENSITIVE_VALUES:
+            self.assertNotIn(value, dumped)
+        item = build_import_plan(frame, TEAMBUILDR_NAMES, None, today=TODAY).items[0]
+        self.assertEqual(item.status, "listo", item.errors + item.confirmations)
+        self.assertEqual(item.profile["Fecha_nacimiento"], "1998-03-15")
+        self.assertEqual(item.profile["Altura_cm"], 168.0)
+        self.assertEqual(item.timestamp, pd.Timestamp("2026-10-20 10:00"))
+
     def test_missing_required_column_fails_loud(self):
         with self.assertRaises(ValueError) as ctx:
             match_form_headers([h for h in HEADERS if h != FORM_COLUMNS["nacimiento"]])
@@ -211,7 +244,9 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(profile["Peso_kg"], 61.5)
         self.assertEqual(profile["Sexo"], "F")
         self.assertEqual(profile["Contexto"], "Gimnasio")
-        self.assertEqual(profile["Deporte"], "Fútbol")
+        self.assertIsNone(profile["Deporte"])
+        self.assertEqual(profile["Nivel"], "Población general")
+        self.assertEqual(profile["Objetivo_primario"], "Salud general y calidad de vida")
         self.assertEqual(profile["Fecha_actualizacion"], pd.Timestamp("2026-10-20 10:00:00"))
         self.assertIs(profile["Es_RTP"], False)
 
@@ -276,22 +311,75 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(latest.diff, [("Peso_kg", 70, 72.0)])
 
     def test_identical_existing_profile_is_not_reimported(self):
-        rows = [_row("21/10/2026 09:00:00", "Agustin Lopez Muñoz", "01/01/1990", "175", "70", sexo="Masculino")]
+        rows = [_row("21/10/2026 09:00:00", "Agustin Lopez Muñoz", "01/01/1990", "175", "70", sexo="Masculino",
+                     objetivo="Fuerza máxima")]
         item = _plan(rows).items[0]
         self.assertEqual(item.status, "sin_cambios")
 
     def test_keyword_mapping_requires_confirmation(self):
-        rows = [_row("20/10/2026 10:00:00", "Ana Lopez", "15/03/1998", "168", "61", nivel="Competitivo regional")]
+        rows = [_row("20/10/2026 10:00:00", "Ana Lopez", "15/03/1998", "168", "61", objetivo="Ganar masa muscular")]
         item = _plan(rows, None).items[0]
         self.assertEqual(item.status, "requiere_confirmacion")
-        self.assertEqual(item.profile["Nivel"], "Competitivo")
+        self.assertEqual(item.profile["Objetivo_primario"], "Hipertrofia")
         self.assertIn("palabra clave", " ".join(item.confirmations))
 
-    def test_unknown_level_and_modality_are_rejected(self):
-        rows = [_row("20/10/2026 10:00:00", "Ana Lopez", "15/03/1998", "168", "61", nivel="???", modalidad="Híbrido")]
-        errors = " ".join(_plan(rows, None).items[0].errors)
-        self.assertIn("nivel no reconocido", errors)
-        self.assertIn("modalidad no reconocida", errors)
+    def test_unknown_modality_is_rejected(self):
+        rows = [_row("20/10/2026 10:00:00", "Ana Lopez", "15/03/1998", "168", "61", modalidad="Híbrido")]
+        self.assertIn("modalidad no reconocida", " ".join(_plan(rows, None).items[0].errors))
+
+    def test_level_comes_from_sport_never_from_experience(self):
+        rows = [
+            _row("20/10/2026 10:00:00", "Ana Lopez", "15/03/1998", "168", "61", nivel="Avanzado", deporte="No"),
+            _row("20/10/2026 10:00:00", "Bruno Rey", "15/03/1998", "180", "80", nivel="Principiante", deporte="Si handball"),
+            _row("20/10/2026 10:00:00", "Celina Amarillo", "15/03/1998", "165", "58", deporte="Nop"),
+        ]
+        no_sport, sport, nop = _plan(rows, None).items
+        self.assertEqual((no_sport.status, no_sport.profile["Nivel"]), ("listo", "Población general"))
+        self.assertFalse(no_sport.nivel_choice_needed)
+        self.assertEqual(sport.status, "requiere_confirmacion")
+        self.assertTrue(sport.nivel_choice_needed)
+        self.assertEqual(sport.profile["Nivel"], "Recreativo")
+        self.assertEqual(sport.profile["Deporte"], "Handball")
+        self.assertIn("'Principiante'", " ".join(sport.confirmations))
+        self.assertIsNone(nop.profile["Deporte"])
+        self.assertEqual(nop.profile["Nivel"], "Población general")
+
+    def test_real_form_objective_options(self):
+        cases = {
+            "Salud y longevidad": ("Salud general y calidad de vida", ""),
+            "Rendimiento deportivo": ("Rendimiento deportivo específico", ""),
+            "Composición corporal / estética": ("Recomposición corporal", ""),
+            "Recuperación / regreso de una lesión": ("Rehabilitación y retorno deportivo (RTP)", ""),
+            "Combinación rendimiento deportivo + composición corporal/estetico": (
+                "Rendimiento deportivo específico",
+                "Recomposición corporal",
+            ),
+        }
+        rows = [_row("20/10/2026 10:00:00", f"Atleta {i}", "15/03/1998", "168", "61", objetivo=option)
+                for i, option in enumerate(cases)]
+        names = [f"Atleta {i}" for i in range(len(rows))]
+        plan = build_import_plan(read_form_csv(_csv_bytes(rows)), names, None, today=TODAY)
+        for item, (option, (primary, secondary)) in zip(plan.items, cases.items()):
+            with self.subTest(option=option):
+                self.assertEqual(item.profile["Objetivo_primario"], primary)
+                self.assertEqual(item.profile["Objetivos_secundarios"], secondary)
+                self.assertFalse(item.confirmations)
+        free = _plan([_row("20/10/2026 10:00:00", "Ana Lopez", "15/03/1998", "168", "61", objetivo="quiero ta rayao ")], None)
+        self.assertEqual(free.items[0].profile["Objetivo_primario"], "Otro")
+        self.assertEqual(free.items[0].profile["Objetivo_otro_texto"], "quiero ta rayao")
+
+    def test_rtp_is_true_only_for_si(self):
+        rows = [_row("20/10/2026 10:00:00", f"Atleta {i}", "15/03/1998", "168", "61", rtp=value)
+                for i, value in enumerate(["Sí", "No", "", "Terminé hace poco"])]
+        names = [f"Atleta {i}" for i in range(len(rows))]
+        si, no, empty, other = build_import_plan(read_form_csv(_csv_bytes(rows)), names, None, today=TODAY).items
+        self.assertIs(si.profile["Es_RTP"], True)
+        self.assertIs(no.profile["Es_RTP"], False)
+        self.assertIs(empty.profile["Es_RTP"], False)
+        self.assertEqual(empty.status, "listo")
+        self.assertIs(other.profile["Es_RTP"], False)
+        self.assertEqual(other.status, "requiere_confirmacion")
+        self.assertIn("Terminé hace poco", " ".join(other.confirmations))
 
 
 class NameResolutionTest(unittest.TestCase):
@@ -373,6 +461,7 @@ class ImportPageTest(unittest.TestCase):
 
                     self.assertTrue(at.checkbox(key="pf_confirm_6").disabled)  # sin atleta elegido
                     at.selectbox(key="pf_athlete_6").set_value("Celina Amarillo")
+                    at.selectbox(key="pf_nivel_6").set_value("Competitivo")
                     at.run()
                     at.checkbox(key="pf_confirm_6").check()
                     at.run()
@@ -390,6 +479,8 @@ class ImportPageTest(unittest.TestCase):
                         sorted(saved["Athlete"]),
                         ["Agustin Lopez Muñoz", "Ana Lopez", "Celina Amarillo", "Gaston Castaño"],
                     )
+                    celina = saved[saved["Athlete"] == "Celina Amarillo"].iloc[0]
+                    self.assertEqual(celina["Nivel"], "Competitivo")
                     agustin = saved[saved["Athlete"] == "Agustin Lopez Muñoz"].iloc[0]
                     self.assertEqual(float(agustin["Peso_kg"]), 72.0)  # la respuesta mas reciente
                     self.assertNotIn("Amarillo Celina", set(saved["Athlete"]))

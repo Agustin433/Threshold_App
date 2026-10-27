@@ -18,11 +18,13 @@ from modules.persistence_guard import (
     render_persistence_banners,
 )
 from modules.profile_form_import import (
+    NIVEL_DEPORTE_DEFAULT,
+    NIVEL_DEPORTE_OPTIONS,
     ImportItem,
     ImportPlan,
     build_import_plan,
     final_profile,
-    read_form_csv,
+    read_form_file,
     read_form_sheet,
     refresh_item_diff,
     service_account_token,
@@ -79,7 +81,8 @@ st.caption(f"{len(teambuildr_names)} atleta(s) de TeamBuildr para resolver nombr
 # ── 1. Lectura ──────────────────────────────────────────────────────────────
 sheet_id = _secret("PROFILE_FORM_SPREADSHEET_ID")
 service_account = _secret("gcp_service_account")
-sources = ["Google Sheets (service account)", "CSV exportado a mano"] if sheet_id and service_account else ["CSV exportado a mano"]
+MANUAL_SOURCE = "Archivo exportado a mano (.xlsx o .csv)"
+sources = ["Google Sheets (service account)", MANUAL_SOURCE] if sheet_id and service_account else [MANUAL_SOURCE]
 source = st.radio("Origen", sources, horizontal=True)
 if len(sources) == 1:
     st.info(
@@ -98,12 +101,12 @@ if source.startswith("Google"):
         except Exception as exc:
             st.error(f"No se pudo leer la planilla: {exc}")
 else:
-    uploaded = st.file_uploader("CSV de respuestas", type=["csv"], key="profile_form_csv")
-    if uploaded is not None and st.button("Leer CSV"):
+    uploaded = st.file_uploader("Respuestas (.xlsx o .csv)", type=["xlsx", "csv"], key="profile_form_csv")
+    if uploaded is not None and st.button("Leer archivo"):
         try:
-            responses = read_form_csv(uploaded)
+            responses = read_form_file(uploaded)
         except Exception as exc:
-            st.error(f"No se pudo leer el CSV: {exc}")
+            st.error(f"No se pudo leer el archivo: {exc}")
 
 if responses is not None:
     existing = _existing_profiles()
@@ -178,6 +181,14 @@ for item in pending:
                 key=f"pf_athlete_{item.row_number}",
             )
             item.athlete = None if choice == NO_IMPORT else choice
+            refresh_item_diff(item, existing_by_name)
+        if item.nivel_choice_needed:
+            item.profile["Nivel"] = st.selectbox(
+                "Nivel competitivo (define cohorte y referencias de z)",
+                NIVEL_DEPORTE_OPTIONS,
+                index=NIVEL_DEPORTE_OPTIONS.index(NIVEL_DEPORTE_DEFAULT),
+                key=f"pf_nivel_{item.row_number}",
+            )
             refresh_item_diff(item, existing_by_name)
         if item.diff:
             st.write("Ya tiene perfil. Cambios campo por campo:")
