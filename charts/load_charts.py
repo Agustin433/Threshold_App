@@ -906,9 +906,27 @@ def chart_weekly_external(weekly_external_df: pd.DataFrame, athlete: str, *, the
     return fig
 
 
+def daily_best_maxes(maxes_df: pd.DataFrame) -> pd.DataFrame:
+    """Un punto por atleta-ejercicio-dia: el MAYOR Max Value del dia.
+
+    Desde que maxes_df se deduplica por Max ID, dos tests del mismo dia son
+    dos filas (en el export real hay 13 dias asi con valores distintos). La
+    progresion de maximos muestra el mejor de cada dia, no un zigzag.
+    """
+    if maxes_df is None or maxes_df.empty or "Max Value" not in maxes_df.columns:
+        return maxes_df
+    data = maxes_df.copy()
+    data["Added Date"] = pd.to_datetime(data["Added Date"], errors="coerce").dt.normalize()
+    data["Max Value"] = pd.to_numeric(data["Max Value"], errors="coerce")
+    data = data.dropna(subset=["Added Date", "Max Value"])
+    keys = [col for col in ("Athlete", "Exercise Name", "Added Date") if col in data.columns]
+    best_idx = data.groupby(keys, dropna=False)["Max Value"].idxmax()
+    return data.loc[best_idx].sort_values("Added Date").reset_index(drop=True)
+
+
 def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str, *, theme: dict) -> go.Figure:
     colors, layout, _, grid_soft, legend = _theme_parts(theme)
-    data = maxes_df[maxes_df["Exercise Name"] == exercise].sort_values("Added Date")
+    data = daily_best_maxes(maxes_df[maxes_df["Exercise Name"] == exercise])
     fig = go.Figure()
     if data.empty:
         fig.update_layout(**layout, height=320, title=dict(text=f"<b>Progresion MAX - {exercise}</b>"))

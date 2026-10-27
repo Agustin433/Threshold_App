@@ -9,7 +9,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from modules.athlete_profile import ATHLETE_PROFILE_COLUMNS
-from modules.data_loader import prepare_raw_workouts_df, raw_session_date_column
+from modules.data_loader import (
+    RAW_FECHA_REF_COL,
+    ensure_raw_fecha_ref,
+    prepare_raw_workouts_df,
+    raw_session_date_column,
+)
 from modules.evaluation_sources import DEFAULT_SOURCE, normalize_source
 from modules.jump_analysis import (
     _prepare_jump_df,
@@ -80,9 +85,17 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
     },
     "raw_df": {
         "filename": "raw_workouts_history.csv",
-        "date_col": "Assigned Date",
+        # Fecha_ref = Assigned Date si es valida, si no Completed Date. Con
+        # "Assigned Date" como date_col, _normalize_frame descartaba en
+        # silencio los ejercicios auto-registrados (Assigned Date="0").
+        "date_col": RAW_FECHA_REF_COL,
         "athlete_col": "Athlete",
-        "dedupe_cols": ["Athlete", "Assigned Date", "Exercise Name", "Set Number"],
+        # WorkoutId es el slot de un ejercicio y se reusa cuando la plantilla
+        # se reasigna otro dia: solo junto con Fecha_ref identifica la serie.
+        # Sin el, 822 filas reales chocaban (dos veces el mismo ejercicio el
+        # mismo dia) y el upsert fallaba con 21000. 0 colisiones en las
+        # 82.791 filas del export real con esta clave.
+        "dedupe_cols": ["Athlete", RAW_FECHA_REF_COL, "WorkoutId", "Exercise Name", "Set Number"],
     },
     "session_notes_df": {
         "filename": "session_notes_history.csv",
@@ -94,7 +107,10 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
         "filename": "maxes_history.csv",
         "date_col": "Added Date",
         "athlete_col": "Athlete",
-        "dedupe_cols": ["Athlete", "Added Date", "Exercise Name"],
+        # Max ID es unico por test en el export real (12.482 filas, sin
+        # nulos). Con [Athlete, Added Date, Exercise Name] dos tests del mismo
+        # dia se pisaban (132 filas, 13 grupos con valores distintos).
+        "dedupe_cols": ["Max ID"],
     },
     "jump_df": {
         "filename": "evaluations_history.csv",
@@ -315,6 +331,9 @@ def _normalize_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
     athlete_col = spec.get("athlete_col")
     date_col = spec.get("date_col")
     source_col = spec.get("source_col")
+    if date_col == RAW_FECHA_REF_COL:
+        # Historial guardado antes de Fecha_ref: se deriva antes de filtrar.
+        result = ensure_raw_fecha_ref(result)
     allow_missing_date = bool(spec.get("allow_missing_date"))
 
     # Punto de paso unico: toda lectura y escritura del store atraviesa esta

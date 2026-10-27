@@ -22,6 +22,7 @@ from modules.remote_store import (
     _supabase_dataset_store_config,
     _supabase_evaluations_config,
     _supabase_request,
+    _upsert_dataset_records,
     dataset_df_to_remote_records as shared_dataset_df_to_remote_records,
     jump_df_to_db_records as shared_jump_df_to_db_records,
     load_remote_dataset as shared_load_remote_dataset,
@@ -173,16 +174,9 @@ def _replace_remote_dataset(state_key: str, df: pd.DataFrame | None) -> dict[str
     # camino (red, timeout), el remoto queda con el set deseado ya escrito
     # y a lo sumo filas viejas de mas por limpiar despues, nunca con datos
     # borrados sin reponer.
-    upserted = 0
-    for chunk in _chunked_records(desired_records):
-        upserted_rows = _supabase_request(
-            "POST",
-            table,
-            query={"on_conflict": "dataset_key,row_key"},
-            payload=chunk,
-            prefer="resolution=merge-duplicates,return=representation",
-        ) or []
-        upserted += len(upserted_rows) if upserted_rows else len(chunk)
+    # Si algo no se confirma, _upsert_dataset_records lanza RemoteSaveError y
+    # el borrado de abajo no corre: nunca se borra sin haber repuesto.
+    upserted = _upsert_dataset_records(table, desired_records)
 
     deleted = 0
     keys_to_delete = sorted(existing_keys - desired_keys)

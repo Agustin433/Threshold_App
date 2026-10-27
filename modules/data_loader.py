@@ -1225,6 +1225,24 @@ def parse_questionnaire_raw_csv(filepath_or_buffer) -> tuple[pd.DataFrame, pd.Da
     result_text = dataframe["Result"].fillna("").astype(str).map(lambda value: html.unescape(value).strip())
     dataframe["Result_num"] = pd.to_numeric(result_text.str.replace(",", ".", regex=False), errors="coerce")
 
+    # Nunca descartar en silencio: cada motivo se cuenta y se muestra. Un
+    # Question ID desconocido suele ser una pregunta nueva del cuestionario
+    # que todavia no esta en QUESTIONNAIRE_RAW_ID_MAP.
+    discarded: dict[str, int] = {}
+    no_athlete = dataframe["Athlete"].isna()
+    no_date = dataframe["Date"].isna() & ~no_athlete
+    unknown_question = dataframe["Mapped_Field"].isna() & ~no_athlete & ~no_date
+    if no_athlete.any():
+        discarded["sin atleta"] = int(no_athlete.sum())
+    if no_date.any():
+        discarded["sin fecha valida (Timestamp Complete)"] = int(no_date.sum())
+    if unknown_question.any():
+        unknown_ids = sorted(
+            {str(value) for value in dataframe.loc[unknown_question, "Question ID"].dropna().tolist()}
+        )
+        shown = ", ".join(unknown_ids[:15]) + (f" y {len(unknown_ids) - 15} mas" if len(unknown_ids) > 15 else "")
+        discarded[f"Question ID no reconocido ({shown})"] = int(unknown_question.sum())
+
     filtered = dataframe[
         dataframe["Athlete"].notna()
         & dataframe["Date"].notna()
@@ -1332,6 +1350,9 @@ def parse_questionnaire_raw_csv(filepath_or_buffer) -> tuple[pd.DataFrame, pd.Da
         )
     wellness_df.attrs["source_session_count"] = wellness_session_count
 
+    for frame in (rpe_df, wellness_df):
+        frame.attrs[DISCARDED_ROWS_ATTR] = dict(discarded)
+        frame.attrs["rows_read"] = len(dataframe)
     return rpe_df, wellness_df
 
 
@@ -1722,6 +1743,68 @@ def is_prepared_raw_workouts_df(raw_df: pd.DataFrame | None) -> bool:
 
 
 RAW_SESSION_DATE_COL = "Session Date"
+RAW_FECHA_REF_COL = "Fecha_ref"
+DISCARDED_ROWS_ATTR = "discarded_rows"
+_MIN_VALID_DATE = pd.Timestamp("2000-01-01")
+
+
+def _parse_export_dates(series: pd.Series) -> pd.Series:
+    """Fechas de un export de TeamBuildr. "0", 0 y vacios son NaT.
+
+    TeamBuildr exporta Assigned Date="0" en los ejercicios que el atleta
+    registro por su cuenta (WorkoutId=0). Si la columna llega numerica,
+    pd.to_datetime(0) da 1970-01-01, una fecha valida y falsa: se descarta
+    todo lo anterior a 2000.
+    """
+    text = series.astype("string").str.strip()
+    text = text.mask(text.isin(["", "0", "0.0", "nan", "NaT", "None"]))
+    parsed = pd.to_datetime(text, errors="coerce", format="mixed")
+    return parsed.where(parsed >= _MIN_VALID_DATE)
+
+
+def ensure_raw_fecha_ref(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Agrega Fecha_ref = Assigned Date si es valida, si no Completed Date.
+
+    Es la fecha de la clave de Raw Workouts (dedupe_cols y row_key). No
+    pisa una Fecha_ref existente. Sirve tambien para historial guardado antes
+    de que existiera la columna.
+    """
+    if df is None or df.empty or RAW_FECHA_REF_COL in df.columns:
+        return df
+    result = df.copy()
+    fecha_ref = pd.Series(pd.NaT, index=result.index, dtype="datetime64[ns]")
+    if "Assigned Date" in result.columns:
+        fecha_ref = _parse_export_dates(result["Assigned Date"])
+    elif "Date" in result.columns:
+        fecha_ref = _parse_export_dates(result["Date"])
+    if "Completed Date" in result.columns:
+        fecha_ref = fecha_ref.fillna(_parse_export_dates(result["Completed Date"]))
+    result[RAW_FECHA_REF_COL] = fecha_ref.dt.normalize()
+    for key, value in getattr(df, "attrs", {}).items():
+        result.attrs[key] = value
+    return result
+
+
+def _drop_and_count(
+    df: pd.DataFrame,
+    drop_mask: pd.Series,
+    reason: str,
+    discarded: dict[str, int],
+) -> pd.DataFrame:
+    count = int(drop_mask.sum())
+    if count:
+        discarded[reason] = discarded.get(reason, 0) + count
+    return df.loc[~drop_mask].copy()
+
+
+def describe_discarded_rows(df: pd.DataFrame | None) -> str:
+    """Texto para la UI con las filas descartadas al parsear. Vacio si no hubo."""
+    discarded = getattr(df, "attrs", {}).get(DISCARDED_ROWS_ATTR) if df is not None else None
+    if not discarded:
+        return ""
+    total = sum(discarded.values())
+    detail = "; ".join(f"{reason}: {count}" for reason, count in discarded.items())
+    return f"{total} fila(s) descartadas ({detail})."
 _RAW_SESSION_DATE_CANDIDATES = (RAW_SESSION_DATE_COL, "Completed Date", "Assigned Date", "Date")
 
 
@@ -1811,7 +1894,9 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     if raw_df is None:
         return None
     if is_prepared_raw_workouts_df(raw_df):
-        return _mark_prepared_raw_workouts_df(_ensure_session_date(add_strength_detail_columns(raw_df.copy())))
+        return _mark_prepared_raw_workouts_df(
+            ensure_raw_fecha_ref(_ensure_session_date(add_strength_detail_columns(raw_df.copy())))
+        )
 
     df = raw_df.copy()
     column_aliases = {
@@ -1864,12 +1949,16 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
         return _mark_prepared_raw_workouts_df(df)
 
     if "Assigned Date" in df.columns:
-        df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
+        df["Assigned Date"] = _parse_export_dates(df["Assigned Date"])
     elif "Date" in df.columns:
-        df["Assigned Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df["Assigned Date"] = _parse_export_dates(df["Date"])
     else:
         df["Assigned Date"] = pd.NaT
-    df["Date"] = df["Assigned Date"]
+    df = ensure_raw_fecha_ref(df)
+    df[RAW_FECHA_REF_COL] = pd.to_datetime(df[RAW_FECHA_REF_COL], errors="coerce")
+    # Date = Fecha_ref: igual a Assigned Date salvo en los ejercicios
+    # auto-registrados (Assigned Date="0"), que antes quedaban sin fecha.
+    df["Date"] = df[RAW_FECHA_REF_COL]
 
     for column in ["Result", "Reps", "Sets", "Duration_s"]:
         if column in df.columns:
@@ -2112,7 +2201,9 @@ def parse_raw_workouts(file) -> pd.DataFrame:
         rename_map[duration_col] = "Duration_s"
 
     df = df.rename(columns=rename_map)
-    df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
+    total_rows = len(df)
+    df["Assigned Date"] = _parse_export_dates(df["Assigned Date"])
+    df = ensure_raw_fecha_ref(df)
     df["Result"] = pd.to_numeric(df["Result"], errors="coerce")
     df["Reps"] = pd.to_numeric(df["Reps"], errors="coerce")
     if "Sets" in df.columns:
@@ -2121,7 +2212,17 @@ def parse_raw_workouts(file) -> pd.DataFrame:
         df["Duration_s"] = pd.to_numeric(df["Duration_s"], errors="coerce")
     if "Athlete" in df.columns:
         df["Athlete"] = normalize_athlete_series(df["Athlete"], source_label="Raw Data Report - Workouts")
-    df = _require_valid_dates(df, "Raw Data Report - Workouts", "Assigned Date", "Assigned Date")
+    # Nunca descartar en silencio: cada motivo se cuenta y la app lo muestra.
+    # Las filas con Assigned Date="0" (WorkoutId=0, auto-registradas por el
+    # atleta) NO se descartan: usan Completed Date via Fecha_ref.
+    discarded: dict[str, int] = {}
+    if not df[RAW_FECHA_REF_COL].notna().any():
+        _require_valid_dates(df, "Raw Data Report - Workouts", RAW_FECHA_REF_COL, "Assigned Date")
+    df = _drop_and_count(
+        df, df[RAW_FECHA_REF_COL].isna(), "sin fecha valida (ni Assigned Date ni Completed Date)", discarded
+    )
+    if "Athlete" in df.columns:
+        df = _drop_and_count(df, df["Athlete"].isna(), "sin atleta", discarded)
     _require_any_numeric_content(
         df,
         "Raw Data Report - Workouts",
@@ -2132,7 +2233,10 @@ def parse_raw_workouts(file) -> pd.DataFrame:
             "Duration_s": "duracion",
         },
     )
-    return prepare_raw_workouts_df(df)
+    prepared = prepare_raw_workouts_df(df)
+    prepared.attrs[DISCARDED_ROWS_ATTR] = discarded
+    prepared.attrs["rows_read"] = total_rows
+    return prepared
 
 
 def parse_maxes_health(file) -> pd.DataFrame:
@@ -2177,8 +2281,15 @@ def parse_maxes_health(file) -> pd.DataFrame:
         df["Athlete"] = "Sin atleta"
     if exercise_col:
         df["Exercise Name"] = df[exercise_col]
-    df = _require_valid_dates(df, "Raw Data Report - Maxes", "Added Date", date_col)
+    total_rows = len(df)
+    if not df["Added Date"].notna().any():
+        _require_valid_dates(df, "Raw Data Report - Maxes", "Added Date", date_col)  # lanza
+    discarded: dict[str, int] = {}
+    df = _drop_and_count(df, df["Added Date"].isna(), "fecha invalida", discarded)
+    df = _drop_and_count(df, df["Athlete"].isna(), "sin atleta", discarded)
     _require_numeric_content(df, "Raw Data Report - Maxes", "Max Value", "valor maximo")
+    df.attrs[DISCARDED_ROWS_ATTR] = discarded
+    df.attrs["rows_read"] = total_rows
     return df
 
 

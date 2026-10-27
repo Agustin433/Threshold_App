@@ -95,6 +95,7 @@ from modules.athlete_profile import (
 )
 from modules.app_version import app_version
 from modules.data_loader import (
+    describe_discarded_rows,
     EVALUATION_DB_COLUMN_MAP as SHARED_EVALUATION_DB_COLUMN_MAP,
     EVALUATION_PERSIST_COLUMNS as SHARED_EVALUATION_PERSIST_COLUMNS,
     RAW_EVALUATION_COLUMNS as SHARED_RAW_EVALUATION_COLUMNS,
@@ -3420,6 +3421,9 @@ def _run_questionnaire_raw_job(filename: str, loader, source_file=None) -> bool:
         rpe_df, wellness_df = loader()
         if rpe_df is None or rpe_df.empty:
             raise ValueError("se leyo el raw CSV, pero no produjo registros validos de RPE.")
+        discard_note = describe_discarded_rows(rpe_df)
+        if discard_note:
+            _push_notice("warning", f"Questionnaire Raw CSV ({filename}): {discard_note}")
 
         rpe_sessions = int(rpe_df.attrs.get("source_session_count", len(rpe_df)))
         wellness_days = int(len(wellness_df)) if wellness_df is not None else 0
@@ -3623,6 +3627,9 @@ def _run_dataset_job(label: str, state_key: str, filename: str, loader, source_f
         df = loader()
         if df is None or df.empty:
             raise ValueError("se leyo el archivo, pero no produjo registros validos.")
+        discard_note = describe_discarded_rows(df)
+        if discard_note:
+            _push_notice("warning", f"{label} ({filename}): {discard_note}")
         incoming_rows = len(df)
         save_dataset(state_key, df)
         remote_suffix = ""
