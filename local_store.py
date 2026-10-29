@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from modules.app_clock import app_now, app_today
 from modules.athlete_profile import ATHLETE_PROFILE_COLUMNS
 from modules.data_loader import (
     RAW_FECHA_REF_COL,
@@ -581,7 +582,7 @@ def upsert_athlete_profile(profile: dict[str, object]) -> pd.DataFrame:
 
     row: dict[str, object] = {column: profile.get(column) for column in ATHLETE_PROFILE_COLUMNS}
     row["Athlete"] = athlete_norm
-    row["Fecha_actualizacion"] = pd.Timestamp.now()
+    row["Fecha_actualizacion"] = app_now()
     new_row_df = pd.DataFrame([row], columns=ATHLETE_PROFILE_COLUMNS)
 
     existing = read_full_dataset("athlete_profile_df")
@@ -846,7 +847,7 @@ def _week_start(series: pd.Series) -> pd.Series:
 
 def _resolve_today(today: pd.Timestamp | str | None = None) -> pd.Timestamp:
     if today is None:
-        return pd.Timestamp.today().normalize()
+        return app_today()
     return pd.Timestamp(today).normalize()
 
 

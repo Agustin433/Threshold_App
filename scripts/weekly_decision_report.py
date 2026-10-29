@@ -34,6 +34,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import pandas as pd  # noqa: E402
 
+from modules.app_clock import app_today_date  # noqa: E402
+
 import local_store as ls  # noqa: E402
 
 BASELINE_WEEKS = 6
@@ -65,7 +67,7 @@ CATEGORY_LABEL_ES = {
 
 def _most_recent_completed_monday(today: date | None = None) -> date:
     """Debe coincidir siempre con el mismo helper de weekly_ingest.py."""
-    today = today or date.today()
+    today = today or app_today_date()
     this_monday = today - timedelta(days=today.weekday())
     return this_monday - timedelta(days=7)
 

@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping
 from enum import StrEnum
 
 import pandas as pd
+from modules.app_clock import app_today_date
 
 from modules.evaluation_sources import MIN_COHORT_SIZE, normalize_source
 
@@ -481,7 +482,7 @@ def validate_profile_fields(profile: Mapping[str, object], *, today: date | None
     fecha de nacimiento no puede ser futura ni anterior a BIRTH_DATE_MIN.
     """
     errors: list[str] = []
-    today = today or date.today()
+    today = today or app_today_date()
     birth_raw = profile.get("Fecha_nacimiento")
     if not _is_blank(birth_raw):
         birth = pd.to_datetime(birth_raw, errors="coerce")

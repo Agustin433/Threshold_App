@@ -11,6 +11,7 @@ import pandas as pd
 from pypdf import PdfReader
 
 import modules.report_generator as report_generator
+from modules.app_clock import frozen_app_now
 from modules.report_generator import (
     _athlete_profile_interpretation,
     _athlete_load_status_lines,
@@ -240,7 +241,7 @@ def _athlete_pattern_e_report_state() -> dict[str, object]:
 
 class AthletePdfReportTest(unittest.TestCase):
     def test_athlete_pdf_applies_threshold_visual_system_and_target_sections(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
@@ -265,7 +266,7 @@ class AthletePdfReportTest(unittest.TestCase):
             self.assertIn(title, page_text)
 
     def test_athlete_pdf_keeps_athlete_language_and_avoids_professional_overreach(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
@@ -293,7 +294,7 @@ class AthletePdfReportTest(unittest.TestCase):
             summary_athlete="La información disponible todavía no alcanza para cerrar un patrón estable.",
         )
 
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             with patch.object(report_generator, "build_neuromuscular_profile_result", return_value=custom_payload):
                 pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
 
@@ -309,7 +310,7 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertNotIn("antes de cambiar demasiado el foco", joined)
 
     def test_athlete_pdf_force_time_page_keeps_simple_language_and_accents(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             pdf = generate_visual_report_pdf(_athlete_report_state_with_force_time(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
@@ -335,7 +336,7 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertNotIn("cuadrantes", normalized)
 
     def test_athlete_pdf_chart_fallback_copy_stays_coherent_when_render_fails(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             with patch.object(report_generator, "export_plotly_figure_png", return_value=None):
                 pdf = generate_visual_report_pdf(_athlete_report_state_with_force_time(), "Ana Lopez", "atleta")
 
@@ -350,7 +351,7 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertNotIn("faltan datos de evaluacion para mostrar el radar neuromuscular", joined)
 
     def test_athlete_pdf_handles_missing_data_without_empty_pages(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             pdf = generate_visual_report_pdf(_athlete_partial_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
@@ -366,7 +367,7 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertNotIn("tc inv", joined)
 
     def test_athlete_pdf_when_wellness_is_acceptable_does_not_claim_recovery_is_low(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
@@ -376,7 +377,7 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertNotIn("la recuperacion percibida viene baja y requiere seguimiento cercano", joined)
 
     def test_athlete_pdf_when_wellness_is_low_can_mark_close_follow_up(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             pdf = generate_visual_report_pdf(_athlete_low_wellness_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
@@ -501,7 +502,7 @@ class AthletePdfReportTest(unittest.TestCase):
         self.assertTrue(reading["priority"])
 
     def test_athlete_pdf_renders_pattern_e_as_interpretative_alert(self):
-        with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+        with frozen_app_now(FixedAthleteReportDate.now()):
             pdf = generate_visual_report_pdf(_athlete_pattern_e_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)
@@ -516,7 +517,7 @@ class AthletePdfReportTest(unittest.TestCase):
             "build_neuromuscular_profile_result",
             return_value=_structured_neuromuscular_stub(summary_athlete=custom_summary),
         ):
-            with patch.object(report_generator, "datetime", FixedAthleteReportDate):
+            with frozen_app_now(FixedAthleteReportDate.now()):
                 pdf = generate_visual_report_pdf(_athlete_report_state(), "Ana Lopez", "atleta")
 
         self.assertIsNotNone(pdf)

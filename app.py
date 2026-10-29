@@ -9,6 +9,7 @@ Autor: Sistema construido para Agustín Esterman - Threshold S&C / San Martín H
 
 import streamlit as st
 import pandas as pd
+from modules.app_clock import app_now, app_today, app_today_date
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -1440,7 +1441,7 @@ def parse_jump_eval(file) -> pd.DataFrame:
         df = pd.read_excel(file)
     df.columns = [c.strip() for c in df.columns]
     df["Date"] = pd.to_datetime(
-        df.get("Date", df.get("Fecha", pd.Timestamp.today())),
+        df.get("Date", df.get("Fecha", app_today())),
         dayfirst=True, errors="coerce"
     )
     numeric = ["CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "IMTP_N"]
@@ -3224,7 +3225,7 @@ def _overview_current_week_slice(df: pd.DataFrame | None, today: pd.Timestamp | 
     current_mask = result["is_current_week"].eq(True) if "is_current_week" in result.columns else pd.Series(False, index=result.index)
     if current_mask.any():
         return result.loc[current_mask].copy()
-    today_ts = pd.Timestamp.today().normalize() if today is None else pd.Timestamp(today).normalize()
+    today_ts = app_today() if today is None else pd.Timestamp(today).normalize()
     current_week = today_ts - pd.Timedelta(days=int(today_ts.weekday()))
     return result.loc[result["week_start"].eq(current_week)].copy()
 
@@ -3269,7 +3270,7 @@ def _overview_completion_snapshot(comp_df: pd.DataFrame | None, today: pd.Timest
         }
     source = dated_source
 
-    today_ts = pd.Timestamp.today().normalize() if today is None else pd.Timestamp(today).normalize()
+    today_ts = app_today() if today is None else pd.Timestamp(today).normalize()
     current_week = today_ts - pd.Timedelta(days=int(today_ts.weekday()))
     current = source[
         (source["Date"].dt.normalize() >= current_week)
@@ -3403,7 +3404,7 @@ def _mark_file_as_processed(file_hash: str | None) -> None:
 
 def _format_week_label(week_start: object, *, is_current_week: bool = False, today: pd.Timestamp | None = None) -> str:
     week_start_ts = pd.Timestamp(week_start).normalize()
-    today_ts = pd.Timestamp.today().normalize() if today is None else pd.Timestamp(today).normalize()
+    today_ts = app_today() if today is None else pd.Timestamp(today).normalize()
     if is_current_week:
         return f"{week_start_ts:%d/%m} - {today_ts:%d/%m} (en curso)"
     week_end_ts = week_start_ts + pd.Timedelta(days=6)
@@ -4014,7 +4015,7 @@ with st.sidebar:
                 key=f"profile_birth_{profile_nonce}",
                 value=None,
                 min_value=BIRTH_DATE_MIN,
-                max_value=date.today(),
+                max_value=app_today_date(),
                 format="DD/MM/YYYY",
             )
             profile_height_cm = st.number_input(
@@ -4406,7 +4407,7 @@ with st.sidebar:
             eval_date = st.date_input(
                 "Fecha de evaluación",
                 key="eval_date",
-                value=pd.Timestamp.today(),
+                value=app_today_date(),
             )
 
             eval_file = None
@@ -5233,11 +5234,11 @@ def render_decision_panel():
         selected_week is not None and week_label_flags.get(pd.Timestamp(selected_week).normalize(), False)
     )
     reference_date = (
-        pd.Timestamp.today().normalize()
+        app_today()
         if selected_week_is_current
         else selected_week + pd.Timedelta(days=6)
         if selected_week is not None
-        else pd.Timestamp.today().normalize()
+        else app_today()
     )
 
     current_load = _week_slice(weekly_load, selected_week)
@@ -5905,7 +5906,7 @@ if active_main_view == "Overview":
         completion_df=cdf,
         jump_df=jdf,
         athletes_list=overview_athletes,
-        reference_date=pd.Timestamp.today().normalize(),
+        reference_date=app_today(),
         scope="team",
         surface="overview",
     )
@@ -5991,7 +5992,7 @@ if active_main_view == "Overview":
         eval_dates = pd.to_datetime(jdf["Date"], errors="coerce").dropna()
         if not eval_dates.empty:
             latest_eval = eval_dates.max().normalize()
-            days_since_eval = int((pd.Timestamp.today().normalize() - latest_eval).days)
+            days_since_eval = int((app_today() - latest_eval).days)
             eval_athletes = int(jdf["Athlete"].dropna().nunique()) if "Athlete" in jdf.columns else 0
             eval_value = f"{latest_eval:%d/%m}"
             eval_detail = f"Ultima toma · {eval_athletes} atleta(s) · hace {days_since_eval} dia(s)."
@@ -6794,7 +6795,7 @@ elif active_main_view == "Profile":
         if athlete_profile_row is not None:
             birth_date = pd.to_datetime(athlete_profile_row.get("Fecha_nacimiento"), errors="coerce")
             if pd.notna(birth_date):
-                edad_text = f"{int((pd.Timestamp.today().normalize() - birth_date).days // 365.25)} años"
+                edad_text = f"{int((app_today() - birth_date).days // 365.25)} años"
             else:
                 edad_text = "No especificado"
 
