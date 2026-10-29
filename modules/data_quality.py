@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pandas as pd
+from modules.app_clock import app_today
 
 from modules.athlete_profile import missing_profile_fields
 from modules.load_monitoring import athlete_match_key, training_dates_by_athlete
@@ -23,7 +24,7 @@ DATASET_CONFIG = (
 
 def _reference_timestamp(reference_date=None) -> pd.Timestamp:
     if reference_date is None:
-        return pd.Timestamp(datetime.now()).normalize()
+        return app_today()
     return pd.Timestamp(reference_date).normalize()
 
 

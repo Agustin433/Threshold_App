@@ -13,6 +13,7 @@ import zipfile
 import zlib
 
 import pandas as pd
+from modules.app_clock import APP_TIMEZONE, app_today
 from openpyxl.utils.exceptions import InvalidFileException
 
 from modules.athlete_names import (
@@ -799,7 +800,7 @@ def _read_csv_with_fallback(file, **kwargs) -> pd.DataFrame:
 
 # Zona horaria del gimnasio: los timestamps de TeamBuildr vienen en epoch UTC
 # y el "dia" de una respuesta es el dia local en que se respondio.
-APP_TIMEZONE = "America/Argentina/Buenos_Aires"
+# APP_TIMEZONE viene de modules.app_clock (unica fuente).
 
 QUESTIONNAIRE_RAW_ID_MAP: dict[int, str] = {
     103496: "RPE",
@@ -2526,7 +2527,7 @@ def parse_jump_eval(file) -> pd.DataFrame:
         raw_date_series = df.get("Date", df.get("Fecha", pd.Series(dtype=object)))
     df.columns = [col.strip() for col in df.columns]
     df["Date"] = pd.to_datetime(
-        df.get("Date", df.get("Fecha", pd.Timestamp.today())),
+        df.get("Date", df.get("Fecha", app_today())),
         dayfirst=True,
         errors="coerce",
     )

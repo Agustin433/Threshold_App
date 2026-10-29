@@ -6,6 +6,7 @@ import unicodedata
 from typing import Iterable
 
 import pandas as pd
+from modules.app_clock import app_today
 
 from modules.jump_analysis import compute_baseline_delta, compute_swc_delta
 from modules.metrics import calculate_completion_rate
@@ -71,7 +72,7 @@ def _coerce_float(value: object) -> float | None:
 
 def _coerce_reference_date(reference_date=None) -> pd.Timestamp:
     if reference_date is None:
-        return pd.Timestamp.today().normalize()
+        return app_today()
     return pd.Timestamp(reference_date).normalize()
 
 

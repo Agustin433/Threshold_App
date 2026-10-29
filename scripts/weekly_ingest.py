@@ -29,6 +29,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import pandas as pd  # noqa: E402
 
+from modules.app_clock import app_today_date  # noqa: E402
+
 from modules import data_loader as dl  # noqa: E402
 import local_store as ls  # noqa: E402
 
@@ -77,7 +79,7 @@ def _most_recent_completed_monday(today: date | None = None) -> date:
     scripts comparten esta misma funcion en espiritu: "lunes" es la unica
     convencion valida para --week-start en todo este pipeline.
     """
-    today = today or date.today()
+    today = today or app_today_date()
     this_monday = today - timedelta(days=today.weekday())
     return this_monday - timedelta(days=7)
 

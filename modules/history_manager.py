@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 
 import pandas as pd
+from modules.app_clock import app_now
 import streamlit as st
 
 from local_store import (
@@ -57,7 +58,7 @@ def create_history_backup(
     action: str,
 ) -> dict[str, object]:
     backup_df = df.copy() if df is not None else pd.DataFrame()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = app_now().strftime("%Y%m%d_%H%M%S")
     source_token = _slugify_backup_token(source)
     action_token = _slugify_backup_token(action)
     backup_dir = _history_backup_dir(state_key)

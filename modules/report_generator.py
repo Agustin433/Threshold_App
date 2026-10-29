@@ -14,6 +14,7 @@ import time
 import threading
 
 import pandas as pd
+from modules.app_clock import app_now
 
 from modules.athlete_names import normalize_athlete_name
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -966,7 +967,7 @@ def _completion_snapshot(
         }
     result = dated_result
 
-    today_ts = (pd.Timestamp(today) if today is not None else pd.Timestamp(datetime.now())).normalize()
+    today_ts = (pd.Timestamp(today) if today is not None else app_now()).normalize()
     current_week = today_ts - pd.Timedelta(days=today_ts.weekday())
     current = result[
         (result["Date"].dt.normalize() >= current_week)
@@ -2034,7 +2035,7 @@ def _build_report_metadata_df(
             {"Campo": "Alcance", "Valor": report_athlete},
             {"Campo": "Destinatario", "Valor": report_audience_label(report_audience)},
             {"Campo": "Modo exportacion", "Valor": "Curado + anexo tecnico" if include_technical_annex else "Curado"},
-            {"Campo": "Generado", "Valor": datetime.now().strftime("%d/%m/%Y %H:%M")},
+            {"Campo": "Generado", "Valor": app_now().strftime("%d/%m/%Y %H:%M")},
             {"Campo": "Ventana operativa", "Valor": "Últimas 6 semanas visibles"},
             {"Campo": "Atletas visibles", "Valor": len(visible_athletes)},
             {"Campo": "Fuentes modernas activas", "Valor": ", ".join(active_datasets) if active_datasets else "Sin fuentes modernas activas"},
@@ -2424,7 +2425,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
             [
                 _p("Reporte profesional", "ProfMuted"),
                 _p(report_athlete, "ProfTitle"),
-                _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M}", "ProfMuted"),
+                _p(f"Generado el {app_now():%d/%m/%Y %H:%M}", "ProfMuted"),
                 _box(
                     [
                         _p("Reporte madre profesional orientado a toma de decisiones.", "ProfBody"),
@@ -2617,7 +2618,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
             [
                 _p("Reporte profesional", "ProfMuted"),
                 _p(report_athlete, "ProfTitle"),
-                _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M}", "ProfMuted"),
+                _p(f"Generado el {app_now():%d/%m/%Y %H:%M}", "ProfMuted"),
                 _box(
                     [
                         _p("Reporte madre profesional orientado a toma de decisiones.", "ProfBody"),
@@ -3484,7 +3485,7 @@ def _build_cover_page(
     _pdf_text(commands, 48, 698, "Alcance", size=10, color="#708C9F")
     _pdf_text(commands, 48, 674, report_athlete, font="F2", size=20, color="#0D3C5E")
     _pdf_text(commands, 250, 698, "Generado", size=10, color="#708C9F")
-    _pdf_text(commands, 250, 676, f"{datetime.now():%d/%m/%Y %H:%M}", font="F2", size=14, color="#221F20")
+    _pdf_text(commands, 250, 676, f"{app_now():%d/%m/%Y %H:%M}", font="F2", size=14, color="#221F20")
     _pdf_text(commands, 430, 698, "Filas ejecutivas", size=10, color="#708C9F")
     _pdf_text(commands, 430, 676, str(len(summary_df)), font="F2", size=14, color="#221F20")
 
@@ -4998,7 +4999,7 @@ def _professional_completion_snapshot(
     if result.empty:
         return {"value": PDF_MISSING_TEXT, "detail": PDF_MISSING_TEXT, "numeric": None}
 
-    today_ts = pd.Timestamp(datetime.now()).normalize()
+    today_ts = app_now().normalize()
     current_week = today_ts - pd.Timedelta(days=today_ts.weekday())
     current = result[
         (result["Date"].dt.normalize() >= current_week)
@@ -5740,7 +5741,7 @@ def _build_professional_quadrant_sections(
 
 
 def _professional_report_today() -> pd.Timestamp:
-    return pd.Timestamp(datetime.now()).normalize()
+    return app_now().normalize()
 
 
 def _professional_week_start(value: object) -> pd.Timestamp:
@@ -8707,7 +8708,7 @@ def _build_professional_executive_payload(
     return {
         "title": "Resumen ejecutivo profesional",
         "athlete": athlete,
-        "date": f"{datetime.now():%d/%m/%Y}",
+        "date": f"{app_now():%d/%m/%Y}",
         "period": _professional_period_label(state, athlete),
         "coverage": " | ".join(coverage_parts),
         "confidence": confidence,
@@ -8781,7 +8782,7 @@ def _build_professional_report_overview(
 
     return {
         "athlete": athlete,
-        "date": f"{datetime.now():%d/%m/%Y}",
+        "date": f"{app_now():%d/%m/%Y}",
         "period": _professional_period_label(state, athlete),
         "statuses": {
             "Evaluaciones físicas": _professional_status_label(evaluation_state),
@@ -10906,7 +10907,7 @@ def _generate_professional_profile_pdf_reportlab(
                     _p("REPORTE PROFESIONAL", "ProfEyebrow"),
                     _p(report_athlete, "ProfHeroTitle"),
                     _p(
-                        f"Generado el {datetime.now():%d/%m/%Y %H:%M} · Ventana {executive_payload.get('period', PDF_MISSING_TEXT)} · v{app_version()}",
+                        f"Generado el {app_now():%d/%m/%Y %H:%M} · Ventana {executive_payload.get('period', PDF_MISSING_TEXT)} · v{app_version()}",
                         "ProfHeroMeta",
                     ),
                     _p(
@@ -12339,7 +12340,7 @@ def _generate_visual_report_pdf_reportlab(
             [
                 _p("Reporte individual para atleta", "ReportMuted"),
                 _p(effective_athlete, "ReportTitle"),
-                _p(f"Fecha: {datetime.now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
+                _p(f"Fecha: {app_now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
                 Spacer(1, 4 * mm),
                 cover_intro,
                 Spacer(1, 5 * mm),
@@ -13426,7 +13427,7 @@ def _generate_visual_report_pdf_reportlab(
             [
                 _p("Reporte de progreso", "ReportMuted"),
                 _p(effective_athlete, "ReportTitle"),
-                _p(f"Fecha: {datetime.now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
+                _p(f"Fecha: {app_now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
                 Spacer(1, 4 * mm),
                 cover_intro,
                 Spacer(1, 5 * mm),
@@ -13768,7 +13769,7 @@ def _generate_visual_report_pdf_reportlab(
         [
             _p(subtitle, "ReportMuted"),
             _p(target_name, "ReportTitle"),
-            _p(f"Generado el {datetime.now():%d/%m/%Y %H:%M} | Ventana visible: últimas 6 semanas", "ReportMuted"),
+            _p(f"Generado el {app_now():%d/%m/%Y %H:%M} | Ventana visible: últimas 6 semanas", "ReportMuted"),
             Spacer(1, 4 * mm),
             Table(
                 [[_p(insights.get("report", {}).get("summary", "Reporte listo para revisión."), "ReportBody")]],

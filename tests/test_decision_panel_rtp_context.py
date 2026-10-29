@@ -18,10 +18,12 @@ from pathlib import Path
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
+from modules.app_clock import app_today
+
 APP_PY_PATH = Path(__file__).resolve().parent.parent / "app.py"
 TEST_TMP_ROOT = Path(__file__).resolve().parent / ".tmp_decision_panel"
 
-TODAY = pd.Timestamp.today().normalize()
+TODAY = app_today()  # mismo "hoy" que la app (hora Argentina)
 
 
 @contextmanager

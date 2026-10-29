@@ -11,6 +11,7 @@ import pandas as pd
 from pypdf import PdfReader
 
 import modules.report_generator as report_generator
+from modules.app_clock import frozen_app_now
 from modules.report_generator import _build_pdf_neuromuscular_profile_payload, generate_visual_report_pdf
 
 
@@ -66,7 +67,7 @@ def _rendered_pdf_and_story_text(
         captured["story"] = list(flowables)
         return original_build(self, flowables, *args, **kwargs)
 
-    with patch.object(report_generator, "datetime", FixedClientReportDate):
+    with frozen_app_now(FixedClientReportDate.now()):
         with patch.object(SimpleDocTemplate, "build", capture_build):
             pdf = generate_visual_report_pdf(state, athlete, "cliente")
 
@@ -257,7 +258,7 @@ def _client_precaution_load_report_state() -> dict[str, object]:
 
 class ClientPdfReportTest(unittest.TestCase):
     def test_client_pdf_applies_threshold_visual_system_and_target_sections(self):
-        with patch.object(report_generator, "datetime", FixedClientReportDate):
+        with frozen_app_now(FixedClientReportDate.now()):
             pdf = generate_visual_report_pdf(_client_report_state(), "Ana Lopez", "cliente")
 
         self.assertIsNotNone(pdf)
@@ -327,7 +328,7 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertNotIn("pendiente de completar", story_text)
 
     def test_client_pdf_visible_text_avoids_common_mojibake_and_tc_inv(self):
-        with patch.object(report_generator, "datetime", FixedClientReportDate):
+        with frozen_app_now(FixedClientReportDate.now()):
             pdf = generate_visual_report_pdf(_client_report_state(), "Ana Lopez", "cliente")
 
         self.assertIsNotNone(pdf)
@@ -348,7 +349,7 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertNotIn("cuidar la recuperaci", visible_text.lower())
 
     def test_client_pdf_labels_wellness_windows_and_avoids_recovery_contradictions(self):
-        with patch.object(report_generator, "datetime", FixedClientReportDate):
+        with frozen_app_now(FixedClientReportDate.now()):
             pdf = generate_visual_report_pdf(_client_report_state(), "Ana Lopez", "cliente")
 
         self.assertIsNotNone(pdf)

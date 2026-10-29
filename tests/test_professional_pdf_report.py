@@ -12,6 +12,7 @@ import pandas as pd
 from pypdf import PdfReader
 
 import modules.report_generator as report_generator
+from modules.app_clock import frozen_app_now
 from modules.jump_analysis import (
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
@@ -167,7 +168,7 @@ def _rendered_pdf_and_story_text(
         return original_build(self, flowables, *args, **kwargs)
 
     active_now_cls = now_cls or FixedProfessionalReportDate
-    with patch.object(report_generator, "datetime", active_now_cls):
+    with frozen_app_now(active_now_cls.now()):
         with patch.object(SimpleDocTemplate, "build", capture_build):
             pdf = generate_visual_report_pdf(state, athlete, audience)
 
@@ -196,7 +197,7 @@ def _rendered_pdf_and_raw_story_text(
         return original_build(self, flowables, *args, **kwargs)
 
     active_now_cls = now_cls or FixedProfessionalReportDate
-    with patch.object(report_generator, "datetime", active_now_cls):
+    with frozen_app_now(active_now_cls.now()):
         with patch.object(SimpleDocTemplate, "build", capture_build):
             pdf = generate_visual_report_pdf(state, athlete, audience)
 
@@ -912,7 +913,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIn("Perfil físico parcial", overview["reading"])
 
     def test_internal_load_marks_missing_without_rpe(self):
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             context = _build_professional_internal_load_context({"rpe_df": None}, "Ana Lopez")
 
         self.assertEqual(context["state"], "missing")
@@ -921,7 +922,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
     def test_internal_load_uses_sixteen_week_export_context(self):
         state = _weekly_state_without_evaluations()
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             context = _build_professional_internal_load_context(state, "Ana Lopez")
 
         self.assertEqual(context["state"], "available")
@@ -960,7 +961,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             },
         }
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             context = _build_professional_internal_load_context(state, "Ana Lopez")
 
         self.assertEqual(context["analysis_scope"], "last_complete_week")
@@ -989,7 +990,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             },
         }
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             context = _build_professional_internal_load_context(state, "Ana Lopez")
             joined = " ".join(_build_professional_integrated_interpretation(context, {"state": "missing", "weekly_points": []}))
 
@@ -1002,7 +1003,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
     def test_wellness_context_exposes_last_week_and_sixteen_week_trends(self):
         state = _weekly_state_without_evaluations()
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             context = _professional_wellness_context(state, "Ana Lopez")
 
         self.assertEqual(context["state"], "available")
@@ -1025,7 +1026,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             context = _professional_wellness_context(state, "Ana Lopez")
 
         self.assertEqual(context["state"], "partial")
@@ -1044,7 +1045,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             )
         }
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             context = _professional_wellness_context(state, "Ana Lopez")
 
         self.assertEqual(context["analysis_scope"], "current_week_partial")
@@ -1369,7 +1370,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             ]
         )
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             cards = _build_professional_metric_cards(_with_cohort(state), "Ana Lopez")
             training = _build_professional_training_context(state, "Ana Lopez")
             internal = _build_professional_internal_load_context(state, "Ana Lopez")
@@ -1388,7 +1389,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
     def test_professional_pdf_calls_expected_section_builders(self):
         state = _professional_state_with_force_time()
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             with ExitStack() as stack:
                 mocks = {
                     name: stack.enter_context(patch.object(report_generator, name, wraps=getattr(report_generator, name)))
@@ -1499,7 +1500,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             ]
         )
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             with patch.object(report_generator, "draw_force_time_test_block", wraps=report_generator.draw_force_time_test_block) as mocked_draw:
                 pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
 
@@ -1582,7 +1583,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
             "mono_dict": {},
         }
 
-        with patch.object(report_generator, "datetime", FixedProfessionalReportDate):
+        with frozen_app_now(FixedProfessionalReportDate.now()):
             pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
 
         text = _pdf_text(pdf)
@@ -1612,7 +1613,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
     def test_internal_load_ignores_future_empty_week_after_report_window(self):
         state = _state_with_future_empty_week()
 
-        with patch.object(report_generator, "datetime", LateProfessionalReportDate):
+        with frozen_app_now(LateProfessionalReportDate.now()):
             context = _build_professional_internal_load_context(state, "Ana Lopez")
 
         self.assertEqual(context["analysis_scope"], "last_complete_week")
@@ -1624,7 +1625,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
     def test_wellness_uses_valid_week_and_does_not_show_zero_days_when_records_exist(self):
         state = _state_with_future_empty_week()
 
-        with patch.object(report_generator, "datetime", LateProfessionalReportDate):
+        with frozen_app_now(LateProfessionalReportDate.now()):
             internal = _build_professional_internal_load_context(state, "Ana Lopez")
             wellness = _professional_wellness_context(state, "Ana Lopez")
             payload = _build_professional_wellness_availability_payload(
