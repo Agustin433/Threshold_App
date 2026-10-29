@@ -10,6 +10,8 @@ import re
 import textwrap
 import unicodedata
 import warnings
+import time
+import threading
 
 import pandas as pd
 
@@ -4488,6 +4490,42 @@ def _get_kaleido_chrome_sync() -> str | None:
         return None
 
 
+# ── Render de graficos a PNG (kaleido) ────────────────────────────────────
+# Si kaleido falla, la funcion devuelve None y el PDF usa los graficos
+# dibujados directo (_pdf_chart_panel). Pero kaleido tambien se puede COLGAR
+# (Chrome esperando un recurso que no llega) sin lanzar error: entonces el
+# fallback nunca llegaba y la exportacion quedaba trabada para siempre. Por
+# eso cada render tiene tiempo limite y, si uno se cuelga, kaleido queda
+# desactivado un rato y el resto del reporte usa el fallback en el acto.
+KALEIDO_RENDER_TIMEOUT_S = 45.0
+KALEIDO_COOLDOWN_S = 600.0
+_EMPTY_MATHJAX_PATH = Path(__file__).resolve().parent.parent / "assets" / "vendor" / "empty_mathjax.js"
+_kaleido_state: dict[str, object] = {"disabled_until": 0.0, "reason": None}
+
+
+def kaleido_disabled_reason() -> str | None:
+    """Motivo por el que kaleido esta desactivado ahora, o None si esta activo."""
+    if time.monotonic() < float(_kaleido_state["disabled_until"]):
+        return str(_kaleido_state["reason"])
+    return None
+
+
+def _disable_kaleido(reason: str) -> None:
+    _kaleido_state["disabled_until"] = time.monotonic() + KALEIDO_COOLDOWN_S
+    _kaleido_state["reason"] = reason
+
+
+def _use_local_mathjax(pio_module) -> None:
+    """Kaleido carga MathJax desde cdnjs en cada export salvo que se le pase
+    otro script. La app no usa formulas: se le da un archivo vacio local."""
+    defaults = getattr(pio_module, "defaults", None)
+    if defaults is not None and _EMPTY_MATHJAX_PATH.exists():
+        try:
+            defaults.mathjax = _EMPTY_MATHJAX_PATH.as_uri()
+        except Exception:
+            pass
+
+
 def _plotly_figure_to_png_bytes(
     pio_module,
     figure: object,
@@ -4496,16 +4534,38 @@ def _plotly_figure_to_png_bytes(
     height: int,
     scale: int,
 ) -> bytes | None:
-    try:
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                category=UserWarning,
-                module=r"kaleido\._sync_server",
-            )
-            return pio_module.to_image(figure, format="png", width=width, height=height, scale=scale)
-    except Exception:
+    if kaleido_disabled_reason() is not None:
         return None
+    _use_local_mathjax(pio_module)
+    outcome: dict[str, object] = {}
+
+    def _render() -> None:
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    category=UserWarning,
+                    module=r"kaleido\._sync_server",
+                )
+                outcome["png"] = pio_module.to_image(
+                    figure, format="png", width=width, height=height, scale=scale
+                )
+        except Exception as exc:  # el llamador usa el fallback
+            outcome["error"] = exc
+
+    # Hilo daemon: si kaleido no vuelve nunca, no bloquea ni el reporte ni el
+    # cierre del proceso.
+    worker = threading.Thread(target=_render, name="kaleido-render", daemon=True)
+    worker.start()
+    worker.join(KALEIDO_RENDER_TIMEOUT_S)
+    if worker.is_alive():
+        _disable_kaleido(
+            f"un grafico tardo mas de {KALEIDO_RENDER_TIMEOUT_S:g} s en generarse; "
+            "se usan graficos simplificados"
+        )
+        return None
+    png = outcome.get("png")
+    return png if isinstance(png, (bytes, bytearray)) else None
 
 
 def _build_report_chart_theme() -> dict:
@@ -4848,6 +4908,9 @@ def export_plotly_figure_png(
     )
     if image_bytes is not None:
         return image_bytes
+    if kaleido_disabled_reason() is not None:
+        # Ya hubo un cuelgue: no intentar descargar Chrome (otra espera de red).
+        return None
     chrome_path = _get_kaleido_chrome_sync()
     if chrome_path:
         return _plotly_figure_to_png_bytes(
