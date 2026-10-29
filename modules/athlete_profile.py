@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
+from datetime import date
 from collections.abc import Iterable, Mapping
 from enum import StrEnum
 
@@ -101,7 +102,15 @@ def clase_atleta_from_nivel(nivel: object) -> ClaseAtleta | None:
     return ClaseAtleta.DEPORTISTA
 
 
-CONTEXTO_OPTIONS: tuple[str, ...] = ("Club", "Gimnasio")
+# "Online": clientes de coaching a distancia. Es un contexto propio en el
+# filtro del Panel de Decision; la cohorte de z-scores no usa Contexto (agrupa
+# por clase y sexo), asi que un atleta Online compara con su clase y sexo.
+CONTEXTO_OPTIONS: tuple[str, ...] = ("Club", "Gimnasio", "Online")
+
+# Rangos de la carga manual del perfil. 0 o vacio = dato desconocido.
+BIRTH_DATE_MIN = date(1940, 1, 1)
+ALTURA_CM_RANGE: tuple[float, float] = (120.0, 220.0)
+PESO_KG_RANGE: tuple[float, float] = (30.0, 200.0)
 
 NIVEL_OPTIONS: tuple[str, ...] = (
     "Población general",
@@ -452,9 +461,50 @@ def get_comparison_cohort(
     }
 
 
-def validate_profile_fields(profile: Mapping[str, object]) -> list[str]:
-    """Minimal validation before saving a profile. Returns a list of error messages."""
+def _optional_number(value: object) -> float | None:
+    """None si el dato falta o es 0 (desconocido); el numero si no."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(number) or number == 0:
+        return None
+    return number
+
+
+def validate_profile_fields(profile: Mapping[str, object], *, today: date | None = None) -> list[str]:
+    """Validation before saving a profile. Returns a list of error messages.
+
+    Altura y peso aceptan 0/vacio (desconocido) o un valor dentro del rango; la
+    fecha de nacimiento no puede ser futura ni anterior a BIRTH_DATE_MIN.
+    """
     errors: list[str] = []
+    today = today or date.today()
+    birth_raw = profile.get("Fecha_nacimiento")
+    if not _is_blank(birth_raw):
+        birth = pd.to_datetime(birth_raw, errors="coerce")
+        if pd.isna(birth):
+            errors.append(f"Fecha de nacimiento invalida: {birth_raw}.")
+        elif birth.date() > today:
+            errors.append(f"Fecha de nacimiento futura: {birth.date():%d/%m/%Y}.")
+        elif birth.date() < BIRTH_DATE_MIN:
+            errors.append(
+                f"Fecha de nacimiento anterior a {BIRTH_DATE_MIN:%d/%m/%Y}: {birth.date():%d/%m/%Y}."
+            )
+    altura = _optional_number(profile.get("Altura_cm"))
+    if altura is not None and not ALTURA_CM_RANGE[0] <= altura <= ALTURA_CM_RANGE[1]:
+        errors.append(
+            f"Altura fuera de rango: {altura:g} cm (debe estar entre "
+            f"{ALTURA_CM_RANGE[0]:g} y {ALTURA_CM_RANGE[1]:g} cm, o 0 si no se conoce)."
+        )
+    peso = _optional_number(profile.get("Peso_kg"))
+    if peso is not None and not PESO_KG_RANGE[0] <= peso <= PESO_KG_RANGE[1]:
+        errors.append(
+            f"Peso fuera de rango: {peso:g} kg (debe estar entre "
+            f"{PESO_KG_RANGE[0]:g} y {PESO_KG_RANGE[1]:g} kg, o 0 si no se conoce)."
+        )
     if _is_blank(profile.get("Athlete")):
         errors.append("El nombre del atleta es obligatorio.")
     if _is_blank(profile.get("Contexto")):
