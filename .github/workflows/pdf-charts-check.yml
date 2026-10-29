@@ -1,0 +1,50 @@
+name: PDF Charts Check
+
+# Emula Streamlit Community Cloud: contenedor Debian, paquetes de sistema
+# desde packages.txt y dependencias desde el lockfile. Genera un PDF
+# profesional real y verifica que los graficos salgan como IMAGENES (kaleido
+# + Chromium del sistema), no solo con el respaldo dibujado a mano.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pdf-charts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: python:3.14-slim-bookworm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install system packages (packages.txt, como Streamlit Cloud)
+        run: |
+          apt-get update
+          xargs -a packages.txt apt-get install -y
+          apt-get install -y poppler-utils
+
+      - name: Install Python dependencies from lockfile
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate PDF and check chart images
+        run: python scripts/check_pdf_charts.py threshold_check.pdf
+
+      - name: List images with pdfimages
+        if: always()
+        run: |
+          if [ -f threshold_check.pdf ]; then pdfimages -list threshold_check.pdf; fi
+
+      - name: Upload PDF for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-charts-check
+          path: threshold_check.pdf
+          if-no-files-found: ignore

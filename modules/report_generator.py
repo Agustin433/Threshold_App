@@ -6,6 +6,7 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 import logging
+import os
 import re
 import textwrap
 import unicodedata
@@ -4515,6 +4516,28 @@ def _disable_kaleido(reason: str) -> None:
     _kaleido_state["reason"] = reason
 
 
+# Chromium del sistema (Streamlit Cloud lo instala desde packages.txt). Sin
+# Chrome, kaleido nunca renderizaba y el PDF salia solo con el grafico de
+# respaldo dibujado a mano.
+SYSTEM_CHROMIUM_PATHS = ("/usr/bin/chromium", "/usr/bin/chromium-browser")
+
+
+def configure_system_chromium() -> str | None:
+    """Indica a kaleido (choreographer) que use el Chromium del sistema.
+
+    Respeta un BROWSER_PATH ya definido. Devuelve la ruta en uso, o None si
+    no hay Chromium del sistema (kaleido sigue con su busqueda normal).
+    """
+    current = os.environ.get("BROWSER_PATH")
+    if current:
+        return current
+    for candidate in SYSTEM_CHROMIUM_PATHS:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            os.environ["BROWSER_PATH"] = candidate
+            return candidate
+    return None
+
+
 def _use_local_mathjax(pio_module) -> None:
     """Kaleido carga MathJax desde cdnjs en cada export salvo que se le pase
     otro script. La app no usa formulas: se le da un archivo vacio local."""
@@ -4536,6 +4559,7 @@ def _plotly_figure_to_png_bytes(
 ) -> bytes | None:
     if kaleido_disabled_reason() is not None:
         return None
+    configure_system_chromium()
     _use_local_mathjax(pio_module)
     outcome: dict[str, object] = {}
 
