@@ -18,6 +18,7 @@ import html
 import json
 import os
 import time
+from datetime import date
 import zipfile
 import xml.etree.ElementTree as ET
 import re
@@ -77,6 +78,7 @@ from local_store import (
     upsert_athlete_profile,
 )
 from modules.athlete_profile import (
+    BIRTH_DATE_MIN,
     CONTEXTO_OPTIONS,
     DEPORTE_SELECT_OPTIONS,
     NIVEL_OPTIONS,
@@ -4005,10 +4007,15 @@ with st.sidebar:
                 key=f"profile_athlete_text_{profile_nonce}",
                 placeholder="Ej: Mariano Diaz Romero",
             )
+            # Sin min/max Streamlit limita a +-10 anios desde hoy: no se podia
+            # cargar ningun adulto y si fechas futuras.
             profile_birth_date = st.date_input(
                 "Fecha de nacimiento",
                 key=f"profile_birth_{profile_nonce}",
                 value=None,
+                min_value=BIRTH_DATE_MIN,
+                max_value=date.today(),
+                format="DD/MM/YYYY",
             )
             profile_height_cm = st.number_input(
                 "Altura (cm)",
@@ -4017,7 +4024,7 @@ with st.sidebar:
                 max_value=250.0,
                 value=0.0,
                 step=0.5,
-                help="Dejar en 0 si no se conoce.",
+                help="Dejar en 0 si no se conoce. Si no, entre 120 y 220 cm.",
             )
             profile_weight_kg = st.number_input(
                 "Peso (kg)",
@@ -4026,7 +4033,7 @@ with st.sidebar:
                 max_value=300.0,
                 value=0.0,
                 step=0.5,
-                help="Dejar en 0 si no se conoce.",
+                help="Dejar en 0 si no se conoce. Si no, entre 30 y 200 kg.",
             )
             profile_contexto = st.radio(
                 "Contexto",
@@ -4128,8 +4135,11 @@ with st.sidebar:
             }
             profile_validation_errors = validate_profile_fields(profile_payload)
             if profile_validation_errors:
+                # Error, no aviso, y en el momento: los avisos de _push_notice ya
+                # se pintaron arriba en esta corrida y este camino no hace rerun,
+                # asi que el error quedaba invisible. El perfil NO se guardo.
                 for profile_error in profile_validation_errors:
-                    _push_notice("warning", f"Perfil de atleta: {profile_error}")
+                    st.error(f"Perfil de atleta: {profile_error} No se guardo el perfil.")
             else:
                 try:
                     merged_profiles = upsert_athlete_profile(profile_payload)
@@ -5091,12 +5101,14 @@ def render_decision_panel():
     if prepared_raw_df is None:
         prepared_raw_df = pd.DataFrame()
 
-    # ── Filtro de Contexto (Club / Gimnasio), aplicado antes de que los
-    # bloques procesen los datos. "Todos" no filtra nada. ──
+    # ── Filtro de Contexto (Club / Gimnasio / Online), aplicado antes de que
+    # los bloques procesen los datos. "Todos" no filtra nada. Usa la misma
+    # lista que el perfil: con una lista fija, un contexto nuevo no se podia
+    # filtrar. ──
     profile_df_decision = st.session_state.athlete_profile_df
     decision_contexto = st.selectbox(
         "Contexto",
-        ["Todos", "Club", "Gimnasio"],
+        ["Todos", *CONTEXTO_OPTIONS],
         key="decision_contexto_filter",
     )
     athletes_registry_decision = known_athlete_names()
