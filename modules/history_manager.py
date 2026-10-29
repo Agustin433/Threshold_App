@@ -15,6 +15,7 @@ from local_store import (
     STORE_DIR,
     overwrite_dataset,
 )
+from modules.evaluation_sources import normalize_source
 from modules.page_state import ensure_page_state
 from modules.remote_store import (
     REMOTE_DATASET_KEYS,
@@ -22,7 +23,9 @@ from modules.remote_store import (
     _supabase_dataset_store_config,
     _supabase_evaluations_config,
     _supabase_request,
+    _save_one_remote_evaluation,
     _upsert_dataset_records,
+    RemoteSaveError,
     dataset_df_to_remote_records as shared_dataset_df_to_remote_records,
     jump_df_to_db_records as shared_jump_df_to_db_records,
     load_remote_dataset as shared_load_remote_dataset,
@@ -193,12 +196,26 @@ def _replace_remote_dataset(state_key: str, df: pd.DataFrame | None) -> dict[str
 
 
 def _replace_remote_evaluations(df: pd.DataFrame | None) -> dict[str, object]:
+    """Publica el historial local de evaluaciones como el remoto completo.
+
+    La identidad de una evaluacion es (atleta, fecha, fuente): una medicion de
+    plataforma y una de alfombra/MyJump2 del mismo dia son filas distintas
+    (PK de public.evaluations). Antes se usaba solo (atleta, fecha): el PATCH
+    alcanzaba a las dos fuentes y una pisaba a la otra, y el borrado no veia
+    la fuente.
+
+    Upsert primero, borrado despues, y el borrado solo corre si TODOS los
+    upserts se confirmaron. Si algo no se confirma, RemoteSaveError.
+    """
+    label = DATASET_LABELS.get("jump_df", "Evaluaciones")
     if not supabase_evaluations_enabled():
-        return {"enabled": False, "deleted": 0, "upserted": 0, "dataset": DATASET_LABELS.get("jump_df", "Evaluaciones")}
+        return {"enabled": False, "deleted": 0, "upserted": 0, "dataset": label}
 
     _, _, table = _supabase_evaluations_config()
     desired_records = _jump_df_to_db_records(df if df is not None else pd.DataFrame())
-    desired_keys = {(record["athlete"], record["date"]) for record in desired_records}
+    for record in desired_records:
+        record["source"] = normalize_source(record.get("source"))
+    desired_keys = {(record["athlete"], record["date"], record["source"]) for record in desired_records}
 
     existing_rows = []
     offset = 0
@@ -207,7 +224,12 @@ def _replace_remote_evaluations(df: pd.DataFrame | None) -> dict[str, object]:
         batch = _supabase_request(
             "GET",
             table,
-            query={"select": "athlete,date", "order": "date.asc,athlete.asc", "limit": page_size, "offset": offset},
+            query={
+                "select": "athlete,date,source",
+                "order": "date.asc,athlete.asc,source.asc",
+                "limit": page_size,
+                "offset": offset,
+            },
             evaluations=True,
         ) or []
         if not batch:
@@ -217,42 +239,43 @@ def _replace_remote_evaluations(df: pd.DataFrame | None) -> dict[str, object]:
             break
         offset += page_size
 
-    existing_keys = {(row.get("athlete"), row.get("date")) for row in existing_rows if row.get("athlete") and row.get("date")}
+    existing_keys = {
+        (row.get("athlete"), row.get("date"), normalize_source(row.get("source")))
+        for row in existing_rows
+        if row.get("athlete") and row.get("date")
+    }
 
-    # Upsert primero, delete despues (ver _replace_remote_dataset): evita
-    # que un corte a mitad de camino deje el remoto con evaluaciones
-    # borradas sin haber sido repuestas.
     upserted = 0
+    failures: list[str] = []
     for record in desired_records:
-        updated_rows = _supabase_request(
-            "PATCH",
-            table,
-            query={"athlete": f"eq.{record['athlete']}", "date": f"eq.{record['date']}"},
-            payload=record,
-            prefer="return=representation",
-            evaluations=True,
-        ) or []
-        if updated_rows:
-            upserted += len(updated_rows)
-            continue
-        inserted_rows = _supabase_request(
-            "POST",
-            table,
-            payload=record,
-            prefer="return=representation",
-            evaluations=True,
-        ) or []
-        upserted += len(inserted_rows) if inserted_rows else 1
+        try:
+            inserted_now, updated_now = _save_one_remote_evaluation(table, record)
+            upserted += inserted_now + updated_now
+        except Exception as exc:
+            failures.append(f"{record.get('athlete')} {record.get('date')} ({record.get('source')}): {exc}")
+    if failures:
+        shown = failures[:3]
+        more = len(failures) - len(shown)
+        raise RemoteSaveError(
+            saved=upserted,
+            total=len(desired_records),
+            detail=" | ".join(shown) + (f" | y {more} mas" if more else "")
+            + ". No se borro nada del remoto.",
+        )
 
     deleted = 0
-    for athlete, event_date in sorted(existing_keys - desired_keys):
+    for athlete, event_date, source in sorted(existing_keys - desired_keys):
         deleted_rows = _supabase_request(
             "DELETE",
             table,
-            query={"athlete": f"eq.{athlete}", "date": f"eq.{event_date}"},
+            query={
+                "athlete": f"eq.{athlete}",
+                "date": f"eq.{event_date}",
+                "source": f"eq.{source}",
+            },
             prefer="return=representation",
             evaluations=True,
         ) or []
-        deleted += len(deleted_rows) if deleted_rows else 1
+        deleted += len(deleted_rows)
 
-    return {"enabled": True, "deleted": deleted, "upserted": upserted, "dataset": DATASET_LABELS.get("jump_df", "Evaluaciones")}
+    return {"enabled": True, "deleted": deleted, "upserted": upserted, "dataset": label}
