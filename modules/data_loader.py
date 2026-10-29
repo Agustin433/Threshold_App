@@ -1742,7 +1742,13 @@ def is_prepared_raw_workouts_df(raw_df: pd.DataFrame | None) -> bool:
     return PREPARED_RAW_WORKOUT_COLUMNS.issubset(raw_df.columns)
 
 
-RAW_SESSION_DATE_COL = "Session Date"
+# Fecha_sesion: el dia en que la serie se HIZO. Completed Date valida, si no
+# Fecha_ref. En el export real 7.599 de 82.791 series se completaron ANTES
+# de la fecha asignada (hasta -29 dias). Es la fecha de todo calculo temporal
+# (volumen, monotonia, strain, ACWR, ventanas) y el event_date remoto. NO es
+# parte de la clave (dedupe_cols/row_key siguen usando Fecha_ref).
+RAW_SESSION_DATE_COL = "Fecha_sesion"
+_LEGACY_SESSION_DATE_COL = "Session Date"
 RAW_FECHA_REF_COL = "Fecha_ref"
 DISCARDED_ROWS_ATTR = "discarded_rows"
 _MIN_VALID_DATE = pd.Timestamp("2000-01-01")
@@ -1805,7 +1811,7 @@ def describe_discarded_rows(df: pd.DataFrame | None) -> str:
     total = sum(discarded.values())
     detail = "; ".join(f"{reason}: {count}" for reason, count in discarded.items())
     return f"{total} fila(s) descartadas ({detail})."
-_RAW_SESSION_DATE_CANDIDATES = (RAW_SESSION_DATE_COL, "Completed Date", "Assigned Date", "Date")
+_RAW_SESSION_DATE_CANDIDATES = (RAW_SESSION_DATE_COL, "Completed Date", RAW_FECHA_REF_COL, "Assigned Date", "Date")
 
 
 def raw_session_date_column(df: pd.DataFrame | None) -> str | None:
@@ -1822,25 +1828,33 @@ def raw_session_date_column(df: pd.DataFrame | None) -> str | None:
 
 
 def _ensure_session_date(df: pd.DataFrame | None) -> pd.DataFrame | None:
-    """Agrega "Session Date" = Completed Date (si existe) o Assigned Date.
+    """Agrega Fecha_sesion = Completed Date valida, si no Fecha_ref.
 
-    No modifica "Assigned Date": es parte de la clave de dedupe del
-    historial guardado y cambiarla duplicaria filas en la proxima subida.
+    No modifica Assigned Date ni Fecha_ref: son la clave de dedupe del
+    historial guardado y cambiarlas duplicaria filas en la proxima subida.
+    La columna vieja "Session Date" (Completed Date o Assigned Date, sin
+    validar "0") se descarta y se recalcula con esta regla.
     """
     if df is None or df.empty or RAW_SESSION_DATE_COL in df.columns:
         return df
-    session = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
-    if "Completed Date" in df.columns:
-        session = pd.to_datetime(df["Completed Date"], errors="coerce")
-    if "Assigned Date" in df.columns:
-        session = session.fillna(pd.to_datetime(df["Assigned Date"], errors="coerce"))
-    elif "Date" in df.columns:
-        session = session.fillna(pd.to_datetime(df["Date"], errors="coerce"))
-    result = df.copy()
+    result = ensure_raw_fecha_ref(df)
+    result = result.copy() if result is df else result
+    session = pd.Series(pd.NaT, index=result.index, dtype="datetime64[ns]")
+    if "Completed Date" in result.columns:
+        session = _parse_export_dates(result["Completed Date"])
+    if RAW_FECHA_REF_COL in result.columns:
+        session = session.fillna(pd.to_datetime(result[RAW_FECHA_REF_COL], errors="coerce"))
     result[RAW_SESSION_DATE_COL] = session.dt.normalize()
+    if _LEGACY_SESSION_DATE_COL in result.columns:
+        result = result.drop(columns=[_LEGACY_SESSION_DATE_COL])
     for key, value in getattr(df, "attrs", {}).items():
         result.attrs[key] = value
     return result
+
+
+def ensure_raw_fecha_sesion(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Fecha_ref y Fecha_sesion para Raw Workouts (tambien historial guardado)."""
+    return _ensure_session_date(ensure_raw_fecha_ref(df))
 
 
 def add_strength_detail_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -1894,9 +1908,10 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
     if raw_df is None:
         return None
     if is_prepared_raw_workouts_df(raw_df):
-        return _mark_prepared_raw_workouts_df(
-            ensure_raw_fecha_ref(_ensure_session_date(add_strength_detail_columns(raw_df.copy())))
-        )
+        prepared = ensure_raw_fecha_sesion(add_strength_detail_columns(raw_df.copy()))
+        if prepared is not None and not prepared.empty:
+            prepared["Date"] = prepared[RAW_SESSION_DATE_COL]
+        return _mark_prepared_raw_workouts_df(prepared)
 
     df = raw_df.copy()
     column_aliases = {
@@ -1956,9 +1971,11 @@ def prepare_raw_workouts_df(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
         df["Assigned Date"] = pd.NaT
     df = ensure_raw_fecha_ref(df)
     df[RAW_FECHA_REF_COL] = pd.to_datetime(df[RAW_FECHA_REF_COL], errors="coerce")
-    # Date = Fecha_ref: igual a Assigned Date salvo en los ejercicios
-    # auto-registrados (Assigned Date="0"), que antes quedaban sin fecha.
-    df["Date"] = df[RAW_FECHA_REF_COL]
+    # Date = Fecha_sesion: el dia en que se hizo la serie (Completed Date),
+    # o Fecha_ref si no hay fecha de completado. Todo calculo que agrupa por
+    # "Date" (volumen, monotonia, strain, ACWR) usa asi la fecha real.
+    df = _ensure_session_date(df)
+    df["Date"] = df[RAW_SESSION_DATE_COL]
 
     for column in ["Result", "Reps", "Sets", "Duration_s"]:
         if column in df.columns:

@@ -35,6 +35,7 @@ sys.path.insert(0, str(REPO_ROOT))
 import pandas as pd  # noqa: E402
 
 import local_store as ls  # noqa: E402
+from modules.data_loader import RAW_SESSION_DATE_COL, ensure_raw_fecha_sesion  # noqa: E402
 
 BASELINE_WEEKS = 6
 MIN_BASELINE_WEEKS = 3
@@ -89,10 +90,11 @@ def build_pattern_zscores(raw_df: pd.DataFrame, current_week: pd.Timestamp) -> d
     """Z-score INTRA-atleta por categoria de patron (no contra el grupo)."""
     if raw_df is None or raw_df.empty:
         return {}
-    df = raw_df.copy()
-    df["Assigned Date"] = pd.to_datetime(df["Assigned Date"], errors="coerce")
-    df = df.dropna(subset=["Assigned Date", "Athlete", "Category"])
-    df["week"] = df["Assigned Date"].apply(week_monday)
+    # Semana de la sesion (Completed Date), no de la asignacion.
+    df = ensure_raw_fecha_sesion(raw_df.copy())
+    df["_fecha_sesion"] = pd.to_datetime(df[RAW_SESSION_DATE_COL], errors="coerce")
+    df = df.dropna(subset=["_fecha_sesion", "Athlete", "Category"])
+    df["week"] = df["_fecha_sesion"].apply(week_monday)
 
     out: dict[str, list[dict]] = {}
     for (athlete, category), group in df.groupby(["Athlete", "Category"]):

@@ -16,6 +16,7 @@ import streamlit as st
 
 from local_store import DATASET_SPECS, normalize_athlete_name
 from modules.data_loader import EVALUATION_DB_COLUMN_MAP, EVALUATION_PERSIST_COLUMNS, SUPABASE_EVALUATIONS_TABLE
+from modules.data_loader import ensure_raw_fecha_sesion
 from modules.evaluation_sources import normalize_source
 from modules.jump_analysis import (
     _prepare_jump_df,
@@ -209,6 +210,10 @@ def dataset_df_to_remote_records(state_key: str, df: pd.DataFrame) -> list[dict]
     spec = DATASET_SPECS.get(state_key, {})
     date_col = spec.get("date_col")
     athlete_col = spec.get("athlete_col")
+    if state_key == "raw_df":
+        # event_date = Fecha_sesion: se deriva si el frame no la trae, para
+        # que ninguna fila se guarde sin fecha. No toca la clave (row_key).
+        df = ensure_raw_fecha_sesion(df)
     records: list[dict] = []
 
     for _, row in df.iterrows():

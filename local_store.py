@@ -11,7 +11,8 @@ import pandas as pd
 from modules.athlete_profile import ATHLETE_PROFILE_COLUMNS
 from modules.data_loader import (
     RAW_FECHA_REF_COL,
-    ensure_raw_fecha_ref,
+    RAW_SESSION_DATE_COL,
+    ensure_raw_fecha_sesion,
     prepare_raw_workouts_df,
     raw_session_date_column,
 )
@@ -85,10 +86,11 @@ DATASET_SPECS: dict[str, dict[str, object]] = {
     },
     "raw_df": {
         "filename": "raw_workouts_history.csv",
-        # Fecha_ref = Assigned Date si es valida, si no Completed Date. Con
-        # "Assigned Date" como date_col, _normalize_frame descartaba en
-        # silencio los ejercicios auto-registrados (Assigned Date="0").
-        "date_col": RAW_FECHA_REF_COL,
+        # date_col = Fecha_sesion (Completed Date valida, si no Fecha_ref): el
+        # dia en que se hizo la serie. Define ventanas y el event_date remoto.
+        # Nunca es nula si hay Fecha_ref, asi que _normalize_frame no descarta
+        # los ejercicios auto-registrados (Assigned Date="0").
+        "date_col": RAW_SESSION_DATE_COL,
         "athlete_col": "Athlete",
         # WorkoutId es el slot de un ejercicio y se reusa cuando la plantilla
         # se reasigna otro dia: solo junto con Fecha_ref identifica la serie.
@@ -331,9 +333,10 @@ def _normalize_frame(df: pd.DataFrame, spec: dict[str, object]) -> pd.DataFrame:
     athlete_col = spec.get("athlete_col")
     date_col = spec.get("date_col")
     source_col = spec.get("source_col")
-    if date_col == RAW_FECHA_REF_COL:
-        # Historial guardado antes de Fecha_ref: se deriva antes de filtrar.
-        result = ensure_raw_fecha_ref(result)
+    if date_col == RAW_SESSION_DATE_COL:
+        # Historial guardado antes de Fecha_ref/Fecha_sesion: se derivan
+        # antes de filtrar por fecha.
+        result = ensure_raw_fecha_sesion(result)
     allow_missing_date = bool(spec.get("allow_missing_date"))
 
     # Punto de paso unico: toda lectura y escritura del store atraviesa esta

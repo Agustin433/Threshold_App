@@ -2952,7 +2952,7 @@ def _report_time_window_label(state: dict[str, object]) -> str:
         ("wellness_df", ["Date"]),
         ("completion_df", ["Date"]),
         ("rep_load_df", ["Date"]),
-        ("raw_df", ["Session Date", "Completed Date", "Assigned Date", "Date"]),
+        ("raw_df", ["Fecha_sesion", "Session Date", "Completed Date", "Assigned Date", "Date"]),
         ("session_notes_df", ["Assigned Date", "Date"]),
         ("maxes_df", ["Added Date", "Date"]),
         ("jump_df", ["Date"]),
