@@ -101,9 +101,7 @@ def clase_atleta_from_nivel(nivel: object) -> ClaseAtleta | None:
     return ClaseAtleta.DEPORTISTA
 
 
-# "Online": atletas que entrenan a distancia (modalidad del formulario de
-# perfil). Sin esta opcion, editar ese perfil en la app rompia el selector.
-CONTEXTO_OPTIONS: tuple[str, ...] = ("Club", "Gimnasio", "Online")
+CONTEXTO_OPTIONS: tuple[str, ...] = ("Club", "Gimnasio")
 
 NIVEL_OPTIONS: tuple[str, ...] = (
     "Población general",
