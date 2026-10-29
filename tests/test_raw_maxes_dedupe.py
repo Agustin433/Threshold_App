@@ -98,7 +98,7 @@ class RawWorkoutsKeyTest(unittest.TestCase):
         self.assertTrue(planks["Assigned Date"].isna().all())
         self.assertEqual(set(planks[RAW_FECHA_REF_COL]), {pd.Timestamp("2026-10-03")})
         self.assertEqual(set(planks["Date"]), {pd.Timestamp("2026-10-03")})
-        self.assertEqual(set(planks["Session Date"]), {pd.Timestamp("2026-10-03")})
+        self.assertEqual(set(planks["Fecha_sesion"]), {pd.Timestamp("2026-10-03")})
 
     def test_discarded_rows_are_counted_by_reason(self):
         discarded = self.raw.attrs[DISCARDED_ROWS_ATTR]
