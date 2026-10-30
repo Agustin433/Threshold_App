@@ -397,7 +397,11 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertNotIn("sin senales grandes de alerta", story_text)
 
     def test_client_pdf_precaution_load_keeps_useful_but_not_overly_positive_wording(self):
-        pdf, story_text = _rendered_pdf_and_story_text(_client_precaution_load_report_state(), "Ana Lopez")
+        # Este test mira la redaccion de la zona "precaucion" con carga
+        # evaluable; el gate de cobertura tiene sus propios tests
+        # (test_reports_yellow_coverage).
+        with patch.object(report_generator, "_load_evaluability", return_value=(True, "")):
+            pdf, story_text = _rendered_pdf_and_story_text(_client_precaution_load_report_state(), "Ana Lopez")
         joined_pages = " ".join(_normalized_pdf_pages(pdf))
 
         self.assertIsNotNone(pdf)

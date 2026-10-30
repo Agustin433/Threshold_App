@@ -32,6 +32,7 @@ from modules.data_loader import (
 )
 from modules.app_version import app_version
 from modules.data_quality import SRPE_COVERAGE_RED_PCT, compute_data_quality_report
+from modules.wellness_scales import WELLNESS_EXPORT_HEADERS, WELLNESS_RESPONSE_SCALE
 from modules.load_monitoring import (
     training_dates_for_athlete,
     ACWR_MAX_MISSING_FRAC_ACUTE,
@@ -915,6 +916,7 @@ def _report_quality_report(state: dict[str, pd.DataFrame | None]) -> dict[str, o
         state.get("maxes_df"),
         state.get("jump_df"),
         athletes,
+        reference_date=_professional_report_today(),
     )
 
 
@@ -1052,6 +1054,7 @@ def _quality_athlete_row(quality_report: dict[str, object], athlete: str) -> pd.
 
 
 PROFESSIONAL_ACWR_GATED_ZONE_TEXT = "Sin zona (registro insuficiente)"
+PROFESSIONAL_ACWR_NOT_EVALUABLE_ZONE_TEXT = "Sin zona (cobertura insuficiente)"
 PROFESSIONAL_WEEKLY_CHANGE_BLOCKED_TEXT = "No comparable (sesiones sin sRPE o semana previa sin registro)"
 
 
@@ -1067,28 +1070,108 @@ def _weekly_missing_frac(row: pd.Series) -> float:
 LOAD_NOT_EVALUABLE_TEXT = "No evaluable: cobertura insuficiente"
 
 
-def _srpe_coverage_red(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, str]:
-    """(roja, detalle) de la cobertura de sRPE del atleta (data_quality).
+# Con menos sesiones con sRPE por semana la SD de Foster queda fijada por la
+# cantidad de ceros: la monotonia no describe homogeneidad.
+MONOTONY_MIN_SESSIONS = 4
 
-    Roja = menos de SRPE_COVERAGE_RED_PCT de las sesiones con sRPE. Con eso la
-    carga interna no es evaluable y el reporte no puede afirmar estabilidad ni
-    tolerancia.
+
+def _load_indices_calculable(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    internal_load: dict[str, object] | None = None,
+) -> tuple[bool, bool, bool]:
+    """(acwr, monotonia, strain) calculables con el mismo gate del reporte."""
+    acwr_row = _latest_acwr_row(state, athlete)
+    mono_row = _latest_mono_row(state, athlete)
+    acwr_gated, _ = _professional_load_quality_gate(state, athlete)
+    acwr_ok = (
+        not acwr_gated
+        and acwr_row is not None
+        and _coerce_float(acwr_row.get("ACWR_EWMA")) is not None
+    )
+    mono_ok = strain_ok = False
+    if mono_row is not None and str(mono_row.get("Monotony_Status") or "") != "incomplete_log":
+        sessions = _coerce_float((internal_load or {}).get("sessions_registered"))
+        enough = sessions is None or sessions >= MONOTONY_MIN_SESSIONS
+        mono_ok = enough and _coerce_float(mono_row.get("Monotonia")) is not None
+        strain_ok = enough and _coerce_float(mono_row.get("Strain")) is not None
+    return acwr_ok, mono_ok, strain_ok
+
+
+def _load_evaluability(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    internal_load: dict[str, object] | None = None,
+) -> tuple[bool, str]:
+    """(evaluable, motivo) de la carga interna para frases de estabilidad/tolerancia.
+
+    No evaluable si la cobertura del atleta (semaforo de data_quality) no es
+    verde o si ACWR, monotonia y strain son todos no calculables. En ese caso
+    ningun reporte puede afirmar estabilidad, zona util ni tolerancia: con
+    huecos de registro la carga observada depende de los huecos, no del
+    entrenamiento.
     """
     try:
         row = _quality_athlete_row(_report_quality_report(state), athlete)
     except Exception:
-        return False, ""
-    if row is None:
-        return False, ""
-    pct = _coerce_float(row.get("% cobertura sRPE"))
-    if pct is None or pct >= SRPE_COVERAGE_RED_PCT:
-        return False, ""
-    basis = "de las sesiones" if str(row.get("Base cobertura sRPE") or "") == "sesiones" else "de los días"
-    return True, f"sRPE en {pct:.0f}% {basis}"
+        row = None
+    if row is not None:
+        light = str(row.get("Semaforo") or "")
+        if "Verde" not in light:
+            color = "roja" if "Rojo" in light else "amarilla"
+            pct = _coerce_float(row.get("% cobertura sRPE"))
+            basis = "de las sesiones" if str(row.get("Base cobertura sRPE") or "") == "sesiones" else "de los días"
+            detail = f"cobertura {color}"
+            if pct is not None:
+                detail += f": sRPE en {pct:.0f}% {basis}"
+            return False, detail
+    try:
+        indices = _load_indices_calculable(state, athlete, internal_load)
+    except Exception:
+        indices = (True, True, True)
+    if not any(indices):
+        return False, "ACWR, monotonía y strain no calculables"
+    return True, ""
 
 
 def _not_evaluable_text(detail: str) -> str:
     return f"{LOAD_NOT_EVALUABLE_TEXT} ({detail})." if detail else f"{LOAD_NOT_EVALUABLE_TEXT}."
+
+
+LOAD_ZONE_NOT_EVALUABLE = "No evaluable"
+LOAD_NOT_EVALUABLE_PLAIN_LINE = f"{LOAD_NOT_EVALUABLE_TEXT} para leer la carga (faltan registros de sRPE)."
+
+
+def _gate_focus_row_load(
+    row: pd.Series,
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    internal_load: dict[str, object] | None = None,
+) -> pd.Series:
+    """Fila del atleta para los reportes de atleta/cliente con la carga gateada.
+
+    Si la carga no es evaluable (`_load_evaluability`), la zona pasa a
+    "No evaluable" y el ACWR se vacia: ninguna frase de zona util,
+    estabilidad o tolerancia puede salir de esa fila.
+    """
+    if row is None or row.empty:
+        return row
+    evaluable, detail = _load_evaluability(state, athlete, internal_load)
+    gated = row.copy()
+    gated["Carga evaluable"] = evaluable
+    gated["Carga evaluable detalle"] = detail
+    has_weekly_load = any(
+        _coerce_float((internal_load or {}).get(key)) is not None
+        for key in ("last_week_total", "current_week_total")
+    )
+    if not evaluable and (_row_has_load_data(row) or has_weekly_load):
+        gated["Zona"] = LOAD_ZONE_NOT_EVALUABLE
+        gated["ACWR EWMA"] = float("nan")
+    return gated
+
+
+def _zone_not_evaluable(zone_text: object) -> bool:
+    return _professional_normalized_text(str(zone_text or "")) == _professional_normalized_text(LOAD_ZONE_NOT_EVALUABLE)
 
 
 def _professional_load_quality_gate(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, str]:
@@ -1286,7 +1369,9 @@ def _focus_metric_phrase(label: str, value: object, *, digits: int | None = None
 
 def _focus_metric_context(row: pd.Series) -> dict[str, str]:
     profile = _professional_visible_metric_text(row.get("Perfil NM")).strip()
-    zone = _display_zone(row.get("Zona")) if _has_text(row.get("Zona")) else ""
+    # Zona "No evaluable" no es una lectura de carga: no entra a las frases de foco.
+    zone_value = row.get("Zona")
+    zone = _display_zone(zone_value) if _has_text(zone_value) and not _zone_not_evaluable(zone_value) else ""
     acwr = _coerce_float(row.get("ACWR EWMA"))
     cmj_delta = _coerce_float(row.get("CMJ vs BL %"))
     return {
@@ -2595,12 +2680,8 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
             target.append(_collapsed_box(str(wellness_availability_payload.get("message") or "Faltan datos de wellness.")))
             return
         target.append(_mini_cards_table(wellness_availability_payload.get("rows", [])))
-        chart_points = (
-            wellness_availability_payload.get("weekly_points", [])
-            if wellness_availability_payload.get("trend_allowed")
-            else wellness_availability_payload.get("daily_points", [])
-        )
-        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44)
+        chart_points, chart_title = wellness_chart_points_and_title(wellness_availability_payload)
+        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44, title=chart_title)
         if chart is not None:
             target.append(Spacer(1, 3 * mm))
             target.append(chart)
@@ -2788,12 +2869,8 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
             target.append(_collapsed_box(str(wellness_availability_payload.get("message") or "Faltan datos de wellness.")))
             return
         target.append(_mini_cards_table(wellness_availability_payload.get("rows", [])))
-        chart_points = (
-            wellness_availability_payload.get("weekly_points", [])
-            if wellness_availability_payload.get("trend_allowed")
-            else wellness_availability_payload.get("daily_points", [])
-        )
-        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44)
+        chart_points, chart_title = wellness_chart_points_and_title(wellness_availability_payload)
+        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44, title=chart_title)
         if chart is not None:
             target.append(Spacer(1, 3 * mm))
             target.append(chart)
@@ -2853,7 +2930,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         for sheet_name, df in _ordered_sheet_items(data_dict):
             if df is not None and not df.empty:
-                prepared_df = _prepare_export_frame(sheet_name, df)
+                prepared_df = _prepare_export_frame(sheet_name, df).rename(columns=WELLNESS_EXPORT_HEADERS)
                 export_name = REPORT_SHEET_EXPORT_NAMES.get(sheet_name, sheet_name)[:31]
                 prepared_df.to_excel(writer, sheet_name=export_name, index=False)
                 worksheet = writer.book[export_name]
@@ -3297,14 +3374,16 @@ def _athlete_load_status_lines(row: pd.Series | None, internal_load: dict[str, o
     elif scope == "last_complete_week":
         total = _coerce_float(internal_load.get("last_week_total"))
         change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
-        line = f"Última semana completa: {total:.0f} UA." if total is not None else "Faltan datos suficientes para analizar la última semana completa."
+        line = f"Última semana completa: {internal_load_weekly_srpe_text(internal_load, total)}." if total is not None else "Faltan datos suficientes para analizar la última semana completa."
         if change_pct is not None:
             line = f"{line} Cambio vs semana previa: {change_pct:+.1f}%."
         lines.append(line)
     else:
         lines.append("Faltan datos de carga interna para este período.")
 
-    if acwr is not None and zone != PDF_MISSING_TEXT:
+    if _zone_not_evaluable(zone):
+        lines.append(f"Lectura actual: {LOAD_NOT_EVALUABLE_TEXT.lower()}; no se interpreta zona ni tolerancia.")
+    elif acwr is not None and zone != PDF_MISSING_TEXT:
         lines.append(f"Lectura actual: ACWR EWMA {_display_metric(acwr, digits=2)} en zona {zone}.")
     if monotony is not None:
         lines.append(f"Monotonía semanal: {_display_metric(monotony, digits=2)}. Si sube mucho, conviene variar mejor la carga entre días.")
@@ -3559,6 +3638,22 @@ def _fallback_y_axis(drawing, shapes, palette, ticks, left, bottom, plot_w, plot
         drawing.add(String(2, bottom + plot_h + 4, unit, fontSize=FALLBACK_TICK_FONT, fillColor=palette["muted"]))
 
 
+def wellness_chart_points_and_title(payload: dict[str, object]) -> tuple[list[dict[str, object]], str]:
+    """Puntos del grafico de wellness y un titulo que dice la ventana real.
+
+    Con tendencia habilitada el grafico usa el promedio de cada semana (varias
+    semanas); si no, los dias de la semana analizada. Antes el titulo decia
+    "Wellness diario (semana analizada)" aunque mostrara 5 semanas.
+    """
+    if payload.get("trend_allowed"):
+        points = list(payload.get("weekly_points", []) or [])
+        weeks = len(points)
+        noun = "semana" if weeks == 1 else "semanas"
+        return points, f"Wellness semanal (promedio por semana, {weeks} {noun})"
+    points = list(payload.get("daily_points", []) or [])
+    return points, f"Wellness diario ({WELLNESS_WEEK_WINDOW})"
+
+
 def build_fallback_wellness_chart(
     points: list[dict[str, object]],
     palette: dict,
@@ -3603,6 +3698,17 @@ def build_fallback_wellness_chart(
     return drawing
 
 
+FALLBACK_PARTIAL_LEGEND = "rayada = semana parcial (sesiones con sRPE / realizadas)"
+
+
+def _partial_bar_label(point: dict[str, object]) -> str:
+    done = _coerce_float(point.get("sessions_done"))
+    with_srpe = _coerce_float(point.get("sessions_with_srpe"))
+    if done is not None and done > 0 and with_srpe is not None:
+        return f"{int(with_srpe)}/{int(done)}"
+    return "parcial"
+
+
 def build_fallback_weekly_ema_chart(
     points: list[dict[str, object]],
     palette: dict,
@@ -3640,6 +3746,8 @@ def build_fallback_weekly_ema_chart(
     drawing.add(Line(legend_right - 38, legend_y + 2, legend_right - 26, legend_y + 2, strokeColor=palette["navy"], strokeWidth=1.4))
     drawing.add(String(legend_right - 44, legend_y, "sRPE semanal", fontSize=6.5, fillColor=palette["gray"], textAnchor="end"))
     drawing.add(Rect(legend_right - 98, legend_y, 7, 4, fillColor=bar_fill, strokeColor=None))
+    if any(point.get("partial") for point in points):
+        drawing.add(String(left + 128, legend_y, FALLBACK_PARTIAL_LEGEND, fontSize=6.0, fillColor=palette["orange"]))
     _fallback_y_axis(drawing, shapes, palette, ticks, left, bottom, plot_w, plot_h, "UA")
     drawing.add(Line(left, bottom, left + plot_w, bottom, strokeColor=palette["line"], strokeWidth=0.7))
     drawing.add(Line(left, bottom, left, bottom + plot_h, strokeColor=palette["line"], strokeWidth=0.7))
@@ -3651,11 +3759,30 @@ def build_fallback_weekly_ema_chart(
         x = left + idx * (bar_w + bar_gap)
         if value is not None:
             top = _fallback_y(value, lo, hi, bottom, plot_h)
-            drawing.add(Rect(x, bottom, bar_w, top - bottom, fillColor=bar_fill, strokeColor=None))
+            partial = bool(point.get("partial"))
+            if partial:
+                # Semana parcial (sesiones sin sRPE): rayada y con rotulo, para
+                # que no se lea como una caida de carga.
+                drawing.add(Rect(x, bottom, bar_w, max(top - bottom, 1.0), fillColor=palette["card"],
+                                 strokeColor=palette["orange"], strokeWidth=0.8))
+                stripe_y = bottom + 2.5
+                while stripe_y < top - 0.5:
+                    drawing.add(Line(x + 0.8, stripe_y, x + bar_w - 0.8, stripe_y,
+                                     strokeColor=palette["orange"], strokeWidth=0.6))
+                    stripe_y += 3.0
+            else:
+                drawing.add(Rect(x, bottom, bar_w, top - bottom, fillColor=bar_fill, strokeColor=None))
+            label_parts: list[str] = []
             if idx == len(points) - 1:
+                label_parts.append(f"{value:.0f}")
+            if partial:
+                label_parts.append(_partial_bar_label(point))
+            label = " · ".join(part for part in label_parts if part)
+            if label:
                 # Dentro del area: como maximo hasta el tope del eje (nunca en la franja del titulo).
-                drawing.add(String(x + bar_w / 2, min(top + 2, bottom + plot_h + 2), f"{value:.0f}",
-                                   fontSize=6, fillColor=palette["gray"], textAnchor="middle"))
+                drawing.add(String(x + bar_w / 2, min(top + 2, bottom + plot_h + 2), label,
+                                   fontSize=6 if idx == len(points) - 1 else 5.5,
+                                   fillColor=palette["orange"] if partial else palette["gray"], textAnchor="middle"))
         if ema is not None:
             ema_coords.extend([x + bar_w / 2, _fallback_y(ema, lo, hi, bottom, plot_h)])
     if len(ema_coords) >= 4:
@@ -6140,6 +6267,7 @@ def _build_professional_training_context(
     weekly_srpe = _coerce_float(load_row.get("weekly_sRPE"))
     sessions_text = str(int(sessions_count)) if sessions_count is not None else PDF_MISSING_TEXT
     weekly_srpe_days = 0
+    weekly_srpe_dates: list = []
     if not weekly_load.empty and "week_start" in weekly_load.columns:
         target_week = pd.to_datetime(load_row.get("week_start"), errors="coerce")
         if pd.notna(target_week) and rpe_df is not None and not rpe_df.empty and {"Athlete", "Date", "sRPE"}.issubset(rpe_df.columns):
@@ -6150,7 +6278,9 @@ def _build_professional_training_context(
             rpe_source = rpe_source[_professional_athlete_mask(rpe_source["Athlete"], athlete)]
             week_start = pd.Timestamp(target_week).normalize()
             week_end = week_start + pd.Timedelta(days=6)
-            weekly_srpe_days = int(rpe_source[(rpe_source["Date"] >= week_start) & (rpe_source["Date"] <= week_end)]["Date"].nunique())
+            week_rows = rpe_source[(rpe_source["Date"] >= week_start) & (rpe_source["Date"] <= week_end) & (rpe_source["sRPE"] > 0)]
+            weekly_srpe_dates = list(week_rows["Date"].unique())
+            weekly_srpe_days = len(weekly_srpe_dates)
     if completion.get("numeric") is not None:
         adherence_text = safe_value(completion.get("value"))
     elif sessions_count is not None:
@@ -6159,10 +6289,17 @@ def _build_professional_training_context(
         adherence_text = PDF_MISSING_TEXT
     rows.append(("Adherencia formal", adherence_text))
     rows.append(("Sesiones registradas", sessions_text))
-    weekly_srpe_value = f"{weekly_srpe:.0f} UA" if weekly_srpe is not None else PDF_MISSING_TEXT
-    weekly_srpe_suffix = _report_sample_suffix(weekly_srpe_days)
-    if weekly_srpe_value != PDF_MISSING_TEXT and weekly_srpe_suffix:
-        weekly_srpe_value = f"{weekly_srpe_value}  {weekly_srpe_suffix}"
+    weekly_srpe_done = None
+    target_week = pd.to_datetime(load_row.get("week_start"), errors="coerce")
+    if pd.notna(target_week):
+        weekly_srpe_done, _ = _week_session_coverage(
+            _athlete_training_ledger(state, athlete), weekly_srpe_dates, pd.Timestamp(target_week)
+        )
+    weekly_srpe_value = (
+        weekly_srpe_text(weekly_srpe, weekly_srpe_done, weekly_srpe_days)
+        if weekly_srpe is not None
+        else PDF_MISSING_TEXT
+    )
     rows.append(("sRPE semanal", weekly_srpe_value))
 
     load_evolution = PDF_MISSING_TEXT
@@ -6221,6 +6358,87 @@ def _build_professional_training_context(
     }
 
 
+def _athlete_training_ledger(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.DatetimeIndex | None:
+    """Dias con actividad en Raw Workouts (Fecha_sesion) del atleta; None si no hay registro."""
+    raw = state.get("prepared_raw_df")
+    if raw is None:
+        raw = state.get("raw_df")
+    try:
+        ledger = training_dates_for_athlete(raw, athlete)
+    except Exception:
+        return None
+    if ledger is None or len(ledger) == 0:
+        return None
+    return pd.DatetimeIndex(ledger).normalize()
+
+
+def _week_session_coverage(
+    ledger: pd.DatetimeIndex | None,
+    srpe_dates: pd.Series | pd.DatetimeIndex | list,
+    week_start: pd.Timestamp,
+    end_date: pd.Timestamp | None = None,
+) -> tuple[int | None, int]:
+    """(N sesiones de la semana, sesiones con sRPE).
+
+    N = dias con actividad en Raw Workouts (Fecha_sesion) mas cualquier dia con
+    sRPE (que tambien implica sesion). Sin Raw Workouts del atleta N es None:
+    no se puede saber cuantas sesiones hizo.
+    """
+    start = pd.Timestamp(week_start).normalize()
+    end = start + pd.Timedelta(days=6)
+    if end_date is not None:
+        end = min(end, pd.Timestamp(end_date).normalize())
+    srpe_days = {
+        pd.Timestamp(day).normalize()
+        for day in pd.to_datetime(pd.Series(list(srpe_dates)), errors="coerce").dropna()
+        if start <= pd.Timestamp(day).normalize() <= end
+    }
+    if ledger is None:
+        return None, len(srpe_days)
+    ledger_days = {pd.Timestamp(day).normalize() for day in ledger if start <= pd.Timestamp(day).normalize() <= end}
+    return len(ledger_days | srpe_days), len(srpe_days)
+
+
+def weekly_srpe_text(total: object, sessions_done: object, sessions_with_srpe: object) -> str:
+    """Total semanal de sRPE siempre con su cobertura de sesiones.
+
+    - "1441 UA (parcial: 3 de 4 sesiones)" si faltan sesiones con sRPE;
+    - "1441 UA (4 de 4 sesiones)" si la semana esta completa;
+    - "270 UA (con 1 sesión con sRPE)" si no se puede calcular N.
+    Nunca el numero solo: sin N, una semana con 1 sesion reportada se lee
+    como caida de carga.
+    """
+    value = _coerce_float(total)
+    if value is None:
+        return PDF_MISSING_TEXT
+    base = f"{value:.0f} UA"
+    done = _coerce_float(sessions_done)
+    with_srpe = _coerce_float(sessions_with_srpe)
+    if done is not None and done > 0:
+        reported = int(with_srpe) if with_srpe is not None else 0
+        reported = min(reported, int(done))
+        if reported < int(done):
+            return f"{base} (parcial: {reported} de {int(done)} sesiones)"
+        return f"{base} ({reported} de {int(done)} sesiones)"
+    if with_srpe is not None and with_srpe > 0:
+        count = int(with_srpe)
+        noun = "sesión" if count == 1 else "sesiones"
+        return f"{base} (con {count} {noun} con sRPE)"
+    return base
+
+
+def internal_load_weekly_srpe_text(internal_load: dict[str, object], total: object) -> str:
+    """`weekly_srpe_text` con la cobertura de la semana analizada del contexto."""
+    done = _coerce_float(internal_load.get("analysis_week_sessions_done"))
+    missing = _coerce_float(internal_load.get("analysis_week_sessions_missing"))
+    with_srpe = _coerce_float(internal_load.get("analysis_week_sessions_with_srpe"))
+    if with_srpe is None and done is not None and missing is not None:
+        with_srpe = max(0.0, done - missing)
+    if with_srpe is None:
+        with_srpe = _coerce_float(internal_load.get("sessions_registered"))
+    return weekly_srpe_text(total, done, with_srpe)
+
+
 def _build_professional_internal_load_context(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
@@ -6243,6 +6461,9 @@ def _build_professional_internal_load_context(
         rpe_data = rpe_data[(rpe_data["sRPE"] > 0) & (rpe_data["Date"] <= reference_date)].sort_values("Date")
         if not rpe_data.empty:
             rpe_data["week_start"] = rpe_data["Date"] - pd.to_timedelta(rpe_data["Date"].dt.weekday, unit="D")
+
+    training_ledger = _athlete_training_ledger(state, athlete)
+    srpe_dates = rpe_data["Date"] if not rpe_data.empty else pd.Series(dtype="datetime64[ns]")
 
     weekly_summaries = _report_weekly_summaries(state)
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load"))
@@ -6325,6 +6546,15 @@ def _build_professional_internal_load_context(
                 }
                 for _, row in weekly_chart_source.iterrows()
             ]
+            # Cobertura de sesiones por semana (Raw Workouts): una barra con
+            # 1 de 4 sesiones reportadas es parcial, no una caida de carga.
+            for point in weekly_points:
+                done, with_srpe = _week_session_coverage(
+                    training_ledger, srpe_dates, point["week_start"], end_date=reference_date
+                )
+                point["sessions_done"] = done
+                point["sessions_with_srpe"] = with_srpe
+                point["partial"] = bool(done is not None and with_srpe < done) or float(point.get("missing_frac") or 0.0) > 0
 
     if analysis_scope != "missing" and not rpe_data.empty:
         daily_points, sessions_registered, days_with_data = _professional_week_points_from_daily(
@@ -6344,6 +6574,25 @@ def _build_professional_internal_load_context(
         current_week_points = daily_points
         current_week_sessions = sessions_registered
         current_week_days = days_with_data
+
+    if analysis_scope != "missing":
+        ledger_done, ledger_with_srpe = _week_session_coverage(
+            training_ledger,
+            srpe_dates,
+            analysis_week_start,
+            end_date=reference_date,
+        )
+        if ledger_done is not None:
+            analysis_week_sessions_done = float(ledger_done)
+            analysis_week_sessions_missing = float(max(0, ledger_done - ledger_with_srpe))
+        else:
+            # Sin Raw Workouts del atleta no hay N real de sesiones (el resumen
+            # semanal contaria solo los dias con sRPE).
+            analysis_week_sessions_done = None
+            analysis_week_sessions_missing = None
+        analysis_week_sessions_with_srpe = ledger_with_srpe
+    else:
+        analysis_week_sessions_with_srpe = None
 
     has_daily = len(daily_points) > 0 and analysis_scope == "last_complete_week"
     has_weekly = len(weekly_points) >= 2
@@ -6412,6 +6661,7 @@ def _build_professional_internal_load_context(
         "sessions_registered": sessions_registered,
         "analysis_week_sessions_done": analysis_week_sessions_done,
         "analysis_week_sessions_missing": analysis_week_sessions_missing,
+        "analysis_week_sessions_with_srpe": analysis_week_sessions_with_srpe,
         "days_without_data": max(0, 7 - days_with_data) if has_daily else None,
         "weekly_change": weekly_change,
         "weekly_change_pct": weekly_change_pct,
@@ -6485,24 +6735,13 @@ def _professional_status_label(state_label: object) -> str:
     return "Faltan datos"
 
 
-def _professional_infer_response_scale(values: pd.Series | list[object]) -> str:
-    numeric = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
-    if numeric.empty:
-        return "Escala no definida"
-    max_value = float(numeric.max())
-    min_value = float(numeric.min())
-    if min_value >= 0 and max_value <= 5:
-        return "/5"
-    if min_value >= 0 and max_value <= 10:
-        return "/10"
-    return "Escala no definida"
-
-
 def _professional_wellness_scales(frame: pd.DataFrame) -> dict[str, str]:
+    # Escala fija del cuestionario (modules.wellness_scales), nunca inferida
+    # del maximo de los datos.
     return {
         "sleep": "h",
-        "stress": _professional_infer_response_scale(frame["Estres"]) if "Estres" in frame.columns else "Escala no definida",
-        "pain": _professional_infer_response_scale(frame["Dolor"]) if "Dolor" in frame.columns else "Escala no definida",
+        "stress": WELLNESS_RESPONSE_SCALE if "Estres" in frame.columns else "Escala no definida",
+        "pain": WELLNESS_RESPONSE_SCALE if "Dolor" in frame.columns else "Escala no definida",
         "score": WELLNESS_SCORE_UNIT,
     }
 
@@ -7952,7 +8191,6 @@ def _build_professional_load_tolerance_payload(
     # MONOTONY_MIN_SESSIONS sesiones reportadas la SD de Foster queda casi
     # fijada por la cantidad de ceros (1 sesion en 7 dias => media/SD =
     # 1/sqrt(6) = 0.408 sea cual sea la carga): no describe homogeneidad.
-    MONOTONY_MIN_SESSIONS = 4
     sessions_this_week = _coerce_float(internal_load.get("sessions_registered"))
     monotony_log_gated = mono_row is not None and str(mono_row.get("Monotony_Status") or "") == "incomplete_log"
     monotony_sessions_gated = (
@@ -7991,17 +8229,18 @@ def _build_professional_load_tolerance_payload(
         )
     elif str(internal_load.get("analysis_scope") or "") == "current_week_partial":
         risk_line = "La semana actual sigue abierta; usar el acumulado parcial solo como señal operativa."
-    # Cobertura de sRPE en rojo: ninguna frase de estabilidad ni tolerancia
-    # (los avisos de datos faltantes de arriba se mantienen).
-    coverage_red, coverage_detail = _srpe_coverage_red(state, athlete)
+    # Cobertura no verde o sin ningun indice calculable: ninguna frase de
+    # estabilidad ni tolerancia (los avisos de datos faltantes de arriba se
+    # mantienen porque son mas especificos).
+    load_evaluable, load_eval_detail = _load_evaluability(state, athlete, internal_load)
     has_load_reading = weekly_total is not None or any(
         value is not None for value in (acwr_value, monotony_value, strain_value)
     )
     if risk_line is None:
         if not has_load_reading:
             risk_line = "Faltan datos para valorar la tolerancia de carga."
-        elif coverage_red:
-            risk_line = _not_evaluable_text(coverage_detail)
+        elif not load_evaluable:
+            risk_line = _not_evaluable_text(load_eval_detail)
         elif acwr_value is not None and acwr_value > 1.5:
             risk_line = "La carga reciente luce alta y con riesgo de acumulación; revisar densidad, calendario y tolerancia."
         elif monotony_value is not None and monotony_value > 2.0:
@@ -8014,19 +8253,12 @@ def _build_professional_load_tolerance_payload(
             risk_line = "ACWR, monotonía y strain disponibles: lectura conservadora compatible con control de carga si el wellness y la calidad de sesión acompañan."
         else:
             risk_line = "La carga reciente parece estable y compatible con seguimiento normal del bloque."
+    elif not load_evaluable:
+        # El aviso especifico (ACWR/monotonia no calculable) se conserva, pero
+        # la lectura empieza diciendo que la carga no es evaluable.
+        risk_line = f"{_not_evaluable_text(load_eval_detail)} {risk_line}"
 
-    weekly_total_text = _professional_number_text(weekly_total, digits=0, unit="UA")
-    sessions_done = _coerce_float(internal_load.get("analysis_week_sessions_done"))
-    sessions_missing = _coerce_float(internal_load.get("analysis_week_sessions_missing"))
-    if (
-        weekly_total is not None
-        and sessions_done is not None
-        and sessions_missing is not None
-        and sessions_done > 0
-        and sessions_missing > 0
-    ):
-        with_srpe = max(0, int(sessions_done - sessions_missing))
-        weekly_total_text = f"{weekly_total_text} (parcial: {with_srpe} de {int(sessions_done)} sesiones)"
+    weekly_total_text = internal_load_weekly_srpe_text(internal_load, weekly_total)
 
     rows = [
         ("Semana analizada", safe_value(internal_load.get("analysis_week_label"))),
@@ -8034,7 +8266,16 @@ def _build_professional_load_tolerance_payload(
         ("Cambio vs semana previa", gate_text if acwr_gated else change_text),
         ("Sesiones con sRPE (semana)", safe_value(internal_load.get("sessions_registered"))),
         ("ACWR EWMA", gate_text if acwr_gated else _professional_number_text(acwr_value, digits=2)),
-        ("Zona ACWR", PROFESSIONAL_ACWR_GATED_ZONE_TEXT if acwr_gated else acwr_zone),
+        (
+            "Zona ACWR",
+            PROFESSIONAL_ACWR_GATED_ZONE_TEXT
+            if acwr_gated
+            else (
+                PROFESSIONAL_ACWR_NOT_EVALUABLE_ZONE_TEXT
+                if not load_evaluable and acwr_zone != PDF_MISSING_TEXT
+                else acwr_zone
+            ),
+        ),
         ("Monotonía", monotony_gate_text if monotony_gated else _professional_number_text(monotony_value, digits=2)),
         ("Strain", monotony_gate_text if monotony_gated else _professional_number_text(strain_value, digits=0)),
     ]
@@ -8048,7 +8289,7 @@ def _build_professional_load_tolerance_payload(
         "message": "" if available_rows else "Faltan datos suficientes para consolidar la carga interna reciente.",
         "rows": available_rows,
         "risk_line": risk_line,
-        "coverage_red": coverage_red,
+        "load_evaluable": load_evaluable,
         "weekly_points": internal_load.get("weekly_points", []),
         "analysis_scope": internal_load.get("analysis_scope"),
     }
@@ -8115,15 +8356,15 @@ def _build_professional_wellness_availability_payload(
     stress_mean = _coerce_float(summary.get("stress_mean"))
     pain_mean = _coerce_float(summary.get("pain_mean"))
     sleep_mean = _coerce_float(summary.get("sleep_mean"))
-    coverage_red, coverage_detail = _srpe_coverage_red(state, athlete)
+    load_evaluable, load_eval_detail = _load_evaluability(state, athlete, internal_load)
     compatibility = "Faltan datos suficientes para cruzar wellness, disponibilidad y carga."
     if wellness_context.get("state") == "partial":
         compatibility = "Datos parciales de wellness/disponibilidad: usar la lectura como señal preliminar y no como tendencia cerrada."
     elif wellness_context.get("state") == "available" and load_state == "missing":
         compatibility = "Wellness/disponibilidad disponible, pero sin carga interna reciente conviene usarlo solo como contexto parcial."
-    elif coverage_red:
+    elif not load_evaluable:
         # Sin carga evaluable no se puede afirmar estabilidad ni tolerancia.
-        compatibility = _not_evaluable_text(coverage_detail)
+        compatibility = _not_evaluable_text(load_eval_detail)
     elif weekly_change_pct is not None and weekly_change_pct > 10 and (
         _professional_wellness_high(stress_mean, scales.get("stress"))
         or _professional_wellness_high(pain_mean, scales.get("pain"))
@@ -8561,13 +8802,19 @@ def _build_professional_integrated_decision_payload(
         # Un "No calculable (...)" en la tabla no es un dato de carga: no debe
         # entrar a frases del tipo "el contexto acompaña una lectura utilizable".
         text = str(value or "")
-        if text.startswith("No calculable") or text == PROFESSIONAL_ACWR_GATED_ZONE_TEXT:
+        if text.startswith("No calculable") or text in {
+            PROFESSIONAL_ACWR_GATED_ZONE_TEXT,
+            PROFESSIONAL_ACWR_NOT_EVALUABLE_ZONE_TEXT,
+        }:
             return ""
         return text
 
     zone_text = _usable_load_value(load_rows.get("Zona ACWR", ""))
     acwr_text = _usable_load_value(load_rows.get("ACWR EWMA", ""))
     monotony_text = _usable_load_value(load_rows.get("Monotonía", ""))
+    if load_payload.get("load_evaluable") is False:
+        # Carga no evaluable: no puede sostener frases de contexto favorable.
+        zone_text = acwr_text = monotony_text = ""
     load_fact = _professional_join_labels(
         [
             f"ACWR {acwr_text}" if _has_text(acwr_text) else "",
@@ -8917,6 +9164,8 @@ def _build_professional_executive_payload(
     acwr_gated, acwr_gate_reason = _professional_load_quality_gate(state, athlete)
     if acwr_gated and load_rows:
         signals.append(_clip_signal(f"ACWR no calculable: {acwr_gate_reason}."))
+    elif load_rows and load_payload.get("load_evaluable") is False:
+        signals.append(_clip_signal(f"Carga: {str(load_payload.get('risk_line') or LOAD_NOT_EVALUABLE_TEXT)}"))
     elif load_rows:
         load_parts = []
         if _has_text(load_rows.get("ACWR EWMA")):
@@ -9152,11 +9401,11 @@ def _build_professional_integrated_interpretation(
             wellness_comments.append(f"El {score_label} cambió {score_delta:+.1f} puntos respecto a la semana previa y se mantiene relativamente estable.")
         elif score_delta < -0.5:
             wellness_comments.append(
-                f"El {score_label} disminuyó {magnitude:.1f} puntos respecto a la semana previa; señal compatible con menor tolerancia o mayor carga contextual."
+                f"El {score_label} disminuyó {magnitude:.1f} puntos respecto a la semana previa; conviene revisar recuperación y contexto de carga."
             )
         else:
             wellness_comments.append(
-                f"El {score_label} aumentó {magnitude:.1f} puntos respecto a la semana previa, señal compatible con buena tolerancia si el contexto acompaña."
+                f"El {score_label} aumentó {magnitude:.1f} puntos respecto a la semana previa; por sí solo no permite afirmar tolerancia a la carga."
             )
     if load_scope != "current_week_partial" and weekly_change_pct is not None and weekly_change_pct > 10 and _professional_wellness_high(stress_mean, scales.get("stress")):
         wellness_comments.append(
@@ -10178,11 +10427,14 @@ def _generate_professional_profile_pdf_reportlab(
         sessions = payload.get("current_week_sessions" if scope == "current_week_partial" else "sessions_registered")
         sample_days = int(payload.get("current_week_days" if scope == "current_week_partial" else "last_week_days_with_data") or 0)
         days = payload.get("current_week_days" if scope == "current_week_partial" else "days_without_data")
-        weekly_value = f"{total:.0f} UA" if total is not None else PDF_MISSING_TEXT
+        if total is None:
+            weekly_value = PDF_MISSING_TEXT
+        elif scope == "current_week_partial":
+            weekly_value = weekly_srpe_text(total, None, sessions)
+        else:
+            weekly_value = internal_load_weekly_srpe_text(payload, total)
         daily_value = f"{srpe_daily_mean:.1f} UA" if srpe_daily_mean is not None else PDF_MISSING_TEXT
         sample_suffix = _report_sample_suffix(sample_days)
-        if weekly_value != PDF_MISSING_TEXT and sample_suffix:
-            weekly_value = f"{weekly_value}  {sample_suffix}"
         if daily_value != PDF_MISSING_TEXT and sample_suffix:
             daily_value = f"{daily_value}  {sample_suffix}"
         sample_note = _report_sample_warning(sample_days)
@@ -10675,7 +10927,11 @@ def _generate_professional_profile_pdf_reportlab(
         else:
             total = _coerce_float(internal_load.get("last_week_total"))
             change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
-            summary = f"Total última semana completa: {total:.0f} UA." if total is not None else "Total última semana completa: Faltan datos."
+            summary = (
+                f"Total última semana completa: {internal_load_weekly_srpe_text(internal_load, total)}."
+                if total is not None
+                else "Total última semana completa: Faltan datos."
+            )
         if internal_load.get("analysis_scope") != "current_week_partial" and change_pct is not None:
             summary = f"{summary} Cambio vs semana previa: {change_pct:+.1f}%."
         target.append(
@@ -11022,7 +11278,7 @@ def _generate_professional_profile_pdf_reportlab(
             total = _coerce_float(internal_load.get("last_week_total"))
             weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
             if total is not None:
-                load_text = f"La carga interna de la última semana completa fue {total:.0f} UA."
+                load_text = f"La carga interna de la última semana completa fue {internal_load_weekly_srpe_text(internal_load, total)}."
                 if weekly_change_pct is not None:
                     load_text = f"{load_text} Cambió {weekly_change_pct:+.1f}% respecto a la semana previa."
                 else:
@@ -11466,12 +11722,8 @@ def _generate_professional_profile_pdf_reportlab(
             return
         target.append(Spacer(1, 3 * mm))
         target.append(_mini_cards_table(wellness_availability_payload.get("rows", []), columns=3))
-        chart_points = (
-            wellness_availability_payload.get("weekly_points", [])
-            if wellness_availability_payload.get("trend_allowed")
-            else wellness_availability_payload.get("daily_points", [])
-        )
-        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44)
+        chart_points, chart_title = wellness_chart_points_and_title(wellness_availability_payload)
+        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44, title=chart_title)
         if chart is not None:
             target.append(Spacer(1, 3 * mm))
             target.append(
@@ -12017,6 +12269,7 @@ def _generate_visual_report_pdf_reportlab(
         )
         completion_value = _focus_completion_value(state, effective_athlete)
         internal_load = _build_professional_internal_load_context(state, effective_athlete)
+        focus_row = _gate_focus_row_load(focus_row, state, effective_athlete, internal_load)
         wellness_context = _professional_wellness_context(state, effective_athlete)
         profile_reading = _athlete_profile_interpretation(
             focus_row,
@@ -12130,7 +12383,9 @@ def _generate_visual_report_pdf_reportlab(
                 lines.append("Todavía faltan evaluaciones y registros recientes para una lectura más completa.")
             zone = _professional_normalized_text(_athlete_zone_text())
             if load_available:
-                if "alto riesgo" in zone:
+                if _zone_not_evaluable(zone):
+                    lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
+                elif "alto riesgo" in zone:
                     lines.append("La carga reciente viene exigente y conviene ordenarla para sostener mejor la tolerancia.")
                 elif "precaucion" in zone:
                     lines.append("La carga reciente pide un poco más de cuidado para sostener continuidad.")
@@ -12215,7 +12470,11 @@ def _generate_visual_report_pdf_reportlab(
                     else PDF_MISSING_TEXT
                 )
             else:
-                week_text = _athlete_metric(internal_load.get("last_week_total"), digits=0, suffix=" UA")
+                week_text = (
+                    internal_load_weekly_srpe_text(internal_load, internal_load.get("last_week_total"))
+                    if _coerce_float(internal_load.get("last_week_total")) is not None
+                    else _athlete_metric(internal_load.get("last_week_total"), digits=0, suffix=" UA")
+                )
                 weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
                 change_text = f"{weekly_change_pct:+.1f}%" if weekly_change_pct is not None else PDF_MISSING_TEXT
                 sessions_registered = _coerce_float(internal_load.get("sessions_registered"))
@@ -12239,6 +12498,8 @@ def _generate_visual_report_pdf_reportlab(
                 return "La semana sigue en curso y todavía faltan datos suficientes para leer mejor la carga reciente."
             if not load_available:
                 return "Faltan datos recientes de carga interna para entender mejor cómo venís tolerando el entrenamiento."
+            if _zone_not_evaluable(zone):
+                return LOAD_NOT_EVALUABLE_PLAIN_LINE
             if "alto riesgo" in zone:
                 return "La carga reciente viene alta y conviene ordenarla para sostener mejor la tolerancia."
             if "precaucion" in zone:
@@ -13038,6 +13299,7 @@ def _generate_visual_report_pdf_reportlab(
         )
         completion_value = _focus_completion_value(state, effective_athlete)
         internal_load = _build_professional_internal_load_context(state, effective_athlete)
+        focus_row = _gate_focus_row_load(focus_row, state, effective_athlete, internal_load)
         wellness_context = _professional_wellness_context(state, effective_athlete)
         client_charts = _collect_client_pdf_chart_payloads(state, effective_athlete)
 
@@ -13188,7 +13450,11 @@ def _generate_visual_report_pdf_reportlab(
             zone = _professional_normalized_text(_client_zone_text())
             if _row_has_eval_data(focus_row):
                 lines.append("Ya tenemos una referencia útil para seguir tu proceso.")
-            if _row_has_load_data(focus_row) and all(flag not in zone for flag in ["alto riesgo", "precaucion", "subcarga"]):
+            if (
+                _row_has_load_data(focus_row)
+                and not _zone_not_evaluable(zone)
+                and all(flag not in zone for flag in ["alto riesgo", "precaucion", "subcarga"])
+            ):
                 lines.append("La carga reciente está en una zona útil para seguir construyendo.")
             mean_value = _client_wellness_mean_value()
             if mean_value is not None and mean_value >= 3.0:
@@ -13335,7 +13601,9 @@ def _generate_visual_report_pdf_reportlab(
                     )
                 zone = _professional_normalized_text(_client_zone_text())
                 if _row_has_load_data(focus_row):
-                    if "alto riesgo" in zone:
+                    if _zone_not_evaluable(zone):
+                        lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
+                    elif "alto riesgo" in zone:
                         lines.append("La carga reciente viene exigente y conviene ordenarla con un poco más de cuidado.")
                     elif "precaucion" in zone:
                         lines.append("La carga permite seguir entrenando, pero pide cuidado y más continuidad antes de subir exigencia.")
@@ -13413,7 +13681,7 @@ def _generate_visual_report_pdf_reportlab(
                 {"label": "Estado de la carga", "value": _client_zone_text()},
                 {
                     "label": "Última semana visible",
-                    "value": _client_metric(internal_load.get("last_week_total"), digits=0, suffix=" UA", fallback=_client_missing_text("registration"))
+                    "value": internal_load_weekly_srpe_text(internal_load, internal_load.get("last_week_total"))
                     if _coerce_float(internal_load.get("last_week_total")) is not None
                     else ("Semana en curso" if str(internal_load.get("analysis_scope") or "") == "current_week_partial" else _client_missing_text("registration")),
                 },
@@ -13443,6 +13711,8 @@ def _generate_visual_report_pdf_reportlab(
                     lines.append(f"La semana sigue en curso. Por ahora acumulaste {total:.0f} UA en {sessions} sesiones y conviene esperar el cierre semanal para compararla mejor.")
                 else:
                     lines.append("La semana sigue en curso y todavía falta información para leer bien la carga reciente.")
+            elif _zone_not_evaluable(zone):
+                lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
             elif "alto riesgo" in zone:
                 lines.append("La carga reciente viene exigente y conviene ordenar la semana para que el cuerpo la tolere mejor.")
             elif "precaucion" in zone:

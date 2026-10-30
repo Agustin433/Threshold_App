@@ -14,6 +14,7 @@ import zlib
 
 import pandas as pd
 from modules.app_clock import APP_TIMEZONE, app_today
+from modules.wellness_scales import WELLNESS_RESPONSE_MAX
 from openpyxl.utils.exceptions import InvalidFileException
 
 from modules.athlete_names import (
@@ -592,14 +593,16 @@ def _wellness_score(sueno, estres, dolor):
         return None
 
     # Higher score should represent better wellness: sleep contributes positively,
-    # while stress and pain are inverted on the observed 0-10 TeamBuildr scale.
+    # while stress and pain are inverted on the TeamBuildr questionnaire scale
+    # (modules.wellness_scales, 0-10).
+    top = WELLNESS_RESPONSE_MAX
     score = 0.0
     if sleep is not None:
-        score += max(0.0, min(10.0, sleep))
+        score += max(0.0, min(top, sleep))
     if stress is not None:
-        score += max(0.0, 10.0 - max(0.0, min(10.0, stress)))
+        score += max(0.0, top - max(0.0, min(top, stress)))
     if pain is not None:
-        score += max(0.0, 10.0 - max(0.0, min(10.0, pain)))
+        score += max(0.0, top - max(0.0, min(top, pain)))
     return score
 
 

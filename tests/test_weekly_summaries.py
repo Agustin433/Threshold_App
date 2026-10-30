@@ -487,7 +487,7 @@ class WeeklySummariesTest(unittest.TestCase):
         self.assertEqual([trace.name for trace in strain_figure.data], ["Strain"])
         self.assertEqual(
             [trace.name for trace in wellness_figure.data],
-            ["Sueno medio", "Estres medio", "Dolor medio"],
+            ["Sueño medio (h)", "Estrés medio (0-10)", "Dolor medio (0-10)"],
         )
         self.assertIn("Strength kg", [trace.name for trace in external_figure.data])
         self.assertIn("Sprint distance (m)", [trace.name for trace in external_figure.data])
