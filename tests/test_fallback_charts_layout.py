@@ -137,6 +137,24 @@ class FallbackChartLayoutTest(unittest.TestCase):
         )
         _check_layout(self, drawing, title="sRPE semanal + EMA 6 semanas")
 
+    def test_partial_weeks_are_hatched_and_labelled(self):
+        # Semana con 1 de 4 sesiones reportadas: barra rayada con rotulo, no
+        # una barra llena que se lea como caida de carga.
+        points = [dict(point) for point in SRPE_POINTS]
+        points[2].update({"value": 270.0, "partial": True, "sessions_done": 4, "sessions_with_srpe": 1})
+        points[-1].update({"partial": True, "sessions_done": 4, "sessions_with_srpe": 3})
+        drawing = build_fallback_weekly_ema_chart(points, PALETTE, SHAPES, width_mm=174, height_mm=48, mm=mm)
+        _check_layout(self, drawing, title="sRPE semanal + EMA 6 semanas")
+        texts = {item.text for item in drawing.contents if isinstance(item, String)}
+        self.assertIn("1/4", texts)
+        self.assertIn("1441 · 3/4", texts)
+        self.assertTrue(any("semana parcial" in text for text in texts))
+        stripes = [
+            item for item in drawing.contents
+            if isinstance(item, Line) and item.y1 == item.y2 and item.strokeColor == PALETTE["orange"]
+        ]
+        self.assertGreater(len(stripes), 3)
+
     def test_not_enough_points(self):
         self.assertIsNone(build_fallback_wellness_chart(WELLNESS_POINTS[:1], PALETTE, SHAPES, mm=mm))
         self.assertIsNone(build_fallback_weekly_ema_chart(SRPE_POINTS[:1], PALETTE, SHAPES, mm=mm))

@@ -136,7 +136,15 @@ class ProfessionalReportUsesModelGateTest(unittest.TestCase):
         rpe_df = pd.DataFrame([{"Athlete": "Ana Lopez", "Date": day, "sRPE": 480.0} for day in logged_dates])
         raw_df = pd.DataFrame([{"Athlete": "Ana Lopez", "Assigned Date": day, "Exercise": "Back Squat"} for day in TRAINED])
         acwr_dict, mono_dict = local_store.build_load_models(rpe_df, weeks=None, raw_df=raw_df)
-        return {"rpe_df": rpe_df, "raw_df": raw_df, "acwr_dict": acwr_dict, "mono_dict": mono_dict}
+        # Wellness completo: el semaforo de cobertura solo depende del sRPE.
+        wellness_df = pd.DataFrame([{"Athlete": "Ana Lopez", "Date": day, "Wellness_Score": 20.0} for day in TRAINED])
+        return {
+            "rpe_df": rpe_df,
+            "raw_df": raw_df,
+            "wellness_df": wellness_df,
+            "acwr_dict": acwr_dict,
+            "mono_dict": mono_dict,
+        }
 
     def test_low_compliance_shows_no_acwr_zone_in_load_card_or_signals(self):
         from modules import report_generator
@@ -158,7 +166,10 @@ class ProfessionalReportUsesModelGateTest(unittest.TestCase):
         from modules import report_generator
 
         state = self._state(TRAINED)
-        payload = report_generator._build_professional_load_tolerance_payload(state, "Ana Lopez", {})
+        with unittest.mock.patch.object(
+            report_generator, "_professional_report_today", return_value=pd.Timestamp("2026-10-06")
+        ):
+            payload = report_generator._build_professional_load_tolerance_payload(state, "Ana Lopez", {})
         rows = dict(payload["rows"])
 
         self.assertFalse(rows["ACWR EWMA"].startswith("No calculable"))

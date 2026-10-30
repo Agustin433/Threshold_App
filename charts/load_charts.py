@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from modules.wellness_scales import PAIN_LABEL, SLEEP_LABEL, STRESS_LABEL, WELLNESS_EXPORT_HEADERS
 from modules.data_loader import (
     STRENGTH_PATTERN_LABELS,
     add_strength_detail_columns,
@@ -159,9 +160,9 @@ def chart_wellness(w_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figur
 
     fig = go.Figure()
     config = [
-        ("Sueno_hs", "Sueno (hs)", colors["blue"]),
-        ("Estres", "Estres", colors["yellow"]),
-        ("Dolor", "Dolor", colors["red"]),
+        ("Sueno_hs", SLEEP_LABEL, colors["blue"]),
+        ("Estres", STRESS_LABEL, colors["yellow"]),
+        ("Dolor", PAIN_LABEL, colors["red"]),
         ("Wellness_Score", "Score Total", colors["green"]),
     ]
     for column, label, color in config:
@@ -772,9 +773,9 @@ def chart_weekly_wellness(weekly_wellness_df: pd.DataFrame, athlete: str, *, the
     athlete_df = athlete_df.sort_values("week_start")
     fig = go.Figure()
     for column, label, color in [
-        ("Sueno_mean", "Sueno medio", colors["blue"]),
-        ("Estres_mean", "Estres medio", colors["yellow"]),
-        ("Dolor_mean", "Dolor medio", colors["red"]),
+        ("Sueno_mean", WELLNESS_EXPORT_HEADERS["Sueno_mean"], colors["blue"]),
+        ("Estres_mean", WELLNESS_EXPORT_HEADERS["Estres_mean"], colors["yellow"]),
+        ("Dolor_mean", WELLNESS_EXPORT_HEADERS["Dolor_mean"], colors["red"]),
     ]:
         fig.add_trace(
             go.Scatter(

@@ -1013,8 +1013,9 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertEqual(context["last_week_summary"]["days"], 3)
         self.assertAlmostEqual(context["last_week_summary"]["sleep_mean"], 7.0, places=1)
         self.assertEqual(context["scales"]["sleep"], "h")
-        self.assertEqual(context["scales"]["stress"], "/5")
-        self.assertEqual(context["scales"]["pain"], "/5")
+        # Escala fija del cuestionario (0-10), aunque los datos no pasen de 5.
+        self.assertEqual(context["scales"]["stress"], "/10")
+        self.assertEqual(context["scales"]["pain"], "/10")
         self.assertEqual(context["scales"]["score"], WELLNESS_SCORE_UNIT)
 
     def test_wellness_context_marks_single_record_as_partial_context_not_trend(self):
