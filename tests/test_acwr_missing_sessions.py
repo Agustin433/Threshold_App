@@ -224,16 +224,20 @@ class WeeklyAcwrMissingSessionsTest(unittest.TestCase):
         self.assertAlmostEqual(float(last["acwr_rolling_1_4"]), 1.0, places=2)
 
     def test_chart_stacks_estimated_load_and_marks_incomplete_weeks(self):
-        from charts.load_charts import chart_weekly_acwr_context
-        from modules.load_monitoring import build_weekly_acwr_context
+        from charts.report_charts import ESTIMATED_LABEL, NOT_CALCULABLE_LABEL, REPORTED_LABEL, load_chart
         from tests.test_weekly_acwr_context import _chart_theme
 
-        context = build_weekly_acwr_context(self._weekly(TRAINED[::4]), "Ana Lopez", weeks=None)
-        names = [trace.name for trace in chart_weekly_acwr_context(context, "Ana Lopez", theme=_chart_theme()).data]
+        rpe_df = pd.DataFrame([{"Athlete": "Ana Lopez", "Date": day, "sRPE": 480.0} for day in TRAINED[::4]])
+        raw_df = pd.DataFrame([{"Athlete": "Ana Lopez", "Assigned Date": day, "Exercise": "Back Squat"} for day in TRAINED])
+        acwr_dict, _ = local_store.build_load_models(rpe_df, weeks=None, raw_df=raw_df)
+        figure = load_chart(
+            self._weekly(TRAINED[::4]), acwr_dict["Ana Lopez"], "Ana Lopez", theme=_chart_theme(), show_acwr=True
+        )
+        names = [trace.name for trace in figure.data]
 
-        self.assertIn("Carga semanal", names)
-        self.assertIn("Estimada (sesiones sin sRPE)", names)
-        self.assertIn("ACWR no calculable (sesiones sin sRPE)", names)
+        self.assertIn(REPORTED_LABEL, names)
+        self.assertIn(ESTIMATED_LABEL, names)
+        self.assertIn(NOT_CALCULABLE_LABEL, names)
 
     def test_pdf_weekly_change_is_blocked_with_unreported_sessions(self):
         from modules import report_generator

@@ -188,7 +188,7 @@ def chart_wellness(w_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figur
     return fig
 
 
-def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:
+def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict, mode: str = "screen") -> go.Figure:
     colors, layout, _, grid_soft, legend = _theme_parts(theme)
     prepared = raw_df if is_prepared_raw_workouts_df(raw_df) else prepare_raw_workouts_df(raw_df)
     required_cols = {"Assigned Date", "Category", "stimulus_category", "Volume_Load_kg", "Contacts", "Exposures"}
@@ -411,6 +411,15 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> g
     )
     for row_index in range(1, len(active_sections) + 1):
         fig.update_xaxes(title="Semana", gridcolor=grid_soft, zeroline=False, row=row_index, col=1)
+    if mode == "print":
+        # Misma figura que el dashboard, en modo impresion: ancho completo de
+        # pagina y fuente >= 11 pt (antes iba en media columna y no se leia).
+        from charts.report_charts import apply_chart_mode
+
+        fig.update_xaxes(title_text="", tickformat="%d/%m")
+        return apply_chart_mode(
+            fig, "print", theme=theme, title=None, print_height_mm=40.0 + 52.0 * len(active_sections)
+        )
     return fig
 
 
@@ -483,216 +492,6 @@ def chart_weekly_load(weekly_load_df: pd.DataFrame, athlete: str, *, theme: dict
         ),
         legend=legend,
     )
-    return fig
-
-
-def chart_weekly_acwr_context(acwr_context_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:
-    colors, layout, grid, grid_soft, legend = _theme_parts(theme)
-    required_cols = {"week_start", "weekly_sRPE", "chronic_4w", "acwr_rolling_1_4", "acwr_rolling_ma4"}
-    athlete_df = acwr_context_df.copy() if acwr_context_df is not None else pd.DataFrame()
-    if athlete_df.empty or not required_cols.issubset(athlete_df.columns):
-        fig = go.Figure()
-        fig.update_layout(
-            **layout,
-            height=520,
-            title=dict(text=f"<b>Contexto semanal de carga - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
-            annotations=[
-                dict(
-                    text="No hay suficiente historial semanal para calcular contexto ACWR.",
-                    x=0.5,
-                    y=0.5,
-                    xref="paper",
-                    yref="paper",
-                    showarrow=False,
-                    font=dict(color=colors["muted"], size=13),
-                )
-            ],
-        )
-        return fig
-
-    athlete_df = athlete_df.sort_values("week_start").copy()
-    for column in [
-        "weekly_sRPE",
-        "weekly_sRPE_model",
-        "sessions_missing",
-        "chronic_4w",
-        "acwr_rolling_1_4",
-        "acwr_rolling_ma4",
-        "weekly_change_pct",
-    ]:
-        if column in athlete_df.columns:
-            athlete_df[column] = pd.to_numeric(athlete_df[column], errors="coerce")
-    # La cronica se calcula sobre la carga del modelo (reportada + sesiones
-    # sin sRPE estimadas). Si las barras mostraran solo lo reportado, una
-    # semana con huecos se veria como descarga frente a esa cronica.
-    model_load = athlete_df["weekly_sRPE_model"] if "weekly_sRPE_model" in athlete_df.columns else athlete_df["weekly_sRPE"]
-    estimated_load = (model_load.fillna(athlete_df["weekly_sRPE"]) - athlete_df["weekly_sRPE"]).clip(lower=0).fillna(0.0)
-    missing_sessions = (
-        athlete_df["sessions_missing"].fillna(0)
-        if "sessions_missing" in athlete_df.columns
-        else pd.Series(0.0, index=athlete_df.index)
-    )
-
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.12,
-        subplot_titles=["Carga semanal", "Relacion aguda:cronica semanal"],
-    )
-
-    hover_data = pd.DataFrame(
-        {
-            "chronic_4w": athlete_df["chronic_4w"],
-            "acwr_rolling_1_4": athlete_df["acwr_rolling_1_4"],
-            "acwr_rolling_ma4": athlete_df["acwr_rolling_ma4"],
-            "weekly_change_pct": athlete_df.get("weekly_change_pct", pd.Series(index=athlete_df.index, dtype="float64")),
-        }
-    )
-    fig.add_trace(
-        go.Bar(
-            x=athlete_df["week_start"],
-            y=athlete_df["weekly_sRPE"],
-            name="Carga semanal",
-            marker_color=colors["steel"],
-            customdata=hover_data.to_numpy(),
-            hovertemplate=(
-                "%{x|Sem %d/%m}<br>Carga semanal reportada: %{y:.0f} UA"
-                "<br>Cronica 4 sem previas: %{customdata[0]:.0f} UA"
-                "<br>ACWR semanal: %{customdata[1]:.2f}"
-                "<br>ACWR MA4: %{customdata[2]:.2f}"
-                "<br>Cambio vs semana previa: %{customdata[3]:+.0f}%<extra></extra>"
-            ),
-        ),
-        row=1,
-        col=1,
-    )
-    if estimated_load.gt(0).any():
-        fig.add_trace(
-            go.Bar(
-                x=athlete_df["week_start"],
-                y=estimated_load,
-                name="Estimada (sesiones sin sRPE)",
-                marker=dict(color=colors["steel"], opacity=0.35, pattern=dict(shape="/")),
-                customdata=missing_sessions.to_numpy(),
-                hovertemplate=(
-                    "%{x|Sem %d/%m}<br>Carga estimada: %{y:.0f} UA"
-                    "<br>Sesiones sin sRPE: %{customdata:.0f}<extra></extra>"
-                ),
-            ),
-            row=1,
-            col=1,
-        )
-        fig.update_layout(barmode="stack")
-    fig.add_trace(
-        go.Scatter(
-            x=athlete_df["week_start"],
-            y=athlete_df["chronic_4w"],
-            name="Cronica 4 semanas previas",
-            mode="lines+markers",
-            line=dict(color=colors["navy"], width=2.5),
-            marker=dict(size=6),
-            hovertemplate="%{x|Sem %d/%m}<br>Cronica: %{y:.0f} UA<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-
-    spike_series = (
-        athlete_df["spike_flag"].fillna(False).astype(bool)
-        if "spike_flag" in athlete_df.columns
-        else pd.Series(False, index=athlete_df.index)
-    )
-    spikes = athlete_df[spike_series].copy()
-    if not spikes.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=spikes["week_start"],
-                y=model_load.loc[spikes.index].fillna(spikes["weekly_sRPE"]),
-                name="Spike semanal",
-                mode="markers",
-                marker=dict(size=11, color=colors["red"], symbol="diamond"),
-                hovertemplate="%{x|Sem %d/%m}<br>Spike de carga: %{y:.0f} UA<extra></extra>",
-            ),
-            row=1,
-            col=1,
-        )
-
-    acwr_zones = [
-        (0.0, 0.8, "rgba(74,159,212,0.10)", "Carga reciente baja"),
-        (0.8, 1.3, "rgba(111,143,120,0.10)", "Relacion estable"),
-        (1.3, 1.5, "rgba(196,164,100,0.12)", "Aumento moderado"),
-        (1.5, 3.0, "rgba(181,107,115,0.10)", "Spike / cambio agresivo"),
-    ]
-    for y0, y1, fill, label in acwr_zones:
-        fig.add_hrect(
-            y0=y0,
-            y1=y1,
-            fillcolor=fill,
-            layer="below",
-            line_width=0,
-            annotation_text=label,
-            annotation_position="right",
-            annotation_font=dict(size=9, color=colors["muted"]),
-            row=2,
-            col=1,
-        )
-
-    fig.add_trace(
-        go.Scatter(
-            x=athlete_df["week_start"],
-            y=athlete_df["acwr_rolling_1_4"],
-            name="ACWR rolling 1:4",
-            mode="lines+markers",
-            line=dict(color=colors.get("orange", colors["yellow"]), width=1.8),
-            marker=dict(size=7),
-            hovertemplate="%{x|Sem %d/%m}<br>ACWR rolling 1:4: %{y:.2f}<extra></extra>",
-        ),
-        row=2,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=athlete_df["week_start"],
-            y=athlete_df["acwr_rolling_ma4"],
-            name="Media movil ACWR 4 sem",
-            mode="lines",
-            line=dict(color=colors["red"], width=3),
-            hovertemplate="%{x|Sem %d/%m}<br>ACWR MA4: %{y:.2f}<extra></extra>",
-        ),
-        row=2,
-        col=1,
-    )
-    if "context_status" in athlete_df.columns:
-        incomplete_weeks = athlete_df[athlete_df["context_status"].eq("incomplete_log")]
-        if not incomplete_weeks.empty:
-            fig.add_trace(
-                go.Scatter(
-                    x=incomplete_weeks["week_start"],
-                    y=[0.1] * len(incomplete_weeks),
-                    name="ACWR no calculable (sesiones sin sRPE)",
-                    mode="markers",
-                    marker=dict(size=10, color=colors["muted"], symbol="x"),
-                    hovertemplate="%{x|Sem %d/%m}<br>ACWR no calculable: sesiones sin sRPE<extra></extra>",
-                ),
-                row=2,
-                col=1,
-            )
-
-    fig.update_layout(
-        **layout,
-        height=640,
-        title=dict(
-            text=f"<b>Contexto semanal de carga - {athlete}</b>",
-            font=dict(color=colors["navy"], size=13),
-        ),
-        legend=legend,
-        hovermode="x unified",
-    )
-    fig.update_yaxes(title_text="sRPE semanal", gridcolor=grid_soft, zeroline=False, row=1, col=1)
-    fig.update_yaxes(title_text="ACWR", range=[0, 2.6], gridcolor=grid, zeroline=False, row=2, col=1)
-    fig.update_xaxes(title_text="Semana", showgrid=False, row=2, col=1)
-    fig.update_annotations(font=dict(color=colors["gray"], size=11))
     return fig
 
 

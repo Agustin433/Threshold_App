@@ -1,19 +1,28 @@
-"""Verifica que el PDF profesional traiga los graficos como IMAGENES (kaleido).
+"""Verifica que los tres PDF traigan sus graficos como IMAGENES (kaleido).
 
-Sin Chrome, kaleido no renderiza y el PDF sale solo con el logo como imagen:
-los graficos caen al respaldo dibujado a mano. Este script genera un PDF real
-con datos de prueba, lo guarda y cuenta las imagenes embebidas.
+Para cada reporte (profesional, atleta, cliente) genera el PDF real con datos
+de prueba y compara las imagenes de grafico embebidas con las esperadas:
+
+- profesional: carga + ACWR EWMA, wellness score, sueno/estres/dolor y
+  distribucion del bloque (4);
+- atleta: carga semanal + cronica y wellness score (2);
+- cliente: sesiones por semana y wellness score (2).
+
+Los graficos se reconocen por su ancho en pixeles (lienzo de impresion x
+escala), asi no se confunden con las imagenes de marca. Usa `pdfimages -list`
+(poppler) si esta instalado; si no, lee las imagenes con pypdf.
 
 Uso:
-    python scripts/check_pdf_charts.py [salida.pdf] [--brand-images N]
+    python scripts/check_pdf_charts.py [carpeta_salida]
 
-Sale con codigo 1 si kaleido no genero ningun grafico, si quedo desactivado
-o si el PDF no tiene mas imagenes que las de marca (icono + logotipo = 2).
+Sale con codigo 1 si kaleido quedo desactivado o si algun reporte no trae
+exactamente los graficos esperados.
 """
 
 from __future__ import annotations
 
-import argparse
+import shutil
+import subprocess
 import sys
 from io import BytesIO
 from pathlib import Path
@@ -24,63 +33,77 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from pypdf import PdfReader  # noqa: E402
 
+from charts.report_charts import PRINT_CANVAS_WIDTH_PX, PRINT_SCALE  # noqa: E402
 from modules import report_generator  # noqa: E402
-from test_professional_pdf_report import _professional_state_with_force_time  # noqa: E402
+from modules.app_clock import frozen_app_now  # noqa: E402
+from test_reports_yellow_coverage import ATHLETE, NOW, full_charts_state  # noqa: E402
+
+CHART_IMAGE_WIDTH_PX = PRINT_CANVAS_WIDTH_PX * PRINT_SCALE
+AUDIENCES = ("profe", "atleta", "cliente")
 
 
-def count_pdf_images(pdf: bytes) -> int:
-    reader = PdfReader(BytesIO(pdf))
-    return sum(len(page.images) for page in reader.pages)
+def chart_image_widths_pdfimages(path: Path) -> list[int] | None:
+    """Anchos de las imagenes segun `pdfimages -list` (None si no esta instalado)."""
+    if shutil.which("pdfimages") is None:
+        return None
+    output = subprocess.run(["pdfimages", "-list", str(path)], capture_output=True, text=True, check=True).stdout
+    widths: list[int] = []
+    for line in output.splitlines()[2:]:  # encabezado + separador
+        parts = line.split()
+        if len(parts) > 4 and parts[2] == "image":
+            widths.append(int(parts[3]))
+    return widths
+
+
+def chart_image_widths_pypdf(pdf: bytes) -> list[int]:
+    widths: list[int] = []
+    for page in PdfReader(BytesIO(pdf)).pages:
+        for image in page.images:
+            widths.append(int(image.image.width))
+    return widths
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("output", nargs="?", default="threshold_check.pdf")
-    parser.add_argument("--brand-images", type=int, default=2)
-    args = parser.parse_args()
-
+    out_dir = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
+    out_dir.mkdir(parents=True, exist_ok=True)
     chromium = report_generator.configure_system_chromium()
     print(f"Chromium del sistema: {chromium or 'no encontrado'}")
 
-    rendered: list[int] = []
-    original = report_generator._plotly_figure_to_png_bytes
-
-    def counting_render(*args, **kwargs):
-        png = original(*args, **kwargs)
-        if png:
-            rendered.append(len(png))
-        return png
-
-    report_generator._plotly_figure_to_png_bytes = counting_render
-    try:
-        pdf = report_generator.generate_visual_report_pdf(
-            _professional_state_with_force_time(), "Ana Lopez", "profe"
-        )
-    finally:
-        report_generator._plotly_figure_to_png_bytes = original
-    if not pdf:
-        print("::error::No se genero el PDF")
-        return 1
-    Path(args.output).write_bytes(pdf)
-    images = count_pdf_images(pdf)
-    disabled = report_generator.kaleido_disabled_reason()
-    print(
-        f"PDF: {args.output} ({len(pdf)} bytes) · imagenes embebidas: {images} · "
-        f"graficos generados por kaleido: {len(rendered)}"
-    )
-    if disabled:
-        print(f"::error::kaleido quedo desactivado: {disabled}")
-        return 1
-    if not rendered:
-        print("::error::kaleido no genero ningun grafico: el PDF usa solo el respaldo dibujado.")
-        return 1
-    if images <= args.brand_images:
+    failures: list[str] = []
+    state = full_charts_state()
+    for audience in AUDIENCES:
+        with frozen_app_now(NOW):
+            expected = sorted(report_generator.build_report_chart_figures(state, ATHLETE, audience))
+            pdf = report_generator.generate_visual_report_pdf(state, ATHLETE, audience)
+        if not pdf:
+            failures.append(f"{audience}: no se genero el PDF")
+            continue
+        path = out_dir / f"threshold_check_{audience}.pdf"
+        path.write_bytes(pdf)
+        widths = chart_image_widths_pdfimages(path)
+        source = "pdfimages"
+        if widths is None:
+            widths = chart_image_widths_pypdf(pdf)
+            source = "pypdf"
+        charts = sum(1 for width in widths if width == CHART_IMAGE_WIDTH_PX)
+        wanted = list(report_generator.REPORT_CHART_SLUGS[audience])
         print(
-            f"::error::El PDF tiene {images} imagen(es), las mismas que la marca "
-            f"({args.brand_images}): los graficos no se embebieron como imagen."
+            f"{audience}: {path.name} · imagenes ({source}): {len(widths)} · "
+            f"graficos {CHART_IMAGE_WIDTH_PX}px: {charts} · esperados: {len(expected)} {expected}"
         )
+        if sorted(wanted) != expected:
+            failures.append(f"{audience}: el fixture no produjo todos los graficos ({expected} vs {sorted(wanted)})")
+        if charts != len(expected):
+            failures.append(f"{audience}: {charts} grafico(s) embebido(s), se esperaban {len(expected)}")
+
+    disabled = report_generator.kaleido_disabled_reason()
+    if disabled:
+        failures.append(f"kaleido quedo desactivado: {disabled}")
+    for failure in failures:
+        print(f"::error::{failure}")
+    if failures:
         return 1
-    print("OK: los graficos salen como imagenes.")
+    print("OK: los tres reportes traen sus graficos como imagenes.")
     return 0
 
 

@@ -1,9 +1,10 @@
 name: PDF Charts Check
 
 # Emula Streamlit Community Cloud: contenedor Debian, paquetes de sistema
-# desde packages.txt y dependencias desde el lockfile. Genera un PDF
-# profesional real y verifica que los graficos salgan como IMAGENES (kaleido
-# + Chromium del sistema), no solo con el respaldo dibujado a mano.
+# desde packages.txt y dependencias desde el lockfile. Genera los tres PDF
+# (profesional, atleta, cliente) y verifica con pdfimages que cada uno traiga
+# sus graficos como IMAGENES (kaleido + Chromium del sistema), no solo con el
+# respaldo dibujado a mano.
 
 on:
   push:
@@ -33,18 +34,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate PDF and check chart images
-        run: python scripts/check_pdf_charts.py threshold_check.pdf
+      - name: Generate the three PDFs and check chart images
+        run: python scripts/check_pdf_charts.py pdf-check
 
       - name: List images with pdfimages
         if: always()
         run: |
-          if [ -f threshold_check.pdf ]; then pdfimages -list threshold_check.pdf; fi
+          for f in pdf-check/*.pdf; do echo "== $f"; pdfimages -list "$f"; done
 
-      - name: Upload PDF for inspection
+      - name: Upload PDFs for inspection
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pdf-charts-check
-          path: threshold_check.pdf
+          path: pdf-check/*.pdf
           if-no-files-found: ignore

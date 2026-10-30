@@ -5125,9 +5125,156 @@ def collect_report_plotly_figures(
     return figures
 
 
+# Graficos de carga/wellness por reporte (charts.report_charts, modo "print").
+# Son las MISMAS funciones que usa el dashboard.
+REPORT_CHART_SLUGS: dict[str, tuple[str, ...]] = {
+    "profe": ("load_acwr", "wellness_score", "wellness_components", "exposure"),
+    "atleta": ("load", "wellness_score"),
+    "cliente": ("sessions_per_week", "wellness_score"),
+}
+
+
+def _athlete_acwr_frame(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.DataFrame | None:
+    acwr_dict = state.get("acwr_dict") or {}
+    frame = acwr_dict.get(athlete)
+    if frame is None:
+        target = _professional_normalized_text(athlete)
+        for name, candidate in acwr_dict.items():
+            if _professional_normalized_text(str(name)) == target:
+                frame = candidate
+                break
+    return frame
+
+
+def _athlete_weekly_load_frame(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.DataFrame:
+    weekly_load = _normalize_weekly_frame(_report_weekly_summaries(state).get("weekly_load"))
+    if weekly_load.empty or "Athlete" not in weekly_load.columns:
+        return pd.DataFrame()
+    weekly_load = weekly_load[_professional_athlete_mask(weekly_load["Athlete"], athlete)].copy()
+    reference_week = _professional_week_start(_professional_report_today())
+    if "week_start" in weekly_load.columns:
+        weekly_load = weekly_load[pd.to_datetime(weekly_load["week_start"], errors="coerce") <= reference_week]
+    return weekly_load
+
+
+def _athlete_wellness_frame(state: dict[str, pd.DataFrame | None], athlete: str) -> pd.DataFrame:
+    wellness_df = state.get("wellness_df")
+    if wellness_df is None or wellness_df.empty or "Athlete" not in wellness_df.columns or "Date" not in wellness_df.columns:
+        return pd.DataFrame()
+    frame = wellness_df[_professional_athlete_mask(wellness_df["Athlete"], athlete)].copy()
+    if frame.empty:
+        return frame
+    frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
+    frame = frame[frame["Date"] <= _professional_report_today() + pd.Timedelta(days=1)].sort_values("Date")
+    frame["Wellness_Score"] = _report_wellness_score_series(frame)
+    return frame
+
+
+def _athlete_srpe_dates(state: dict[str, pd.DataFrame | None], athlete: str) -> list[pd.Timestamp]:
+    rpe_df = state.get("rpe_df")
+    if rpe_df is None or rpe_df.empty or not {"Athlete", "Date", "sRPE"}.issubset(rpe_df.columns):
+        return []
+    frame = rpe_df[_professional_athlete_mask(rpe_df["Athlete"], athlete)]
+    frame = frame[pd.to_numeric(frame["sRPE"], errors="coerce") > 0]
+    return list(pd.to_datetime(frame["Date"], errors="coerce").dropna())
+
+
+def build_report_chart_figures(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    audience: str,
+) -> dict[str, object]:
+    """Figuras Plotly (modo impresion) de carga y wellness para cada reporte.
+
+    - profesional: carga + ACWR EWMA (estimados y "no calculable"), wellness
+      score con banda + sueno/estres/dolor, y distribucion del bloque;
+    - atleta: carga semanal + cronica (sin ACWR) y score con banda;
+    - cliente: sesiones por semana (adherencia, no UA) y score con banda.
+    Una figura que no se puede construir simplemente no aparece.
+    """
+    from charts import report_charts
+    from charts.load_charts import chart_volume_by_tag
+
+    audience = normalize_report_audience(audience)
+    theme = _build_report_chart_theme()
+    figures: dict[str, object] = {}
+    slugs = REPORT_CHART_SLUGS.get(audience, ())
+
+    def _safe(slug: str, build) -> None:
+        if slug not in slugs:
+            return
+        try:
+            figure = build()
+        except Exception:
+            logger.exception("No se pudo construir el grafico %s", slug)
+            return
+        if figure is not None:
+            figures[slug] = figure
+
+    weekly_load = _athlete_weekly_load_frame(state, athlete)
+    acwr_frame = _athlete_acwr_frame(state, athlete)
+    has_load = not weekly_load.empty
+    if has_load:
+        _safe("load_acwr", lambda: report_charts.load_chart(
+            weekly_load, acwr_frame, athlete, theme=theme, mode="print", show_acwr=True, print_height_mm=96,
+        ))
+        _safe("load", lambda: report_charts.load_chart(
+            weekly_load, acwr_frame, athlete, theme=theme, mode="print", show_acwr=False, print_height_mm=66,
+        ))
+    ledger = _athlete_training_ledger(state, athlete)
+    srpe_dates = _athlete_srpe_dates(state, athlete)
+    if ledger is not None or srpe_dates:
+        _safe("sessions_per_week", lambda: report_charts.sessions_per_week_chart(
+            ledger, srpe_dates, athlete, theme=theme, mode="print",
+            reference_date=_professional_report_today(), print_height_mm=58,
+        ))
+    wellness = _athlete_wellness_frame(state, athlete)
+    if len(wellness) >= 2:
+        _safe("wellness_score", lambda: report_charts.wellness_score_chart(
+            wellness, athlete, theme=theme, mode="print", print_height_mm=50,
+        ))
+        _safe("wellness_components", lambda: report_charts.wellness_components_chart(
+            wellness, athlete, theme=theme, mode="print", print_height_mm=68,
+        ))
+    prepared = state.get("prepared_raw_df")
+    if prepared is None:
+        prepared = prepare_raw_workouts_df(state.get("raw_df"))
+    if prepared is not None and not prepared.empty:
+        _safe("exposure", lambda: chart_volume_by_tag(prepared, athlete, theme=theme, mode="print"))
+    return figures
+
+
+def render_print_chart_image(figure: object | None, *, width_mm: float | None = None, ImageClass=None, mm_unit: float | None = None):
+    """PNG de una figura en modo impresion como imagen de ancho completo.
+
+    Devuelve None si kaleido no puede renderizarla: el llamador usa el
+    grafico dibujado a mano (o un texto) solo en ese caso.
+    """
+    if figure is None:
+        return None
+    from charts.report_charts import PRINT_CANVAS_WIDTH_PX, PRINT_SCALE, PRINT_WIDTH_MM
+
+    width_mm = float(width_mm or PRINT_WIDTH_MM)
+    layout = getattr(figure, "layout", None)
+    width_px = int(getattr(layout, "width", None) or PRINT_CANVAS_WIDTH_PX)
+    height_px = int(getattr(layout, "height", None) or 560)
+    image_bytes = export_plotly_figure_png(figure, width=width_px, height=height_px, scale=PRINT_SCALE)
+    if not image_bytes:
+        return None
+    if ImageClass is None or mm_unit is None:
+        from reportlab.lib.units import mm as mm_unit_default
+        from reportlab.platypus import Image as ImageDefault
+
+        ImageClass = ImageClass or ImageDefault
+        mm_unit = mm_unit or mm_unit_default
+    image = ImageClass(BytesIO(image_bytes), width=width_mm * mm_unit, height=width_mm * mm_unit * height_px / width_px)
+    image.hAlign = "LEFT"
+    return image
+
+
 def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], athlete: str) -> dict[str, dict[str, object]]:
     try:
-        from charts.load_charts import chart_acwr, chart_completion, chart_wellness
+        from charts.load_charts import chart_completion
         from charts.dashboard_charts import chart_radar
     except Exception:
         return {}
@@ -5148,31 +5295,22 @@ def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], a
         except Exception:
             pass
 
-    acwr_df = (state.get("acwr_dict") or {}).get(athlete)
-    if acwr_df is not None and not acwr_df.empty and {"Date", "sRPE_diario", "ACWR_EWMA"}.issubset(acwr_df.columns):
-        try:
-            payloads["acwr"] = {
-                "slug": "acwr",
-                "title": "Carga reciente: cómo venís tolerando el entrenamiento",
-                "figure": chart_acwr(acwr_df, athlete, theme=theme),
-            }
-        except Exception:
-            pass
-
-    wellness_df = state.get("wellness_df")
-    if wellness_df is not None and not wellness_df.empty and "Athlete" in wellness_df.columns:
-        athlete_wellness = wellness_df[_professional_athlete_mask(wellness_df["Athlete"], athlete)].copy()
-        if not athlete_wellness.empty and "Date" in athlete_wellness.columns:
-            athlete_wellness = athlete_wellness.sort_values("Date")
-            athlete_wellness["Wellness_Score"] = _report_wellness_score_series(athlete_wellness)
-            try:
-                payloads["wellness"] = {
-                    "slug": "wellness",
-                    "title": "Bienestar reciente",
-                    "figure": chart_wellness(athlete_wellness, athlete, theme=theme),
-                }
-            except Exception:
-                pass
+    # Carga y wellness: mismas funciones que el dashboard (modo impresion).
+    report_figures = build_report_chart_figures(state, athlete, "atleta")
+    if "load" in report_figures:
+        payloads["load"] = {
+            "slug": "load",
+            "title": "Carga semanal y carga crónica",
+            "figure": report_figures["load"],
+            "print": True,
+        }
+    if "wellness_score" in report_figures:
+        payloads["wellness"] = {
+            "slug": "wellness",
+            "title": "Bienestar: score con tu banda habitual",
+            "figure": report_figures["wellness_score"],
+            "print": True,
+        }
 
     completion_plot_df = _completion_plot_df(state, athlete)
     if not completion_plot_df.empty and len(completion_plot_df) >= 2:
@@ -5190,7 +5328,7 @@ def _collect_athlete_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], a
 
 def _collect_client_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], athlete: str) -> dict[str, dict[str, object]]:
     try:
-        from charts.load_charts import chart_acwr, chart_completion, chart_wellness
+        from charts.load_charts import chart_completion
         from charts.dashboard_charts import chart_cmj_trend
     except Exception:
         return {}
@@ -5208,31 +5346,23 @@ def _collect_client_pdf_chart_payloads(state: dict[str, pd.DataFrame | None], at
         except Exception:
             pass
 
-    acwr_df = (state.get("acwr_dict") or {}).get(athlete)
-    if acwr_df is not None and not acwr_df.empty and len(_acwr_series(state, athlete)) >= 2:
-        try:
-            payloads["acwr"] = {
-                "slug": "acwr",
-                "title": "Cómo venís tolerando el entrenamiento",
-                "figure": chart_acwr(acwr_df, athlete, theme=theme),
-            }
-        except Exception:
-            pass
-
-    wellness_df = state.get("wellness_df")
-    if wellness_df is not None and not wellness_df.empty and "Athlete" in wellness_df.columns:
-        athlete_wellness = wellness_df[_professional_athlete_mask(wellness_df["Athlete"], athlete)].copy()
-        if not athlete_wellness.empty and "Date" in athlete_wellness.columns and len(_wellness_series(state, athlete)) >= 2:
-            athlete_wellness = athlete_wellness.sort_values("Date")
-            athlete_wellness["Wellness_Score"] = _report_wellness_score_series(athlete_wellness)
-            try:
-                payloads["wellness"] = {
-                    "slug": "wellness",
-                    "title": "Bienestar reciente",
-                    "figure": chart_wellness(athlete_wellness, athlete, theme=theme),
-                }
-            except Exception:
-                pass
+    # Adherencia (sesiones por semana, no UA) y wellness: mismas funciones que
+    # el dashboard, en modo impresion.
+    report_figures = build_report_chart_figures(state, athlete, "cliente")
+    if "sessions_per_week" in report_figures:
+        payloads["sessions_per_week"] = {
+            "slug": "sessions_per_week",
+            "title": "Sesiones por semana",
+            "figure": report_figures["sessions_per_week"],
+            "print": True,
+        }
+    if "wellness_score" in report_figures:
+        payloads["wellness"] = {
+            "slug": "wellness",
+            "title": "Bienestar: score con tu banda habitual",
+            "figure": report_figures["wellness_score"],
+            "print": True,
+        }
 
     completion_plot_df = _completion_plot_df(state, athlete)
     if not completion_plot_df.empty and len(completion_plot_df) >= 2:
@@ -10749,6 +10879,11 @@ def _generate_professional_profile_pdf_reportlab(
     isometric_payload = _build_professional_isometric_payload(state, report_athlete, cards)
     force_time_payload = isometric_payload.get("imtp_payload", {})
     load_tolerance_payload = _build_professional_load_tolerance_payload(state, report_athlete, internal_load)
+    report_figures = build_report_chart_figures(state, report_athlete, "profe")
+
+    def _report_figure_image(slug: str):
+        return render_print_chart_image(report_figures.get(slug), ImageClass=Image, mm_unit=mm)
+
     wellness_availability_payload = _build_professional_wellness_availability_payload(
         state,
         report_athlete,
@@ -11684,7 +11819,11 @@ def _generate_professional_profile_pdf_reportlab(
             target.append(Spacer(1, 3 * mm))
             target.append(_key_value_table(secondary_rows, label_width_mm=46, value_width_mm=128))
         target.append(Spacer(1, 3 * mm))
-        weekly_chart = _weekly_ema_chart(load_tolerance_payload.get("weekly_points", []), height_mm=48)
+        # Mismo grafico que el dashboard (carga + ACWR EWMA); el dibujado a
+        # mano queda solo si kaleido no puede renderizar.
+        weekly_chart = _report_figure_image("load_acwr") or _weekly_ema_chart(
+            load_tolerance_payload.get("weekly_points", []), width_mm=168, height_mm=48
+        )
         if weekly_chart is not None:
             primary_row_labels = {_professional_normalized_text(row[0]) for row in primary_rows}
             load_chart_note = (
@@ -11722,16 +11861,35 @@ def _generate_professional_profile_pdf_reportlab(
             return
         target.append(Spacer(1, 3 * mm))
         target.append(_mini_cards_table(wellness_availability_payload.get("rows", []), columns=3))
-        chart_points, chart_title = wellness_chart_points_and_title(wellness_availability_payload)
-        chart = _wellness_chart(chart_points, width_mm=174, height_mm=44, title=chart_title)
-        if chart is not None:
+        score_image = _report_figure_image("wellness_score")
+        components_image = _report_figure_image("wellness_components") if score_image is not None else None
+        if score_image is not None:
             target.append(Spacer(1, 3 * mm))
             target.append(
                 _chart_panel(
-                    chart,
-                    note="La tendencia disponible ayuda a poner en contexto sueño, estrés, dolor y consistencia de registros.",
+                    score_image,
+                    note="Score total (0-30) contra la propia variabilidad del atleta: banda = media ± 1 DE de los 28 días previos (sin banda con menos de 10 registros).",
                 )
             )
+            if components_image is not None:
+                target.append(Spacer(1, 3 * mm))
+                target.append(
+                    _chart_panel(
+                        components_image,
+                        note="Sueño (h), estrés y dolor (0-10), cada uno con su propia escala.",
+                    )
+                )
+        else:
+            chart_points, chart_title = wellness_chart_points_and_title(wellness_availability_payload)
+            chart = _wellness_chart(chart_points, width_mm=168, height_mm=44, title=chart_title)
+            if chart is not None:
+                target.append(Spacer(1, 3 * mm))
+                target.append(
+                    _chart_panel(
+                        chart,
+                        note="La tendencia disponible ayuda a poner en contexto sueño, estrés, dolor y consistencia de registros.",
+                    )
+                )
         target.append(Spacer(1, 3 * mm))
         note_lines = [str(wellness_availability_payload.get("compatibility") or "")]
         if str(wellness_availability_payload.get("quality_note") or "").strip():
@@ -11760,8 +11918,8 @@ def _generate_professional_profile_pdf_reportlab(
             target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposición.")))
             return
         target.append(Spacer(1, 3 * mm))
-        chart_image = _exposure_chart_image(width_mm=104, height_mm=56)
-        summary_width = 66 if chart_image is not None else 174
+        # Ancho completo y modo impresion (antes, media columna: ilegible).
+        chart_image = _report_figure_image("exposure")
         summary_box = _bullet_box(
             "Lectura del bloque",
             [
@@ -11769,7 +11927,7 @@ def _generate_professional_profile_pdf_reportlab(
                 str(exposure_payload.get("context_link") or ""),
                 f"Estímulos bajos o ausentes: {_professional_join_labels(exposure_payload.get('low_or_absent', [])[:3])}.",
             ],
-            width_mm=summary_width,
+            width_mm=174,
             style_name="ProfMuted",
             background=palette["panel_alt"],
             border_color=palette["line_dark"],
@@ -11777,22 +11935,15 @@ def _generate_professional_profile_pdf_reportlab(
         )
         if chart_image is not None:
             target.append(
-                _two_column(
-                    _chart_panel(
-                        chart_image,
-                        title="Distribución visual del bloque",
-                        note="El gráfico acompaña la tabla para localizar rápido el peso relativo de cada estímulo.",
-                        width_mm=104,
-                    ),
-                    summary_box,
-                    left_width_mm=106,
-                    right_width_mm=68,
+                _chart_panel(
+                    chart_image,
+                    title="Distribución visual del bloque",
+                    note="El gráfico acompaña la tabla para localizar rápido el peso relativo de cada estímulo.",
                 )
             )
             target.append(Spacer(1, 4 * mm))
-        else:
-            target.append(summary_box)
-            target.append(Spacer(1, 4 * mm))
+        target.append(summary_box)
+        target.append(Spacer(1, 4 * mm))
         target.append(_dataframe_table(exposure_payload.get("table"), col_widths_mm=[40, 28, 24, 82]))
 
     def _append_full_integrated_page(target: list[object]) -> None:
@@ -12210,6 +12361,9 @@ def _generate_visual_report_pdf_reportlab(
     def _chart_image(chart_payload: dict[str, object] | None, *, width_mm: float = 174, height_mm: float = 88) -> Image | None:
         if not chart_payload:
             return None
+        if chart_payload.get("print"):
+            # Figura en modo impresion: tamano propio, ancho completo de pagina.
+            return render_print_chart_image(chart_payload.get("figure"), ImageClass=Image, mm_unit=mm)
         image_bytes = export_plotly_figure_png(chart_payload.get("figure"), width=1150, height=620, scale=2)
         if not image_bytes:
             return None
@@ -13055,7 +13209,7 @@ def _generate_visual_report_pdf_reportlab(
             )
         )
         story.append(Spacer(1, 4 * mm))
-        load_chart_payload = athlete_charts.get("acwr")
+        load_chart_payload = athlete_charts.get("load")
         load_image = _chart_image(load_chart_payload, height_mm=56)
         story.append(
             _build_chart_container(
@@ -13988,7 +14142,7 @@ def _generate_visual_report_pdf_reportlab(
             eyebrow_style="ReportMuted",
         ))
         story.append(Spacer(1, 4 * mm))
-        load_chart_payload = client_charts.get("acwr") or client_charts.get("completion")
+        load_chart_payload = client_charts.get("sessions_per_week") or client_charts.get("completion")
         load_chart = _chart_image(load_chart_payload, height_mm=56) if load_chart_payload else None
         story.append(
             _build_note_box(
