@@ -1637,8 +1637,8 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         rows = dict(payload["rows"])
         self.assertEqual(wellness["analysis_week_label"], "27/04/2026 - 03/05/2026")
-        self.assertEqual(rows["Días con registro"], "3")
-        self.assertNotEqual(rows["Wellness score"], PDF_MISSING_TEXT)
+        self.assertEqual(rows["Días con registro (semana analizada)"], "3")
+        self.assertNotEqual(rows["Wellness score (semana analizada)"], PDF_MISSING_TEXT)
 
     def test_quality_detail_caps_wellness_coverage_over_one_hundred(self):
         detail = _quality_detail_text(pd.Series({"% cobertura sRPE": 88, "% cobertura Wellness": 105}))
