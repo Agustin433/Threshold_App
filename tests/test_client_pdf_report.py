@@ -355,9 +355,11 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertIsNotNone(pdf)
         assert pdf is not None
         joined = " ".join(_normalized_pdf_pages(pdf))
-        self.assertIn("promedio reciente", joined)
-        self.assertIn("ultimos registros visibles", joined)
-        self.assertIn("el promedio reciente es aceptable, pero conviene seguir de cerca la recuperacion percibida", joined)
+        # Cada numero de wellness dice su ventana (oct/2026).
+        self.assertIn("promedio (semana analizada)", " ".join(joined.split()))
+        self.assertIn("bienestar (ultimos 3 registros, 7 dias)", " ".join(joined.split()))
+        self.assertNotIn("promedio reciente", joined)
+        self.assertIn("el promedio de la semana analizada es aceptable, pero conviene seguir de cerca la recuperacion percibida", joined)
         self.assertNotIn("sin senales grandes de alerta", joined)
 
     def test_client_pdf_uses_actionable_confirmation_copy_without_old_defensive_phrase(self):
@@ -414,8 +416,8 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertLessEqual(_pdf_page_count(pdf), 5)
         self.assertIn("el registro es bajo, pero los valores disponibles sugieren cuidar recuperacion, estres y dolor de cerca", joined_pages)
         self.assertIn("recuperacion, estres, dolor y constancia requieren seguimiento", joined_pages)
-        self.assertIn("promedio reciente", joined_pages)
-        self.assertIn("ultimos registros visibles", joined_pages)
+        self.assertIn("promedio (semana analizada)", " ".join(joined_pages.split()))
+        self.assertIn("dias con registro (semana analizada)", " ".join(joined_pages.split()))
         self.assertLessEqual(joined_pages.count("todavia hay pocos registros para sacar una conclusion firme sobre recuperacion"), 1)
         self.assertNotIn("sin senales grandes de alerta", joined_pages)
         self.assertNotIn("estado actual optimo", joined_pages)

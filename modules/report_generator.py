@@ -31,7 +31,7 @@ from modules.data_loader import (
     raw_session_date_column,
 )
 from modules.app_version import app_version
-from modules.data_quality import compute_data_quality_report
+from modules.data_quality import SRPE_COVERAGE_RED_PCT, compute_data_quality_report
 from modules.load_monitoring import (
     training_dates_for_athlete,
     ACWR_MAX_MISSING_FRAC_ACUTE,
@@ -475,6 +475,17 @@ def _report_sample_warning(n: int | None) -> str:
 # Escala canonica de wellness: 0-30 (tres componentes de 0-10 cada uno), la
 # misma que produce `data_loader._wellness_score` y que persiste el store.
 WELLNESS_SCORE_MAX = 30.0
+# Ventana de cada numero de wellness, rotulada en todo el reporte. "Wellness
+# 3d" es el promedio de los ultimos 3 registros dentro de los ultimos 7 dias;
+# las tablas semanales promedian la semana analizada (lunes a domingo). Antes
+# los dos se llamaban "reciente" y el PDF del cliente mostraba 7.3 y 7.7 sin
+# decir que eran ventanas distintas.
+WELLNESS_RECENT_WINDOW = "últimos 3 registros, 7 días"
+WELLNESS_WEEK_WINDOW = "semana analizada"
+WELLNESS_RECENT_LABEL = f"Wellness ({WELLNESS_RECENT_WINDOW})"
+WELLNESS_RECENT_CLIENT_LABEL = f"Bienestar ({WELLNESS_RECENT_WINDOW})"
+WELLNESS_WEEK_SCORE_LABEL = f"Wellness score ({WELLNESS_WEEK_WINDOW})"
+WELLNESS_WEEK_DAYS_LABEL = f"Días con registro ({WELLNESS_WEEK_WINDOW})"
 WELLNESS_SCORE_UNIT = f"/{WELLNESS_SCORE_MAX:.0f}"
 # Auditoria externa (oct/2026): no clasificar wellness (Optimo/Aceptable/...)
 # con menos de esta cantidad de dias con registro en la semana.
@@ -1053,6 +1064,33 @@ def _weekly_missing_frac(row: pd.Series) -> float:
     return missing / done
 
 
+LOAD_NOT_EVALUABLE_TEXT = "No evaluable: cobertura insuficiente"
+
+
+def _srpe_coverage_red(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, str]:
+    """(roja, detalle) de la cobertura de sRPE del atleta (data_quality).
+
+    Roja = menos de SRPE_COVERAGE_RED_PCT de las sesiones con sRPE. Con eso la
+    carga interna no es evaluable y el reporte no puede afirmar estabilidad ni
+    tolerancia.
+    """
+    try:
+        row = _quality_athlete_row(_report_quality_report(state), athlete)
+    except Exception:
+        return False, ""
+    if row is None:
+        return False, ""
+    pct = _coerce_float(row.get("% cobertura sRPE"))
+    if pct is None or pct >= SRPE_COVERAGE_RED_PCT:
+        return False, ""
+    basis = "de las sesiones" if str(row.get("Base cobertura sRPE") or "") == "sesiones" else "de los días"
+    return True, f"sRPE en {pct:.0f}% {basis}"
+
+
+def _not_evaluable_text(detail: str) -> str:
+    return f"{LOAD_NOT_EVALUABLE_TEXT} ({detail})." if detail else f"{LOAD_NOT_EVALUABLE_TEXT}."
+
+
 def _professional_load_quality_gate(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, str]:
     """(gated, motivo) leido del propio modelo de ACWR (`calc_acwr`).
 
@@ -1268,7 +1306,7 @@ def _focus_metric_context(row: pd.Series) -> dict[str, str]:
         "dri": _focus_metric_phrase("DRI", row.get("DRI"), digits=2),
         "eur": _focus_metric_phrase("EUR", _summary_eur_value(row), digits=2),
         "imtp": _focus_metric_phrase("IMTP", row.get("IMTP N"), suffix=" N"),
-        "wellness": _focus_metric_phrase("Wellness reciente", row.get("Wellness 3d"), digits=1, suffix=" /30"),
+        "wellness": _focus_metric_phrase(WELLNESS_RECENT_LABEL, row.get("Wellness 3d"), digits=1, suffix=" /30"),
         "cmj_delta_value": _display_metric(cmj_delta, digits=1, suffix="%") if cmj_delta is not None else "",
     }
 
@@ -3464,6 +3502,175 @@ def _pdf_chart_panel(
     _pdf_text(commands, plot_x + plot_w - 28, plot_y + plot_h + 6, _display_metric(max_v, digits=1), size=8, color="#708C9F")
 
 
+
+# ── Graficos de respaldo (reportlab) ─────────────────────────────────────
+# Se usan cuando kaleido no genera la imagen. Reglas de layout: el titulo y la
+# leyenda viven en una franja propia arriba (nunca dentro del area del
+# grafico), el eje Y tiene escala con marcas, y todo valor se recorta al area
+# del grafico. Antes la linea de wellness salia del recuadro (eje fijo 1-5
+# con un score 0-30) y en sRPE el titulo pisaba el valor y la leyenda.
+FALLBACK_TITLE_BAND = 14.0
+FALLBACK_TICK_FONT = 6.0
+
+
+def _fallback_nice_ticks(min_v: float, max_v: float, count: int = 4) -> list[float]:
+    """Marcas "redondas" que cubren [min_v, max_v]."""
+    import math
+
+    if max_v <= min_v:
+        max_v = min_v + 1.0
+    raw_step = (max_v - min_v) / max(1, count - 1)
+    magnitude = 10 ** math.floor(math.log10(raw_step)) if raw_step > 0 else 1
+    step = next(m * magnitude for m in (1, 2, 2.5, 5, 10) if m * magnitude >= raw_step)
+    start = math.floor(min_v / step) * step
+    ticks = []
+    value = start
+    while value <= max_v + step * 0.001:
+        ticks.append(round(value, 6))
+        value += step
+    if ticks[-1] < max_v:
+        ticks.append(round(ticks[-1] + step, 6))
+    return ticks
+
+
+def _fallback_tick_label(value: float) -> str:
+    return f"{value:.0f}" if float(value).is_integer() or abs(value) >= 10 else f"{value:.1f}"
+
+
+def _fallback_y(value: float, lo: float, hi: float, bottom: float, plot_h: float) -> float:
+    """Posicion Y recortada al area del grafico."""
+    if hi == lo:
+        return bottom + plot_h / 2
+    ratio = (value - lo) / (hi - lo)
+    return bottom + max(0.0, min(1.0, ratio)) * plot_h
+
+
+def _fallback_y_axis(drawing, shapes, palette, ticks, left, bottom, plot_w, plot_h, unit: str) -> None:
+    Line, String = shapes["Line"], shapes["String"]
+    lo, hi = ticks[0], ticks[-1]
+    for tick in ticks:
+        y = _fallback_y(tick, lo, hi, bottom, plot_h)
+        drawing.add(Line(left, y, left + plot_w, y, strokeColor=palette["line"], strokeWidth=0.3))
+        drawing.add(
+            String(left - 3, y - 2, _fallback_tick_label(tick), fontSize=FALLBACK_TICK_FONT,
+                   fillColor=palette["muted"], textAnchor="end")
+        )
+    if unit:
+        drawing.add(String(2, bottom + plot_h + 4, unit, fontSize=FALLBACK_TICK_FONT, fillColor=palette["muted"]))
+
+
+def build_fallback_wellness_chart(
+    points: list[dict[str, object]],
+    palette: dict,
+    shapes: dict,
+    *,
+    width_mm: float = 82,
+    height_mm: float = 42,
+    title: str = "Wellness score",
+    mm: float = 2.834645669,
+):
+    """Linea de wellness en escala 0-WELLNESS_SCORE_MAX con eje Y y recorte."""
+    Drawing, Rect, Line, PolyLine, Circle, String = (
+        shapes["Drawing"], shapes["Rect"], shapes["Line"], shapes["PolyLine"], shapes["Circle"], shapes["String"]
+    )
+    valid_points = [point for point in points if _coerce_float(point.get("score")) is not None]
+    if len(valid_points) < 2:
+        return None
+    width, height = width_mm * mm, height_mm * mm
+    left, bottom = 30.0, 15.0
+    plot_w = width - left - 10
+    plot_h = height - bottom - FALLBACK_TITLE_BAND - 6
+    ticks = _fallback_nice_ticks(0.0, WELLNESS_SCORE_MAX, count=4)
+    lo, hi = ticks[0], ticks[-1]
+    drawing = Drawing(width, height)
+    drawing.add(Rect(0, 0, width, height, fillColor=palette["card"], strokeColor=palette["line"], strokeWidth=0.5))
+    drawing.add(String(left, height - 10, title, fontSize=7.5, fillColor=palette["navy"]))
+    _fallback_y_axis(drawing, shapes, palette, ticks, left, bottom, plot_w, plot_h, WELLNESS_SCORE_UNIT)
+    drawing.add(Line(left, bottom, left + plot_w, bottom, strokeColor=palette["line"], strokeWidth=0.7))
+    drawing.add(Line(left, bottom, left, bottom + plot_h, strokeColor=palette["line"], strokeWidth=0.7))
+    coords: list[float] = []
+    for idx, point in enumerate(valid_points):
+        x = left + (plot_w * idx / max(1, len(valid_points) - 1))
+        y = _fallback_y(float(_coerce_float(point.get("score"))), lo, hi, bottom, plot_h)
+        coords.extend([x, y])
+    drawing.add(PolyLine(coords, strokeColor=palette["green"], strokeWidth=1.7))
+    for idx in (0, len(valid_points) - 1):
+        drawing.add(Circle(coords[idx * 2], coords[idx * 2 + 1], 2.2, fillColor=palette["green"],
+                           strokeColor=palette["card"], strokeWidth=0.4))
+    drawing.add(String(left, 4, str(valid_points[0].get("label") or ""), fontSize=6.5, fillColor=palette["gray"]))
+    drawing.add(String(left + plot_w, 4, str(valid_points[-1].get("label") or ""), fontSize=6.5,
+                       fillColor=palette["gray"], textAnchor="end"))
+    return drawing
+
+
+def build_fallback_weekly_ema_chart(
+    points: list[dict[str, object]],
+    palette: dict,
+    shapes: dict,
+    *,
+    width_mm: float = 174,
+    height_mm: float = 55,
+    title: str = "sRPE semanal + EMA 6 semanas",
+    mm: float = 2.834645669,
+    bar_color=None,
+):
+    """Barras de sRPE semanal + linea EMA, con eje Y, titulo y leyenda separados."""
+    Drawing, Rect, Line, PolyLine, String = (
+        shapes["Drawing"], shapes["Rect"], shapes["Line"], shapes["PolyLine"], shapes["String"]
+    )
+    values = [_coerce_float(point.get("value")) for point in points]
+    emas = [_coerce_float(point.get("ema")) for point in points]
+    if len([v for v in values if v is not None]) < 2 or len([e for e in emas if e is not None]) < 2:
+        return None
+    width, height = width_mm * mm, height_mm * mm
+    left, bottom = 34.0, 17.0
+    plot_w = width - left - 12
+    plot_h = height - bottom - FALLBACK_TITLE_BAND - 10  # +10: espacio para la etiqueta del ultimo valor
+    data_max = max([v for v in values if v is not None] + [e for e in emas if e is not None])
+    ticks = _fallback_nice_ticks(0.0, max(data_max, 1.0), count=4)
+    lo, hi = ticks[0], ticks[-1]
+    bar_fill = bar_color or palette["line"]
+    drawing = Drawing(width, height)
+    drawing.add(Rect(0, 0, width, height, fillColor=palette["card"], strokeColor=palette["line"], strokeWidth=0.5))
+    # Franja superior: titulo a la izquierda, leyenda a la derecha.
+    drawing.add(String(left, height - 10, title, fontSize=8, fillColor=palette["navy"]))
+    legend_right = width - 8
+    legend_y = height - 10
+    drawing.add(String(legend_right, legend_y, "EMA 6", fontSize=6.5, fillColor=palette["gray"], textAnchor="end"))
+    drawing.add(Line(legend_right - 38, legend_y + 2, legend_right - 26, legend_y + 2, strokeColor=palette["navy"], strokeWidth=1.4))
+    drawing.add(String(legend_right - 44, legend_y, "sRPE semanal", fontSize=6.5, fillColor=palette["gray"], textAnchor="end"))
+    drawing.add(Rect(legend_right - 98, legend_y, 7, 4, fillColor=bar_fill, strokeColor=None))
+    _fallback_y_axis(drawing, shapes, palette, ticks, left, bottom, plot_w, plot_h, "UA")
+    drawing.add(Line(left, bottom, left + plot_w, bottom, strokeColor=palette["line"], strokeWidth=0.7))
+    drawing.add(Line(left, bottom, left, bottom + plot_h, strokeColor=palette["line"], strokeWidth=0.7))
+    bar_gap = 4
+    bar_w = max(5, (plot_w - (bar_gap * max(0, len(points) - 1))) / max(1, len(points)))
+    ema_coords: list[float] = []
+    for idx, point in enumerate(points):
+        value, ema = _coerce_float(point.get("value")), _coerce_float(point.get("ema"))
+        x = left + idx * (bar_w + bar_gap)
+        if value is not None:
+            top = _fallback_y(value, lo, hi, bottom, plot_h)
+            drawing.add(Rect(x, bottom, bar_w, top - bottom, fillColor=bar_fill, strokeColor=None))
+            if idx == len(points) - 1:
+                # Dentro del area: como maximo hasta el tope del eje (nunca en la franja del titulo).
+                drawing.add(String(x + bar_w / 2, min(top + 2, bottom + plot_h + 2), f"{value:.0f}",
+                                   fontSize=6, fillColor=palette["gray"], textAnchor="middle"))
+        if ema is not None:
+            ema_coords.extend([x + bar_w / 2, _fallback_y(ema, lo, hi, bottom, plot_h)])
+    if len(ema_coords) >= 4:
+        drawing.add(PolyLine(ema_coords, strokeColor=palette["navy"], strokeWidth=2.0))
+    for idx, point in enumerate(points):
+        x = left + idx * (bar_w + bar_gap)
+        if idx in {0, len(points) - 1}:
+            drawing.add(String(x, 4, str(point.get("label") or ""), fontSize=6.5, fillColor=palette["gray"]))
+        if point.get("evaluation"):
+            cx = x + bar_w / 2
+            drawing.add(Line(cx, bottom, cx, bottom + plot_h, strokeColor=palette["orange"], strokeWidth=0.8))
+            drawing.add(String(cx + 2, bottom + plot_h - 8, "evaluación", fontSize=5.8, fillColor=palette["orange"]))
+    return drawing
+
+
 def _build_cover_page(
     report_athlete: str,
     summary_df: pd.DataFrame,
@@ -3927,7 +4134,7 @@ def generate_module_insights(
             [
                 f"ACWR EWMA {_display_metric(acwr, digits=2)}" if acwr is not None else None,
                 f"Monotonía {_display_metric(monotony, digits=2)}" if monotony is not None else None,
-                f"Wellness 3 días {_display_metric(wellness, digits=1)}" if wellness_available else None,
+                f"{WELLNESS_RECENT_LABEL} {_display_metric(wellness, digits=1)}" if wellness_available else None,
             ]
         )
         eval_summary_parts = _compact_lines(
@@ -4082,7 +4289,7 @@ def _audience_dashboard_cards(
         if load_available:
             cards.append(("ACWR EWMA", _display_metric(focus_row.get("ACWR EWMA"), digits=2), _zone_color(focus_row.get("Zona"))))
         if wellness_available:
-            cards.append(("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
+            cards.append((WELLNESS_RECENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
         if completion_value is not None:
             cards.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%"), "#708C9F"))
         cards.append(("Objetivo actual", _current_focus_text(focus_row, audience="atleta"), "#5A595B"))
@@ -4115,7 +4322,7 @@ def _audience_dashboard_cards(
     if load_available and _has_text(focus_row.get("Zona")):
         cards.append(("Zona de carga", _display_zone(focus_row.get("Zona")), "#708C9F"))
     if wellness_available:
-        cards.append(("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
+        cards.append((WELLNESS_RECENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
     if _coerce_float(focus_row.get("Monotonia")) is not None:
         cards.append(("Monotonía", _display_metric(focus_row.get("Monotonia"), digits=2), "#5A595B"))
     if eval_available and _coerce_float(focus_row.get("CMJ cm")) is not None:
@@ -4151,7 +4358,7 @@ def _audience_metric_rows(
         if eval_available and _coerce_float(focus_row.get("CMJ cm")) is not None:
             rows.append(("Tu salto hoy", _display_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm")))
         if wellness_available:
-            rows.append(("Bienestar reciente", _display_metric(focus_row.get("Wellness 3d"), digits=1)))
+            rows.append((WELLNESS_RECENT_CLIENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1)))
         if completion_value is not None:
             rows.append(("Constancia del plan", _display_metric(completion_value, digits=1, suffix="%")))
         if eval_available and _has_text(focus_row.get("Perfil NM")):
@@ -4184,7 +4391,7 @@ def _audience_metric_rows(
         if load_available and _coerce_float(focus_row.get("Monotonia")) is not None:
             rows.append(("Monotonía", _display_metric(focus_row.get("Monotonia"), digits=2)))
         if wellness_available:
-            rows.append(("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1)))
+            rows.append((WELLNESS_RECENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1)))
         if completion_value is not None:
             rows.append(("Adherencia al plan", _display_metric(completion_value, digits=1, suffix="%")))
         rows.append(("Objetivo actual", _current_focus_text(focus_row, audience="atleta")))
@@ -4205,7 +4412,7 @@ def _audience_metric_rows(
     if _coerce_float(focus_row.get("Monotonia")) is not None:
         rows.append(("Monotonía", _display_metric(focus_row.get("Monotonia"), digits=2)))
     if wellness_available:
-        rows.append(("Wellness 3 días", _display_metric(focus_row.get("Wellness 3d"), digits=1)))
+        rows.append((WELLNESS_RECENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1)))
     if completion_value is not None:
         rows.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%")))
     return rows or [("Estado actual", "Sin datos suficientes para una lectura técnica estable.")]
@@ -4299,7 +4506,7 @@ def _audience_blocks(
         current_focuses = _compact_lines(
             [
                 f"Estado actual: {_display_zone(row.get('Zona'))}." if load_available and _has_text(row.get("Zona")) else None,
-                f"Bienestar reciente: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
+                f"{WELLNESS_RECENT_CLIENT_LABEL}: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
                 f"Constancia reciente: {_display_metric(completion_value, digits=1, suffix='%')}." if completion_value is not None else None,
                 f"Salto vertical actual: {_display_metric(row.get('CMJ cm'), digits=1, suffix=' cm')}." if eval_available and _coerce_float(row.get("CMJ cm")) is not None else None,
             ]
@@ -4351,7 +4558,7 @@ def _audience_blocks(
         profile_focuses = _compact_lines(
             [
                 f"ACWR EWMA actual: {_display_metric(row.get('ACWR EWMA'), digits=2)} en zona {_display_zone(row.get('Zona'))}." if load_available and _coerce_float(row.get("ACWR EWMA")) is not None else None,
-                f"Wellness reciente: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
+                f"{WELLNESS_RECENT_LABEL}: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
                 f"Cambio frente al baseline inicial: {_display_metric(row.get('CMJ vs BL %'), digits=1, suffix='%')}." if _coerce_float(row.get("CMJ vs BL %")) is not None else None,
             ]
         ) or strengths[:2]
@@ -4367,7 +4574,7 @@ def _audience_blocks(
             "focuses": _compact_lines(
                 [
                     f"Estado de carga: {_display_zone(row.get('Zona'))}." if load_available and _has_text(row.get("Zona")) else None,
-                    f"Wellness reciente: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
+                    f"{WELLNESS_RECENT_LABEL}: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
                     f"Adherencia promedio: {_display_metric(completion_value, digits=1, suffix='%')}." if completion_value is not None else None,
                 ]
             ) or ["La prioridad es completar una nueva evaluación para definir mejor el perfil actual."],
@@ -4417,16 +4624,16 @@ def _build_trend_page(
         "profe": [
             ("CMJ", _cmj_series(state, report_athlete), "#0D3C5E"),
             ("ACWR EWMA", _acwr_series(state, report_athlete), "#708C9F"),
-            ("Wellness 3 días", _wellness_series(state, report_athlete), "#2F6B52"),
+            ("Wellness (últimos 10 registros)", _wellness_series(state, report_athlete), "#2F6B52"),
         ],
         "atleta": [
             ("CMJ", _cmj_series(state, report_athlete), "#0D3C5E"),
-            ("Wellness 3 días", _wellness_series(state, report_athlete), "#2F6B52"),
+            ("Wellness (últimos 10 registros)", _wellness_series(state, report_athlete), "#2F6B52"),
             ("ACWR EWMA", _acwr_series(state, report_athlete), "#708C9F"),
         ],
         "cliente": [
             ("Progreso de salto", _cmj_series(state, report_athlete), "#0D3C5E"),
-            ("Bienestar reciente", _wellness_series(state, report_athlete), "#2F6B52"),
+            ("Bienestar (últimos 10 registros)", _wellness_series(state, report_athlete), "#2F6B52"),
             ("Seguimiento del proceso", _acwr_series(state, report_athlete), "#708C9F"),
         ],
     }[audience]
@@ -6082,12 +6289,16 @@ def _build_professional_internal_load_context(
     days_with_data = 0
     analysis_week_weekly_value = None
     analysis_week_sessions = None
+    analysis_week_sessions_done = None
+    analysis_week_sessions_missing = None
     current_week_weekly_value = None
     if not weekly_valid.empty:
         analysis_week_rows = weekly_valid[weekly_valid["week_start"].eq(analysis_week_start)].dropna(subset=["weekly_sRPE"])
         if not analysis_week_rows.empty:
             analysis_week_weekly_value = _coerce_float(analysis_week_rows.iloc[-1].get("weekly_sRPE"))
             analysis_week_sessions = _coerce_float(analysis_week_rows.iloc[-1].get("sessions_count"))
+            analysis_week_sessions_done = _coerce_float(analysis_week_rows.iloc[-1].get("sessions_done"))
+            analysis_week_sessions_missing = _coerce_float(analysis_week_rows.iloc[-1].get("sessions_missing"))
         reference_week_rows = weekly_valid[weekly_valid["week_start"].eq(reference_week_start)].dropna(subset=["weekly_sRPE"])
         if not reference_week_rows.empty:
             current_week_weekly_value = _coerce_float(reference_week_rows.iloc[-1].get("weekly_sRPE"))
@@ -6199,6 +6410,8 @@ def _build_professional_internal_load_context(
             else ""
         ),
         "sessions_registered": sessions_registered,
+        "analysis_week_sessions_done": analysis_week_sessions_done,
+        "analysis_week_sessions_missing": analysis_week_sessions_missing,
         "days_without_data": max(0, 7 - days_with_data) if has_daily else None,
         "weekly_change": weekly_change,
         "weekly_change_pct": weekly_change_pct,
@@ -7758,7 +7971,9 @@ def _build_professional_load_tolerance_payload(
             f"No calculable ({int(sessions_this_week)} sesión(es)/semana, mínimo {MONOTONY_MIN_SESSIONS})"
         )
 
-    risk_line = "Faltan datos para valorar la tolerancia de carga."
+    # Primero los avisos de datos faltantes; despues, solo si no hubo
+    # ninguno, la lectura interpretativa de la carga.
+    risk_line: str | None = None
     if acwr_gated:
         risk_line = (
             f"ACWR no calculable: {acwr_gate_reason}. Con sesiones entrenadas sin sRPE, el ACWR depende de los "
@@ -7776,22 +7991,46 @@ def _build_professional_load_tolerance_payload(
         )
     elif str(internal_load.get("analysis_scope") or "") == "current_week_partial":
         risk_line = "La semana actual sigue abierta; usar el acumulado parcial solo como señal operativa."
-    elif acwr_value is not None and acwr_value > 1.5:
-        risk_line = "La carga reciente luce alta y con riesgo de acumulación; revisar densidad, calendario y tolerancia."
-    elif monotony_value is not None and monotony_value > 2.0:
-        risk_line = "La carga reciente parece homogénea y con riesgo de acumulación por monotonía."
-    elif acwr_value is not None and acwr_value < 0.8:
-        risk_line = "La carga reciente luce baja/subdosificada respecto a la carga crónica."
-    elif weekly_change_pct is not None and weekly_change_pct > 10:
-        risk_line = "La carga reciente está en ascenso y conviene corroborar su tolerancia con wellness y disponibilidad."
-    elif any(value is not None for value in (acwr_value, monotony_value, strain_value)):
-        risk_line = "ACWR, monotonía y strain disponibles: lectura conservadora compatible con control de carga si el wellness y la calidad de sesión acompañan."
-    elif weekly_total is not None:
-        risk_line = "La carga reciente parece estable y compatible con seguimiento normal del bloque."
+    # Cobertura de sRPE en rojo: ninguna frase de estabilidad ni tolerancia
+    # (los avisos de datos faltantes de arriba se mantienen).
+    coverage_red, coverage_detail = _srpe_coverage_red(state, athlete)
+    has_load_reading = weekly_total is not None or any(
+        value is not None for value in (acwr_value, monotony_value, strain_value)
+    )
+    if risk_line is None:
+        if not has_load_reading:
+            risk_line = "Faltan datos para valorar la tolerancia de carga."
+        elif coverage_red:
+            risk_line = _not_evaluable_text(coverage_detail)
+        elif acwr_value is not None and acwr_value > 1.5:
+            risk_line = "La carga reciente luce alta y con riesgo de acumulación; revisar densidad, calendario y tolerancia."
+        elif monotony_value is not None and monotony_value > 2.0:
+            risk_line = "La carga reciente parece homogénea y con riesgo de acumulación por monotonía."
+        elif acwr_value is not None and acwr_value < 0.8:
+            risk_line = "La carga reciente luce baja/subdosificada respecto a la carga crónica."
+        elif weekly_change_pct is not None and weekly_change_pct > 10:
+            risk_line = "La carga reciente está en ascenso y conviene corroborar su tolerancia con wellness y disponibilidad."
+        elif any(value is not None for value in (acwr_value, monotony_value, strain_value)):
+            risk_line = "ACWR, monotonía y strain disponibles: lectura conservadora compatible con control de carga si el wellness y la calidad de sesión acompañan."
+        else:
+            risk_line = "La carga reciente parece estable y compatible con seguimiento normal del bloque."
+
+    weekly_total_text = _professional_number_text(weekly_total, digits=0, unit="UA")
+    sessions_done = _coerce_float(internal_load.get("analysis_week_sessions_done"))
+    sessions_missing = _coerce_float(internal_load.get("analysis_week_sessions_missing"))
+    if (
+        weekly_total is not None
+        and sessions_done is not None
+        and sessions_missing is not None
+        and sessions_done > 0
+        and sessions_missing > 0
+    ):
+        with_srpe = max(0, int(sessions_done - sessions_missing))
+        weekly_total_text = f"{weekly_total_text} (parcial: {with_srpe} de {int(sessions_done)} sesiones)"
 
     rows = [
         ("Semana analizada", safe_value(internal_load.get("analysis_week_label"))),
-        ("sRPE semanal", _professional_number_text(weekly_total, digits=0, unit="UA")),
+        ("sRPE semanal", weekly_total_text),
         ("Cambio vs semana previa", gate_text if acwr_gated else change_text),
         ("Sesiones con sRPE (semana)", safe_value(internal_load.get("sessions_registered"))),
         ("ACWR EWMA", gate_text if acwr_gated else _professional_number_text(acwr_value, digits=2)),
@@ -7809,6 +8048,7 @@ def _build_professional_load_tolerance_payload(
         "message": "" if available_rows else "Faltan datos suficientes para consolidar la carga interna reciente.",
         "rows": available_rows,
         "risk_line": risk_line,
+        "coverage_red": coverage_red,
         "weekly_points": internal_load.get("weekly_points", []),
         "analysis_scope": internal_load.get("analysis_scope"),
     }
@@ -7861,11 +8101,11 @@ def _build_professional_wellness_availability_payload(
 
     rows = [
         ("Semana analizada", safe_value(wellness_context.get("analysis_week_label"))),
-        ("Wellness score", score_label),
-        ("Sueño", _with_scale(summary.get("sleep_mean"), "sleep")),
-        ("Estrés", _with_scale(summary.get("stress_mean"), "stress")),
-        ("Dolor", _with_scale(summary.get("pain_mean"), "pain")),
-        ("Días con registro", days_with_record),
+        (WELLNESS_WEEK_SCORE_LABEL, score_label),
+        (f"Sueño ({WELLNESS_WEEK_WINDOW})", _with_scale(summary.get("sleep_mean"), "sleep")),
+        (f"Estrés ({WELLNESS_WEEK_WINDOW})", _with_scale(summary.get("stress_mean"), "stress")),
+        (f"Dolor ({WELLNESS_WEEK_WINDOW})", _with_scale(summary.get("pain_mean"), "pain")),
+        (WELLNESS_WEEK_DAYS_LABEL, days_with_record),
         ("Adherencia formal", safe_value(completion.get("value"))),
     ]
     available_rows = [(label, value) for label, value in rows if value != PDF_MISSING_TEXT]
@@ -7875,11 +8115,15 @@ def _build_professional_wellness_availability_payload(
     stress_mean = _coerce_float(summary.get("stress_mean"))
     pain_mean = _coerce_float(summary.get("pain_mean"))
     sleep_mean = _coerce_float(summary.get("sleep_mean"))
+    coverage_red, coverage_detail = _srpe_coverage_red(state, athlete)
     compatibility = "Faltan datos suficientes para cruzar wellness, disponibilidad y carga."
     if wellness_context.get("state") == "partial":
         compatibility = "Datos parciales de wellness/disponibilidad: usar la lectura como señal preliminar y no como tendencia cerrada."
     elif wellness_context.get("state") == "available" and load_state == "missing":
         compatibility = "Wellness/disponibilidad disponible, pero sin carga interna reciente conviene usarlo solo como contexto parcial."
+    elif coverage_red:
+        # Sin carga evaluable no se puede afirmar estabilidad ni tolerancia.
+        compatibility = _not_evaluable_text(coverage_detail)
     elif weekly_change_pct is not None and weekly_change_pct > 10 and (
         _professional_wellness_high(stress_mean, scales.get("stress"))
         or _professional_wellness_high(pain_mean, scales.get("pain"))
@@ -8332,8 +8576,8 @@ def _build_professional_integrated_decision_payload(
         ],
         fallback="",
     )
-    wellness_score = wellness_rows.get("Wellness score", "")
-    wellness_days = wellness_rows.get("Días con registro", "")
+    wellness_score = wellness_rows.get(WELLNESS_WEEK_SCORE_LABEL, "")
+    wellness_days = wellness_rows.get(WELLNESS_WEEK_DAYS_LABEL, "")
     load_risk_norm = _professional_normalized_text(load_payload.get("risk_line", ""))
     wellness_compatibility_norm = _professional_normalized_text(wellness_payload.get("compatibility", ""))
 
@@ -8684,14 +8928,14 @@ def _build_professional_executive_payload(
         if load_parts:
             signals.append(_clip_signal(". ".join(load_parts) + "."))
     if wellness_rows:
-        days_text = wellness_rows.get("Días con registro", "")
-        score_text = wellness_rows.get("Wellness score", "")
+        days_text = wellness_rows.get(WELLNESS_WEEK_DAYS_LABEL, "")
+        score_text = wellness_rows.get(WELLNESS_WEEK_SCORE_LABEL, "")
         if str(wellness_payload.get("state") or "").strip().lower() == "partial":
             signals.append(_clip_signal(f"Wellness parcial: {days_text}." if _has_text(days_text) else "Wellness parcial."))
         elif _has_text(score_text):
-            details = [f"Wellness {score_text}"]
+            details = [f"Wellness ({WELLNESS_WEEK_WINDOW}) {score_text}"]
             if _has_text(days_text):
-                details.append(f"{days_text} con registro")
+                details.append(f"{days_text} día(s) con registro")
             signals.append(_clip_signal(". ".join(details) + "."))
     if dominant:
         signals.append(_clip_signal(f"Dominan {_professional_join_labels(dominant[:2])}."))
@@ -9799,102 +10043,26 @@ def _generate_professional_profile_pdf_reportlab(
         drawing.add(String(left + 2, bottom + plot_h + 3, f"{max_v:.0f}", fontSize=6.5, fillColor=palette["muted"]))
         return drawing
 
-    def _weekly_ema_chart(points: list[dict[str, object]], *, width_mm: float = 174, height_mm: float = 55) -> Drawing | None:
-        values = [_coerce_float(point.get("value")) for point in points]
-        emas = [_coerce_float(point.get("ema")) for point in points]
-        values = [value for value in values if value is not None]
-        emas = [value for value in emas if value is not None]
-        if len(values) < 2 or len(emas) < 2:
-            return None
-        width = width_mm * mm
-        height = height_mm * mm
-        left = 28
-        bottom = 17
-        plot_w = width - 46
-        plot_h = height - 32
-        max_v = max(values + emas)
-        min_v = min([0] + values + emas)
-        if min_v == max_v:
-            max_v += 1
-        drawing = Drawing(width, height)
-        drawing.add(Rect(0, 0, width, height, fillColor=palette["card"], strokeColor=palette["line"], strokeWidth=0.5))
-        drawing.add(String(left, height - 9, "sRPE semanal + EMA 6 semanas", fontSize=8, fillColor=palette["navy"]))
-        drawing.add(Line(left, bottom, left + plot_w, bottom, strokeColor=palette["line"], strokeWidth=0.7))
-        drawing.add(Line(left, bottom, left, bottom + plot_h, strokeColor=palette["line"], strokeWidth=0.7))
-        drawing.add(String(7, bottom + plot_h - 2, "UA", fontSize=6.5, fillColor=palette["muted"]))
-        bar_gap = 4
-        bar_w = max(5, (plot_w - (bar_gap * max(0, len(points) - 1))) / max(1, len(points)))
-        ema_coords: list[float] = []
-        for idx, point in enumerate(points):
-            value = _coerce_float(point.get("value"))
-            ema = _coerce_float(point.get("ema"))
-            x = left + idx * (bar_w + bar_gap)
-            if value is not None:
-                bar_h = ((value - min_v) / (max_v - min_v)) * plot_h
-                drawing.add(Rect(x, bottom, bar_w, bar_h, fillColor=colors.HexColor("#DCE5EA"), strokeColor=None))
-                if idx == len(points) - 1:
-                    drawing.add(String(x, bottom + bar_h + 2, f"{value:.0f}", fontSize=6, fillColor=palette["gray"]))
-            if ema is not None:
-                ema_x = x + (bar_w / 2)
-                ema_y = _scale(ema, min_v, max_v, bottom, plot_h)
-                ema_coords.extend([ema_x, ema_y])
-        if len(ema_coords) >= 4:
-            drawing.add(PolyLine(ema_coords, strokeColor=palette["navy"], strokeWidth=2.0))
-        for idx, point in enumerate(points):
-            if idx in {0, len(points) - 1}:
-                x = left + idx * (bar_w + bar_gap)
-                drawing.add(String(x, 4, _pdf_label(point.get("label")), fontSize=6.5, fillColor=palette["gray"]))
-            if point.get("evaluation"):
-                x = left + idx * (bar_w + bar_gap) + (bar_w / 2)
-                drawing.add(Line(x, bottom, x, bottom + plot_h, strokeColor=palette["orange"], strokeWidth=0.8))
-                drawing.add(String(x + 2, bottom + plot_h - 8, "evaluación", fontSize=5.8, fillColor=palette["orange"]))
-        drawing.add(String(left + 2, bottom + plot_h + 3, f"{max_v:.0f}", fontSize=6.5, fillColor=palette["muted"]))
-        legend_y = height - 10
-        legend_x = left + plot_w - 78
-        drawing.add(Rect(legend_x, legend_y - 4, 7, 4, fillColor=colors.HexColor("#DCE5EA"), strokeColor=None))
-        drawing.add(String(legend_x + 10, legend_y - 4, "sRPE semanal", fontSize=6.5, fillColor=palette["gray"]))
-        drawing.add(Line(legend_x + 50, legend_y - 2, legend_x + 62, legend_y - 2, strokeColor=palette["navy"], strokeWidth=1.4))
-        drawing.add(String(legend_x + 65, legend_y - 4, "EMA 6", fontSize=6.5, fillColor=palette["gray"]))
-        return drawing
+    _fallback_shapes = {
+        "Drawing": Drawing, "Rect": Rect, "Line": Line, "PolyLine": PolyLine, "Circle": Circle, "String": String,
+    }
 
-    def _wellness_chart(points: list[dict[str, object]], *, width_mm: float = 82, height_mm: float = 42) -> Drawing | None:
-        valid_values = [_coerce_float(point.get("score")) for point in points]
-        valid_values = [value for value in valid_values if value is not None]
-        if len(valid_values) < 2:
-            return None
-        width = width_mm * mm
-        height = height_mm * mm
-        left = 24
-        bottom = 15
-        plot_w = width - 36
-        plot_h = height - 28
-        min_v = 1.0
-        max_v = 5.0
-        drawing = Drawing(width, height)
-        drawing.add(Rect(0, 0, width, height, fillColor=palette["card"], strokeColor=palette["line"], strokeWidth=0.5))
-        drawing.add(String(left, height - 9, "Wellness score", fontSize=7.5, fillColor=palette["navy"]))
-        drawing.add(Line(left, bottom, left + plot_w, bottom, strokeColor=palette["line"], strokeWidth=0.7))
-        drawing.add(Line(left, bottom, left, bottom + plot_h, strokeColor=palette["line"], strokeWidth=0.7))
-        coords: list[float] = []
-        valid_points = [point for point in points if _coerce_float(point.get("score")) is not None]
-        for idx, point in enumerate(valid_points):
-            value = float(_coerce_float(point.get("score")) or 0)
-            x = left + (plot_w * idx / max(1, len(valid_points) - 1))
-            y = _scale(value, min_v, max_v, bottom, plot_h)
-            coords.extend([x, y])
-        drawing.add(PolyLine(coords, strokeColor=palette["green"], strokeWidth=1.7))
-        for idx, point in enumerate(valid_points):
-            if idx not in {0, len(valid_points) - 1}:
-                continue
-            value = float(_coerce_float(point.get("score")) or 0)
-            x = left + (plot_w * idx / max(1, len(valid_points) - 1))
-            y = _scale(value, min_v, max_v, bottom, plot_h)
-            drawing.add(Circle(x, y, 2.2, fillColor=palette["green"], strokeColor=colors.white, strokeWidth=0.4))
-        drawing.add(String(left, 4, _pdf_label(valid_points[0].get("label")), fontSize=6.5, fillColor=palette["gray"]))
-        drawing.add(String(left + plot_w - 20, 4, _pdf_label(valid_points[-1].get("label")), fontSize=6.5, fillColor=palette["gray"]))
-        drawing.add(String(left + 2, bottom + plot_h + 3, f"{max_v:.1f}", fontSize=6.5, fillColor=palette["muted"]))
-        drawing.add(String(left + plot_w - 62, bottom + plot_h + 3, "Wellness score", fontSize=6.5, fillColor=palette["gray"]))
-        return drawing
+    def _weekly_ema_chart(points: list[dict[str, object]], *, width_mm: float = 174, height_mm: float = 55) -> Drawing | None:
+        return build_fallback_weekly_ema_chart(
+            points, palette, _fallback_shapes, width_mm=width_mm, height_mm=height_mm, mm=mm,
+            bar_color=colors.HexColor("#DCE5EA"),
+        )
+
+    def _wellness_chart(
+        points: list[dict[str, object]],
+        *,
+        width_mm: float = 82,
+        height_mm: float = 42,
+        title: str = f"Wellness diario ({WELLNESS_WEEK_WINDOW})",
+    ) -> Drawing | None:
+        return build_fallback_wellness_chart(
+            points, palette, _fallback_shapes, width_mm=width_mm, height_mm=height_mm, mm=mm, title=title
+        )
 
     def _unpack_metric_row(row: dict[str, object] | tuple[str, str]) -> tuple[str, str, str]:
         if isinstance(row, dict):
@@ -10051,11 +10219,11 @@ def _generate_professional_profile_pdf_reportlab(
             else PDF_MISSING_TEXT
         )
         return [
-            ("Sueño promedio", with_scale(summary.get("sleep_mean"), "sleep")),
-            ("Estrés promedio", with_scale(summary.get("stress_mean"), "stress")),
-            ("Dolor promedio", with_scale(summary.get("pain_mean"), "pain")),
-            {"label": "Wellness score", "value": rendered_score, "note": _report_sample_warning(score_days)},
-            ("Días con registro", str(int(summary.get("days"))) if summary.get("days") is not None else PDF_MISSING_TEXT),
+            (f"Sueño promedio ({WELLNESS_WEEK_WINDOW})", with_scale(summary.get("sleep_mean"), "sleep")),
+            (f"Estrés promedio ({WELLNESS_WEEK_WINDOW})", with_scale(summary.get("stress_mean"), "stress")),
+            (f"Dolor promedio ({WELLNESS_WEEK_WINDOW})", with_scale(summary.get("pain_mean"), "pain")),
+            {"label": WELLNESS_WEEK_SCORE_LABEL, "value": rendered_score, "note": _report_sample_warning(score_days)},
+            (WELLNESS_WEEK_DAYS_LABEL, str(int(summary.get("days"))) if summary.get("days") is not None else PDF_MISSING_TEXT),
         ]
 
     def _quadrant_chart(section: dict[str, object], *, width_mm: float = 82, height_mm: float = 55) -> Drawing | None:
@@ -10774,11 +10942,11 @@ def _generate_professional_profile_pdf_reportlab(
         )
 
         return [
-            metric_row("Sueño promedio", with_scale(summary.get("sleep_mean"), "sleep"), summary.get("sleep_n")),
-            metric_row("Estrés promedio", with_scale(summary.get("stress_mean"), "stress"), summary.get("stress_n")),
-            metric_row("Dolor promedio", with_scale(summary.get("pain_mean"), "pain"), summary.get("pain_n")),
-            metric_row("Wellness score", rendered_score, summary.get("score_n"), include_count=False),
-            {"label": "Días con registro", "value": str(int(summary.get("days"))) if summary.get("days") is not None else PDF_MISSING_TEXT},
+            metric_row(f"Sueño promedio ({WELLNESS_WEEK_WINDOW})", with_scale(summary.get("sleep_mean"), "sleep"), summary.get("sleep_n")),
+            metric_row(f"Estrés promedio ({WELLNESS_WEEK_WINDOW})", with_scale(summary.get("stress_mean"), "stress"), summary.get("stress_n")),
+            metric_row(f"Dolor promedio ({WELLNESS_WEEK_WINDOW})", with_scale(summary.get("pain_mean"), "pain"), summary.get("pain_n")),
+            metric_row(WELLNESS_WEEK_SCORE_LABEL, rendered_score, summary.get("score_n"), include_count=False),
+            {"label": WELLNESS_WEEK_DAYS_LABEL, "value": str(int(summary.get("days"))) if summary.get("days") is not None else PDF_MISSING_TEXT},
         ]
 
     def _append_wellness_last_week(target: list[object], *, include_title: bool = True, compact: bool = False) -> None:
@@ -10821,7 +10989,12 @@ def _generate_professional_profile_pdf_reportlab(
         if wellness_context.get("state") == "partial" and not wellness_context.get("trend_allowed"):
             target.append(_collapsed_box("Tendencia de wellness no disponible por baja cantidad de registros."))
             return
-        weekly_chart = _wellness_chart(wellness_context.get("weekly_points", []), width_mm=174, height_mm=38 if compact else 46)
+        weekly_chart = _wellness_chart(
+            wellness_context.get("weekly_points", []),
+            width_mm=174,
+            height_mm=38 if compact else 46,
+            title="Wellness semanal (promedio de cada semana)",
+        )
         if weekly_chart is None:
             target.append(_collapsed_box("Faltan registros suficientes para tendencia. La lectura debe tomarse como alerta contextual puntual."))
             return
@@ -12104,7 +12277,7 @@ def _generate_visual_report_pdf_reportlab(
             athlete_score_days = int(_coerce_float(wellness_summary.get("score_n")) or 0)
             return [
                 _athlete_metric_row(
-                    "Bienestar",
+                    f"Bienestar ({WELLNESS_WEEK_WINDOW})",
                     (
                         f"{float(athlete_score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({athlete_score_meta['label']})"
                         if athlete_score_meta is not None
@@ -12113,12 +12286,12 @@ def _generate_visual_report_pdf_reportlab(
                     wellness_summary.get("score_n"),
                 ),
                 _athlete_metric_row(
-                    "Sueño",
+                    f"Sueño ({WELLNESS_WEEK_WINDOW})",
                     _athlete_metric(wellness_summary.get("sleep_mean"), digits=1, suffix=" h", fallback="Todavía no registrado"),
                     wellness_summary.get("sleep_n"),
                 ),
                 _athlete_metric_row(
-                    "Estrés",
+                    f"Estrés ({WELLNESS_WEEK_WINDOW})",
                     (
                         f"{_display_metric(wellness_summary.get('stress_mean'), digits=1)}{wellness_scale.get('stress', '')}"
                         if _coerce_float(wellness_summary.get("stress_mean")) is not None
@@ -12127,7 +12300,7 @@ def _generate_visual_report_pdf_reportlab(
                     wellness_summary.get("stress_n"),
                 ),
                 _athlete_metric_row(
-                    "Dolor",
+                    f"Dolor ({WELLNESS_WEEK_WINDOW})",
                     (
                         f"{_display_metric(wellness_summary.get('pain_mean'), digits=1)}{wellness_scale.get('pain', '')}"
                         if _coerce_float(wellness_summary.get("pain_mean")) is not None
@@ -12136,7 +12309,7 @@ def _generate_visual_report_pdf_reportlab(
                     wellness_summary.get("pain_n"),
                 ),
                 {"label": "Adherencia", "value": _athlete_completion_text(), "note": ""},
-                {"label": "Días con registro", "value": str(athlete_score_days) if athlete_score_days > 0 else "Todavía no registrado", "note": ""},
+                {"label": WELLNESS_WEEK_DAYS_LABEL, "value": str(athlete_score_days) if athlete_score_days > 0 else "Todavía no registrado", "note": ""},
             ]
 
         def _athlete_wellness_summary_line() -> str:
@@ -13003,9 +13176,9 @@ def _generate_visual_report_pdf_reportlab(
                     return "Sueño parece estable, pero estrés y dolor merecen seguimiento."
                 return "La recuperación viene algo cargada: estrés y dolor merecen atención antes de subir exigencia."
             if _client_recent_wellness_is_low(recent_value) and mean_value is not None and mean_value >= 3.0:
-                return "El promedio reciente es aceptable, pero conviene seguir de cerca la recuperación percibida."
+                return "El promedio de la semana analizada es aceptable, pero conviene seguir de cerca la recuperación percibida."
             if mean_value is not None and mean_value < 3.0:
-                return "El promedio reciente viene algo bajo y conviene seguir de cerca la recuperación."
+                return "El promedio de la semana analizada viene algo bajo y conviene seguir de cerca la recuperación."
             if _client_recent_wellness_is_low(recent_value):
                 return "La recuperación percibida viene baja y conviene seguirla de cerca."
             return "El bienestar reciente acompaña sin señales grandes de alerta."
@@ -13019,7 +13192,7 @@ def _generate_visual_report_pdf_reportlab(
                 lines.append("La carga reciente está en una zona útil para seguir construyendo.")
             mean_value = _client_wellness_mean_value()
             if mean_value is not None and mean_value >= 3.0:
-                lines.append("El promedio reciente de bienestar se mantiene en una zona aceptable.")
+                lines.append("El promedio de bienestar de la semana analizada se mantiene en una zona aceptable.")
             if completion_value is not None and completion_value >= 80:
                 lines.append("La constancia del plan ayuda a leer mejor cómo viene el proceso.")
             return list(dict.fromkeys(lines))[:3] or ["Ya empezamos a juntar información útil para seguir tu proceso."]
@@ -13133,7 +13306,7 @@ def _generate_visual_report_pdf_reportlab(
                     "#134263",
                 ),
                 (
-                    "Bienestar reciente",
+                    WELLNESS_RECENT_CLIENT_LABEL,
                     _client_recent_wellness_label(),
                     "#2F6B52",
                 ),
@@ -13197,7 +13370,7 @@ def _generate_visual_report_pdf_reportlab(
                     else _client_missing_text("reference"),
                 },
                 {
-                    "label": "Bienestar reciente",
+                    "label": WELLNESS_RECENT_CLIENT_LABEL,
                     "value": _client_metric(focus_row.get("Wellness 3d"), digits=1, fallback=_client_missing_text("registration"))
                     if _row_has_wellness_data(focus_row)
                     else _client_missing_text("registration"),
@@ -13298,11 +13471,11 @@ def _generate_visual_report_pdf_reportlab(
                 score_label = f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']})"
             days_count = _client_wellness_days_count()
             return [
-                {"label": "Promedio reciente", "value": score_label, "note": "Últimos registros visibles"},
-                {"label": "Sueño", "value": _client_metric(summary.get("sleep_mean"), digits=1, suffix=" h", fallback=_client_missing_text("registration"))},
-                {"label": "Estrés", "value": _client_metric(summary.get("stress_mean"), digits=1, suffix=str(scales.get("stress", "")), fallback=_client_missing_text("registration"))},
-                {"label": "Dolor", "value": _client_metric(summary.get("pain_mean"), digits=1, suffix=str(scales.get("pain", "")), fallback=_client_missing_text("registration"))},
-                {"label": "Días con registro", "value": str(days_count) if days_count > 0 else _client_missing_text("registration")},
+                {"label": f"Promedio ({WELLNESS_WEEK_WINDOW})", "value": score_label, "note": safe_value(wellness_context.get("analysis_week_label"), fallback="")},
+                {"label": f"Sueño ({WELLNESS_WEEK_WINDOW})", "value": _client_metric(summary.get("sleep_mean"), digits=1, suffix=" h", fallback=_client_missing_text("registration"))},
+                {"label": f"Estrés ({WELLNESS_WEEK_WINDOW})", "value": _client_metric(summary.get("stress_mean"), digits=1, suffix=str(scales.get("stress", "")), fallback=_client_missing_text("registration"))},
+                {"label": f"Dolor ({WELLNESS_WEEK_WINDOW})", "value": _client_metric(summary.get("pain_mean"), digits=1, suffix=str(scales.get("pain", "")), fallback=_client_missing_text("registration"))},
+                {"label": WELLNESS_WEEK_DAYS_LABEL, "value": str(days_count) if days_count > 0 else _client_missing_text("registration")},
             ]
 
         def _client_wellness_lines() -> list[str]:

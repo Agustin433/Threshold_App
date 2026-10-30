@@ -58,6 +58,11 @@ def _format_date(value) -> str:
     return pd.Timestamp(value).strftime("%Y-%m-%d")
 
 
+# Cobertura de sRPE por debajo de este % de sesiones = semaforo rojo. Con
+# menos de 6 de cada 10 sesiones reportadas la carga interna no es evaluable.
+SRPE_COVERAGE_RED_PCT = 60.0
+
+
 def _window_bounds(reference_date=None, window_days: int = 42) -> tuple[pd.Timestamp, pd.Timestamp]:
     reference_ts = _reference_timestamp(reference_date)
     window_start = reference_ts - pd.Timedelta(days=max(window_days - 1, 0))
@@ -361,7 +366,7 @@ def _build_athlete_summary(
 
         if srpe_pct >= 80 and wellness_pct >= 70:
             traffic_light = "🟢 Verde"
-        elif srpe_pct < 60 or wellness_pct < 50:
+        elif srpe_pct < SRPE_COVERAGE_RED_PCT or wellness_pct < 50:
             traffic_light = "🔴 Rojo"
         else:
             traffic_light = "🟡 Amarillo"
