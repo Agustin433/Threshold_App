@@ -74,13 +74,14 @@ def yellow_coverage_state() -> dict:
                 "Athlete": ATHLETE,
                 "Assigned Date": day,
                 "Completed Date": day,
-                "Exercise Name": "Sentadilla",
+                "Exercise Name": name,
                 "Set Number": 1,
                 "Result": 80,
                 "Reps": 5,
-                "Tags": "Fuerza_Rodilla_Bilateral",
+                "Tags": tag,
             }
             for day in _trained_days()
+            for name, tag in (("Back Squat", "Dominante de Rodilla"), ("Barbell Bench Press", "Empuje Horizontal"))
         ]
     )
     wellness_df = pd.DataFrame(
@@ -102,6 +103,27 @@ def yellow_coverage_state() -> dict:
         "weekly_summaries": weekly,
         "athletes_list": [ATHLETE],
     }
+
+
+def full_charts_state() -> dict:
+    """Caso amarillo + wellness diario (40 dias): todos los graficos de cada reporte."""
+    import numpy as np
+
+    state = yellow_coverage_state()
+    days = pd.date_range("2026-09-15", "2026-10-26")
+    rng = np.random.default_rng(1)
+    wellness = pd.DataFrame(
+        {
+            "Athlete": ATHLETE,
+            "Date": days,
+            "Sueno_hs": rng.normal(7, 0.7, len(days)).round(1),
+            "Estres": rng.integers(2, 7, len(days)),
+            "Dolor": rng.integers(0, 5, len(days)),
+        }
+    )
+    wellness["Wellness_Score"] = wellness["Sueno_hs"].clip(0, 10) + (10 - wellness["Estres"]) + (10 - wellness["Dolor"])
+    state["wellness_df"] = wellness
+    return state
 
 
 def _pdf_text(pdf: bytes) -> str:

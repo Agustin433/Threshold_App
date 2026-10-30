@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from charts.load_charts import chart_weekly_acwr_context
+from charts.report_charts import ACWR_EWMA_LABEL, CHRONIC_LABEL, REPORTED_LABEL, load_chart
 from modules.load_monitoring import build_weekly_acwr_context
 
 
@@ -89,18 +89,17 @@ class WeeklyAcwrContextTest(unittest.TestCase):
         self.assertEqual(len(context), 4)
         self.assertEqual(context.iloc[0]["week_start"], pd.Timestamp("2026-01-19"))
 
-    def test_weekly_acwr_context_chart_renders_two_panel_traces(self):
-        context = build_weekly_acwr_context(self._weekly_load(), "Ana Gomez", weeks=6)
-
-        figure = chart_weekly_acwr_context(context, "Ana Gomez", theme=_chart_theme())
+    def test_dashboard_load_chart_uses_ewma_only(self):
+        # El dashboard ya no muestra ACWR rolling 1:4 ni su media movil: una
+        # sola metrica de ACWR en toda la app (EWMA), igual que el PDF.
+        figure = load_chart(self._weekly_load(), None, "Ana Gomez", theme=_chart_theme(), show_acwr=True)
         trace_names = [trace.name for trace in figure.data]
 
-        self.assertIn("Carga semanal", trace_names)
-        self.assertIn("Cronica 4 semanas previas", trace_names)
-        self.assertIn("ACWR rolling 1:4", trace_names)
-        self.assertIn("Media movil ACWR 4 sem", trace_names)
-        self.assertIn("Spike semanal", trace_names)
-
+        self.assertIn(REPORTED_LABEL, trace_names)
+        self.assertIn(CHRONIC_LABEL, trace_names)
+        self.assertIn(ACWR_EWMA_LABEL, trace_names)
+        self.assertFalse(any("rolling" in str(name).lower() for name in trace_names))
+        self.assertFalse(any("movil" in str(name).lower() for name in trace_names))
 
 if __name__ == "__main__":
     unittest.main()

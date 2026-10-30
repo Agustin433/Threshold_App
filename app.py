@@ -47,13 +47,17 @@ from charts.load_charts import (
     chart_completion as shared_chart_completion,
     chart_maxes_trend as shared_chart_maxes_trend,
     chart_monotony_strain as shared_chart_monotony_strain,
-    chart_weekly_acwr_context as shared_chart_weekly_acwr_context,
     chart_weekly_external as shared_chart_weekly_external,
     chart_weekly_load as shared_chart_weekly_load,
     chart_weekly_strain as shared_chart_weekly_strain,
     chart_weekly_wellness as shared_chart_weekly_wellness,
     chart_volume_by_tag as shared_chart_volume_by_tag,
     chart_wellness as shared_chart_wellness,
+)
+from charts.report_charts import (
+    load_chart as shared_load_chart,
+    wellness_components_chart as shared_wellness_components_chart,
+    wellness_score_chart as shared_wellness_score_chart,
 )
 from local_store import (
     DATASET_SPECS,
@@ -2814,7 +2818,10 @@ chart_weekly_load = _bind_chart(shared_chart_weekly_load)
 chart_weekly_strain = _bind_chart(shared_chart_weekly_strain)
 chart_weekly_wellness = _bind_chart(shared_chart_weekly_wellness)
 chart_weekly_external = _bind_chart(shared_chart_weekly_external)
-chart_weekly_acwr_context = _bind_chart(shared_chart_weekly_acwr_context)
+# Graficos compartidos con el PDF (charts.report_charts): misma funcion, modo pantalla.
+load_chart = _bind_chart(shared_load_chart)
+wellness_score_chart = _bind_chart(shared_wellness_score_chart)
+wellness_components_chart = _bind_chart(shared_wellness_components_chart)
 chart_volume_by_tag = _bind_chart(shared_chart_volume_by_tag)
 chart_maxes_trend = _bind_chart(shared_chart_maxes_trend)
 chart_radar = _bind_chart(shared_chart_radar)
@@ -6166,10 +6173,12 @@ elif active_main_view == "Load":
                 st.warning("Sin resumen semanal disponible para este atleta.")
             else:
                 acwr_context_source = _full_history_weekly_load(rdf)
-                weekly_acwr_context = build_weekly_acwr_context(
-                    acwr_context_source if not acwr_context_source.empty else weekly_load,
-                    athlete_sel,
-                    weeks=acwr_context_weeks,
+                if acwr_context_source.empty:
+                    acwr_context_source = weekly_load
+                load_context_athlete = (
+                    acwr_context_source[acwr_context_source["Athlete"] == athlete_sel].copy()
+                    if not acwr_context_source.empty and "Athlete" in acwr_context_source.columns
+                    else weekly_load_athlete
                 )
                 current_week_rows = weekly_load_athlete.loc[
                     weekly_load_athlete.get("is_current_week", False).fillna(False)
@@ -6185,11 +6194,17 @@ elif active_main_view == "Load":
                         )
                 render_subsection_header(
                     "Contexto semanal de carga",
-                    "carga absoluta, cronica 4 semanas y ACWR rolling uncoupled",
+                    "carga semanal, cronica EWMA y ACWR EWMA (mismo grafico que el PDF profesional)",
                     kicker="Semanal",
                 )
                 st.plotly_chart(
-                    chart_weekly_acwr_context(weekly_acwr_context, athlete_sel),
+                    load_chart(
+                        load_context_athlete,
+                        acwr_df,
+                        athlete_sel,
+                        show_acwr=True,
+                        weeks=acwr_context_weeks,
+                    ),
                     width='content',
                     key="weekly_acwr_context_main",
                 )
@@ -6209,11 +6224,20 @@ elif active_main_view == "Load":
                 with c_weekly_well:
                     render_subsection_header(
                         "Wellness semanal",
-                        "promedios semanales de sueno, estres y dolor",
+                        "promedios semanales de sueno, estres y dolor (cada uno con su escala)",
                         kicker="Semanal",
                     )
                     st.plotly_chart(
-                        chart_weekly_wellness(weekly_wellness_athlete, athlete_sel),
+                        wellness_components_chart(
+                            weekly_wellness_athlete,
+                            athlete_sel,
+                            date_col="week_start",
+                            sleep_col="Sueno_mean",
+                            stress_col="Estres_mean",
+                            pain_col="Dolor_mean",
+                            days=None,
+                            title_prefix="Wellness semanal",
+                        ),
                         width='content',
                         key="weekly_wellness_main",
                     )
@@ -6350,8 +6374,9 @@ elif active_main_view == "Load":
                         if "Athlete" in wdf.columns else
                         pd.DataFrame()
                     )
-                    render_subsection_header("Wellness", "seguimiento de recuperacion y percepcion diaria", kicker="Recuperacion")
-                    st.plotly_chart(chart_wellness(w_sub, athlete_sel), width='content', key="wellness_main")
+                    render_subsection_header("Wellness", "score con banda individual (media ± 1 DE, 28 dias previos)", kicker="Recuperacion")
+                    st.plotly_chart(wellness_score_chart(w_sub, athlete_sel), width='content', key="wellness_main")
+                    st.plotly_chart(wellness_components_chart(w_sub, athlete_sel), width='content', key="wellness_components_main")
                 else:
                     _alert("Cargá questionnaire-report_wellness.xlsx para ver wellness.", "b")
 
