@@ -158,8 +158,9 @@ class WeeklySummariesTest(unittest.TestCase):
         self.assertTrue(bool(load_row["is_current_week"]))
         self.assertEqual(int(load_row["sessions_count"]), 3)
         self.assertAlmostEqual(float(load_row["weekly_sRPE"]), 900.0, places=3)
-        self.assertEqual(load_row["monotony_status"], "zero_variability")
-        self.assertEqual(load_row["monotony_warning"], "zero_variability")
+        # 3 sesiones: por debajo del minimo de 4 para monotonia.
+        self.assertEqual(load_row["monotony_status"], "few_sessions")
+        self.assertEqual(load_row["monotony_warning"], "menos_de_4_sesiones")
         self.assertTrue(pd.isna(load_row["monotony"]))
         self.assertTrue(pd.isna(load_row["strain"]))
 

@@ -63,8 +63,12 @@ class AppClockTest(unittest.TestCase):
             self.assertEqual(alerts._coerce_reference_date(), pd.Timestamp("2026-11-01"))
 
     def test_no_raw_clock_calls_outside_app_clock(self):
+        # Tambien utcnow (deprecado en pandas, se rompe en pandas 4) y las
+        # formas con texto: Timestamp("now"/"today"), to_datetime("now"/"today").
         pattern = re.compile(
             r"datetime\.now\(|Timestamp\.now\(|Timestamp\.today\(|date\.today\(|datetime\.today\("
+            r"|utcnow\(|utcfromtimestamp\("
+            r"|Timestamp\(\s*[\"'](?:now|today)[\"']|to_datetime\(\s*[\"'](?:now|today)[\"']"
         )
         offenders = []
         for folder in ("modules", "charts", "pages", "scripts"):

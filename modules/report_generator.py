@@ -33,6 +33,7 @@ from modules.data_loader import (
 from modules.app_version import app_version
 from modules.data_quality import SRPE_COVERAGE_RED_PCT, compute_data_quality_report
 from modules.wellness_scales import WELLNESS_EXPORT_HEADERS, WELLNESS_RESPONSE_SCALE
+from modules.metrics import MONOTONY_MIN_SESSIONS
 from modules.load_monitoring import (
     training_dates_for_athlete,
     ACWR_MAX_MISSING_FRAC_ACUTE,
@@ -1070,9 +1071,8 @@ def _weekly_missing_frac(row: pd.Series) -> float:
 LOAD_NOT_EVALUABLE_TEXT = "No evaluable: cobertura insuficiente"
 
 
-# Con menos sesiones con sRPE por semana la SD de Foster queda fijada por la
-# cantidad de ceros: la monotonia no describe homogeneidad.
-MONOTONY_MIN_SESSIONS = 4
+# MONOTONY_MIN_SESSIONS (modules.load_monitoring): minimo unico de sesiones
+# con sRPE por semana para monotonia/strain en toda la app.
 
 
 def _load_indices_calculable(
@@ -1140,6 +1140,51 @@ def _not_evaluable_text(detail: str) -> str:
 
 LOAD_ZONE_NOT_EVALUABLE = "No evaluable"
 LOAD_NOT_EVALUABLE_PLAIN_LINE = f"{LOAD_NOT_EVALUABLE_TEXT} para leer la carga (faltan registros de sRPE)."
+
+
+# Reporte cliente: nunca zonas de ACWR ("Subcarga", "Optimo"...). La carga se
+# describe comparando la ultima semana completa con las anteriores, en lenguaje
+# llano, y solo con la carga evaluable (cobertura verde).
+CLIENT_TREND_LIGHTER = "lighter"
+CLIENT_TREND_SIMILAR = "similar"
+CLIENT_TREND_HEAVIER = "heavier"
+CLIENT_TREND_RATIO_LOW = 0.85
+CLIENT_TREND_RATIO_HIGH = 1.15
+CLIENT_TREND_SENTENCES = {
+    CLIENT_TREND_LIGHTER: "La última semana fue más liviana que las anteriores.",
+    CLIENT_TREND_SIMILAR: "La carga de la última semana fue similar a las anteriores: hay continuidad.",
+    CLIENT_TREND_HEAVIER: "La última semana fue más exigente que las anteriores; conviene cuidar la recuperación.",
+}
+CLIENT_TREND_LABELS = {
+    CLIENT_TREND_LIGHTER: "Más liviana que las anteriores",
+    CLIENT_TREND_SIMILAR: "Similar a las anteriores",
+    CLIENT_TREND_HEAVIER: "Más exigente que las anteriores",
+}
+
+
+def client_load_trend(internal_load: dict[str, object]) -> str | None:
+    """Ultima semana completa vs promedio de hasta 4 semanas completas previas.
+
+    None si la ultima semana es parcial o no hay al menos 2 semanas previas
+    completas para comparar.
+    """
+    if str(internal_load.get("analysis_scope") or "") != "last_complete_week":
+        return None
+    points = [point for point in list(internal_load.get("weekly_points") or []) if _coerce_float(point.get("value")) is not None]
+    if not points or points[-1].get("partial"):
+        return None
+    previous = [float(point["value"]) for point in points[:-1] if not point.get("partial")][-4:]
+    if len(previous) < 2:
+        return None
+    baseline = sum(previous) / len(previous)
+    if baseline <= 0:
+        return None
+    ratio = float(points[-1]["value"]) / baseline
+    if ratio < CLIENT_TREND_RATIO_LOW:
+        return CLIENT_TREND_LIGHTER
+    if ratio > CLIENT_TREND_RATIO_HIGH:
+        return CLIENT_TREND_HEAVIER
+    return CLIENT_TREND_SIMILAR
 
 
 def _gate_focus_row_load(
@@ -12707,7 +12752,14 @@ def _generate_visual_report_pdf_reportlab(
                 {"label": "Última semana visible", "value": week_text},
                 {"label": "Cambio vs semana previa", "value": change_text},
                 {"label": "ACWR EWMA", "value": _athlete_metric(focus_row.get("ACWR EWMA"), digits=2)},
-                {"label": "Monotonía", "value": _athlete_metric(focus_row.get("Monotonia"), digits=2)},
+                {
+                    "label": "Monotonía",
+                    "value": _athlete_metric(
+                        focus_row.get("Monotonia"),
+                        digits=2,
+                        fallback=f"No calculable (mínimo {MONOTONY_MIN_SESSIONS} sesiones con sRPE en la semana)",
+                    ),
+                },
                 {"label": "Sesiones con sRPE (semana)", "value": sessions_text},
             ]
 
@@ -13523,6 +13575,12 @@ def _generate_visual_report_pdf_reportlab(
         completion_value = _focus_completion_value(state, effective_athlete)
         internal_load = _build_professional_internal_load_context(state, effective_athlete)
         focus_row = _gate_focus_row_load(focus_row, state, effective_athlete, internal_load)
+        client_trend = (
+            None
+            if _zone_not_evaluable(focus_row.get("Zona"))
+            or not _load_evaluability(state, effective_athlete, internal_load)[0]
+            else client_load_trend(internal_load)
+        )
         wellness_context = _professional_wellness_context(state, effective_athlete)
         client_charts = _collect_client_pdf_chart_payloads(state, effective_athlete)
 
@@ -13673,12 +13731,8 @@ def _generate_visual_report_pdf_reportlab(
             zone = _professional_normalized_text(_client_zone_text())
             if _row_has_eval_data(focus_row):
                 lines.append("Ya tenemos una referencia útil para seguir tu proceso.")
-            if (
-                _row_has_load_data(focus_row)
-                and not _zone_not_evaluable(zone)
-                and all(flag not in zone for flag in ["alto riesgo", "precaucion", "subcarga"])
-            ):
-                lines.append("La carga reciente está en una zona útil para seguir construyendo.")
+            if client_trend == CLIENT_TREND_SIMILAR:
+                lines.append("La carga de la última semana fue similar a las anteriores: hay continuidad.")
             mean_value = _client_wellness_mean_value()
             if mean_value is not None and mean_value >= 3.0:
                 lines.append("El promedio de bienestar de la semana analizada se mantiene en una zona aceptable.")
@@ -13694,15 +13748,12 @@ def _generate_visual_report_pdf_reportlab(
                 translated_flags = list(client_neuromuscular_profile.get("flag_messages_client", []))
                 if translated_flags:
                     return translated_flags[:1] + ["Conviene usar el próximo control para confirmar si esta señal se sostiene."]
-            if "alto riesgo" in zone:
+            if client_trend == CLIENT_TREND_HEAVIER:
                 summary_parts.append("carga reciente")
-                lines.append("La carga reciente viene exigente y conviene ordenarla con un poco más de cuidado.")
-            elif "precaucion" in zone:
+                lines.append("La última semana fue más exigente que las anteriores; conviene cuidar la recuperación.")
+            elif client_trend == CLIENT_TREND_LIGHTER:
                 summary_parts.append("carga reciente")
-                lines.append("La carga permite seguir entrenando, pero pide cuidado y más continuidad antes de subir exigencia.")
-            elif "subcarga" in zone:
-                summary_parts.append("carga reciente")
-                lines.append("La carga reciente quedó baja y conviene recuperar continuidad.")
+                lines.append("La última semana fue más liviana que las anteriores.")
             wellness_line = _client_wellness_summary_line()
             if "conviene seguir" in wellness_line or "viene algo bajo" in wellness_line:
                 summary_parts.append("recuperación percibida")
@@ -13737,7 +13788,7 @@ def _generate_visual_report_pdf_reportlab(
                 lines.append("Programar una nueva evaluación para sumar una referencia más clara del proceso.")
             if _client_completion_needs_follow_up():
                 lines.append("Sostener más continuidad en el plan para que la lectura del proceso sea más clara.")
-            if any(flag in zone for flag in ["alto riesgo", "precaucion", "subcarga"]):
+            if client_trend in {CLIENT_TREND_HEAVIER, CLIENT_TREND_LIGHTER}:
                 lines.append("Lo importante es evitar cambios bruscos y sostener continuidad de una semana a otra.")
             wellness_line = _client_wellness_summary_line()
             if "conviene seguir" in wellness_line or "viene algo bajo" in wellness_line or "registro es bajo" in wellness_line:
@@ -13781,9 +13832,16 @@ def _generate_visual_report_pdf_reportlab(
             ]
 
         def _client_zone_text() -> str:
-            if not _row_has_load_data(focus_row) or not _has_text(focus_row.get("Zona")):
+            # Sin zonas de ACWR para el cliente: "No evaluable" o la
+            # comparacion con las semanas anteriores en lenguaje llano.
+            if _client_load_not_evaluable():
+                return LOAD_ZONE_NOT_EVALUABLE
+            if client_trend is None:
                 return "En seguimiento"
-            return _display_zone(focus_row.get("Zona"))
+            return CLIENT_TREND_LABELS[client_trend]
+
+        def _client_load_not_evaluable() -> bool:
+            return _zone_not_evaluable(focus_row.get("Zona"))
 
         def _client_cards() -> list[tuple[str, str, str]]:
             return [
@@ -13823,17 +13881,10 @@ def _generate_visual_report_pdf_reportlab(
                         )
                     )
                 zone = _professional_normalized_text(_client_zone_text())
-                if _row_has_load_data(focus_row):
-                    if _zone_not_evaluable(zone):
-                        lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
-                    elif "alto riesgo" in zone:
-                        lines.append("La carga reciente viene exigente y conviene ordenarla con un poco más de cuidado.")
-                    elif "precaucion" in zone:
-                        lines.append("La carga permite seguir entrenando, pero pide cuidado y más continuidad antes de subir exigencia.")
-                    elif "subcarga" in zone:
-                        lines.append("La carga reciente quedó baja y conviene recuperar continuidad.")
-                    else:
-                        lines.append("La carga reciente está en una zona útil para construir.")
+                if _client_load_not_evaluable():
+                    lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
+                elif client_trend is not None:
+                    lines.append(CLIENT_TREND_SENTENCES[client_trend])
                 if _row_has_wellness_data(focus_row) or wellness_context.get("state") == "partial":
                     lines.append(_client_wellness_summary_line())
                 if _client_completion_needs_follow_up():
@@ -13934,18 +13985,14 @@ def _generate_visual_report_pdf_reportlab(
                     lines.append(f"La semana sigue en curso. Por ahora acumulaste {total:.0f} UA en {sessions} sesiones y conviene esperar el cierre semanal para compararla mejor.")
                 else:
                     lines.append("La semana sigue en curso y todavía falta información para leer bien la carga reciente.")
-            elif _zone_not_evaluable(zone):
+            elif _client_load_not_evaluable():
                 lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
-            elif "alto riesgo" in zone:
-                lines.append("La carga reciente viene exigente y conviene ordenar la semana para que el cuerpo la tolere mejor.")
-            elif "precaucion" in zone:
-                lines.append("La carga permite seguir entrenando, pero pide cuidado y más continuidad antes de subir exigencia.")
-            elif "subcarga" in zone:
-                lines.append("La carga reciente quedó baja y puede faltar continuidad para seguir construyendo.")
-            elif _row_has_load_data(focus_row):
-                lines.append("La carga reciente se mueve en una zona útil para seguir construyendo con continuidad.")
+            elif client_trend is not None:
+                lines.append(CLIENT_TREND_SENTENCES[client_trend])
+            elif _row_has_load_data(focus_row) or _coerce_float(internal_load.get("last_week_total")) is not None:
+                lines.append("Todavía no hay semanas completas suficientes para comparar la carga con las anteriores.")
             else:
-                lines.append("Falta información reciente para entender bien cómo venís tolerando el entrenamiento.")
+                lines.append("Falta información reciente para entender bien cómo venís entrenando.")
             if completion_value is not None and completion_value < 70:
                 lines.append(f"La constancia actual ({completion_value:.1f}%) merece seguimiento porque puede volver más ruidosa la lectura del proceso.")
             elif completion_value is not None:
