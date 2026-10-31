@@ -5193,7 +5193,7 @@ def build_report_chart_figures(
     Una figura que no se puede construir simplemente no aparece.
     """
     from charts import report_charts
-    from charts.load_charts import chart_volume_by_tag
+    from charts.load_charts import chart_volume_by_tag_sections
 
     audience = normalize_report_audience(audience)
     theme = _build_report_chart_theme()
@@ -5240,15 +5240,37 @@ def build_report_chart_figures(
     if prepared is None:
         prepared = prepare_raw_workouts_df(state.get("raw_df"))
     if prepared is not None and not prepared.empty:
-        _safe("exposure", lambda: chart_volume_by_tag(prepared, athlete, theme=theme, mode="print"))
+        # Una figura por seccion: la figura unica crecia sin limite en alto.
+        _safe("exposure", lambda: chart_volume_by_tag_sections(prepared, athlete, theme=theme) or None)
     return figures
 
 
-def render_print_chart_image(figure: object | None, *, width_mm: float | None = None, ImageClass=None, mm_unit: float | None = None):
+def report_chart_image_count(figures: dict[str, object]) -> int:
+    """Imagenes que embebe el PDF para estas figuras (la exposicion es una lista)."""
+    return sum(len(value) if isinstance(value, list) else 1 for value in figures.values())
+
+
+# Alto maximo de una imagen de grafico en el PDF: el frame util de A4 mide
+# ~260 mm (739 pt); se dejan ~60 mm para el titulo, la nota y el relleno del
+# recuadro (una Table de 1 celda no se puede partir entre paginas).
+PDF_CHART_MAX_HEIGHT_MM = 200.0
+
+
+def render_print_chart_image(
+    figure: object | None,
+    *,
+    width_mm: float | None = None,
+    max_height_mm: float = PDF_CHART_MAX_HEIGHT_MM,
+    ImageClass=None,
+    mm_unit: float | None = None,
+):
     """PNG de una figura en modo impresion como imagen de ancho completo.
 
-    Devuelve None si kaleido no puede renderizarla: el llamador usa el
-    grafico dibujado a mano (o un texto) solo en ese caso.
+    Si la figura es mas alta que `max_height_mm`, se achica el ALTO del lienzo
+    (no la escala): el ancho y la fuente (>= 11 pt impresa) se mantienen y el
+    area de cada fila se reduce. Devuelve None si kaleido no puede
+    renderizarla: el llamador usa el grafico dibujado a mano (o un texto)
+    solo en ese caso.
     """
     if figure is None:
         return None
@@ -5258,6 +5280,13 @@ def render_print_chart_image(figure: object | None, *, width_mm: float | None = 
     layout = getattr(figure, "layout", None)
     width_px = int(getattr(layout, "width", None) or PRINT_CANVAS_WIDTH_PX)
     height_px = int(getattr(layout, "height", None) or 560)
+    max_height_px = int(width_px * float(max_height_mm) / width_mm)
+    if height_px > max_height_px:
+        import plotly.graph_objects as go
+
+        figure = go.Figure(figure)
+        figure.update_layout(height=max_height_px)
+        height_px = max_height_px
     image_bytes = export_plotly_figure_png(figure, width=width_px, height=height_px, scale=PRINT_SCALE)
     if not image_bytes:
         return None
@@ -9701,6 +9730,16 @@ def _register_threshold_pdf_styles(
     return styles
 
 
+class ReportBuildError(RuntimeError):
+    """El PDF pedido no se pudo armar; el mensaje es apto para mostrar al usuario."""
+
+
+def _short_error(exc: BaseException, limit: int = 300) -> str:
+    text = " ".join(str(exc).split()) or type(exc).__name__
+    text = f"{type(exc).__name__}: {text}"
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _fit_pdf_image(
     path: Path | None,
     *,
@@ -10101,9 +10140,9 @@ def _generate_professional_profile_pdf_reportlab(
         from reportlab.graphics.shapes import Circle, Drawing, Line, PolyLine, Rect, String
         from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
         from xml.sax.saxutils import escape
-    except Exception:
+    except Exception as exc:
         logger.exception("No se pudo importar reportlab para el PDF profesional individual")
-        return None
+        raise ReportBuildError(f"No se pudo armar el PDF profesional: falta reportlab ({exc}).") from exc
 
     palette = _pdf_theme_threshold(colors, variant="professional")
     styles = _register_threshold_pdf_styles(
@@ -11175,6 +11214,9 @@ def _generate_professional_profile_pdf_reportlab(
         image_bytes = export_plotly_figure_png(figure, width=width_px, height=height_px, scale=2) if figure is not None else None
         if not image_bytes:
             return None
+        # Nunca mas ancho que el recuadro ni mas alto que la pagina util.
+        width_mm = min(width_mm, 168.0)
+        height_mm = min(height_mm, PDF_CHART_MAX_HEIGHT_MM)
         image = Image(BytesIO(image_bytes), width=width_mm * mm, height=height_mm * mm)
         image.hAlign = "LEFT"
         return image
@@ -11918,8 +11960,16 @@ def _generate_professional_profile_pdf_reportlab(
             target.append(_collapsed_box(str(exposure_payload.get("message") or "Faltan datos de exposición.")))
             return
         target.append(Spacer(1, 3 * mm))
-        # Ancho completo y modo impresion (antes, media columna: ilegible).
-        chart_image = _report_figure_image("exposure")
+        # Ancho completo y modo impresion (antes, media columna: ilegible),
+        # una imagen por seccion para que ninguna exceda la pagina.
+        exposure_figures = report_figures.get("exposure") or []
+        exposure_images = [
+            image
+            for image in (
+                render_print_chart_image(figure, ImageClass=Image, mm_unit=mm) for figure in exposure_figures
+            )
+            if image is not None
+        ]
         summary_box = _bullet_box(
             "Lectura del bloque",
             [
@@ -11933,12 +11983,17 @@ def _generate_professional_profile_pdf_reportlab(
             border_color=palette["line_dark"],
             accent_color=palette["navy"],
         )
-        if chart_image is not None:
+        for index, chart_image in enumerate(exposure_images):
+            last = index == len(exposure_images) - 1
             target.append(
                 _chart_panel(
                     chart_image,
-                    title="Distribución visual del bloque",
-                    note="El gráfico acompaña la tabla para localizar rápido el peso relativo de cada estímulo.",
+                    title="Distribución visual del bloque" if index == 0 else "",
+                    note=(
+                        "El gráfico acompaña la tabla para localizar rápido el peso relativo de cada estímulo."
+                        if last
+                        else ""
+                    ),
                 )
             )
             target.append(Spacer(1, 4 * mm))
@@ -12119,9 +12174,11 @@ def _generate_professional_profile_pdf_reportlab(
     _append_full_action_plan_page(story)
     try:
         doc.build(story, onFirstPage=_draw_professional_footer, onLaterPages=_draw_professional_footer)
-    except Exception:
+    except Exception as exc:
         logger.exception("Fallo al construir el PDF profesional individual de %s", report_athlete)
-        return None
+        raise ReportBuildError(
+            f"No se pudo armar el PDF profesional de {report_athlete}: {_short_error(exc)}"
+        ) from exc
     return buffer.getvalue()
 
 def _generate_visual_report_pdf_reportlab(
@@ -12146,9 +12203,21 @@ def _generate_visual_report_pdf_reportlab(
     if effective_athlete is None:
         return None
     if audience == "profe" and effective_athlete != "Todos":
-        professional_pdf = _generate_professional_profile_pdf_reportlab(state, effective_athlete)
-        if professional_pdf:
-            return professional_pdf
+        # El reporte madre es el unico PDF profesional individual: si falla, el
+        # error sube con su motivo. Nunca se entrega otro reporte en su lugar
+        # (antes caia en silencio al generador legacy).
+        try:
+            professional_pdf = _generate_professional_profile_pdf_reportlab(state, effective_athlete)
+        except ReportBuildError:
+            raise
+        except Exception as exc:
+            logger.exception("Fallo al preparar el PDF profesional individual de %s", effective_athlete)
+            raise ReportBuildError(
+                f"No se pudo armar el PDF profesional de {effective_athlete}: {_short_error(exc)}"
+            ) from exc
+        if not professional_pdf:
+            raise ReportBuildError(f"No se pudo armar el PDF profesional de {effective_athlete}: el PDF quedó vacío.")
+        return professional_pdf
 
     summary_df = build_executive_summary_df(state, effective_athlete, audience)
     insights = generate_module_insights(state, effective_athlete, audience)

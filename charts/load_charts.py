@@ -188,7 +188,14 @@ def chart_wellness(w_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figur
     return fig
 
 
-def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict, mode: str = "screen") -> go.Figure:
+def chart_volume_by_tag(
+    raw_df: pd.DataFrame,
+    athlete: str,
+    *,
+    theme: dict,
+    mode: str = "screen",
+    only_section: str | None = None,
+) -> go.Figure | None:
     colors, layout, _, grid_soft, legend = _theme_parts(theme)
     prepared = raw_df if is_prepared_raw_workouts_df(raw_df) else prepare_raw_workouts_df(raw_df)
     required_cols = {"Assigned Date", "Category", "stimulus_category", "Volume_Load_kg", "Contacts", "Exposures"}
@@ -339,6 +346,11 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict, mode
             .reset_index()
         )
         active_sections.append({**section, "grouped": grouped})
+    if only_section is not None:
+        # Una sola seccion (PDF): None si esa seccion no tiene datos.
+        active_sections = [section for section in active_sections if section["title"] == only_section]
+        if not active_sections:
+            return None
 
     if not active_sections:
         fig = go.Figure()
@@ -417,10 +429,46 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str, *, theme: dict, mode
         from charts.report_charts import apply_chart_mode
 
         fig.update_xaxes(title_text="", tickformat="%d/%m")
+        categories = sum(int(section["grouped"]["Category"].nunique()) for section in active_sections)
+        legend_rows = -(-categories // 2)
         return apply_chart_mode(
-            fig, "print", theme=theme, title=None, print_height_mm=40.0 + 52.0 * len(active_sections)
+            fig,
+            "print",
+            theme=theme,
+            title=None,
+            print_height_mm=VOLUME_PRINT_BASE_MM * len(active_sections) + VOLUME_PRINT_LEGEND_ROW_MM * legend_rows,
         )
     return fig
+
+
+# Modo impresion: alto por seccion + alto por renglon de leyenda (2 columnas).
+VOLUME_PRINT_BASE_MM = 58.0
+VOLUME_PRINT_LEGEND_ROW_MM = 7.0
+VOLUME_SECTION_TITLES = (
+    "Fuerza con carga",
+    "Pliometria y aterrizajes",
+    "Derivados olimpicos",
+    "Isometricos",
+    "Core / anti-rotacion",
+    "Prehab y movilidad",
+    "Sprint / COD",
+)
+
+
+def chart_volume_by_tag_sections(raw_df: pd.DataFrame, athlete: str, *, theme: dict) -> list[go.Figure]:
+    """Distribucion del bloque para el PDF: UNA figura por seccion con datos.
+
+    La figura completa crece en alto con la cantidad de secciones y de
+    categorias; en una sola imagen no entra en la pagina (LayoutError de
+    reportlab). Partida por seccion, cada imagen mantiene ancho completo y
+    fuente >= 11 pt impresa.
+    """
+    figures: list[go.Figure] = []
+    for title in VOLUME_SECTION_TITLES:
+        figure = chart_volume_by_tag(raw_df, athlete, theme=theme, mode="print", only_section=title)
+        if figure is not None and any(getattr(trace, "type", "") == "bar" for trace in figure.data):
+            figures.append(figure)
+    return figures
 
 
 def chart_weekly_load(weekly_load_df: pd.DataFrame, athlete: str, *, theme: dict) -> go.Figure:

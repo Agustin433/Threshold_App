@@ -208,7 +208,8 @@ class ReportsEmbedExpectedChartsTest(unittest.TestCase):
                 pdf = report_generator.generate_visual_report_pdf(state, ATHLETE, current)
                 widths = [int(image.image.width) for page in PdfReader(BytesIO(pdf)).pages for image in page.images]
                 charts = [width for width in widths if width == rc.PRINT_CANVAS_WIDTH_PX * rc.PRINT_SCALE]
-                self.assertEqual(len(charts), len(expected), f"{current}: {widths}")
+                figures = report_generator.build_report_chart_figures(state, ATHLETE, current)
+                self.assertEqual(len(charts), report_generator.report_chart_image_count(figures), f"{current}: {widths}")
                 self.assertTrue(all(width == rc.PRINT_CANVAS_WIDTH_PX for width, _ in requested[current]))
 
 
