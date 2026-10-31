@@ -234,6 +234,7 @@ from modules.report_generator import (
     export_excel as shared_export_excel,
     generate_module_insights,
     generate_visual_report_pdf,
+    ReportBuildError,
     normalize_report_audience,
     report_requires_individual,
     resolve_report_scope,
@@ -7446,13 +7447,20 @@ elif active_main_view == "Reports":
                 for sheet_name in ordered_sheet_names
             ]
             excel_bytes = export_excel(sheets)
-            pdf_bytes = generate_visual_report_pdf(report_state, preview_athlete, report_audience)
+            pdf_error = None
+            try:
+                pdf_bytes = generate_visual_report_pdf(report_state, preview_athlete, report_audience)
+            except ReportBuildError as exc:
+                # Nunca otro reporte en lugar del pedido: se muestra el motivo.
+                pdf_bytes = None
+                pdf_error = str(exc)
             ath_label = preview_athlete.replace(" ", "_") if preview_athlete != "Todos" else "Equipo"
             audience_label = audience_choice.replace(" ", "_")
             st.session_state.report_export_payload = {
                 "export_rows_df": pd.DataFrame(export_rows),
                 "excel_bytes": excel_bytes,
                 "pdf_bytes": pdf_bytes,
+                "pdf_error": pdf_error,
                 "ath_label": ath_label,
                 "audience_label": audience_label,
                 "audience_choice": audience_choice,
@@ -7485,6 +7493,8 @@ elif active_main_view == "Reports":
                     file_name=f"Threshold_SC_Reporte_{cached_export_payload['ath_label']}_{cached_export_payload['audience_label']}.pdf",
                     mime="application/pdf",
                 )
+            elif cached_export_payload.get("pdf_error"):
+                st.error(cached_export_payload["pdf_error"])
             else:
                 _alert("No se pudo generar el PDF visual para la configuración actual.", "y")
         _alert(
