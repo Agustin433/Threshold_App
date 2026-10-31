@@ -18,6 +18,7 @@ from local_store import (
     get_local_store_version,
     load_full_history_state,
     load_recent_state,
+    merge_dataset,
 )
 
 DATASET_SESSION_KEYS = list(DATASET_SPECS.keys())
@@ -511,10 +512,14 @@ def ensure_load_state(
             return False
 
         prepared_raw_df = ensure_prepared_raw_workouts(ensure_base_state=False)
-        acwr_dict, mono_dict = build_load_models(
+        # ACWR, monotonia y cronica se calculan SIEMPRE sobre la historia
+        # completa y recien despues se recortan a la ventana visible: con solo
+        # 6 semanas la EWMA cronica arrancaba de cero dentro de la ventana.
+        model_rpe, model_raw = load_model_history_source(
             st.session_state.get("rpe_df"),
-            raw_df=prepared_raw_df if prepared_raw_df is not None else st.session_state.get("raw_df"),
+            prepared_raw_df if prepared_raw_df is not None else st.session_state.get("raw_df"),
         )
+        acwr_dict, mono_dict = build_load_models(model_rpe, weeks=weeks, raw_df=model_raw)
         st.session_state["acwr_dict"] = acwr_dict or None
         st.session_state["mono_dict"] = mono_dict or None
         st.session_state["weekly_summaries"] = build_weekly_summaries(
@@ -529,6 +534,43 @@ def ensure_load_state(
         return True
     finally:
         record_performance_debug_timing("ensure_load_state_s", time.perf_counter() - started_at)
+
+
+def load_model_history_source(
+    recent_rpe_df: pd.DataFrame | None,
+    recent_raw_df: pd.DataFrame | None,
+) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """sRPE y Raw Workouts de TODA la historia para los modelos de carga.
+
+    Combina la historia guardada (ensure_full_history_state) con lo que hay en
+    sesion (por si hay datos recien cargados que todavia no estan en el
+    store). Si la historia no se puede leer, usa lo de la sesion.
+    """
+    try:
+        full_state = ensure_full_history_state(keys=LOAD_DATASET_KEYS)
+    except Exception:
+        return recent_rpe_df, recent_raw_df
+
+    def _combined(full: pd.DataFrame | None, recent: pd.DataFrame | None, key: str) -> pd.DataFrame | None:
+        frames = [frame for frame in (full, recent) if frame is not None and not frame.empty]
+        if not frames:
+            return None
+        if len(frames) == 1:
+            return frames[0]
+        try:
+            return merge_dataset(frames[0], frames[1], key)
+        except Exception:
+            return frames[0]
+
+    rpe = _combined(full_state.get("rpe_df"), recent_rpe_df, "rpe_df")
+    full_raw = full_state.get("raw_df")
+    if full_raw is not None and not full_raw.empty:
+        raw = prepare_raw_workouts_df(_combined(full_raw, None, "raw_df"))
+        if recent_raw_df is not None and not recent_raw_df.empty and raw is not None:
+            raw = pd.concat([raw, recent_raw_df], ignore_index=True, sort=False)
+    else:
+        raw = recent_raw_df
+    return rpe, raw
 
 
 def ensure_history_mode_load_state(

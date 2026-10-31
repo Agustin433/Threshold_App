@@ -160,3 +160,31 @@ class PartialWeeklySrpeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClientLoadTrendTest(unittest.TestCase):
+    """Reporte cliente: semana mas liviana/similar/mas exigente que las anteriores."""
+
+    @staticmethod
+    def _internal(values, partial_last=False, scope="last_complete_week"):
+        points = [{"value": value, "partial": False} for value in values]
+        points[-1]["partial"] = partial_last
+        return {"analysis_scope": scope, "weekly_points": points}
+
+    def test_lighter_similar_heavier(self):
+        trend = report_generator.client_load_trend
+        self.assertEqual(trend(self._internal([1000, 1000, 1000, 1000, 600])), report_generator.CLIENT_TREND_LIGHTER)
+        self.assertEqual(trend(self._internal([1000, 1000, 1000, 1050])), report_generator.CLIENT_TREND_SIMILAR)
+        self.assertEqual(trend(self._internal([1000, 1000, 1400])), report_generator.CLIENT_TREND_HEAVIER)
+
+    def test_no_comparison_without_enough_complete_weeks(self):
+        trend = report_generator.client_load_trend
+        self.assertIsNone(trend(self._internal([1000, 600])))
+        self.assertIsNone(trend(self._internal([1000, 1000, 1000, 270], partial_last=True)))
+        self.assertIsNone(trend(self._internal([1000, 1000, 1000], scope="current_week_partial")))
+
+    def test_labels_have_no_acwr_vocabulary(self):
+        for text in list(report_generator.CLIENT_TREND_LABELS.values()) + list(report_generator.CLIENT_TREND_SENTENCES.values()):
+            lowered = text.lower()
+            for word in ("subcarga", "óptimo", "precaución", "riesgo", "acwr", "zona"):
+                self.assertNotIn(word, lowered)

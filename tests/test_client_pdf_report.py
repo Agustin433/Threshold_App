@@ -396,21 +396,30 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertNotIn("no muestran desvios grandes", joined_pages)
         self.assertNotIn("sin senales grandes de alerta", story_text)
 
-    def test_client_pdf_precaution_load_keeps_useful_but_not_overly_positive_wording(self):
-        # Este test mira la redaccion de la zona "precaucion" con carga
-        # evaluable; el gate de cobertura tiene sus propios tests
-        # (test_reports_yellow_coverage).
+    def test_client_pdf_never_shows_acwr_zones_even_with_precaution_load(self):
+        # Cliente: sin zonas de ACWR ("Precaucion", "Subcarga", "Optimo"...).
+        # Con carga evaluable se describe en lenguaje llano comparando con las
+        # semanas anteriores; el gate de cobertura tiene sus propios tests.
         with patch.object(report_generator, "_load_evaluability", return_value=(True, "")):
             pdf, story_text = _rendered_pdf_and_story_text(_client_precaution_load_report_state(), "Ana Lopez")
-        joined_pages = " ".join(_normalized_pdf_pages(pdf))
+        joined_pages = " ".join(" ".join(_normalized_pdf_pages(pdf)).split())
 
         self.assertIsNotNone(pdf)
-        self.assertIn(
-            "la carga permite seguir entrenando, pero pide cuidado y mas continuidad antes de subir exigencia",
-            joined_pages,
+        for zone_word in ("precaucion", "subcarga", "optimo", "alto riesgo", "zona util", "acwr"):
+            self.assertNotIn(zone_word, joined_pages)
+        self.assertTrue(
+            any(
+                phrase in joined_pages
+                for phrase in (
+                    "mas liviana que las anteriores",
+                    "similar a las anteriores",
+                    "mas exigente que las anteriores",
+                    "todavia no hay semanas completas suficientes",
+                    "en seguimiento",
+                )
+            ),
+            joined_pages[:600],
         )
-        self.assertNotIn("zona util para seguir construyendo con continuidad", joined_pages)
-        self.assertNotIn("zona util para seguir construyendo con continuidad", story_text)
 
     def test_client_pdf_handles_low_wellness_with_few_records_without_repeating_or_softening_alerts(self):
         pdf, story_text = _rendered_pdf_and_story_text(_client_partial_low_wellness_report_state(), "Ana Lopez")

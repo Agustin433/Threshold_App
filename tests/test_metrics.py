@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from modules.metrics import calculate_completion_rate, calculate_monotony
+from modules.metrics import MONOTONY_MIN_SESSIONS, calculate_completion_rate, calculate_monotony
 
 
 class CompletionRateTests(unittest.TestCase):
@@ -57,17 +57,29 @@ class CompletionRateTests(unittest.TestCase):
 
 class MonotonyTests(unittest.TestCase):
     def test_standard_monotony_uses_mean_over_population_sd(self):
-        result = calculate_monotony([100, 200, 300])
+        result = calculate_monotony([100, 200, 300], min_sessions=3)
 
         self.assertEqual(result.method, "standard")
         self.assertAlmostEqual(result.value, 200 / math.sqrt(20000 / 3), places=3)
 
     def test_zero_variability_with_positive_load_is_not_numeric(self):
-        result = calculate_monotony([100, 100, 100])
+        result = calculate_monotony([100, 100, 100], min_sessions=3)
 
         self.assertEqual(result.method, "zero_variability")
         self.assertEqual(result.warning, "zero_variability")
         self.assertIsNone(result.value)
+
+    def test_fewer_than_four_sessions_is_not_interpretable(self):
+        # Semana calendario con 3 sesiones: Foster daria ~0.63 por la
+        # cantidad de ceros, no por la distribucion de la carga.
+        result = calculate_monotony([300, 0, 300, 0, 300, 0, 0])
+
+        self.assertEqual(MONOTONY_MIN_SESSIONS, 4)
+        self.assertEqual(result.method, "few_sessions")
+        self.assertIsNone(result.value)
+        four = calculate_monotony([300, 0, 250, 0, 300, 280, 0])
+        self.assertEqual(four.method, "standard")
+        self.assertIsNotNone(four.value)
 
     def test_less_than_three_valid_days_is_insufficient(self):
         result = calculate_monotony([100, 200])

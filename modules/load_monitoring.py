@@ -398,6 +398,9 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     weekly["Monotony_Status"] = weekly["Semana"].map(lambda week: monotony_by_week[week].method)
     weekly["Monotony_Warning"] = weekly["Semana"].map(lambda week: monotony_by_week[week].warning)
     weekly["Monotonia"] = pd.to_numeric(weekly["Monotonia"], errors="coerce")
+    # calculate_monotony ya exige MONOTONY_MIN_SESSIONS sesiones con carga.
+    sessions_by_week = {week: int((loads > 0).sum()) for week, loads in calendar_loads_by_week.items()}
+    weekly["Sesiones_con_sRPE"] = weekly["Semana"].map(sessions_by_week).fillna(0).astype(int)
     if "Dia_Estado" in srpe_daily.columns:
         status = srpe_daily[["Date", "Dia_Estado"]].copy()
         status["Date"] = pd.to_datetime(status["Date"], errors="coerce").dt.normalize()

@@ -5789,7 +5789,9 @@ def render_decision_panel():
                     {
                         "Atleta": athlete,
                         "Ultima evaluacion": "Sin registro",
-                        "Dias sin test": "Sin registro",
+                        # Numero o vacio, nunca texto: una columna con int y
+                        # str rompe la conversion a Arrow de st.dataframe.
+                        "Dias sin test": None,
                         "Ultimo NM_Profile": "-",
                         "Prioridad": "Urgente",
                         "_sort": 9999,
@@ -5816,6 +5818,7 @@ def render_decision_panel():
                 }
             )
         pending_df = pd.DataFrame(pending_rows).sort_values("_sort", ascending=False)
+        pending_df["Dias sin test"] = pd.to_numeric(pending_df["Dias sin test"], errors="coerce").astype("Int64")
         pending_display = pending_df[["Atleta", "Ultima evaluacion", "Dias sin test", "Ultimo NM_Profile", "Prioridad"]]
         pending_styler = pending_display.style.apply(lambda series: _style_palette(series, status_palette), subset=["Prioridad"])
         st.dataframe(pending_styler, width='stretch', hide_index=True)
@@ -7459,7 +7462,7 @@ elif active_main_view == "Reports":
                 "sheet_count": len(sheets),
             }
             st.session_state.report_export_signature = report_preview_signature
-            st.session_state.report_export_last_build_ts = pd.Timestamp.utcnow().isoformat()
+            st.session_state.report_export_last_build_ts = app_now().isoformat()
             record_performance_debug_timing("report_exportables_build_s", time.perf_counter() - export_started_at, accumulate=False)
             record_performance_debug_artifact("report_exportables", "reconstruido")
             cached_export_payload = st.session_state.report_export_payload

@@ -179,10 +179,20 @@ def summarize_completion_by_group(
     return pd.DataFrame(rows)
 
 
+# Minimo de sesiones (dias con carga > 0) en la semana para emitir monotonia,
+# unico para toda la app (dashboard y los tres reportes). Con menos dias la SD
+# de Foster queda fijada por la cantidad de ceros de la semana (1 sesion =>
+# media/SD = 1/sqrt(6) = 0.41; 3 sesiones => ~0.63, sea cual sea la carga):
+# no describe homogeneidad.
+MONOTONY_MIN_SESSIONS = 4
+MONOTONY_STATUS_FEW_SESSIONS = "few_sessions"
+
+
 def calculate_monotony(
     daily_loads: Iterable[float] | pd.Series,
     *,
     min_valid_days: int = 3,
+    min_sessions: int = MONOTONY_MIN_SESSIONS,
     zero_variability_value: float = 99.0,
 ) -> MonotonyResult:
     """Calculate Foster monotony from daily loads with explicit edge-case flags."""
@@ -200,6 +210,17 @@ def calculate_monotony(
             None,
             mean_load=mean_load,
             sd_load=0.0,
+            total_load=total_load,
+            valid_days=valid_days,
+        )
+
+    sessions = int((values > 0).sum())
+    if sessions < min_sessions:
+        return MonotonyResult(
+            None,
+            MONOTONY_STATUS_FEW_SESSIONS,
+            f"menos_de_{min_sessions}_sesiones",
+            mean_load=mean_load,
             total_load=total_load,
             valid_days=valid_days,
         )
