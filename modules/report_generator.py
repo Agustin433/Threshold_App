@@ -975,7 +975,7 @@ def _completion_snapshot(
             return {"value": "Sin dato", "detail": "Periodo cargado (sin fecha)", "numeric": None, "period_label": "Sin dato"}
         completion_mean = round(float(completion_result.value), 1)
         return {
-            "value": f"{completion_mean:.1f}%",
+            "value": completion_display_text(completion_mean),
             "detail": "Periodo cargado (sin fecha)",
             "numeric": completion_mean,
             "period_label": "Periodo cargado (sin fecha)",
@@ -999,7 +999,7 @@ def _completion_snapshot(
         return {"value": "Sin dato", "detail": period_label, "numeric": None, "period_label": period_label}
     completion_mean = round(float(completion_result.value), 1)
     return {
-        "value": f"{completion_mean:.1f}%",
+        "value": completion_display_text(completion_mean),
         "detail": period_label,
         "numeric": completion_mean,
         "period_label": period_label,
@@ -1375,6 +1375,23 @@ def _row_has_wellness_data(row: pd.Series | None) -> bool:
     return row is not None and _coerce_float(row.get("Wellness 3d")) is not None
 
 
+COMPLETION_FULL_TEXT = "100% (completó todo lo asignado)"
+
+
+def completion_display_text(value: object, *, fallback: str = PDF_MISSING_TEXT) -> str:
+    """Constancia/adherencia para mostrar: nunca mas de 100%.
+
+    Completion > 100% significa que el atleta registro mas de lo asignado; se
+    muestra con tope 100% y el motivo, no "108.6%".
+    """
+    numeric = _coerce_float(value)
+    if numeric is None:
+        return fallback
+    if numeric > 100.0:
+        return COMPLETION_FULL_TEXT
+    return f"{numeric:.1f}%"
+
+
 def _focus_completion_value(state: dict[str, pd.DataFrame | None], report_athlete: str) -> float | None:
     return (
         _athlete_completion_mean(state, report_athlete)
@@ -1412,7 +1429,12 @@ def _focus_metric_phrase(label: str, value: object, *, digits: int | None = None
     ).strip()
 
 
-def _focus_metric_context(row: pd.Series) -> dict[str, str]:
+# Fila del reporte cliente: frase llana de la carga (tabla de carga), sin ACWR
+# ni zonas. La setea el generador del cliente.
+CLIENT_LOAD_PHRASE_COL = "_carga_cliente_texto"
+
+
+def _focus_metric_context(row: pd.Series, *, audience: str | None = None) -> dict[str, str]:
     profile = _professional_visible_metric_text(row.get("Perfil NM")).strip()
     # Zona "No evaluable" no es una lectura de carga: no entra a las frases de foco.
     zone_value = row.get("Zona")
@@ -1423,12 +1445,18 @@ def _focus_metric_context(row: pd.Series) -> dict[str, str]:
         "profile": profile,
         "profile_norm": _professional_normalized_text(profile),
         "zone": _professional_visible_metric_text(zone).strip() if zone else "",
-        "load_phrase": _professional_visible_metric_text(
-            f"ACWR EWMA {_display_metric(acwr, digits=2)} en zona {zone}"
-        ).strip() if acwr is not None and zone else (
-            _professional_visible_metric_text(f"ACWR EWMA {_display_metric(acwr, digits=2)}").strip()
-            if acwr is not None else (
-                _professional_visible_metric_text(f"zona {zone}").strip() if zone else ""
+        "load_phrase": (
+            # Cliente: nunca ACWR ni zonas; solo la comparacion llana con las
+            # semanas anteriores (si la carga es evaluable).
+            str(row.get(CLIENT_LOAD_PHRASE_COL) or "").strip()
+            if audience == "cliente"
+            else _professional_visible_metric_text(
+                f"ACWR EWMA {_display_metric(acwr, digits=2)} en zona {zone}"
+            ).strip() if acwr is not None and zone else (
+                _professional_visible_metric_text(f"ACWR EWMA {_display_metric(acwr, digits=2)}").strip()
+                if acwr is not None else (
+                    _professional_visible_metric_text(f"zona {zone}").strip() if zone else ""
+                )
             )
         ),
         "cmj": _focus_metric_phrase("CMJ", row.get("CMJ cm"), suffix=" cm"),
@@ -1443,16 +1471,16 @@ def _focus_metric_context(row: pd.Series) -> dict[str, str]:
 
 def _current_focus_text(row: pd.Series, *, audience: str) -> str:
     audience = normalize_report_audience(audience)
-    context = _focus_metric_context(row)
+    context = _focus_metric_context(row, audience=audience)
     profile = context["profile_norm"]
-    acwr = _coerce_float(row.get("ACWR EWMA"))
+    acwr = None if audience == "cliente" else _coerce_float(row.get("ACWR EWMA"))
     cmj_delta = _coerce_float(row.get("CMJ vs BL %"))
     eval_available = _row_has_eval_data(row)
 
     if not eval_available:
         if _has_text(context["load_phrase"]):
             if audience == "cliente":
-                return _professional_visible_metric_text(f"Sostener carga actual con {context['load_phrase']}")
+                return _professional_visible_metric_text(f"Sostener la continuidad ({context['load_phrase']})")
             if acwr is not None and acwr < 0.8:
                 return _professional_visible_metric_text(f"Recuperar continuidad de carga con {context['load_phrase']}")
             return _professional_visible_metric_text(f"Operar con {context['load_phrase']}")
@@ -1489,7 +1517,7 @@ def _current_focus_text(row: pd.Series, *, audience: str) -> str:
         if anchors:
             return _professional_visible_metric_text(f"Sostener progreso con {anchors[0]}")
         if _has_text(context["load_phrase"]):
-            return _professional_visible_metric_text(f"Sostener continuidad con {context['load_phrase']}")
+            return _professional_visible_metric_text(f"Sostener la continuidad ({context['load_phrase']})")
         return _professional_visible_metric_text("Completar evaluación")
     if audience == "atleta":
         if len(anchors) >= 2:
@@ -1509,9 +1537,9 @@ def _current_focus_text(row: pd.Series, *, audience: str) -> str:
 def _objective_focuses_from_row(row: pd.Series, *, audience: str) -> list[str]:
     audience = normalize_report_audience(audience)
     focus = _current_focus_text(row, audience=audience)
-    context = _focus_metric_context(row)
+    context = _focus_metric_context(row, audience=audience)
     profile = context["profile_norm"]
-    acwr = _coerce_float(row.get("ACWR EWMA"))
+    acwr = None if audience == "cliente" else _coerce_float(row.get("ACWR EWMA"))
     cmj_delta = _coerce_float(row.get("CMJ vs BL %"))
     eval_available = _row_has_eval_data(row)
 
@@ -1593,6 +1621,7 @@ def _objective_focuses_from_row(row: pd.Series, *, audience: str) -> list[str]:
     primary_metric = named_metrics[0] if named_metrics else focus
     secondary_metric = named_metrics[1] if len(named_metrics) > 1 else (context["load_phrase"] or primary_metric)
     if audience == "cliente":
+        secondary_metric = named_metrics[1] if len(named_metrics) > 1 else primary_metric
         return [
             _professional_visible_metric_text(f"La prioridad es sostener {primary_metric} sin perder continuidad en el proceso."),
             _professional_visible_metric_text(f"La señal de que funciona es ver que {secondary_metric} acompaña mejor en la próxima revisión."),
@@ -3458,7 +3487,7 @@ def _athlete_final_focus_blocks(
         )
         gap_lines = list(neuromuscular_profile.get("flag_messages_athlete", [])) or _gaps_from_row(row, audience="atleta")
         if completion_value is not None and completion_value < 70:
-            gap_lines = [f"La adherencia actual ({completion_value:.1f}%) puede limitar la lectura del bloque."] + gap_lines
+            gap_lines = [f"La adherencia actual ({completion_display_text(completion_value)}) puede limitar la lectura del bloque."] + gap_lines
         feedback = neuromuscular_profile.get("feedback", {}) if isinstance(neuromuscular_profile.get("feedback"), dict) else {}
         profile_code = str(neuromuscular_profile.get("profile_code") or "").strip().upper()
         has_clear_strength = _professional_has_clear_dominant_variable(feedback)
@@ -3497,7 +3526,7 @@ def _athlete_final_focus_blocks(
     objective = _current_focus_text(row, audience="atleta")
     next_steps = _next_steps_from_row(row, audience="atleta")
     if completion_value is not None and completion_value < 70:
-        gaps = [f"La adherencia actual ({completion_value:.1f}%) puede limitar la lectura del bloque."] + gaps
+        gaps = [f"La adherencia actual ({completion_display_text(completion_value)}) puede limitar la lectura del bloque."] + gaps
     next_review = (
         "Repetir evaluación física en 6-8 semanas y revisar carga/bienestar semanalmente."
         if _row_has_eval_data(row)
@@ -3962,7 +3991,7 @@ def _build_dashboard_page(
         if report_athlete != "Todos" else
         _team_completion_mean(state)
     )
-    completion_text = _display_metric(completion_value, digits=1, suffix="%") if completion_value is not None else "-"
+    completion_text = completion_display_text(completion_value) if completion_value is not None else "-"
     athletes_text = str(len(summary_df))
     datasets_count = len(
         [
@@ -4463,7 +4492,7 @@ def _audience_dashboard_cards(
         if wellness_available:
             cards.append((WELLNESS_RECENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
         if completion_value is not None:
-            cards.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%"), "#708C9F"))
+            cards.append(("Adherencia", completion_display_text(completion_value), "#708C9F"))
         cards.append(("Objetivo actual", _current_focus_text(focus_row, audience="atleta"), "#5A595B"))
         return cards[:6]
 
@@ -4483,7 +4512,7 @@ def _audience_dashboard_cards(
         if wellness_available:
             cards.append(("Bienestar", _display_metric(focus_row.get("Wellness 3d"), digits=1), "#2F6B52"))
         if completion_value is not None:
-            cards.append(("Constancia", _display_metric(completion_value, digits=1, suffix="%"), "#708C9F"))
+            cards.append(("Constancia", completion_display_text(completion_value), "#708C9F"))
         if eval_available and _has_text(focus_row.get("Perfil NM")):
             cards.append(("Perfil actual", _short_profile_label(focus_row.get("Perfil NM")), "#5A595B"))
         cards.append(("Próximo foco", _current_focus_text(focus_row, audience="cliente"), "#134263"))
@@ -4504,7 +4533,7 @@ def _audience_dashboard_cards(
     if not eval_available:
         cards.append(("Evaluación", "Sin registro reciente", "#708C9F"))
     if completion_value is not None and len(cards) < 6:
-        cards.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%"), "#708C9F"))
+        cards.append(("Adherencia", completion_display_text(completion_value), "#708C9F"))
     return cards[:6]
 
 
@@ -4532,7 +4561,7 @@ def _audience_metric_rows(
         if wellness_available:
             rows.append((WELLNESS_RECENT_CLIENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1)))
         if completion_value is not None:
-            rows.append(("Constancia del plan", _display_metric(completion_value, digits=1, suffix="%")))
+            rows.append(("Constancia del plan", completion_display_text(completion_value)))
         if eval_available and _has_text(focus_row.get("Perfil NM")):
             rows.append(("Lectura actual", _profile_text(focus_row)))
         elif load_available or wellness_available:
@@ -4565,7 +4594,7 @@ def _audience_metric_rows(
         if wellness_available:
             rows.append((WELLNESS_RECENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1)))
         if completion_value is not None:
-            rows.append(("Adherencia al plan", _display_metric(completion_value, digits=1, suffix="%")))
+            rows.append(("Adherencia al plan", completion_display_text(completion_value)))
         rows.append(("Objetivo actual", _current_focus_text(focus_row, audience="atleta")))
         if not eval_available:
             rows.append(("Próxima acción", "Programar una nueva batería de evaluaciones."))
@@ -4586,7 +4615,7 @@ def _audience_metric_rows(
     if wellness_available:
         rows.append((WELLNESS_RECENT_LABEL, _display_metric(focus_row.get("Wellness 3d"), digits=1)))
     if completion_value is not None:
-        rows.append(("Adherencia", _display_metric(completion_value, digits=1, suffix="%")))
+        rows.append(("Adherencia", completion_display_text(completion_value)))
     return rows or [("Estado actual", "Sin datos suficientes para una lectura técnica estable.")]
 
 
@@ -4679,7 +4708,7 @@ def _audience_blocks(
             [
                 f"Estado actual: {_display_zone(row.get('Zona'))}." if load_available and _has_text(row.get("Zona")) else None,
                 f"{WELLNESS_RECENT_CLIENT_LABEL}: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
-                f"Constancia reciente: {_display_metric(completion_value, digits=1, suffix='%')}." if completion_value is not None else None,
+                f"Constancia reciente: {completion_display_text(completion_value)}." if completion_value is not None else None,
                 f"Salto vertical actual: {_display_metric(row.get('CMJ cm'), digits=1, suffix=' cm')}." if eval_available and _coerce_float(row.get("CMJ cm")) is not None else None,
             ]
         ) or ["Seguimos construyendo información útil para entender mejor tu evolución."]
@@ -4747,7 +4776,7 @@ def _audience_blocks(
                 [
                     f"Estado de carga: {_display_zone(row.get('Zona'))}." if load_available and _has_text(row.get("Zona")) else None,
                     f"{WELLNESS_RECENT_LABEL}: {_display_metric(row.get('Wellness 3d'), digits=1)}." if wellness_available else None,
-                    f"Adherencia promedio: {_display_metric(completion_value, digits=1, suffix='%')}." if completion_value is not None else None,
+                    f"Adherencia promedio: {completion_display_text(completion_value)}." if completion_value is not None else None,
                 ]
             ) or ["La prioridad es completar una nueva evaluación para definir mejor el perfil actual."],
         }
@@ -5578,7 +5607,7 @@ def _professional_completion_snapshot(
         return {"value": PDF_MISSING_TEXT, "detail": period_label, "numeric": None}
     completion_mean = round(float(completion_result.value), 1)
     return {
-        "value": f"{completion_mean:.1f}%",
+        "value": completion_display_text(completion_mean),
         "detail": period_label,
         "numeric": completion_mean,
     }
@@ -8805,6 +8834,47 @@ def _professional_data_confidence_label(
     return "Baja"
 
 
+def _athlete_coverage_light(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[str | None, float | None]:
+    """("verde"|"amarilla"|"roja", % sRPE) del semaforo de data_quality, o (None, None)."""
+    try:
+        row = _quality_athlete_row(_report_quality_report(state), athlete)
+    except Exception:
+        return None, None
+    if row is None:
+        return None, None
+    light = str(row.get("Semaforo") or "")
+    color = "verde" if "Verde" in light else "roja" if "Rojo" in light else "amarilla" if "Amarillo" in light else None
+    return color, _coerce_float(row.get("% cobertura sRPE"))
+
+
+def _professional_confidence_reasons(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    evaluation_state: str,
+    training_context: dict[str, object],
+    wellness_payload: dict[str, object],
+) -> list[str]:
+    """Motivos REALES de una confianza Media/Baja (nunca "cobertura parcial" con cobertura verde)."""
+    reasons: list[str] = []
+    evaluation = str(evaluation_state).strip().lower()
+    if evaluation == "missing":
+        reasons.append("sin evaluaciones físicas")
+    elif evaluation == "partial":
+        reasons.append("evaluaciones físicas incompletas")
+    color, pct = _athlete_coverage_light(state, athlete)
+    if color in {"amarilla", "roja"}:
+        detail = f" (sRPE {pct:.0f}%)" if pct is not None else ""
+        reasons.append(f"cobertura {color}{detail}")
+    if str(training_context.get("state") or "") not in {"available", ""}:
+        reasons.append("registro de entrenamiento incompleto")
+    wellness_state = str(wellness_payload.get("state") or "")
+    if wellness_state == "missing":
+        reasons.append("sin wellness reciente")
+    elif wellness_state == "partial":
+        reasons.append("wellness parcial")
+    return reasons
+
+
 def _professional_decision_practical_lines(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
@@ -9414,11 +9484,22 @@ def _build_professional_executive_payload(
         wellness_payload,
         assessment_interval_warning,
     )
-    confidence_detail = "Sin señales metodológicas fuertes de cautela." if confidence == "Alta" else (
-        "Lectura útil, pero todavía condicionada por cobertura parcial o por el contexto de medición."
-        if confidence == "Media"
-        else "La lectura requiere mucha prudencia por cobertura parcial o falta de continuidad."
-    )
+    reasons = _professional_confidence_reasons(state, athlete, evaluation_state, training_context, wellness_payload)
+    reason_text = _professional_join_labels(reasons, fallback="")
+    if confidence == "Alta":
+        confidence_detail = "Sin señales metodológicas fuertes de cautela."
+    elif confidence == "Media":
+        confidence_detail = (
+            f"Lectura útil, pero condicionada por: {reason_text}."
+            if reason_text
+            else "Lectura útil, pero condicionada por el contexto de medición."
+        )
+    else:
+        confidence_detail = (
+            f"La lectura requiere mucha prudencia: {reason_text}."
+            if reason_text
+            else "La lectura requiere mucha prudencia por falta de datos de referencia."
+        )
     if assessment_interval_warning:
         confidence_detail = assessment_interval_warning
 
@@ -12322,7 +12403,7 @@ def _generate_visual_report_pdf_reportlab(
         current_team = _current_week_slice(weekly_summaries.get("weekly_team"))
         current_load = _current_week_slice(weekly_summaries.get("weekly_load"), effective_athlete)
         completion_value = _focus_completion_value(state, effective_athlete)
-        completion_text = _display_metric(completion_value, digits=1, suffix="%") if completion_value is not None else "Sin dato"
+        completion_text = completion_display_text(completion_value) if completion_value is not None else "Sin dato"
         adherence_label = "Adherencia del atleta" if effective_athlete != "Todos" else "Adherencia promedio"
         if effective_athlete == "Todos":
             current_row = current_team.tail(1).iloc[0] if not current_team.empty else pd.Series(dtype=object)
@@ -12592,7 +12673,7 @@ def _generate_visual_report_pdf_reportlab(
             return "En seguimiento"
 
         def _athlete_completion_text() -> str:
-            return _athlete_metric(completion_value, digits=1, suffix="%", fallback="Todavía no registrado")
+            return completion_display_text(completion_value, fallback="Todavía no registrado")
 
         def _athlete_recent_wellness_text() -> str:
             recent_value = _coerce_float(focus_row.get("Wellness 3d"))
@@ -13581,6 +13662,10 @@ def _generate_visual_report_pdf_reportlab(
             or not _load_evaluability(state, effective_athlete, internal_load)[0]
             else client_load_trend(internal_load)
         )
+        focus_row = focus_row.copy()
+        focus_row[CLIENT_LOAD_PHRASE_COL] = (
+            f"semana {CLIENT_TREND_LABELS[client_trend].lower()}" if client_trend is not None else ""
+        )
         wellness_context = _professional_wellness_context(state, effective_athlete)
         client_charts = _collect_client_pdf_chart_payloads(state, effective_athlete)
 
@@ -13859,7 +13944,7 @@ def _generate_visual_report_pdf_reportlab(
                 ),
                 (
                     "Constancia",
-                    _client_metric(completion_value, digits=1, suffix="%", fallback=_client_missing_text("registration"))
+                    completion_display_text(completion_value, fallback=_client_missing_text("registration"))
                     if completion_value is not None
                     else _client_missing_text("registration"),
                     "#708C9F",
@@ -13919,7 +14004,7 @@ def _generate_visual_report_pdf_reportlab(
                 },
                 {
                     "label": "Constancia del plan",
-                    "value": _client_metric(completion_value, digits=1, suffix="%", fallback=_client_missing_text("registration"))
+                    "value": completion_display_text(completion_value, fallback=_client_missing_text("registration"))
                     if completion_value is not None
                     else _client_missing_text("registration"),
                 },
@@ -13968,7 +14053,7 @@ def _generate_visual_report_pdf_reportlab(
                 },
                 {
                     "label": "Constancia",
-                    "value": _client_metric(completion_value, digits=1, suffix="%", fallback=_client_missing_text("registration"))
+                    "value": completion_display_text(completion_value, fallback=_client_missing_text("registration"))
                     if completion_value is not None
                     else _client_missing_text("registration"),
                 },
@@ -13994,7 +14079,7 @@ def _generate_visual_report_pdf_reportlab(
             else:
                 lines.append("Falta información reciente para entender bien cómo venís entrenando.")
             if completion_value is not None and completion_value < 70:
-                lines.append(f"La constancia actual ({completion_value:.1f}%) merece seguimiento porque puede volver más ruidosa la lectura del proceso.")
+                lines.append(f"La constancia actual ({completion_display_text(completion_value)}) merece seguimiento porque puede volver más ruidosa la lectura del proceso.")
             elif completion_value is not None:
                 lines.append("La constancia del plan ayuda a leer mejor si el proceso se está sosteniendo.")
             else:

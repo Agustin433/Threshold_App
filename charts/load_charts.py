@@ -395,7 +395,9 @@ def chart_volume_by_tag(
             category_df = grouped[grouped["Category"] == category_name]
             fig.add_trace(
                 go.Bar(
-                    x=category_df["Week_Start"],
+                    # Barra de una semana completa (lunes a domingo), centrada.
+                    x=category_df["Week_Start"] + WEEK_BAR_CENTER_OFFSET,
+                    width=WEEK_BAR_WIDTH_MS,
                     y=category_df[section["value_col"]],
                     name=category_name,
                     legendgroup=category_name,
@@ -421,14 +423,30 @@ def chart_volume_by_tag(
         title=dict(text=f"<b>Carga externa por tipo de estimulo - {athlete}</b>", font=dict(color=colors["navy"], size=13)),
         legend=legend,
     )
+    # Mismo eje X en todas las secciones: todas las semanas (lunes a lunes)
+    # con actividad del atleta en la ventana, aunque la seccion no tenga
+    # datos esa semana. Antes cada seccion autoescalaba su eje y las fechas no
+    # coincidian entre graficos.
+    window_weeks = pd.date_range(athlete_df["Week_Start"].min(), athlete_df["Week_Start"].max(), freq="W-MON")
+    step = max(1, -(-len(window_weeks) // 9))
+    shown = list(window_weeks[::step])
     for row_index in range(1, len(active_sections) + 1):
-        fig.update_xaxes(title="Semana", gridcolor=grid_soft, zeroline=False, row=row_index, col=1)
+        fig.update_xaxes(
+            title="Semana",
+            gridcolor=grid_soft,
+            zeroline=False,
+            range=[window_weeks.min(), window_weeks.max() + pd.Timedelta(days=7)],
+            tickvals=[week + WEEK_BAR_CENTER_OFFSET for week in shown],
+            ticktext=[week.strftime("%d/%m") for week in shown],
+            row=row_index,
+            col=1,
+        )
     if mode == "print":
         # Misma figura que el dashboard, en modo impresion: ancho completo de
         # pagina y fuente >= 11 pt (antes iba en media columna y no se leia).
         from charts.report_charts import apply_chart_mode
 
-        fig.update_xaxes(title_text="", tickformat="%d/%m")
+        fig.update_xaxes(title_text="")
         categories = sum(int(section["grouped"]["Category"].nunique()) for section in active_sections)
         legend_rows = -(-categories // 2)
         return apply_chart_mode(
@@ -440,6 +458,9 @@ def chart_volume_by_tag(
         )
     return fig
 
+
+WEEK_BAR_CENTER_OFFSET = pd.Timedelta(days=3.5)
+WEEK_BAR_WIDTH_MS = 7 * 86_400_000 * 0.85
 
 # Modo impresion: alto por seccion + alto por renglon de leyenda (2 columnas).
 VOLUME_PRINT_BASE_MM = 58.0

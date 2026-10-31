@@ -115,6 +115,24 @@ class MadreLayoutTest(unittest.TestCase):
         self.assertEqual(figure.layout.height, 3000)  # la figura original no se modifica
 
 
+class BlockDistributionSharedAxisTest(unittest.TestCase):
+    def test_all_sections_share_weekly_monday_axis_and_week_wide_bars(self):
+        from charts.load_charts import WEEK_BAR_WIDTH_MS, chart_volume_by_tag_sections
+        from modules.data_loader import prepare_raw_workouts_df
+
+        prepared = prepare_raw_workouts_df(many_categories_state()["raw_df"])
+        figures = chart_volume_by_tag_sections(prepared, ATHLETE, theme=report_generator._build_report_chart_theme())
+        self.assertGreaterEqual(len(figures), 7)
+        axes = {(tuple(map(str, fig.layout.xaxis.range)), tuple(fig.layout.xaxis.ticktext)) for fig in figures}
+        self.assertEqual(len(axes), 1, axes)  # mismo eje X en todas las secciones
+        start, end = (pd.Timestamp(value) for value in figures[0].layout.xaxis.range)
+        self.assertEqual(start.dayofweek, 0)  # lunes
+        self.assertEqual(end.dayofweek, 0)
+        for fig in figures:
+            for trace in fig.data:
+                self.assertAlmostEqual(trace.width, WEEK_BAR_WIDTH_MS)
+
+
 class NoSilentLegacyFallbackTest(unittest.TestCase):
     def test_madre_failure_raises_visible_error_not_another_report(self):
         state = full_charts_state()
