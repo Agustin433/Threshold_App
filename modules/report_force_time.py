@@ -213,6 +213,7 @@ def draw_force_time_test_block(
         ("Time to Peak", _format_number(summary.get("time_to_peak_s"), digits=2, unit="s")),
         ("Time Pull", _format_number(summary.get("time_pull_s"), digits=2, unit="s")),
         ("Pre-tension", _format_number(summary.get("pre_tension_n"), digits=0, unit="N")),
+        ("Pretensión sobre BW (informativo)", _format_number(summary.get("pretension_excess_n"), digits=0, unit="N")),
         ("Left Force", _format_number(summary.get("left_force_n"), digits=0, unit="N")),
         ("Right Force", _format_number(summary.get("right_force_n"), digits=0, unit="N")),
         ("Asymmetry", _format_number(summary.get("absolute_asymmetry_pct"), digits=1, unit="%")),

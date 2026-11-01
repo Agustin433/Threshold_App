@@ -9,8 +9,9 @@ Una funcion por regla en `modules/evaluation_rules.py`, aplicada en
 Analisis Plataforma, Profile, Team), pagina Jump Evaluation, Excel y los tres
 PDF la consumen sin parches por pantalla.
 
-1. Calidad IMTP: pretension - BW*g > 200 N o RFD 0-50 < 1000 N/s marca la toma
-   "pretension alta: RFD y fuerza a 50-200 ms no interpretables". RFD y
+1. Calidad IMTP: (Force@50 - pretension) < 50 N o RFD 0-50 < 1000 N/s marca la toma
+   "curva sin subida tras el inicio". El exceso de pretension sobre BW es solo
+   informativo (PDF profesional). RFD y
    Force@50-250 se anulan en el frame preparado (no se muestran ni entran en
    DSI, z-scores, deltas ni comparaciones); el crudo queda en Supabase.
 2. Fuerza relativa IMTP bruta (PF/masa) y neta ((PF-BW)/masa), rotuladas.

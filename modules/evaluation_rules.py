@@ -5,9 +5,10 @@ PDF) consumen estas funciones a traves de `_prepare_jump_df` y de los
 helpers de force-time; ninguna pantalla reimplementa una regla.
 
 Reglas:
-1. Calidad IMTP: pretension alta (pretension - BW*g > 200 N) o RFD 0-50 ms
-   < 1000 N/s invalidan la RFD y la fuerza a 50-250 ms. Peak Force y la
-   fuerza relativa siguen siendo validas.
+1. Calidad IMTP: curva sin subida tras el inicio ((Force@50 - pretension)
+   < 50 N o RFD 0-50 ms < 1000 N/s) invalida la RFD y la fuerza a 50-250 ms.
+   Peak Force y la fuerza relativa siguen siendo validas. El exceso de
+   pretension sobre BW es solo informativo (PDF profesional).
 2. Fuerza relativa IMTP: bruta (PF / masa) y neta ((PF - BW*g) / masa).
 3. Peso corporal: valido solo entre 30 y 200 kg; 0 o fuera de rango = vacio.
 4. Antiguedad de evaluacion: > 12 semanas = desactualizada.
@@ -72,15 +73,19 @@ def sanitize_bw_kg_series(series: pd.Series) -> pd.Series:
 
 
 # ── Regla 1: calidad IMTP ─────────────────────────────────────────────────
-IMTP_PRETENSION_EXCESS_LIMIT_N = 200.0
+# Criterio: la curva tiene que SUBIR despues del inicio. En esta plataforma el
+# exceso de pretension sobre el peso marcaba 9 de 10 tomas sin discriminar
+# (Tomas +572 N con RFD50 9414 N/s es una toma buena), asi que queda solo como
+# dato informativo del PDF profesional. Una toma sin subida (Force@50 casi
+# igual a la pretension, o RFD 0-50 baja) tiene el inicio mal definido.
+IMTP_F50_RISE_MIN_N = 50.0
 IMTP_RFD50_MIN_N_S = 1000.0
 IMTP_QUALITY_FLAG_COLUMN = "IMTP_quality_flag"
 IMTP_PRETENSION_EXCESS_COLUMN = "IMTP_pretension_excess_N"
-IMTP_HIGH_PRETENSION_FLAG = "pretension_alta"
-IMTP_HIGH_PRETENSION_LABEL = "pretensión alta: RFD y fuerza a 50–200 ms no interpretables"
-# Columnas dependientes del inicio de la contraccion. Con pretension alta el
-# onset esta mal detectado, asi que todas quedan fuera (incluida F@250: con
-# el mismo onset corrido, es igual de contaminada que F@50-200).
+IMTP_NO_RISE_FLAG = "curva_sin_subida"
+IMTP_NO_RISE_LABEL = "curva sin subida tras el inicio: RFD y fuerza a 50–250 ms no interpretables"
+# Columnas dependientes del inicio de la contraccion: con el onset mal
+# definido todas quedan fuera, incluida F@250.
 IMTP_TIME_DEPENDENT_COLUMNS = (
     "IMTP_force_50_N",
     "IMTP_force_100_N",
@@ -106,34 +111,47 @@ def _get(source: Mapping[str, object] | pd.Series, *keys: str) -> float | None:
     return None
 
 
-def assess_imtp_quality(
-    pretension_n: object,
-    bw_kg: object,
-    rfd_50_n_s: object,
-    *,
-    existing_flag: object = None,
-) -> dict[str, object]:
-    """Calidad de una toma IMTP.
-
-    `existing_flag` permite re-evaluar un frame ya preparado (donde la RFD ya
-    fue anulada) sin perder la marca.
-    """
+def imtp_pretension_excess_n(pretension_n: object, bw_kg: object) -> float | None:
+    """Pretension sobre el peso corporal (N). Solo informativo: no bloquea nada."""
     pretension = _number(pretension_n)
     bw = sanitize_bw_kg(bw_kg)
+    if pretension is None or bw is None:
+        return None
+    return round(pretension - bw * GRAVITY_M_S2, 1)
+
+
+def assess_imtp_quality(
+    pretension_n: object,
+    force_50_n: object,
+    rfd_50_n_s: object,
+    *,
+    bw_kg: object = None,
+    existing_flag: object = None,
+) -> dict[str, object]:
+    """Calidad de una toma IMTP: no interpretable si la curva no sube.
+
+    (Force@50 - pretension) < 50 N  O  RFD 0-50 < 1000 N/s.
+    `existing_flag` permite re-evaluar un frame ya preparado (donde la RFD ya
+    fue anulada) sin perder la marca. `bw_kg` solo alimenta el exceso de
+    pretension informativo.
+    """
+    pretension = _number(pretension_n)
+    force_50 = _number(force_50_n)
     rfd50 = _number(rfd_50_n_s)
-    excess = pretension - bw * GRAVITY_M_S2 if pretension is not None and bw is not None else None
+    rise = force_50 - pretension if force_50 is not None and pretension is not None else None
 
     reasons: list[str] = []
-    if excess is not None and excess > IMTP_PRETENSION_EXCESS_LIMIT_N:
-        reasons.append(f"pretensión {excess:+.0f} N sobre el peso corporal (límite {IMTP_PRETENSION_EXCESS_LIMIT_N:.0f} N)")
+    if rise is not None and rise < IMTP_F50_RISE_MIN_N:
+        reasons.append(f"Force@50 − pretensión = {rise:.0f} N (< {IMTP_F50_RISE_MIN_N:.0f} N)")
     if rfd50 is not None and rfd50 < IMTP_RFD50_MIN_N_S:
         reasons.append(f"RFD 0–50 ms {rfd50:.0f} N/s (< {IMTP_RFD50_MIN_N_S:.0f} N/s)")
-    flagged = bool(reasons) or str(existing_flag or "").strip() == IMTP_HIGH_PRETENSION_FLAG
+    flagged = bool(reasons) or str(existing_flag or "").strip() == IMTP_NO_RISE_FLAG
     return {
         "flagged": flagged,
-        "flag": IMTP_HIGH_PRETENSION_FLAG if flagged else None,
-        "label": IMTP_HIGH_PRETENSION_LABEL if flagged else None,
-        "pretension_excess_n": round(excess, 1) if excess is not None else None,
+        "flag": IMTP_NO_RISE_FLAG if flagged else None,
+        "label": IMTP_NO_RISE_LABEL if flagged else None,
+        "rise_50_n": round(rise, 1) if rise is not None else None,
+        "pretension_excess_n": imtp_pretension_excess_n(pretension, bw_kg),
         "reasons": reasons,
     }
 
@@ -141,8 +159,9 @@ def assess_imtp_quality(
 def assess_imtp_quality_row(row: Mapping[str, object] | pd.Series) -> dict[str, object]:
     return assess_imtp_quality(
         _get(row, "IMTP_pretension", "pre_tension_n"),
-        _get(row, "BW_kg"),
+        _get(row, "IMTP_force_50_N", "force_50_n"),
         _get(row, "IMTP_rfd_50_N_s", "rfd_50_n_s", "RFD_50"),
+        bw_kg=_get(row, "BW_kg"),
         existing_flag=row.get(IMTP_QUALITY_FLAG_COLUMN) if hasattr(row, "get") else None,
     )
 
@@ -163,15 +182,16 @@ def apply_imtp_quality(df: pd.DataFrame) -> pd.DataFrame:
     for idx, row in df.iterrows():
         result = assess_imtp_quality(
             _get(row, "IMTP_pretension"),
-            _get(row, "BW_kg"),
+            _get(row, "IMTP_force_50_N"),
             _get(row, "IMTP_rfd_50_N_s"),
+            bw_kg=_get(row, "BW_kg"),
             existing_flag=existing.loc[idx] if existing is not None else None,
         )
         flags.append(result["flag"])
         excesses.append(result["pretension_excess_n"] if result["pretension_excess_n"] is not None else np.nan)
     df[IMTP_QUALITY_FLAG_COLUMN] = pd.Series(flags, index=df.index, dtype=object)
     df[IMTP_PRETENSION_EXCESS_COLUMN] = pd.to_numeric(pd.Series(excesses, index=df.index), errors="coerce")
-    mask = df[IMTP_QUALITY_FLAG_COLUMN].eq(IMTP_HIGH_PRETENSION_FLAG)
+    mask = df[IMTP_QUALITY_FLAG_COLUMN].eq(IMTP_NO_RISE_FLAG)
     if mask.any():
         for column in IMTP_TIME_DEPENDENT_COLUMNS:
             if column in df.columns:

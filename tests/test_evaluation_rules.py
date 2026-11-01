@@ -71,7 +71,7 @@ DE_LA_VEGA = [
     {
         "Athlete": "Ignacio De La Vega", "Date": "2026-10-31", "Source": "platform", "BW_kg": 87.5,
         "CMJ_cm": 46.04, "SJ_cm": 43.55, "IMTP_N": 3491.17, "IMTP_pretension": 1095.073,
-        "IMTP_rfd_50_N_s": 12356.4,
+        "IMTP_rfd_50_N_s": 12356.4, "IMTP_force_50_N": 1716.16,
     },
 ]
 # Toma limpia (control): mismos datos que Habib con pretension = BW*g + 50 N.
@@ -83,7 +83,22 @@ CLEAN = dict(
     IMTP_force_100_N=1800.0,
 )
 
-FLAG_TEXT = "pretensión alta: RFD y fuerza a 50–200 ms no interpretables"
+FLAG_TEXT = "curva sin subida tras el inicio: RFD y fuerza a 50–250 ms no interpretables"
+
+# Las 10 tomas IMTP reales de Supabase: (pretension N, Force@50 N, RFD 0-50 N/s, BW kg).
+REAL_IMTP_TAKES = {
+    "Fernando Habib": (1284.67, 1294.48, 196.2, 90.24),
+    "Alejandro Anadon": (1167.0, 1187.0, 389.0, 74.0),
+    "Evaristo Cornet": (1518.0, 1592.0, 1483.0, 107.0),
+    "Tomas De La Vega": (1314.09, 1784.81, 9414.4, 75.64),
+    "Ignacio De La Vega": (1095.073, 1716.16, 12356.4, 87.5),
+    "Nicolas Angelilli": (951.25, 1216.02, 5295.4, 68.1),
+    "Pablo Holgado": (970.86, 1216.02, 4903.2, 63.76),
+    "Agustin Esterman": (1019.89, 1284.67, 5295.6, 64.23),
+    "Ignacio Rothe": (1177.0, 1497.0, 6388.0, 88.0),
+    "Santiago Gray": (942.0, 1346.0, 8074.0, 0.0),
+}
+FLAGGED_REAL = {"Fernando Habib", "Alejandro Anadon"}
 
 
 def real_jump_df() -> pd.DataFrame:
@@ -103,27 +118,40 @@ def _ascii(text: str) -> str:
 
 # ── 1. Calidad IMTP ────────────────────────────────────────────────────────
 class ImtpQualityRuleTest(unittest.TestCase):
-    def test_real_cases_are_flagged_with_both_reasons(self):
-        habib = rules.assess_imtp_quality(1284.67, 90.24, 196.2)
-        self.assertTrue(habib["flagged"])
-        self.assertEqual(habib["label"], FLAG_TEXT)
-        self.assertAlmostEqual(habib["pretension_excess_n"], 399.4, places=1)
-        self.assertEqual(len(habib["reasons"]), 2)
+    def test_only_habib_and_anadon_are_flagged_among_real_takes(self):
+        flagged = {
+            athlete
+            for athlete, (pretension, f50, rfd50, bw) in REAL_IMTP_TAKES.items()
+            if rules.assess_imtp_quality(pretension, f50, rfd50, bw_kg=bw)["flagged"]
+        }
+        self.assertEqual(flagged, FLAGGED_REAL)
 
-        anadon = rules.assess_imtp_quality(1167, 74, 389)
-        self.assertTrue(anadon["flagged"])
-        self.assertAlmostEqual(anadon["pretension_excess_n"], 441.1, places=1)
+    def test_real_flagged_cases_meet_both_criteria(self):
+        habib = rules.assess_imtp_quality(1284.67, 1294.48, 196.2, bw_kg=90.24)
+        self.assertEqual(habib["label"], FLAG_TEXT)
+        self.assertAlmostEqual(habib["rise_50_n"], 9.8, places=1)
+        self.assertEqual(len(habib["reasons"]), 2)
+        anadon = rules.assess_imtp_quality(1167, 1187, 389, bw_kg=74)
+        self.assertAlmostEqual(anadon["rise_50_n"], 20.0, places=1)
+        self.assertEqual(len(anadon["reasons"]), 2)
+
+    def test_pretension_excess_is_informative_only(self):
+        tomas = rules.assess_imtp_quality(1314.09, 1784.81, 9414.4, bw_kg=75.64)
+        self.assertFalse(tomas["flagged"])
+        self.assertAlmostEqual(tomas["pretension_excess_n"], 572.0, places=0)
+        habib = rules.assess_imtp_quality(1284.67, 1294.48, 196.2, bw_kg=90.24)
+        self.assertAlmostEqual(habib["pretension_excess_n"], 399.4, places=1)
 
     def test_each_criterion_flags_on_its_own(self):
-        self.assertTrue(rules.assess_imtp_quality(90.24 * 9.81 + 201, 90.24, 5000)["flagged"])
-        self.assertTrue(rules.assess_imtp_quality(90.24 * 9.81, 90.24, 999)["flagged"])
-        self.assertFalse(rules.assess_imtp_quality(90.24 * 9.81 + 200, 90.24, 1000)["flagged"])
+        self.assertTrue(rules.assess_imtp_quality(1000, 1049, 5000)["flagged"])
+        self.assertTrue(rules.assess_imtp_quality(1000, 1300, 999)["flagged"])
+        self.assertFalse(rules.assess_imtp_quality(1000, 1050, 1000)["flagged"])
 
     def test_prepared_frame_drops_time_dependent_values_but_keeps_peak_and_relative(self):
         prepared = _prepare_jump_df(real_jump_df())
         for athlete in ("Fernando Habib", "Alejandro Anadon"):
             row = _row(prepared, athlete)
-            self.assertEqual(row[rules.IMTP_QUALITY_FLAG_COLUMN], rules.IMTP_HIGH_PRETENSION_FLAG)
+            self.assertEqual(row[rules.IMTP_QUALITY_FLAG_COLUMN], rules.IMTP_NO_RISE_FLAG)
             for column in rules.IMTP_TIME_DEPENDENT_COLUMNS:
                 if column in prepared.columns:
                     self.assertTrue(pd.isna(row[column]), f"{athlete} {column}")
@@ -135,7 +163,7 @@ class ImtpQualityRuleTest(unittest.TestCase):
 
     def test_flag_survives_a_second_prepare(self):
         twice = _prepare_jump_df(_prepare_jump_df(real_jump_df()))
-        self.assertEqual(_row(twice, "Fernando Habib")[rules.IMTP_QUALITY_FLAG_COLUMN], rules.IMTP_HIGH_PRETENSION_FLAG)
+        self.assertEqual(_row(twice, "Fernando Habib")[rules.IMTP_QUALITY_FLAG_COLUMN], rules.IMTP_NO_RISE_FLAG)
 
     def test_dsi_uses_peak_force_only(self):
         row = _row(_prepare_jump_df(real_jump_df()), "Fernando Habib")
@@ -357,6 +385,7 @@ class ExcelExportRulesTest(unittest.TestCase):
         self.assertIsNone(habib.get("IMTP_rfd_50_N_s"))
         self.assertAlmostEqual(habib["IMTP relPF bruta (N/kg) = PF/masa"], 43.03, places=2)
         self.assertAlmostEqual(habib["IMTP relPF neta (N/kg) = (PF-BW)/masa"], 33.22, places=2)
+        self.assertFalse(any("pretension" in str(col).lower() and "bw" in str(col).lower() for col in header))
         gray = data["Santiago Gray"]
         self.assertIsNone(gray["BW_kg"])
         self.assertIsNone(gray["IMTP relPF bruta (N/kg) = PF/masa"])
@@ -385,10 +414,19 @@ class DashboardAndPdfParityTest(unittest.TestCase):
         flag = _ascii(FLAG_TEXT)
         self.assertIn(flag, self.dashboard["Fernando Habib"])
         self.assertIn(flag, self.pdf[("Fernando Habib", "profe")])
+        # Toma real buena (Santiago Gray): sin marca en ninguna superficie.
+        self.assertNotIn(flag, self.dashboard["Santiago Gray"])
+        self.assertNotIn(flag, self.pdf[("Santiago Gray", "profe")])
         # Ningun valor de RFD de la toma marcada aparece en ninguna superficie.
         for text in (self.dashboard["Fernando Habib"], self.pdf[("Fernando Habib", "profe")]):
             self.assertNotIn("196 n/s", text)
             self.assertIsNone(re.search(r"rfd 50[^a-z]{0,6}196", text))
+
+    def test_rule1_pretension_excess_only_in_professional_pdf(self):
+        self.assertIn("pretension sobre bw (informativo)", self.pdf[("Fernando Habib", "profe")])
+        self.assertNotIn("pretension sobre bw", self.dashboard["Fernando Habib"])
+        for audience in ("atleta", "cliente"):
+            self.assertNotIn("pretension sobre bw", self.pdf[("Fernando Habib", audience)])
 
     def test_rule2_gross_and_net_relative_force_labelled(self):
         for text in (self.dashboard["Fernando Habib"], self.pdf[("Fernando Habib", "profe")]):

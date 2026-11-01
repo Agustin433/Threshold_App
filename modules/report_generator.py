@@ -33,8 +33,8 @@ from modules.data_loader import (
 from modules.app_version import app_version
 from modules.data_quality import SRPE_COVERAGE_RED_PCT, compute_data_quality_report
 from modules.evaluation_rules import (
-    IMTP_HIGH_PRETENSION_FLAG,
-    IMTP_HIGH_PRETENSION_LABEL,
+    IMTP_NO_RISE_FLAG,
+    IMTP_NO_RISE_LABEL,
     apply_imtp_quality,
     calc_imtp_relative_force,
 )
@@ -2502,7 +2502,6 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
                 "IMTP_relPF",
                 "IMTP_relPF_net",
                 "IMTP_quality_flag",
-                "IMTP_pretension_excess_N",
                 "NM_Profile",
                 "EUR_Profile",
                 "IMTP_avg_N",
@@ -2514,9 +2513,11 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
                 *IMTP_FORCE_TIME_EXPORT_COLUMNS,
             ],
         )
+        # El exceso de pretension es informativo solo del PDF profesional.
+        result = result.drop(columns=[col for col in ("IMTP_pretension_excess_N",) if col in result.columns])
         if "IMTP_quality_flag" in result.columns:
             result["IMTP_quality_flag"] = result["IMTP_quality_flag"].map(
-                lambda value: IMTP_HIGH_PRETENSION_LABEL if value == IMTP_HIGH_PRETENSION_FLAG else ""
+                lambda value: IMTP_NO_RISE_LABEL if value == IMTP_NO_RISE_FLAG else ""
             )
         result = result.rename(
             columns={
@@ -2524,7 +2525,6 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
                 "IMTP_relPF": "IMTP relPF bruta (N/kg) = PF/masa",
                 "IMTP_relPF_net": "IMTP relPF neta (N/kg) = (PF-BW)/masa",
                 "IMTP_quality_flag": "IMTP calidad de toma",
-                "IMTP_pretension_excess_N": "IMTP pretension sobre BW (N)",
             }
         )
         return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
@@ -2734,7 +2734,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         if isometric_payload.get("state") == "missing":
             target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isométricos.")))
             return
-        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if (row[0] in {"Peak Force", "Cambio relevante", "Asimetría", "Calidad de toma"} or str(row[0]).startswith("Fuerza relativa"))]
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if (row[0] in {"Peak Force", "Cambio relevante", "Asimetría", "Calidad de toma", "Pretensión sobre BW (informativo)"} or str(row[0]).startswith("Fuerza relativa"))]
         if imtp_priority:
             target.append(_p("IMTP principal", "ProfCardTitle"))
             target.append(_mini_cards_table(imtp_priority))
@@ -2923,7 +2923,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         if isometric_payload.get("state") == "missing":
             target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isométricos.")))
             return
-        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if (row[0] in {"Peak Force", "Cambio relevante", "Asimetría", "Calidad de toma"} or str(row[0]).startswith("Fuerza relativa"))]
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if (row[0] in {"Peak Force", "Cambio relevante", "Asimetría", "Calidad de toma", "Pretensión sobre BW (informativo)"} or str(row[0]).startswith("Fuerza relativa"))]
         if imtp_priority:
             target.append(_p("IMTP principal", "ProfCardTitle"))
             target.append(_mini_cards_table(imtp_priority))
@@ -8311,6 +8311,10 @@ def _build_professional_isometric_payload(
             str(imtp_summary.get("quality_label") or PDF_MISSING_TEXT),
         ),
         (
+            "Pretensión sobre BW (informativo)",
+            _professional_number_text(imtp_summary.get("pretension_excess_n"), digits=0, unit="N"),
+        ),
+        (
             "Fuerza relativa bruta (PF/masa)",
             _professional_number_text(imtp_row.get("IMTP_relPF"), digits=2, unit="N/kg") if imtp_row is not None else PDF_MISSING_TEXT,
         ),
@@ -11939,7 +11943,7 @@ def _generate_professional_profile_pdf_reportlab(
         imtp_priority = [
             row
             for row in isometric_payload.get("imtp_rows", [])
-            if _professional_normalized_text(row[0]) in {"peak force", "force avg", "time to peak", "asimetria", "lado dominante", "calidad de toma"}
+            if _professional_normalized_text(row[0]) in {"peak force", "force avg", "time to peak", "asimetria", "lado dominante", "calidad de toma", "pretension sobre bw (informativo)"}
             or _professional_normalized_text(row[0]).startswith("fuerza relativa")
         ]
         if imtp_priority:

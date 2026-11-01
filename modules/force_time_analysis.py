@@ -305,8 +305,9 @@ def summarize_force_time_test(
     if resolved_test_id == "imtp":
         quality = assess_imtp_quality(
             summary.get("pre_tension_n"),
-            source.get("BW_kg"),
+            summary.get("force_50_n"),
             summary.get("rfd_50_n_s"),
+            bw_kg=source.get("BW_kg"),
             existing_flag=source.get(IMTP_QUALITY_FLAG_COLUMN),
         )
         summary["pretension_excess_n"] = quality["pretension_excess_n"]
@@ -665,7 +666,7 @@ def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object
 
     if quality_label:
         rfd_text = (
-            "RFD no interpretable en esta toma (pretensión alta / inicio de la contracción mal definido): "
+            "RFD no interpretable en esta toma (la curva no sube tras el inicio: onset mal definido): "
             "no se muestra ni se usa en DSI, z-scores ni comparaciones. Peak Force y fuerza relativa sí son válidas."
         )
     elif source.get("has_valid_rfd"):
