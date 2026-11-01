@@ -47,6 +47,7 @@ from modules.jump_analysis import (
 )
 from modules.page_state import ensure_page_state
 from modules.persistence_guard import render_persistence_banners
+from modules.evaluation_rules import CHANGE_THRESHOLD_CAPTION
 from modules.page_visuals import build_page_theme
 
 
@@ -56,7 +57,8 @@ SELECTED_METRIC_CONFIG = [
     ("DJ", "DJ_cm", "cm", ".1f"),
     ("DJ RSI", "DJ_RSI", "m/s", ".2f"),
     ("DRI", "DRI", "", ".3f"),
-    ("IMTP relPF", "IMTP_relPF", "N/kg", ".2f"),
+    ("IMTP relPF bruta", "IMTP_relPF", "N/kg", ".2f"),
+    ("IMTP relPF neta", "IMTP_relPF_net", "N/kg", ".2f"),
     ("EUR (ratio)", "EUR", "", ".3f"),
 ]
 
@@ -270,6 +272,9 @@ def _render_force_time_detail_block(
 
     st.markdown(f"### {title}")
     st.caption(caption)
+    quality_label = summary.get("quality_label")
+    if quality_label:
+        st.error(f"Toma IMTP marcada: {quality_label}. Se muestran Peak Force y fuerza relativa.")
 
     force_metrics = st.columns(4)
     force_metrics[0].metric(
@@ -308,6 +313,10 @@ def _render_force_time_detail_block(
         st.markdown(
             f"**Interpretacion:** {asymmetry_summary.get('interpretation') or 'Sin datos suficientes para interpretar asimetria.'}"
         )
+
+    if summary.get("time_points_suppressed"):
+        _render_force_time_interpretation(interpretation, heading=interpretation_heading)
+        return
 
     profile_left, profile_right = st.columns(2)
     with profile_left:
@@ -436,7 +445,7 @@ else:
             "La fecha elegida contiene solo datos complementarios o parciales. "
             f"El detalle principal usa la ultima evaluacion valida del {_format_eval_date(primary_detail_date)}."
         )
-    metrics = st.columns(6)
+    metrics = st.columns(len(SELECTED_METRIC_CONFIG))
     for column, (label, key, unit, fmt) in zip(metrics, SELECTED_METRIC_CONFIG):
         value = primary_detail_row.get(key)
         suffix = f" {unit}".rstrip()
@@ -447,9 +456,10 @@ else:
     )
     st.markdown("### Cambios vs evaluacion anterior")
     _render_temporal_delta_table(delta_df)
+    st.caption(CHANGE_THRESHOLD_CAPTION)
     if not delta_df.empty and delta_df["Signal"].eq("sin dato anterior").all():
         st.caption(
-            "Primera evaluacion registrada para este atleta. El threshold individual tipo Hopkins estara disponible a partir de la tercera medicion valida por variable."
+            "Primera evaluacion registrada para este atleta. " + CHANGE_THRESHOLD_CAPTION
         )
     st.markdown("### Cambio vs baseline")
     st.caption("Baseline fijo por variable: promedio de las primeras 3 mediciones validas.")
@@ -590,6 +600,8 @@ else:
                         "IMTP_N",
                         "IMTP_avg_N",
                         "IMTP_relPF",
+                        "IMTP_relPF_net",
+                        "IMTP_quality_flag",
                         "IMTP_force_50_N",
                         "IMTP_force_100_N",
                         "IMTP_force_150_N",

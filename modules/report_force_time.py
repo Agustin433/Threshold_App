@@ -78,6 +78,8 @@ def build_force_time_report_payload(
         "asymmetry": get_asymmetry_summary(summary),
         "interpretation": interpret_imtp_force_time(summary),
         "has_valid_force_time": bool(summary.get("has_valid_force_time")),
+        "quality_label": summary.get("quality_label"),
+        "time_points_suppressed": bool(summary.get("time_points_suppressed")),
         "report_type": _normalize_report_type(report_type),
     }
     return payload
@@ -120,7 +122,7 @@ def draw_force_time_test_block(
     payload: Mapping[str, object] | None,
     report_type: str = "professional",
 ) -> None:
-    if not payload or not payload.get("has_valid_force_time"):
+    if not payload or not (payload.get("has_valid_force_time") or payload.get("time_points_suppressed")):
         return
 
     story = pdf.get("story")
@@ -128,6 +130,8 @@ def draw_force_time_test_block(
     box = pdf.get("box")
     Spacer = pdf.get("Spacer")
     mm = pdf.get("mm")
+    suppressed = bool(payload.get("time_points_suppressed"))
+    quality_label = str(payload.get("quality_label") or "").strip()
     if not isinstance(story, list) or p is None or box is None or Spacer is None or mm is None:
         return
 
@@ -157,13 +161,19 @@ def draw_force_time_test_block(
                         f"Mayor produccion: {_format_side(asymmetry.get('stronger_side'))}",
                         "ReportBody",
                     ),
-                    p(
-                        "Perfil por puntos: " + _line_text(force_time_points, "value_n", "N"),
-                        "ReportBody",
-                    ),
-                    p(
-                        "RFD: " + _line_text(rfd_points, "value_n_s", "N/s"),
-                        "ReportBody",
+                    *(
+                        [p(f"Toma marcada: {quality_label}.", "ReportBody")]
+                        if suppressed
+                        else [
+                            p(
+                                "Perfil por puntos: " + _line_text(force_time_points, "value_n", "N"),
+                                "ReportBody",
+                            ),
+                            p(
+                                "RFD: " + _line_text(rfd_points, "value_n_s", "N/s"),
+                                "ReportBody",
+                            ),
+                        ]
                     ),
                     p(
                         "Peak Force describe la produccion maxima de fuerza isometrica en la posicion de IMTP. "
@@ -203,6 +213,7 @@ def draw_force_time_test_block(
         ("Time to Peak", _format_number(summary.get("time_to_peak_s"), digits=2, unit="s")),
         ("Time Pull", _format_number(summary.get("time_pull_s"), digits=2, unit="s")),
         ("Pre-tension", _format_number(summary.get("pre_tension_n"), digits=0, unit="N")),
+        ("Pretensión sobre BW (informativo)", _format_number(summary.get("pretension_excess_n"), digits=0, unit="N")),
         ("Left Force", _format_number(summary.get("left_force_n"), digits=0, unit="N")),
         ("Right Force", _format_number(summary.get("right_force_n"), digits=0, unit="N")),
         ("Asymmetry", _format_number(summary.get("absolute_asymmetry_pct"), digits=1, unit="%")),
@@ -220,6 +231,20 @@ def draw_force_time_test_block(
         )
     )
     story.append(Spacer(1, 3 * mm))
+
+    if suppressed:
+        story.append(
+            box(
+                [
+                    p(f"Toma marcada: {quality_label}.", "ProfCardTitle"),
+                    p(str(interpretation.get("force_time_text") or ""), "ProfMuted"),
+                    p(str(interpretation.get("rfd_text") or ""), "ProfMuted"),
+                ],
+                padding=6,
+            )
+        )
+        story.append(Spacer(1, 4 * mm))
+        return
 
     force_rows = [(str(point.get("label") or "-"), _format_number(point.get("value_n"), digits=0, unit="N")) for point in force_time_points]
     story.append(p("Fuerza por ventana exportada", "ProfCardTitle"))

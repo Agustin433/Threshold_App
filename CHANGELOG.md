@@ -2,6 +2,29 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-01 - Reglas de validez de evaluaciones (toda la app)
+
+Una funcion por regla en `modules/evaluation_rules.py`, aplicada en
+`_prepare_jump_df` y en el resumen force-time; dashboard (Overview, Decision,
+Analisis Plataforma, Profile, Team), pagina Jump Evaluation, Excel y los tres
+PDF la consumen sin parches por pantalla.
+
+1. Calidad IMTP: (Force@50 - pretension) < 50 N o RFD 0-50 < 1000 N/s marca la toma
+   "curva sin subida tras el inicio". El exceso de pretension sobre BW es solo
+   informativo (PDF profesional). RFD y
+   Force@50-250 se anulan en el frame preparado (no se muestran ni entran en
+   DSI, z-scores, deltas ni comparaciones); el crudo queda en Supabase.
+2. Fuerza relativa IMTP bruta (PF/masa) y neta ((PF-BW)/masa), rotuladas.
+3. Peso fuera de 30-200 kg (incluido 0) = vacio: bloquea relativas, se valida
+   en la carga y se guarda NULL. Migracion `20261101120000_evaluations_bw_kg_range.sql`.
+4. Evaluacion > 12 semanas: "Evaluacion desactualizada (hace N semanas)" y la
+   confianza del perfil baja un nivel.
+5. Umbral de cambio: < 3 mediciones = max(SWC fijo, TE del instrumento);
+   >= 3 = max(0.2*SD Hopkins, TE intraindividual). La fuente se rotula.
+
+Tests: `tests/test_evaluation_rules.py` con los casos reales (Habib, Anadon,
+Santiago Gray, Ignacio De La Vega), verificados en dashboard (AppTest), PDF y Excel.
+
 ## 2026-04-07 - Consolidacion documental
 
 Se actualizaron o crearon los documentos principales del proyecto para reflejar el estado actual:

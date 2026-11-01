@@ -18,6 +18,7 @@ from local_store import DATASET_SPECS, normalize_athlete_name
 from modules.data_loader import EVALUATION_DB_COLUMN_MAP, EVALUATION_PERSIST_COLUMNS, SUPABASE_EVALUATIONS_TABLE
 from modules.data_loader import ensure_raw_fecha_sesion
 from modules.evaluation_sources import normalize_source
+from modules.evaluation_rules import sanitize_bw_kg
 from modules.jump_analysis import (
     _prepare_jump_df,
     build_dj_drop_height_backfill_candidates,
@@ -286,6 +287,11 @@ def jump_df_to_db_records(df: pd.DataFrame) -> list[dict]:
             value = row[app_col]
             db_col = EVALUATION_DB_COLUMN_MAP[app_col]
             if has_dj_context and app_col in _JUMP_DJ_CLEAR_FIELDS and pd.isna(value):
+                record[db_col] = None
+                continue
+            if app_col == "BW_kg" and not pd.isna(value) and sanitize_bw_kg(value) is None:
+                # 0 o fuera de 30-200 kg: se escribe NULL explicito para pisar
+                # un valor invalido previo (regla unica en evaluation_rules).
                 record[db_col] = None
                 continue
             if pd.isna(value):

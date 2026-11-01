@@ -32,6 +32,13 @@ from modules.data_loader import (
 )
 from modules.app_version import app_version
 from modules.data_quality import SRPE_COVERAGE_RED_PCT, compute_data_quality_report
+from modules.evaluation_rules import (
+    IMTP_NO_RISE_FLAG,
+    IMTP_NO_RISE_LABEL,
+    apply_imtp_quality,
+    calc_imtp_relative_force,
+)
+from modules.jump_analysis import sanitize_body_weight
 from modules.wellness_scales import WELLNESS_EXPORT_HEADERS, WELLNESS_RESPONSE_SCALE
 from modules.metrics import MONOTONY_MIN_SESSIONS
 from modules.load_monitoring import (
@@ -2329,6 +2336,11 @@ def build_report_sheets(
         if include_jumps and state.get("jump_df") is not None:
             df = state["jump_df"].copy()
             prepared_jumps = _prepare_jump_df(df, profile_df=_state_profile_df(state))
+            # Mismas reglas de validez que dashboard y PDF (peso invalido
+            # vacio, RFD anulada por calidad, relPF bruta y neta), sin cambiar
+            # el layout de columnas del export.
+            if not df.empty:
+                df = calc_imtp_relative_force(apply_imtp_quality(sanitize_body_weight(df)))
             if (
                 "EUR_Profile" not in df.columns
                 and not prepared_jumps.empty
@@ -2486,6 +2498,10 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
                 "EUR",
                 "DRI",
                 "IMTP_N",
+                "BW_kg",
+                "IMTP_relPF",
+                "IMTP_relPF_net",
+                "IMTP_quality_flag",
                 "NM_Profile",
                 "EUR_Profile",
                 "IMTP_avg_N",
@@ -2497,7 +2513,20 @@ def _prepare_export_frame(sheet_name: str, df: pd.DataFrame) -> pd.DataFrame:
                 *IMTP_FORCE_TIME_EXPORT_COLUMNS,
             ],
         )
-        result = result.rename(columns={"EUR": EUR_RATIO_LABEL})
+        # El exceso de pretension es informativo solo del PDF profesional.
+        result = result.drop(columns=[col for col in ("IMTP_pretension_excess_N",) if col in result.columns])
+        if "IMTP_quality_flag" in result.columns:
+            result["IMTP_quality_flag"] = result["IMTP_quality_flag"].map(
+                lambda value: IMTP_NO_RISE_LABEL if value == IMTP_NO_RISE_FLAG else ""
+            )
+        result = result.rename(
+            columns={
+                "EUR": EUR_RATIO_LABEL,
+                "IMTP_relPF": "IMTP relPF bruta (N/kg) = PF/masa",
+                "IMTP_relPF_net": "IMTP relPF neta (N/kg) = (PF-BW)/masa",
+                "IMTP_quality_flag": "IMTP calidad de toma",
+            }
+        )
         return _sort_export_frame(result, ["Athlete", "Date"], [True, False])
     if sheet_name == "Maximos_Ejercicios":
         result = _preferred_columns(
@@ -2705,7 +2734,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         if isometric_payload.get("state") == "missing":
             target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isométricos.")))
             return
-        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "Asimetría"}]
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if (row[0] in {"Peak Force", "Cambio relevante", "Asimetría", "Calidad de toma", "Pretensión sobre BW (informativo)"} or str(row[0]).startswith("Fuerza relativa"))]
         if imtp_priority:
             target.append(_p("IMTP principal", "ProfCardTitle"))
             target.append(_mini_cards_table(imtp_priority))
@@ -2894,7 +2923,7 @@ def export_excel(data_dict: dict[str, pd.DataFrame]) -> bytes:
         if isometric_payload.get("state") == "missing":
             target.append(_collapsed_box(str(isometric_payload.get("message") or "Faltan datos isométricos.")))
             return
-        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if row[0] in {"Peak Force", "Cambio relevante", "Fuerza relativa", "Asimetría"}]
+        imtp_priority = [row for row in isometric_payload.get("imtp_rows", []) if (row[0] in {"Peak Force", "Cambio relevante", "Asimetría", "Calidad de toma", "Pretensión sobre BW (informativo)"} or str(row[0]).startswith("Fuerza relativa"))]
         if imtp_priority:
             target.append(_p("IMTP principal", "ProfCardTitle"))
             target.append(_mini_cards_table(imtp_priority))
@@ -5641,7 +5670,7 @@ def _professional_metric_display_unit(spec: dict[str, object], value_col: str) -
     if unit == "ratio":
         return "Ratio"
     if title == "IMTP" and value_col == "IMTP_relPF":
-        return "N/kg (fuerza relativa)"
+        return "N/kg (fuerza relativa bruta)"
     return unit or PDF_MISSING_TEXT
 
 
@@ -7428,7 +7457,8 @@ NEUROMUSCULAR_KPI_LABELS = {
     "DJ_tc_ms": "Tiempo de contacto",
     "DRI": "DRI",
     "EUR": "EUR",
-    "IMTP_relPF": "IMTP relPF",
+    "IMTP_relPF": "IMTP relPF bruta",
+    "IMTP_relPF_net": "IMTP relPF neta",
     "IMTP_N": "IMTP",
     "DSI": "DSI",
 }
@@ -7728,6 +7758,7 @@ def _build_pdf_neuromuscular_profile_payload(
             if str(key).strip() and str(value).strip()
         },
         "profile_source_is_composite": bool(core_payload.get("profile_source_is_composite")),
+        "staleness_label": core_payload.get("staleness_label"),
         "phys": _professional_visible_metric_text(core_payload.get("phys") or ""),
         "bio": _professional_visible_metric_text(core_payload.get("bio") or ""),
         "train": _professional_visible_metric_text(core_payload.get("train") or ""),
@@ -8134,6 +8165,7 @@ def _build_professional_composite_profile_payload(
         "profile_source_note": neuromuscular_profile.get("profile_source_note", ""),
         "profile_source_dates": neuromuscular_profile.get("profile_source_dates", {}),
         "profile_source_is_composite": neuromuscular_profile.get("profile_source_is_composite", False),
+        "staleness_label": neuromuscular_profile.get("staleness_label"),
         "summary_short": neuromuscular_profile.get("summary_short", ""),
         "summary_athlete": neuromuscular_profile.get("summary_athlete", ""),
         "summary_client": neuromuscular_profile.get("summary_client", ""),
@@ -8275,8 +8307,20 @@ def _build_professional_isometric_payload(
         ("Peak Force", safe_value(imtp_card.get("value"))),
         ("Cambio relevante", safe_value(imtp_card.get("delta"))),
         (
-            "Fuerza relativa",
+            "Calidad de toma",
+            str(imtp_summary.get("quality_label") or PDF_MISSING_TEXT),
+        ),
+        (
+            "Pretensión sobre BW (informativo)",
+            _professional_number_text(imtp_summary.get("pretension_excess_n"), digits=0, unit="N"),
+        ),
+        (
+            "Fuerza relativa bruta (PF/masa)",
             _professional_number_text(imtp_row.get("IMTP_relPF"), digits=2, unit="N/kg") if imtp_row is not None else PDF_MISSING_TEXT,
+        ),
+        (
+            "Fuerza relativa neta ((PF−BW)/masa)",
+            _professional_number_text(imtp_row.get("IMTP_relPF_net"), digits=2, unit="N/kg") if imtp_row is not None else PDF_MISSING_TEXT,
         ),
         ("Force Avg", _professional_number_text(imtp_summary.get("avg_force_n"), digits=0, unit="N")),
         ("Time to Peak", _professional_number_text(imtp_summary.get("time_to_peak_s"), digits=2, unit="s")),
@@ -8295,7 +8339,7 @@ def _build_professional_isometric_payload(
     iso_rows = [(label, value) for label, value in iso_rows if value != PDF_MISSING_TEXT]
 
     imtp_notes = []
-    for key in ["peak_force_text", "force_time_text", "rfd_text", "decision_note"]:
+    for key in ["quality_label", "peak_force_text", "force_time_text", "rfd_text", "decision_note"]:
         text = safe_value((imtp_payload.get("interpretation") or {}).get(key) if isinstance(imtp_payload.get("interpretation"), dict) else None)
         if text != PDF_MISSING_TEXT:
             imtp_notes.append(_professional_force_time_note_text(text))
@@ -11899,7 +11943,8 @@ def _generate_professional_profile_pdf_reportlab(
         imtp_priority = [
             row
             for row in isometric_payload.get("imtp_rows", [])
-            if _professional_normalized_text(row[0]) in {"peak force", "fuerza relativa", "force avg", "time to peak", "asimetria", "lado dominante"}
+            if _professional_normalized_text(row[0]) in {"peak force", "force avg", "time to peak", "asimetria", "lado dominante", "calidad de toma", "pretension sobre bw (informativo)"}
+            or _professional_normalized_text(row[0]).startswith("fuerza relativa")
         ]
         if imtp_priority:
             practical_notes = [
