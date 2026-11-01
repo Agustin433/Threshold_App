@@ -20,6 +20,18 @@ from modules.evaluation_sources import (
     SOURCE_PLATFORM,
     normalize_source,
 )
+from modules.evaluation_rules import (
+    IMTP_QUALITY_FLAG_COLUMN,
+    IMTP_REL_GROSS_LABEL,
+    IMTP_REL_NET_LABEL,
+    apply_imtp_quality,
+    calc_imtp_relative_force,
+    downgrade_confidence,
+    evaluation_staleness,
+    imtp_quality_label,
+    resolve_change_threshold,
+    sanitize_bw_kg_series,
+)
 from modules.zscore_sources import (
     Z_SOURCES_WITH_NUMERIC_Z,
     ZSource,
@@ -45,6 +57,7 @@ NON_NUMERIC_EVALUATION_COLUMNS = {
     "NM_Profile",
     "EUR_Profile",
     "EUR_based_profile",
+    IMTP_QUALITY_FLAG_COLUMN,
 }
 
 # Ref1: Normative data EFL 2025 - professional male soccer.
@@ -75,7 +88,8 @@ METRIC_LABELS = {
     "DRI": "DRI",
     "DJ_tc_ms": "Tiempo de contacto",
     "TC_inv_Z": "Tiempo de contacto",
-    "IMTP_relPF": "IMTP relPF",
+    "IMTP_relPF": IMTP_REL_GROSS_LABEL,
+    "IMTP_relPF_net": IMTP_REL_NET_LABEL,
     "IMTP_N": "IMTP",
     "EUR": "EUR",
     "DSI": "DSI",
@@ -129,7 +143,14 @@ VARIABLE_META: dict[str, dict[str, object]] = {
         "enabled_default": True,
     },
     "IMTP_relPF": {
-        "label": "IMTP relPF",
+        "label": IMTP_REL_GROSS_LABEL,
+        "higher_is_better": True,
+        "fallback_pct": 2.0,
+        "fmt": "{:.2f}",
+        "enabled_default": True,
+    },
+    "IMTP_relPF_net": {
+        "label": IMTP_REL_NET_LABEL,
         "higher_is_better": True,
         "fallback_pct": 2.0,
         "fmt": "{:.2f}",
@@ -1101,12 +1122,32 @@ def calc_dsi(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calc_imtp_rel_pf(df: pd.DataFrame) -> pd.DataFrame:
-    """Relative IMTP peak force in N/kg."""
-    if {"IMTP_N", "BW_kg"}.issubset(df.columns):
-        imtp = _numeric_series(df, "IMTP_N")
-        bw = _numeric_series(df, "BW_kg")
-        mask = imtp.notna() & bw.notna() & (bw > 0)
-        df.loc[mask, "IMTP_relPF"] = (imtp.loc[mask] / bw.loc[mask]).round(2)
+    """Fuerza relativa IMTP bruta (PF/masa) y neta ((PF - BW*g)/masa), N/kg.
+
+    Delegada a `modules.evaluation_rules` (regla unica para toda la app).
+    """
+    return calc_imtp_relative_force(df)
+
+
+RELATIVE_METRIC_COLUMNS = ("IMTP_relPF", "IMTP_relPF_net", "Jump_Momentum")
+
+
+def sanitize_body_weight(df: pd.DataFrame) -> pd.DataFrame:
+    """Peso fuera de 30-200 kg (incluido 0) pasa a vacio y bloquea relativas.
+
+    Una metrica relativa ya calculada con ese peso (por ejemplo, la que trae
+    un frame previamente preparado o un CSV) tambien se anula.
+    """
+    if "BW_kg" not in df.columns:
+        return df
+    raw = pd.to_numeric(df["BW_kg"], errors="coerce")
+    clean = sanitize_bw_kg_series(raw)
+    invalid = raw.notna() & clean.isna()
+    df["BW_kg"] = clean
+    if invalid.any():
+        for column in RELATIVE_METRIC_COLUMNS:
+            if column in df.columns:
+                df.loc[invalid, column] = np.nan
     return df
 
 
@@ -1399,6 +1440,10 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
                 "text": "DSI bajo: superavit de fuerza con deficit balistico; priorizar trabajo balistico/potencia",
             })
 
+    quality_label = imtp_quality_label(row_series)
+    if quality_label:
+        flags.append({"level": "red", "text": f"IMTP: {quality_label}"})
+
     return flags
 
 
@@ -1647,6 +1692,8 @@ def _default_neuromuscular_result() -> dict[str, object]:
         "flags": [],
         "evidence": [],
         "kpi_to_track": [],
+        "staleness": {"is_stale": False, "weeks": None, "oldest_date": None, "label": None},
+        "staleness_label": None,
     }
 
 
@@ -1792,6 +1839,23 @@ def build_neuromuscular_profile_result(
         profile_source=profile_source,
     )
 
+    # Antiguedad: la medicion mas vieja que sostiene el perfil limita la
+    # confianza. > 12 semanas baja un nivel y se rotula en todas las vistas.
+    staleness_dates = list(profile_source_dates.values()) or [row_series.get("Date")]
+    staleness = evaluation_staleness(
+        staleness_dates,
+        (context or {}).get("reference_date"),
+    )
+    result["staleness"] = staleness
+    result["staleness_label"] = staleness.get("label")
+    if staleness.get("is_stale"):
+        result["flags"] = list(dict.fromkeys([*result["flags"], "stale_evaluation"]))
+        result["confidence"] = downgrade_confidence(str(result["confidence"]))
+        stale_text = f"{staleness['label']}: la lectura puede no reflejar el estado actual; conviene re-evaluar."
+        result["profile_source_note"] = _append_unique_text(f"{staleness['label']}.", result.get("profile_source_note"))
+        for field in ("summary_professional", "summary_athlete", "summary_client"):
+            result[field] = _append_unique_text(result.get(field), stale_text)
+
     return result
 
 
@@ -1851,6 +1915,9 @@ def _dashboard_structured_flag_rows(profile_payload: dict[str, object]) -> list[
     for flag in profile_payload.get("flags", []):
         flag_key = str(flag).strip()
         if flag_key == "insufficient_pattern_evidence" and profile_payload.get("profile_code") != "UNCLASSIFIED":
+            continue
+        if flag_key == "stale_evaluation":
+            rows.append({"level": "yellow", "text": str(profile_payload.get("staleness_label") or "Evaluación desactualizada")})
             continue
         mapped = _DASHBOARD_STRUCTURED_FLAG_MAP.get(flag_key)
         if mapped:
@@ -2095,6 +2162,7 @@ def compute_swc_delta(
         "Delta_pct",
         "Threshold_abs",
         "Threshold_method",
+        "Threshold_label",
         "N_valid",
         "Signal",
         "Higher_is_better",
@@ -2141,6 +2209,7 @@ def compute_swc_delta(
         delta_pct = np.nan
         threshold_abs = np.nan
         threshold_method = pd.NA
+        threshold_label = pd.NA
         signal = "sin dato anterior"
 
         if pd.notna(current_value) and pd.notna(previous_value):
@@ -2148,14 +2217,16 @@ def compute_swc_delta(
             if float(previous_value) > 0:
                 delta_pct = ((float(current_value) - float(previous_value)) / float(previous_value)) * 100
 
-            if n_valid >= 3:
-                std_value = pd.to_numeric(valid_until_current[variable], errors="coerce").std()
-                if pd.notna(std_value):
-                    threshold_abs = abs(0.2 * float(std_value))
-                    threshold_method = "Hopkins"
-            elif float(previous_value) > 0:
-                threshold_abs = abs(float(previous_value) * (float(meta["fallback_pct"]) / 100))
-                threshold_method = "Fijo"
+            threshold = resolve_change_threshold(
+                variable,
+                previous_value,
+                pd.to_numeric(valid_until_current.sort_values("Date")[variable], errors="coerce").tolist(),
+                swc_pct=float(meta["fallback_pct"]),
+            )
+            if pd.notna(threshold["threshold_abs"]):
+                threshold_abs = float(threshold["threshold_abs"])
+                threshold_method = threshold["method"]
+                threshold_label = threshold["label"]
 
             if pd.notna(threshold_abs):
                 threshold_abs = float(threshold_abs)
@@ -2193,6 +2264,7 @@ def compute_swc_delta(
                 "Delta_pct": float(delta_pct) if pd.notna(delta_pct) else np.nan,
                 "Threshold_abs": float(threshold_abs) if pd.notna(threshold_abs) else np.nan,
                 "Threshold_method": threshold_method,
+                "Threshold_label": threshold_label,
                 "N_valid": n_valid,
                 "Signal": signal,
                 "Higher_is_better": bool(meta["higher_is_better"]),
@@ -2259,10 +2331,11 @@ def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
         threshold_method = row.get("Threshold_method")
         if pd.notna(threshold_value):
             threshold_text = _fmt_value(threshold_value)
-            if threshold_method == "Hopkins":
-                threshold_text = f"{threshold_text} (Hopkins, N={int(row.get('N_valid', 0))})"
-            elif threshold_method == "Fijo":
-                threshold_text = f"{threshold_text} (Fijo)"
+            threshold_label = row.get("Threshold_label")
+            if isinstance(threshold_label, str) and threshold_label.strip():
+                threshold_text = f"{threshold_text} ({threshold_label})"
+            elif isinstance(threshold_method, str) and threshold_method.strip():
+                threshold_text = f"{threshold_text} ({threshold_method})"
 
         delta_pct = row.get("Delta_pct")
         delta_pct_text = f"{float(delta_pct):+.1f}%" if pd.notna(delta_pct) else "-"
@@ -2594,6 +2667,8 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
             snapshot["DJtc_Z_source"] = tc_origin
         if value_col == "IMTP_relPF":
             snapshot["IMTP_N"] = source_row.get("IMTP_N")
+            snapshot["IMTP_relPF_net"] = source_row.get("IMTP_relPF_net")
+            snapshot[IMTP_QUALITY_FLAG_COLUMN] = source_row.get(IMTP_QUALITY_FLAG_COLUMN)
             if source_value_col == "IMTP_relPF":
                 imtp_z = resolve_zscore(source_row, "IMTP_relPF_Z")
                 snapshot["IMTP_relPF_Z"] = imtp_z
@@ -2693,7 +2768,6 @@ def build_composite_profile_metric_rows(row: pd.Series | dict[str, object]) -> l
                 "z_col": display_z_col,
             }
         )
-
     return rows
 
 
@@ -2880,6 +2954,10 @@ def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
             device_values = group["Device"].dropna()
             if not device_values.empty:
                 merged_row["Device"] = device_values.iloc[-1]
+        if IMTP_QUALITY_FLAG_COLUMN in group.columns:
+            flag_values = group[IMTP_QUALITY_FLAG_COLUMN].dropna()
+            if not flag_values.empty:
+                merged_row[IMTP_QUALITY_FLAG_COLUMN] = flag_values.iloc[-1]
         for column in group.columns:
             if column in key_cols or column in NON_NUMERIC_EVALUATION_COLUMNS:
                 continue
@@ -2938,6 +3016,10 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
         return pd.DataFrame()
 
     result = _merge_duplicate_athlete_date_rows(result)
+    # Reglas de validez antes de cualquier derivada: peso invalido no genera
+    # relativas y una IMTP con pretension alta no aporta RFD/Force@ms a nada.
+    result = sanitize_body_weight(result)
+    result = apply_imtp_quality(result)
     result = promote_legacy_dri_to_dj_rsi(result)
     result = calc_eur(result)
     result = calc_dj_rsi(result)
@@ -2954,6 +3036,7 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
         ("DRI", 3),
         ("DSI", 3),
         ("IMTP_relPF", 2),
+        ("IMTP_relPF_net", 2),
         ("Jump_Momentum", 1),
     ):
         _round_column(result, column, digits)

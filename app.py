@@ -166,7 +166,9 @@ from modules.load_monitoring import (
 )
 
 WEEKLY_NOT_COMPARABLE_TEXT = "No comparable"
+from modules.evaluation_rules import CHANGE_THRESHOLD_CAPTION, validate_bw_kg_input
 from modules.jump_analysis import (
+    build_dashboard_neuromuscular_payload,
     available_sources as jump_available_sources,
     choose_secondary_quadrant_x_spec,
     filter_by_source as filter_jump_by_source,
@@ -2595,6 +2597,9 @@ def render_force_time_detail_block(
     rfd_points = get_rfd_points(summary)
 
     render_subsection_header(title, detail, kicker="Force-time")
+    quality_label = summary.get("quality_label")
+    if quality_label:
+        _alert(f"<b>Toma IMTP marcada:</b> {quality_label}. Se muestran Peak Force y fuerza relativa.", "r")
 
     force_metrics = st.columns(4)
     force_metrics[0].metric(
@@ -2633,6 +2638,10 @@ def render_force_time_detail_block(
         st.markdown(
             f"**Interpretacion:** {asymmetry_summary.get('interpretation') or 'Sin datos suficientes para interpretar asimetria.'}"
         )
+
+    if summary.get("time_points_suppressed"):
+        render_force_time_interpretation(interpretation, kicker=interpretation_kicker)
+        return
 
     profile_left, profile_right = st.columns(2)
     with profile_left:
@@ -4452,9 +4461,9 @@ with st.sidebar:
                         key=f"eval_manual_{field}",
                     )
                 manual_values["BW_kg"] = st.number_input(
-                    "Peso corporal (kg) — opcional",
-                    min_value=20.0,
-                    max_value=250.0,
+                    "Peso corporal (kg) — opcional (30–200)",
+                    min_value=30.0,
+                    max_value=200.0,
                     value=None,
                     step=0.1,
                     format="%.1f",
@@ -4524,6 +4533,13 @@ with st.sidebar:
                         ).iloc[0]
                         if pd.isna(parsed_drop_height) and manual_dj_drop_height_cm is not None:
                             record["DJ_drop_height_cm"] = manual_dj_drop_height_cm
+                    # Regla unica de peso: 30-200 kg o vacio. Un 0 exportado por
+                    # la plataforma se guarda como NULL y bloquea relativas.
+                    if "BW_kg" in record:
+                        clean_bw, bw_warning = validate_bw_kg_input(record.get("BW_kg"))
+                        record["BW_kg"] = clean_bw
+                        if bw_warning:
+                            _push_notice("warning", f"Evaluación {eval_type} ({eval_athlete_name}): {bw_warning}")
                     metric_fields = _evaluation_metric_fields(record)
                     if not metric_fields:
                         raise ValueError("no se detectaron métricas válidas para el tipo de test seleccionado.")
@@ -5419,7 +5435,7 @@ def render_decision_panel():
                     card_base | {
                         "details": [
                             f"EUR: {eur_value:.3f}" if pd.notna(eur_value) else "EUR: -",
-                            f"IMTP relPF: {imtp_relpf:.2f} N/kg" if pd.notna(imtp_relpf) else "IMTP relPF: -",
+                            f"IMTP relPF bruta: {imtp_relpf:.2f} N/kg" if pd.notna(imtp_relpf) else "IMTP relPF bruta: -",
                             f"Dias desde ultima evaluacion: {days_since}",
                         ]
                     },
@@ -6545,8 +6561,13 @@ elif active_main_view in EVALUATION_VIEW_SOURCES:
             selected_flag_rows = build_jump_flag_rows(selected_row)
             selected_feedback_lines = build_jump_feedback_lines(selected_row) + temporal_lines
             current_profile_row, current_profile_sources = build_composite_profile_snapshot(hist_j)
-            current_profile_flag_rows = build_jump_flag_rows(current_profile_row) if current_profile_row is not None else []
-            current_profile_feedback_lines = build_jump_feedback_lines(current_profile_row) if current_profile_row is not None else []
+            # Misma lectura central que la pagina de Jump Evaluation y los PDF:
+            # incluye confianza, calidad IMTP y antiguedad de la evaluacion.
+            current_profile_payload = (
+                build_dashboard_neuromuscular_payload(current_profile_row) if current_profile_row is not None else {}
+            )
+            current_profile_flag_rows = list(current_profile_payload.get("flag_rows", []))
+            current_profile_feedback_lines = list(current_profile_payload.get("feedback_lines", []))
         selected_date_text = sel_ts.strftime("%d/%m/%Y") if not pd.isna(sel_ts) else "Sin fecha"
         imtp_force_time_row = select_force_time_test_row(hist_j, test_id="imtp", selected_date=sel_ts)
         iso_ham_force_time_row = select_force_time_test_row(
@@ -6573,15 +6594,16 @@ elif active_main_view in EVALUATION_VIEW_SOURCES:
         st.caption(
             f"Fecha elegida para la lectura puntual: {selected_date_text}."
         )
-        metric_cols = st.columns(6)
         metric_config = [
             ("CMJ", (("CMJ_cm", "cm", ".1f"),)),
             ("SJ", (("SJ_cm", "cm", ".1f"),)),
             ("DJ", (("DJ_cm", "cm", ".1f"),)),
             ("DJ RSI", (("DJ_RSI", "m/s", ".2f"),)),
-            ("IMTP", (("IMTP_relPF", "N/kg", ".2f"), ("IMTP_N", "N", ".0f"))),
+            ("IMTP relPF bruta", (("IMTP_relPF", "N/kg", ".2f"), ("IMTP_N", "N", ".0f"))),
+            ("IMTP relPF neta", (("IMTP_relPF_net", "N/kg", ".2f"),)),
             ("EUR (ratio)", (("EUR", "", ".3f"),)),
         ]
+        metric_cols = st.columns(len(metric_config))
         for col, (label, candidates) in zip(metric_cols, metric_config):
             display_value = None
             display_unit = ""
@@ -6608,9 +6630,10 @@ elif active_main_view in EVALUATION_VIEW_SOURCES:
             kicker="Temporal",
         )
         render_jump_temporal_delta_table(delta_df)
+        st.caption(CHANGE_THRESHOLD_CAPTION)
         if not delta_df.empty and delta_df["Signal"].eq("sin dato anterior").all():
             st.caption(
-                "Primera evaluacion registrada para este atleta. El threshold individual tipo Hopkins estara disponible a partir de la tercera medicion valida por variable."
+                "Primera evaluacion registrada para este atleta. " + CHANGE_THRESHOLD_CAPTION
             )
 
         render_subsection_header(
@@ -6926,13 +6949,15 @@ elif active_main_view == "Profile":
                 kpi_display = {
                     "CMJ": ("CMJ_cm", "cm"), "SJ": ("SJ_cm", "cm"),
                     "DJ": ("DJ_cm", "cm"), "DJ RSI": ("DJ_RSI", "m/s"),
-                    "EUR (ratio)": ("EUR", "ratio"), "IMTP relPF": ("IMTP_relPF", "N/kg"),
+                    "EUR (ratio)": ("EUR", "ratio"),
+                    "IMTP relPF bruta": ("IMTP_relPF", "N/kg"),
+                    "IMTP relPF neta": ("IMTP_relPF_net", "N/kg"),
                     "IMTP": ("IMTP_N", "N"),
                 }
                 rows_kpi = []
                 for label, (col, unit) in kpi_display.items():
                     if col in last_j.index and pd.notna(last_j[col]):
-                        fmt = ".3f" if col in {"EUR", "DJ_RSI"} else ".2f" if col in {"IMTP_relPF"} else ".1f"
+                        fmt = ".3f" if col in {"EUR", "DJ_RSI"} else ".2f" if col in {"IMTP_relPF", "IMTP_relPF_net"} else ".1f"
                         rows_kpi.append({"KPI": label, "Valor": f"{last_j[col]:{fmt}} {unit}".strip()})
                 if rows_kpi:
                     st.dataframe(pd.DataFrame(rows_kpi), hide_index=True,

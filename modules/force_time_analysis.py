@@ -5,11 +5,14 @@ from collections.abc import Mapping
 import pandas as pd
 
 from modules.evaluation_registry import get_evaluation_spec, get_storage_mapping
+from modules.evaluation_rules import IMTP_QUALITY_FLAG_COLUMN, assess_imtp_quality
 
 FORCE_TIME_POINT_METRICS = ("force_50_n", "force_100_n", "force_150_n", "force_200_n", "force_250_n")
+RFD_METRICS = ("rfd_50_n_s", "rfd_100_n_s", "rfd_150_n_s", "rfd_250_n_s")
 CORE_FORCE_TIME_POINT_METRICS = ("force_100_n", "force_200_n", "force_250_n")
 INTERPRETATION_TEXT_FIELDS = (
     "title",
+    "quality_label",
     "peak_force_text",
     "force_time_text",
     "rfd_text",
@@ -291,6 +294,30 @@ def summarize_force_time_test(
     asymmetry_pct = _coerce_number(summary.get("absolute_asymmetry_pct"))
     summary["absolute_asymmetry_pct"] = abs(float(asymmetry_pct)) if asymmetry_pct is not None else None
 
+    # Calidad de toma (solo IMTP): misma regla que `_prepare_jump_df`, asi un
+    # registro crudo (cola de carga, PDF desde payload) se trata igual que una
+    # fila preparada. Con pretension alta, RFD y Force@ms no se muestran.
+    summary["quality_flag"] = None
+    summary["quality_label"] = None
+    summary["quality_reasons"] = []
+    summary["pretension_excess_n"] = None
+    summary["time_points_suppressed"] = False
+    if resolved_test_id == "imtp":
+        quality = assess_imtp_quality(
+            summary.get("pre_tension_n"),
+            source.get("BW_kg"),
+            summary.get("rfd_50_n_s"),
+            existing_flag=source.get(IMTP_QUALITY_FLAG_COLUMN),
+        )
+        summary["pretension_excess_n"] = quality["pretension_excess_n"]
+        if quality["flagged"]:
+            summary["quality_flag"] = quality["flag"]
+            summary["quality_label"] = quality["label"]
+            summary["quality_reasons"] = list(quality["reasons"])
+            summary["time_points_suppressed"] = True
+            for field in (*FORCE_TIME_POINT_METRICS, *RFD_METRICS):
+                summary[field] = None
+
     stronger_side, weaker_side, side_difference_n = _asymmetry_direction(
         summary.get("left_force_n"),
         summary.get("right_force_n"),
@@ -519,14 +546,24 @@ def select_force_time_test_row(
         if not same_day_rows.empty:
             for _, row in same_day_rows.iterrows():
                 summary = summarize_force_time_test(row, test_id=test_id)
-                if summary.get("has_valid_force_time"):
+                if _is_selectable_force_time_summary(summary):
                     return row
 
     for _, row in data.iterrows():
         summary = summarize_force_time_test(row, test_id=test_id)
-        if summary.get("has_valid_force_time"):
+        if _is_selectable_force_time_summary(summary):
             return row
     return None
+
+
+def _is_selectable_force_time_summary(summary: Mapping[str, object]) -> bool:
+    """Una toma con RFD anulada por calidad sigue siendo la toma vigente.
+
+    Sin esto, la vista saltaba en silencio a una IMTP mas vieja.
+    """
+    if summary.get("has_valid_force_time"):
+        return True
+    return bool(summary.get("time_points_suppressed")) and _coerce_number(summary.get("peak_force_n")) is not None
 
 
 def get_force_time_points(summary: Mapping[str, object]) -> list[dict[str, object]]:
@@ -603,7 +640,15 @@ def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object
             "describe la produccion maxima de fuerza isometrica en la posicion de IMTP."
         )
 
-    if source.get("has_valid_force_time"):
+    quality_label = str(source.get("quality_label") or "").strip()
+    if quality_label:
+        reasons = "; ".join(str(r) for r in source.get("quality_reasons") or [] if str(r).strip())
+        force_time_text = (
+            f"Toma marcada: {quality_label}"
+            + (f" ({reasons})." if reasons else ".")
+            + " Force@50–250 ms no se muestra ni se compara."
+        )
+    elif source.get("has_valid_force_time"):
         pct_100 = _format_pct(source.get("force_100_pct_peak"))
         pct_200 = _format_pct(source.get("force_200_pct_peak"))
         pct_250 = _format_pct(source.get("force_250_pct_peak"))
@@ -618,7 +663,12 @@ def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object
             "la expresion temporal de fuerza antes del pico."
         )
 
-    if source.get("has_valid_rfd"):
+    if quality_label:
+        rfd_text = (
+            "RFD no interpretable en esta toma (pretensión alta / inicio de la contracción mal definido): "
+            "no se muestra ni se usa en DSI, z-scores ni comparaciones. Peak Force y fuerza relativa sí son válidas."
+        )
+    elif source.get("has_valid_rfd"):
         rfd_text = (
             "La RFD describe la tasa de desarrollo de fuerza en las ventanas exportadas de 50, 100, 150 y 250 ms. "
             "Sin TE o umbral de confiabilidad propio, conviene interpretarla con cautela y como apoyo descriptivo."
@@ -645,6 +695,7 @@ def interpret_imtp_force_time(summary: Mapping[str, object]) -> dict[str, object
         "asymmetry_text": asymmetry_text,
         "decision_note": decision_note,
         "basis": basis,
+        "quality_label": quality_label or None,
         }
     )
 
