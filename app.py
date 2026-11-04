@@ -166,7 +166,11 @@ from modules.load_monitoring import (
 )
 
 WEEKLY_NOT_COMPARABLE_TEXT = "No comparable"
-from modules.evaluation_rules import CHANGE_THRESHOLD_CAPTION, validate_bw_kg_input
+from modules.evaluation_rules import (
+    CHANGE_THRESHOLD_CAPTION,
+    platform_body_weight_upload_warning,
+    validate_bw_kg_input,
+)
 from modules.jump_analysis import (
     build_dashboard_neuromuscular_payload,
     available_sources as jump_available_sources,
@@ -4535,6 +4539,15 @@ with st.sidebar:
                             record["DJ_drop_height_cm"] = manual_dj_drop_height_cm
                     # Regla unica de peso: 30-200 kg o vacio. Un 0 exportado por
                     # la plataforma se guarda como NULL y bloquea relativas.
+                    # Mira el peso crudo antes de sanearlo: avisa si la plataforma
+                    # calculo CMJ/SJ sin peso valido (esas metricas se descartan).
+                    platform_bw_warning = platform_body_weight_upload_warning(
+                        record,
+                        test_type=eval_type,
+                        source=eval_source,
+                    )
+                    if platform_bw_warning:
+                        _push_notice("warning", f"Evaluación {eval_type} ({eval_athlete_name}): {platform_bw_warning}")
                     if "BW_kg" in record:
                         clean_bw, bw_warning = validate_bw_kg_input(record.get("BW_kg"))
                         record["BW_kg"] = clean_bw

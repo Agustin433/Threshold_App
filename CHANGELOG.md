@@ -2,6 +2,26 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-04 - Peso de plataforma invalido y peso de una evaluacion cercana
+
+Dos reglas mas en `modules/evaluation_rules.py`, aplicadas en `_prepare_jump_df`:
+
+6. Peso de plataforma invalido: si Involution calculo un CMJ/SJ sin peso valido
+   (0, vacio o impulso relativo negativo), se descartan altura por
+   impulso-momento, velocidad de despegue, potencia, impulso, RSI, rigidez,
+   fases y momentum de esa toma. Fuerzas, tiempo de vuelo, asimetrias, DJ e
+   IMTP se conservan. Aviso rojo con el dato descartado y su altura por tiempo
+   de vuelo (solo referencia, otro metodo). Tambien avisa al cargar el archivo.
+   Solo aplica a tomas de plataforma con cinematica: una carga manual con solo
+   la altura no se toca. Casos reales: Gray y Palazzo 07/05, Florencia Romano
+   16/05, Lorenzo 28/09.
+7. Peso de una evaluacion cercana: sin peso valido, la fuerza relativa del IMTP
+   y el momentum usan el peso medido del mismo atleta a <= 14 dias, rotulado
+   ("Peso tomado de la evaluacion del dd/mm/aaaa"). Va en `BW_kg_imputed`, que
+   nunca se guarda en Supabase, y no rescata lo descartado por la regla 6.
+
+Tests: `tests/test_platform_body_weight.py`.
+
 ## 2026-11-01 - Reglas de validez de evaluaciones (toda la app)
 
 Una funcion por regla en `modules/evaluation_rules.py`, aplicada en
