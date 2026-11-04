@@ -1380,8 +1380,8 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(cmj_second["Signal"], "mejora relevante")
 
         cmj_fourth = fourth_delta[fourth_delta["Variable"] == "CMJ_cm"].iloc[0]
-        # >= 3 mediciones: umbral intraindividual (max de Hopkins 0.2*SD y TE).
-        self.assertIn(cmj_fourth["Threshold_method"], {"Hopkins", "TE intraindividual"})
+        # >= 3 mediciones: max(TE instrumento, TE intraindividual, Hopkins 0.2*SD).
+        self.assertIn(cmj_fourth["Threshold_method"], {"Hopkins", "TE intraindividual", "TE instrumento"})
         self.assertTrue(str(cmj_fourth["Threshold_label"]).endswith(f"N={int(cmj_fourth['N_valid'])}"))
         self.assertEqual(cmj_fourth["Signal"], "mejora relevante")
 
@@ -1391,7 +1391,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         dj_tc_delta = fourth_delta[fourth_delta["Variable"] == "DJ_tc_ms"].iloc[0]
 
         self.assertFalse(bool(dj_tc_delta["Higher_is_better"]))
-        # >= 3 mediciones: max(0.2*SD Hopkins, TE intraindividual); aca gana el TE.
+        # >= 3 mediciones: max(TE instrumento, TE intraindividual, 0.2*SD); aca gana el TE intra.
         self.assertEqual(dj_tc_delta["Threshold_method"], "TE intraindividual")
         self.assertGreater(float(dj_tc_delta["Delta_abs"]), 0)
         self.assertEqual(dj_tc_delta["Signal"], "caida relevante")

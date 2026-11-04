@@ -758,7 +758,8 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         rows = dict(context["rows"])
 
         self.assertEqual(context["state"], "partial")
-        self.assertEqual(rows["Adherencia formal"], "Faltan datos")
+        # Sin completion fechado no hay adherencia por ventana: la fila no se muestra.
+        self.assertNotIn("Adherencia formal", rows)
         self.assertEqual(rows["Sesiones registradas"], "2")
 
     def test_metric_signal_treats_small_delta_inside_noise_as_yellow(self):

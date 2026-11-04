@@ -2,6 +2,29 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-04 - PR A: validez y coherencia de numeros
+
+1. Altura CMJ/SJ por impulso vs tiempo de vuelo (`evaluation_rules`, regla 6b):
+   h_vuelo = 9.81 * t^2 / 8. Si |informada - h_vuelo| > max(3 cm, 8% de
+   h_vuelo) en una toma de plataforma, la altura queda fuera de radar,
+   z-score, cohorte, EUR, momentum y comparaciones. Rotulo: "altura por
+   impulso inconsistente con tiempo de vuelo (probable error de peso en la
+   fase de pesaje)". La altura por vuelo se muestra solo en el PDF profe,
+   rotulada. No se modifica Supabase. Con los datos reales marca 31 alturas
+   en 20 tomas (ninguna de oct-2026). Ref: Street et al. 2001; Moir 2008.
+2. Umbral de cambio = max(TE, SWC) en todas las variables: el TE del
+   instrumento entra siempre, tambien con 3+ mediciones (antes el SJ quedaba
+   en 0.6 cm "Hopkins 0.2·SD").
+3. Una sola fuente de z en el PDF profe: el perfil compuesto y el radar ya no
+   re-preparan el historial del atleta sin cohorte (el z de literatura pisaba
+   el de cohorte: CMJ 1.25 vs 1.29, DRI 0.46 vs 0.72 en el mismo PDF).
+4. Adherencia: completion_df solo trae totales del periodo sin fecha y el raw
+   de TeamBuildr solo series completadas (sin denominador), asi que no hay
+   adherencia por ventana: el tile/fila se omite en vez de decir "Todavia no
+   registrado".
+
+Tests: `tests/test_validity_coherence.py`.
+
 ## 2026-11-04 - Fecha de evaluacion elegida a proposito
 
 9. El selector "Fecha de evaluacion" arranca vacio y es obligatorio. Una fecha

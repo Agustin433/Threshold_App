@@ -23,9 +23,13 @@ from modules.evaluation_sources import (
 from modules.evaluation_rules import (
     BW_IMPUTED_FROM_COLUMN,
     IMTP_QUALITY_FLAG_COLUMN,
+    JUMP_HEIGHT_DETAIL_COLUMN,
+    JUMP_HEIGHT_FLAG_COLUMN,
     PLATFORM_BW_DETAIL_COLUMN,
     PLATFORM_BW_FLAG_COLUMN,
+    apply_jump_height_consistency,
     apply_platform_body_weight_quality,
+    jump_height_consistency_label,
     effective_bw_kg_series,
     impute_body_weight,
     imputed_body_weight_label,
@@ -68,6 +72,8 @@ NON_NUMERIC_EVALUATION_COLUMNS = {
     IMTP_QUALITY_FLAG_COLUMN,
     PLATFORM_BW_FLAG_COLUMN,
     PLATFORM_BW_DETAIL_COLUMN,
+    JUMP_HEIGHT_FLAG_COLUMN,
+    JUMP_HEIGHT_DETAIL_COLUMN,
     BW_IMPUTED_FROM_COLUMN,
 }
 
@@ -1459,6 +1465,10 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
     if platform_bw_label:
         flags.append({"level": "red", "text": f"Peso de plataforma inválido: {platform_bw_label}"})
 
+    height_label = jump_height_consistency_label(row_series)
+    if height_label:
+        flags.append({"level": "red", "text": height_label})
+
     imputed_bw_label = imputed_body_weight_label(row_series)
     if imputed_bw_label:
         flags.append({"level": "yellow", "text": imputed_bw_label})
@@ -2628,8 +2638,27 @@ def select_primary_profile_row(
     return None
 
 
+def _prepared_or_prepare(jump_df: pd.DataFrame) -> pd.DataFrame:
+    """El frame tal cual si ya paso por `_prepare_jump_df`; si no, se prepara.
+
+    Re-preparar un historial ya preparado (y filtrado a un atleta) sin
+    `profile_df` recalculaba los z: el z de literatura fresco pisaba el de
+    cohorte. El PDF profe mostraba asi dos z distintos para la misma toma
+    (tabla 1.25 vs cuadrante 1.29 en CMJ). Una sola fuente: la que preparo el
+    llamador, con su cohorte.
+    """
+    if jump_df is None or jump_df.empty:
+        return pd.DataFrame()
+    if (
+        JUMP_PREPARED_COLUMN in jump_df.columns
+        and jump_df[JUMP_PREPARED_COLUMN].fillna(False).astype(bool).all()
+    ):
+        return jump_df.copy()
+    return _prepare_jump_df(jump_df)
+
+
 def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series | None, pd.DataFrame]:
-    data = _prepare_jump_df(jump_df)
+    data = _prepared_or_prepare(jump_df)
     if data.empty:
         return None, pd.DataFrame(columns=["Variable", "Fecha origen"])
 
@@ -2738,7 +2767,7 @@ def _count_renderable_radar_axes(row: pd.Series | dict[str, object]) -> int:
 
 def build_profile_radar_row(jump_df: pd.DataFrame) -> pd.Series | None:
     """Choose the safest radar row, upgrading to a composed snapshot only when it adds axes."""
-    data = _prepare_jump_df(jump_df)
+    data = _prepared_or_prepare(jump_df)
     if data.empty:
         return None
 
@@ -2973,7 +3002,13 @@ def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
             device_values = group["Device"].dropna()
             if not device_values.empty:
                 merged_row["Device"] = device_values.iloc[-1]
-        for flag_column in (IMTP_QUALITY_FLAG_COLUMN, PLATFORM_BW_FLAG_COLUMN, PLATFORM_BW_DETAIL_COLUMN):
+        for flag_column in (
+            IMTP_QUALITY_FLAG_COLUMN,
+            PLATFORM_BW_FLAG_COLUMN,
+            PLATFORM_BW_DETAIL_COLUMN,
+            JUMP_HEIGHT_FLAG_COLUMN,
+            JUMP_HEIGHT_DETAIL_COLUMN,
+        ):
             if flag_column in group.columns:
                 flag_values = group[flag_column].dropna()
                 if not flag_values.empty:
@@ -3042,6 +3077,9 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
     # exportado de un vacio), asi que va antes de sanearlo. El peso de una
     # evaluacion cercana se resuelve despues, solo para relativas de la app.
     result = apply_platform_body_weight_quality(result)
+    # Altura por impulso que no cierra con el tiempo de vuelo: fuera de todo
+    # calculo antes de derivar EUR, momentum y z-scores.
+    result = apply_jump_height_consistency(result)
     result = sanitize_body_weight(result)
     result = impute_body_weight(result)
     result = apply_imtp_quality(result)
