@@ -238,6 +238,11 @@ def _sample_jump_df() -> pd.DataFrame:
     )
 
 
+# Los perfiles sinteticos son del 01/05/2026: se leen como evaluaciones al dia
+# para aislar las reglas de patron de la regla de antiguedad (> 12 semanas).
+FRESH_PROFILE_CONTEXT = {"reference_date": "2026-05-02"}
+
+
 def _temporal_jump_df() -> pd.DataFrame:
     return _prepare_with_cohort(
             [
@@ -962,7 +967,8 @@ class JumpProfileSystemTest(unittest.TestCase):
         metric_table = build_composite_profile_metric_table(composite_row)
         imtp_row = metric_table[metric_table["Variable"] == "IMTP"].iloc[0]
 
-        self.assertAlmostEqual(float(latest_row["BW_kg"]), 0.0, places=2)
+        # bw_kg = 0 es "sin peso": queda vacio (regla de evaluation_rules).
+        self.assertTrue(pd.isna(latest_row["BW_kg"]))
         self.assertTrue(pd.isna(latest_row.get("IMTP_relPF")))
         self.assertTrue(pd.isna(composite_row.get("IMTP_relPF")))
         self.assertEqual(dict(zip(source_table["Variable"], source_table["Fecha origen"]))["IMTP"], "07/05/2026")
@@ -1363,12 +1369,16 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertTrue(first_delta["Signal"].eq("sin dato anterior").all())
 
         cmj_second = second_delta[second_delta["Variable"] == "CMJ_cm"].iloc[0]
-        self.assertEqual(cmj_second["Threshold_method"], "Fijo")
-        self.assertAlmostEqual(float(cmj_second["Threshold_abs"]), 0.45, places=2)
+        # < 3 mediciones: max(SWC 1.5% = 0.45, TE instrumento 3% = 0.90).
+        self.assertEqual(cmj_second["Threshold_method"], "TE instrumento")
+        self.assertEqual(cmj_second["Threshold_label"], "TE instrumento 3%")
+        self.assertAlmostEqual(float(cmj_second["Threshold_abs"]), 0.90, places=2)
         self.assertEqual(cmj_second["Signal"], "mejora relevante")
 
         cmj_fourth = fourth_delta[fourth_delta["Variable"] == "CMJ_cm"].iloc[0]
-        self.assertEqual(cmj_fourth["Threshold_method"], "Hopkins")
+        # >= 3 mediciones: umbral intraindividual (max de Hopkins 0.2*SD y TE).
+        self.assertIn(cmj_fourth["Threshold_method"], {"Hopkins", "TE intraindividual"})
+        self.assertTrue(str(cmj_fourth["Threshold_label"]).endswith(f"N={int(cmj_fourth['N_valid'])}"))
         self.assertEqual(cmj_fourth["Signal"], "mejora relevante")
 
     def test_compute_swc_delta_inverts_signal_for_lower_is_better_variables(self):
@@ -1377,7 +1387,8 @@ class JumpProfileSystemTest(unittest.TestCase):
         dj_tc_delta = fourth_delta[fourth_delta["Variable"] == "DJ_tc_ms"].iloc[0]
 
         self.assertFalse(bool(dj_tc_delta["Higher_is_better"]))
-        self.assertEqual(dj_tc_delta["Threshold_method"], "Hopkins")
+        # >= 3 mediciones: max(0.2*SD Hopkins, TE intraindividual); aca gana el TE.
+        self.assertEqual(dj_tc_delta["Threshold_method"], "TE intraindividual")
         self.assertGreater(float(dj_tc_delta["Delta_abs"]), 0)
         self.assertEqual(dj_tc_delta["Signal"], "caida relevante")
 
@@ -1691,7 +1702,8 @@ class JumpProfileSystemTest(unittest.TestCase):
 
     def test_neuromuscular_profile_result_detects_pattern_a(self):
         result = build_neuromuscular_profile_result(
-            _synthetic_profile_row(SJ_Z=0.80, DJ_RSI_Z=-0.80)
+            context=FRESH_PROFILE_CONTEXT,
+            row=_synthetic_profile_row(SJ_Z=0.80, DJ_RSI_Z=-0.80)
         )
 
         self.assertEqual(result["profile_code"], "A")
@@ -1701,7 +1713,8 @@ class JumpProfileSystemTest(unittest.TestCase):
 
     def test_neuromuscular_profile_result_detects_pattern_b(self):
         result = build_neuromuscular_profile_result(
-            _synthetic_profile_row(SJ_Z=-0.80, DJ_RSI_Z=0.80)
+            context=FRESH_PROFILE_CONTEXT,
+            row=_synthetic_profile_row(SJ_Z=-0.80, DJ_RSI_Z=0.80)
         )
 
         self.assertEqual(result["profile_code"], "B")
@@ -1709,7 +1722,8 @@ class JumpProfileSystemTest(unittest.TestCase):
 
     def test_neuromuscular_profile_result_detects_pattern_c(self):
         result = build_neuromuscular_profile_result(
-            _synthetic_profile_row(IMTP_relPF_Z=-0.80, CMJ_Z=0.00)
+            context=FRESH_PROFILE_CONTEXT,
+            row=_synthetic_profile_row(IMTP_relPF_Z=-0.80, CMJ_Z=0.00)
         )
 
         self.assertEqual(result["profile_code"], "C")
@@ -1718,7 +1732,8 @@ class JumpProfileSystemTest(unittest.TestCase):
 
     def test_neuromuscular_profile_result_detects_pattern_d(self):
         result = build_neuromuscular_profile_result(
-            _synthetic_profile_row(
+            context=FRESH_PROFILE_CONTEXT,
+            row=_synthetic_profile_row(
                 SJ_Z=-0.80,
                 CMJ_Z=-0.70,
                 DJ_height_Z=-0.90,
