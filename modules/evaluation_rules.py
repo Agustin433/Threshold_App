@@ -20,6 +20,9 @@ Reglas:
 7. Peso de una evaluacion cercana: sin peso valido, se toma el del mismo
    atleta medido a <= 14 dias, solo para las relativas que calcula la app
    (IMTP relPF, momentum). Nunca se guarda en la base.
+8. Toma duplicada con fecha distinta: misma toma (>= 3 metricas identicas y
+   >= 50% de las comparables) para el mismo atleta y fuente en otra fecha
+   bloquea la carga.
 """
 
 from __future__ import annotations
@@ -319,6 +322,23 @@ DEFAULT_INSTRUMENT_TYPICAL_ERROR_PCT = 3.0
 INTRAINDIVIDUAL_MIN_VALID = 3
 
 
+def drop_identical_consecutive_takes(values: list[float]) -> list[float]:
+    """Quita una toma identica a la anterior (misma medicion cargada dos veces).
+
+    Dos tomas reales nunca dan exactamente el mismo valor: un par identico es
+    un duplicado (p. ej. la misma toma con la fecha corrida). Dejarlo da una
+    diferencia 0 que baja el TE intraindividual hacia 0 y achica la SD de
+    Hopkins: el umbral queda por debajo del ruido real y el error se lee como
+    cambio.
+    """
+    kept: list[float] = []
+    for value in values:
+        if kept and math.isclose(value, kept[-1], rel_tol=1e-9, abs_tol=1e-9):
+            continue
+        kept.append(value)
+    return kept
+
+
 def resolve_change_threshold(
     variable: str,
     previous_value: object,
@@ -330,12 +350,16 @@ def resolve_change_threshold(
 
     - Con >= 3 mediciones validas: max(0.2*SD intraindividual [Hopkins],
       TE intraindividual = SD de las diferencias sucesivas / sqrt(2)).
+      Los pares de tomas identicas se excluyen antes (TE = 0 no es
+      fisiologico: es la misma toma cargada dos veces).
     - Con menos: max(SWC fijo, TE tipico del instrumento), ambos como % del
       valor anterior. Un umbral por debajo del ruido de medicion convierte el
       error en "cambio".
     """
     previous = _number(previous_value)
-    values = [v for v in (_number(x) for x in history_values) if v is not None]
+    values = drop_identical_consecutive_takes(
+        [v for v in (_number(x) for x in history_values) if v is not None]
+    )
     n_valid = len(values)
 
     if n_valid >= INTRAINDIVIDUAL_MIN_VALID:
@@ -625,3 +649,136 @@ def imputed_body_weight_label(row: Mapping[str, object] | pd.Series | None) -> s
         f"Peso tomado de la evaluación del {source_date} ({value:.1f} kg): "
         "la fuerza relativa y el momentum usan ese peso"
     )
+
+
+# ── Regla 8: toma duplicada con fecha distinta ────────────────────────────
+# Dos tomas reales no repiten exactamente varias metricas. Con los datos de
+# noviembre 2026: los IMTP duplicados con el anio corrido coincidian en 17/17
+# metricas; el par real mas parecido, en 2/8 (DJ de Gray: altura y tiempo de
+# vuelo, que son el mismo dato porque la altura sale del vuelo). Por eso,
+# ademas del minimo de 3, se pide que coincida al menos la mitad de lo
+# comparable: una metrica derivada repetida no alcanza para bloquear.
+DUPLICATE_MIN_MATCHES = 3
+DUPLICATE_MIN_SHARE = 0.5
+# Valores fijos del protocolo: coinciden siempre y no identifican la toma.
+DUPLICATE_EXCLUDED_COLUMNS = frozenset({"BW_kg", "DJ_drop_height_cm"})
+DUPLICATE_EXCLUDED_SUFFIXES = ("_time_pull_s",)
+
+
+def _duplicate_comparable_columns(columns: Iterable[str]) -> list[str]:
+    return [
+        column
+        for column in columns
+        if column not in DUPLICATE_EXCLUDED_COLUMNS
+        and not column.endswith(DUPLICATE_EXCLUDED_SUFFIXES)
+        and not column.startswith("__")
+        and not column.endswith("_reps")
+        and column not in {"Athlete", "Date", "Source", "Device", "test_type"}
+    ]
+
+
+def _row_date(value: object) -> pd.Timestamp | None:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return pd.Timestamp(parsed).normalize()
+
+
+def find_duplicate_takes(
+    record: Mapping[str, object],
+    candidates: Iterable[Mapping[str, object] | pd.Series],
+    *,
+    metric_columns: Iterable[str],
+) -> list[dict[str, object]]:
+    """Tomas del mismo atleta y fuente, en OTRA fecha, con los mismos valores.
+
+    `metric_columns` son las metricas del test que se esta cargando. Devuelve
+    una lista (vacia si no hay duplicado) con fecha, coincidencias y columnas.
+    La misma fecha no cuenta: eso es superponer una toma, no duplicarla.
+    """
+    from modules.athlete_names import normalize_athlete_name
+    from modules.evaluation_sources import normalize_source
+
+    athlete = normalize_athlete_name(record.get("Athlete"))
+    source = normalize_source(record.get("Source"))
+    record_date = _row_date(record.get("Date"))
+    columns = _duplicate_comparable_columns(metric_columns)
+    own_values = {column: _number(record.get(column)) for column in columns}
+    own_values = {column: value for column, value in own_values.items() if value is not None}
+    if not athlete or record_date is None or len(own_values) < DUPLICATE_MIN_MATCHES:
+        return []
+
+    found: dict[pd.Timestamp, dict[str, object]] = {}
+    for candidate in candidates:
+        if candidate is None or not hasattr(candidate, "get"):
+            continue
+        if normalize_athlete_name(candidate.get("Athlete")) != athlete:
+            continue
+        if normalize_source(candidate.get("Source")) != source:
+            continue
+        candidate_date = _row_date(candidate.get("Date"))
+        if candidate_date is None or candidate_date == record_date:
+            continue
+        comparable = 0
+        matched: list[str] = []
+        for column, value in own_values.items():
+            other = _number(candidate.get(column))
+            if other is None:
+                continue
+            comparable += 1
+            if math.isclose(value, other, rel_tol=1e-9, abs_tol=1e-9):
+                matched.append(column)
+        if len(matched) < DUPLICATE_MIN_MATCHES or comparable == 0:
+            continue
+        if len(matched) / comparable < DUPLICATE_MIN_SHARE:
+            continue
+        previous = found.get(candidate_date)
+        if previous is None or len(matched) > len(previous["columns"]):
+            found[candidate_date] = {
+                "date": candidate_date,
+                "matches": len(matched),
+                "comparable": comparable,
+                "columns": matched,
+            }
+    return [found[key] for key in sorted(found)]
+
+
+def duplicate_take_message(duplicates: list[dict[str, object]]) -> str | None:
+    """Texto de bloqueo: 'posible toma duplicada con fecha distinta (DD/MM/AAAA)'."""
+    if not duplicates:
+        return None
+    parts = []
+    for item in duplicates:
+        columns = list(item["columns"])  # type: ignore[arg-type]
+        shown = ", ".join(columns[:3]) + ("…" if len(columns) > 3 else "")
+        parts.append(
+            f"posible toma duplicada con fecha distinta ({item['date']:%d/%m/%Y}): "
+            f"{item['matches']} de {item['comparable']} métricas idénticas ({shown})"
+        )
+    return (
+        "; ".join(parts)
+        + ". No se guardó. Si la fecha correcta es la otra, borrá o corregí esa toma antes de cargar esta."
+    )
+
+
+def _history_rows(history: object) -> list[Mapping[str, object]]:
+    if history is None:
+        return []
+    if isinstance(history, pd.DataFrame):
+        if history.empty:
+            return []
+        return [row for _, row in history.iterrows()]
+    return [row for row in history if hasattr(row, "get")]  # type: ignore[union-attr]
+
+
+def check_duplicate_take(
+    record: Mapping[str, object],
+    *,
+    history: object = None,
+    pending: Iterable[Mapping[str, object]] = (),
+    metric_columns: Iterable[str] | None = None,
+) -> str | None:
+    """Mensaje de bloqueo si `record` repite una toma ya guardada o en cola."""
+    columns = list(metric_columns) if metric_columns is not None else list(record.get("__metric_fields") or [])
+    candidates = _history_rows(history) + [item for item in pending if item is not record]
+    return duplicate_take_message(find_duplicate_takes(record, candidates, metric_columns=columns))

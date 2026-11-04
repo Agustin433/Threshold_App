@@ -168,6 +168,7 @@ from modules.load_monitoring import (
 WEEKLY_NOT_COMPARABLE_TEXT = "No comparable"
 from modules.evaluation_rules import (
     CHANGE_THRESHOLD_CAPTION,
+    check_duplicate_take,
     platform_body_weight_upload_warning,
     validate_bw_kg_input,
 )
@@ -4579,6 +4580,15 @@ with st.sidebar:
                     if "eval_records" not in st.session_state:
                         st.session_state.eval_records = []
                     pending_records = st.session_state.eval_records
+                    # Regla 8: la misma toma ya guardada o en cola con OTRA fecha
+                    # (caso real: IMTP con el anio corrido) bloquea la carga.
+                    duplicate_message = check_duplicate_take(
+                        record,
+                        history=st.session_state.get("jump_df"),
+                        pending=pending_records,
+                    )
+                    if duplicate_message:
+                        raise ValueError(duplicate_message)
                     record_signature = _evaluation_record_signature(record)
                     replace_idx = next(
                         (
@@ -4842,6 +4852,24 @@ with st.sidebar:
                 records = st.session_state.get("eval_records", [])
                 if records:
                     try:
+                        # Control final antes de guardar: el historial pudo
+                        # cambiar (sincronizacion) despues de armar la cola.
+                        duplicate_messages = []
+                        for queued in records:
+                            queued_message = check_duplicate_take(
+                                queued,
+                                history=st.session_state.get("jump_df"),
+                                pending=records,
+                            )
+                            if queued_message:
+                                duplicate_messages.append(
+                                    f"{queued.get('Athlete')} {pd.Timestamp(queued.get('Date')):%d/%m/%Y}: {queued_message}"
+                                )
+                        if duplicate_messages:
+                            raise ValueError(
+                                "no se guardó nada. " + " | ".join(duplicate_messages)
+                                + " Quitá la toma de la cola o corregí la fecha."
+                            )
                         jdf = _records_to_jump_df(records)
                         if jdf.empty:
                             raise ValueError("no se pudo consolidar ninguna evaluación individual válida.")
