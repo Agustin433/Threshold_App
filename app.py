@@ -168,7 +168,9 @@ from modules.load_monitoring import (
 WEEKLY_NOT_COMPARABLE_TEXT = "No comparable"
 from modules.evaluation_rules import (
     CHANGE_THRESHOLD_CAPTION,
+    EVAL_DATE_CONFIRM_DAYS,
     check_duplicate_take,
+    evaluation_date_check,
     platform_body_weight_upload_warning,
     validate_bw_kg_input,
 )
@@ -4426,10 +4428,18 @@ with st.sidebar:
                 key="eval_athlete_text",
                 placeholder="Ej: Mariano Diaz Romero",
             )
+            # Arranca vacio: la fecha se elige a proposito (el archivo de
+            # Involution no la trae). Regla 9 en evaluation_rules.
             eval_date = st.date_input(
-                "Fecha de evaluación",
+                "Fecha de evaluación (obligatoria)",
                 key="eval_date",
-                value=app_today_date(),
+                value=None,
+                format="DD/MM/YYYY",
+            )
+            eval_date_confirmed = st.checkbox(
+                f"Confirmo la fecha (obligatorio si tiene más de {EVAL_DATE_CONFIRM_DAYS} días, "
+                "es de otro año o es futura)",
+                key=f"eval_date_confirm_{st.session_state.get('eval_file_nonce', 0)}",
             )
 
             eval_file = None
@@ -4507,8 +4517,17 @@ with st.sidebar:
                     if key != "BW_kg"
                 )
 
+            eval_date_status = evaluation_date_check(eval_date, app_today_date())
             if not eval_athlete_name:
                 _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
+            elif eval_date_status["missing"]:
+                _push_notice("warning", "Evaluaciones individuales: elegí la fecha de evaluación.")
+            elif eval_date_status["needs_confirmation"] and not eval_date_confirmed:
+                _push_notice(
+                    "warning",
+                    f"Evaluaciones individuales: {eval_date_status['reason']}. "
+                    "Revisala y, si es correcta, marcá \"Confirmo la fecha\" y volvé a agregar. No se agregó a la cola.",
+                )
             elif not manual_entry and not eval_file:
                 _push_notice("warning", "Evaluaciones individuales: subi el archivo del test.")
             elif manual_entry and not has_manual_metric:

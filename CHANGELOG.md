@@ -2,6 +2,15 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-04 - Fecha de evaluacion elegida a proposito
+
+9. El selector "Fecha de evaluacion" arranca vacio y es obligatorio. Una fecha
+   de mas de 90 dias, de otro anio o futura no entra a la cola sin marcar
+   "Confirmo la fecha". Motivo: el archivo de Involution no trae fecha, y con
+   "hoy" por defecto entraron IMTP con el anio corrido.
+
+Tests: `tests/test_evaluation_date_rule.py` (regla pura y formulario real con AppTest).
+
 ## 2026-11-04 - Tomas duplicadas con fecha distinta y TE sin pares identicos
 
 8. Toma duplicada: al agregar una evaluacion a la cola (y otra vez en

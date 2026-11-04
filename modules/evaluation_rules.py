@@ -782,3 +782,39 @@ def check_duplicate_take(
     columns = list(metric_columns) if metric_columns is not None else list(record.get("__metric_fields") or [])
     candidates = _history_rows(history) + [item for item in pending if item is not record]
     return duplicate_take_message(find_duplicate_takes(record, candidates, metric_columns=columns))
+
+
+# ── Regla 9: fecha de evaluacion elegida a proposito ─────────────────────
+# El archivo de Involution no trae fecha: la pone quien carga. Con el selector
+# en "hoy" por defecto y el anio facil de errar, entraron tomas con el anio
+# corrido (IMTP 2025 en vez de 2026) y fechas de carga en vez de evaluacion.
+# El selector arranca vacio, y una fecha vieja (> 90 dias), de otro anio o
+# futura pide confirmacion explicita antes de agregarse a la cola.
+EVAL_DATE_CONFIRM_DAYS = 90
+
+
+def evaluation_date_check(value: object, today: object = None) -> dict[str, object]:
+    """{'missing', 'needs_confirmation', 'reason'} para la fecha elegida."""
+    if today is None:
+        from modules.app_clock import app_today
+
+        today = app_today()
+    reference = _row_date(today)
+    chosen = _row_date(value) if value is not None else None
+    if chosen is None or reference is None:
+        return {"missing": chosen is None, "needs_confirmation": False, "reason": None}
+    reasons: list[str] = []
+    age_days = (reference - chosen).days
+    if age_days < 0:
+        reasons.append("es una fecha futura")
+    elif age_days > EVAL_DATE_CONFIRM_DAYS:
+        reasons.append(f"tiene {age_days} días (más de {EVAL_DATE_CONFIRM_DAYS})")
+    if chosen.year != reference.year:
+        reasons.append(f"es de {chosen.year}, no de {reference.year}")
+    if not reasons:
+        return {"missing": False, "needs_confirmation": False, "reason": None}
+    return {
+        "missing": False,
+        "needs_confirmation": True,
+        "reason": f"La fecha {chosen:%d/%m/%Y} {' y '.join(reasons)}",
+    }
