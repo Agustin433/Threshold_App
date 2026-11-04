@@ -166,7 +166,14 @@ from modules.load_monitoring import (
 )
 
 WEEKLY_NOT_COMPARABLE_TEXT = "No comparable"
-from modules.evaluation_rules import CHANGE_THRESHOLD_CAPTION, validate_bw_kg_input
+from modules.evaluation_rules import (
+    CHANGE_THRESHOLD_CAPTION,
+    EVAL_DATE_CONFIRM_DAYS,
+    check_duplicate_take,
+    evaluation_date_check,
+    platform_body_weight_upload_warning,
+    validate_bw_kg_input,
+)
 from modules.jump_analysis import (
     build_dashboard_neuromuscular_payload,
     available_sources as jump_available_sources,
@@ -4421,10 +4428,18 @@ with st.sidebar:
                 key="eval_athlete_text",
                 placeholder="Ej: Mariano Diaz Romero",
             )
+            # Arranca vacio: la fecha se elige a proposito (el archivo de
+            # Involution no la trae). Regla 9 en evaluation_rules.
             eval_date = st.date_input(
-                "Fecha de evaluación",
+                "Fecha de evaluación (obligatoria)",
                 key="eval_date",
-                value=app_today_date(),
+                value=None,
+                format="DD/MM/YYYY",
+            )
+            eval_date_confirmed = st.checkbox(
+                f"Confirmo la fecha (obligatorio si tiene más de {EVAL_DATE_CONFIRM_DAYS} días, "
+                "es de otro año o es futura)",
+                key=f"eval_date_confirm_{st.session_state.get('eval_file_nonce', 0)}",
             )
 
             eval_file = None
@@ -4502,8 +4517,17 @@ with st.sidebar:
                     if key != "BW_kg"
                 )
 
+            eval_date_status = evaluation_date_check(eval_date, app_today_date())
             if not eval_athlete_name:
                 _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
+            elif eval_date_status["missing"]:
+                _push_notice("warning", "Evaluaciones individuales: elegí la fecha de evaluación.")
+            elif eval_date_status["needs_confirmation"] and not eval_date_confirmed:
+                _push_notice(
+                    "warning",
+                    f"Evaluaciones individuales: {eval_date_status['reason']}. "
+                    "Revisala y, si es correcta, marcá \"Confirmo la fecha\" y volvé a agregar. No se agregó a la cola.",
+                )
             elif not manual_entry and not eval_file:
                 _push_notice("warning", "Evaluaciones individuales: subi el archivo del test.")
             elif manual_entry and not has_manual_metric:
@@ -4535,6 +4559,15 @@ with st.sidebar:
                             record["DJ_drop_height_cm"] = manual_dj_drop_height_cm
                     # Regla unica de peso: 30-200 kg o vacio. Un 0 exportado por
                     # la plataforma se guarda como NULL y bloquea relativas.
+                    # Mira el peso crudo antes de sanearlo: avisa si la plataforma
+                    # calculo CMJ/SJ sin peso valido (esas metricas se descartan).
+                    platform_bw_warning = platform_body_weight_upload_warning(
+                        record,
+                        test_type=eval_type,
+                        source=eval_source,
+                    )
+                    if platform_bw_warning:
+                        _push_notice("warning", f"Evaluación {eval_type} ({eval_athlete_name}): {platform_bw_warning}")
                     if "BW_kg" in record:
                         clean_bw, bw_warning = validate_bw_kg_input(record.get("BW_kg"))
                         record["BW_kg"] = clean_bw
@@ -4566,6 +4599,15 @@ with st.sidebar:
                     if "eval_records" not in st.session_state:
                         st.session_state.eval_records = []
                     pending_records = st.session_state.eval_records
+                    # Regla 8: la misma toma ya guardada o en cola con OTRA fecha
+                    # (caso real: IMTP con el anio corrido) bloquea la carga.
+                    duplicate_message = check_duplicate_take(
+                        record,
+                        history=st.session_state.get("jump_df"),
+                        pending=pending_records,
+                    )
+                    if duplicate_message:
+                        raise ValueError(duplicate_message)
                     record_signature = _evaluation_record_signature(record)
                     replace_idx = next(
                         (
@@ -4829,6 +4871,24 @@ with st.sidebar:
                 records = st.session_state.get("eval_records", [])
                 if records:
                     try:
+                        # Control final antes de guardar: el historial pudo
+                        # cambiar (sincronizacion) despues de armar la cola.
+                        duplicate_messages = []
+                        for queued in records:
+                            queued_message = check_duplicate_take(
+                                queued,
+                                history=st.session_state.get("jump_df"),
+                                pending=records,
+                            )
+                            if queued_message:
+                                duplicate_messages.append(
+                                    f"{queued.get('Athlete')} {pd.Timestamp(queued.get('Date')):%d/%m/%Y}: {queued_message}"
+                                )
+                        if duplicate_messages:
+                            raise ValueError(
+                                "no se guardó nada. " + " | ".join(duplicate_messages)
+                                + " Quitá la toma de la cola o corregí la fecha."
+                            )
                         jdf = _records_to_jump_df(records)
                         if jdf.empty:
                             raise ValueError("no se pudo consolidar ninguna evaluación individual válida.")

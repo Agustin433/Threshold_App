@@ -890,8 +890,12 @@ class JumpProfileSystemTest(unittest.TestCase):
                         "BW_kg": 80,
                     },
                     {
+                        # Mas de 14 dias despues: fuera de la ventana de la
+                        # regla 7 (peso de una evaluacion cercana), asi que
+                        # el peso del 01/04 no se usa. Dentro de 14 dias si se
+                        # usa, rotulado: tests/test_platform_body_weight.py.
                         "Athlete": "Atleta Radar",
-                        "Date": "2026-04-10",
+                        "Date": "2026-04-20",
                         "CMJ_cm": 36,
                         "SJ_cm": 31,
                         "DJ_cm": 27,

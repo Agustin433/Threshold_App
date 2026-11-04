@@ -2,6 +2,53 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-04 - Fecha de evaluacion elegida a proposito
+
+9. El selector "Fecha de evaluacion" arranca vacio y es obligatorio. Una fecha
+   de mas de 90 dias, de otro anio o futura no entra a la cola sin marcar
+   "Confirmo la fecha". Motivo: el archivo de Involution no trae fecha, y con
+   "hoy" por defecto entraron IMTP con el anio corrido.
+
+Tests: `tests/test_evaluation_date_rule.py` (regla pura y formulario real con AppTest).
+
+## 2026-11-04 - Tomas duplicadas con fecha distinta y TE sin pares identicos
+
+8. Toma duplicada: al agregar una evaluacion a la cola (y otra vez en
+   "Procesar todo"), si el mismo atleta y fuente ya tiene en el historial o en
+   la cola una toma en OTRA fecha con >= 3 metricas identicas y >= 50% de las
+   comparables, se bloquea: "posible toma duplicada con fecha distinta
+   (DD/MM/AAAA)". No cuentan los valores fijos del protocolo (duracion del
+   tiron, altura de caida, peso). Calibrado con los datos reales: duplicados
+   16/16 contra un maximo de 2/8 en tomas reales (0 falsos positivos en 43).
+5. Umbral de cambio: una toma identica a la anterior se descarta antes de
+   calcular la SD de Hopkins y el TE intraindividual (TE = 0 no es fisiologico).
+
+Fecha del IMTP de Involution: el parser no lee ninguna fecha del archivo; la
+fecha es la del selector "Fecha de evaluacion" de cada carga. Los IMTP con el
+anio corrido (Giffon, Lopez Munoz, Anadon) vienen de ahi, no del parseo.
+
+Tests: `tests/test_duplicate_takes.py`.
+
+## 2026-11-04 - Peso de plataforma invalido y peso de una evaluacion cercana
+
+Dos reglas mas en `modules/evaluation_rules.py`, aplicadas en `_prepare_jump_df`:
+
+6. Peso de plataforma invalido: si Involution calculo un CMJ/SJ sin peso valido
+   (0, vacio o impulso relativo negativo), se descartan altura por
+   impulso-momento, velocidad de despegue, potencia, impulso, RSI, rigidez,
+   fases y momentum de esa toma. Fuerzas, tiempo de vuelo, asimetrias, DJ e
+   IMTP se conservan. Aviso rojo con el dato descartado y su altura por tiempo
+   de vuelo (solo referencia, otro metodo). Tambien avisa al cargar el archivo.
+   Solo aplica a tomas de plataforma con cinematica: una carga manual con solo
+   la altura no se toca. Casos reales: Gray y Palazzo 07/05, Florencia Romano
+   16/05, Lorenzo 28/09.
+7. Peso de una evaluacion cercana: sin peso valido, la fuerza relativa del IMTP
+   y el momentum usan el peso medido del mismo atleta a <= 14 dias, rotulado
+   ("Peso tomado de la evaluacion del dd/mm/aaaa"). Va en `BW_kg_imputed`, que
+   nunca se guarda en Supabase, y no rescata lo descartado por la regla 6.
+
+Tests: `tests/test_platform_body_weight.py`.
+
 ## 2026-11-01 - Reglas de validez de evaluaciones (toda la app)
 
 Una funcion por regla en `modules/evaluation_rules.py`, aplicada en

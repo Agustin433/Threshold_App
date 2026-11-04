@@ -21,7 +21,15 @@ from modules.evaluation_sources import (
     normalize_source,
 )
 from modules.evaluation_rules import (
+    BW_IMPUTED_FROM_COLUMN,
     IMTP_QUALITY_FLAG_COLUMN,
+    PLATFORM_BW_DETAIL_COLUMN,
+    PLATFORM_BW_FLAG_COLUMN,
+    apply_platform_body_weight_quality,
+    effective_bw_kg_series,
+    impute_body_weight,
+    imputed_body_weight_label,
+    platform_body_weight_label,
     IMTP_REL_GROSS_LABEL,
     IMTP_REL_NET_LABEL,
     apply_imtp_quality,
@@ -58,6 +66,9 @@ NON_NUMERIC_EVALUATION_COLUMNS = {
     "EUR_Profile",
     "EUR_based_profile",
     IMTP_QUALITY_FLAG_COLUMN,
+    PLATFORM_BW_FLAG_COLUMN,
+    PLATFORM_BW_DETAIL_COLUMN,
+    BW_IMPUTED_FROM_COLUMN,
 }
 
 # Ref1: Normative data EFL 2025 - professional male soccer.
@@ -1153,8 +1164,8 @@ def sanitize_body_weight(df: pd.DataFrame) -> pd.DataFrame:
 
 def calc_jump_momentum(df: pd.DataFrame) -> pd.DataFrame:
     """Jump momentum in kg.m/s using body mass and CMJ-derived takeoff velocity."""
-    if {"BW_kg", "CMJ_cm"}.issubset(df.columns):
-        bw = _numeric_series(df, "BW_kg")
+    if "CMJ_cm" in df.columns and ("BW_kg" in df.columns or "BW_kg_imputed" in df.columns):
+        bw = effective_bw_kg_series(df)
         cmj_height_m = _numeric_series(df, "CMJ_cm") / 100
         mask = bw.notna() & cmj_height_m.notna() & (cmj_height_m >= 0)
         df.loc[mask, "Jump_Momentum"] = (
@@ -1443,6 +1454,14 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
     quality_label = imtp_quality_label(row_series)
     if quality_label:
         flags.append({"level": "red", "text": f"IMTP: {quality_label}"})
+
+    platform_bw_label = platform_body_weight_label(row_series)
+    if platform_bw_label:
+        flags.append({"level": "red", "text": f"Peso de plataforma inválido: {platform_bw_label}"})
+
+    imputed_bw_label = imputed_body_weight_label(row_series)
+    if imputed_bw_label:
+        flags.append({"level": "yellow", "text": imputed_bw_label})
 
     return flags
 
@@ -2954,10 +2973,11 @@ def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
             device_values = group["Device"].dropna()
             if not device_values.empty:
                 merged_row["Device"] = device_values.iloc[-1]
-        if IMTP_QUALITY_FLAG_COLUMN in group.columns:
-            flag_values = group[IMTP_QUALITY_FLAG_COLUMN].dropna()
-            if not flag_values.empty:
-                merged_row[IMTP_QUALITY_FLAG_COLUMN] = flag_values.iloc[-1]
+        for flag_column in (IMTP_QUALITY_FLAG_COLUMN, PLATFORM_BW_FLAG_COLUMN, PLATFORM_BW_DETAIL_COLUMN):
+            if flag_column in group.columns:
+                flag_values = group[flag_column].dropna()
+                if not flag_values.empty:
+                    merged_row[flag_column] = flag_values.iloc[-1]
         for column in group.columns:
             if column in key_cols or column in NON_NUMERIC_EVALUATION_COLUMNS:
                 continue
@@ -3018,7 +3038,12 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
     result = _merge_duplicate_athlete_date_rows(result)
     # Reglas de validez antes de cualquier derivada: peso invalido no genera
     # relativas y una IMTP con pretension alta no aporta RFD/Force@ms a nada.
+    # La regla de peso de plataforma mira el peso crudo (distingue un 0
+    # exportado de un vacio), asi que va antes de sanearlo. El peso de una
+    # evaluacion cercana se resuelve despues, solo para relativas de la app.
+    result = apply_platform_body_weight_quality(result)
     result = sanitize_body_weight(result)
+    result = impute_body_weight(result)
     result = apply_imtp_quality(result)
     result = promote_legacy_dri_to_dj_rsi(result)
     result = calc_eur(result)

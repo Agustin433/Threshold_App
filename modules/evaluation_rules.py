@@ -13,6 +13,16 @@ Reglas:
 3. Peso corporal: valido solo entre 30 y 200 kg; 0 o fuera de rango = vacio.
 4. Antiguedad de evaluacion: > 12 semanas = desactualizada.
 5. Umbral de cambio: nunca por debajo del error tipico del instrumento.
+6. Peso de plataforma invalido: si la plataforma calculo CMJ/SJ sin un peso
+   valido (0, vacio o impulso relativo negativo), se descartan las metricas
+   que dependen del peso: altura por impulso-momento, velocidad, potencia,
+   impulso y fases.
+7. Peso de una evaluacion cercana: sin peso valido, se toma el del mismo
+   atleta medido a <= 14 dias, solo para las relativas que calcula la app
+   (IMTP relPF, momentum). Nunca se guarda en la base.
+8. Toma duplicada con fecha distinta: misma toma (>= 3 metricas identicas y
+   >= 50% de las comparables) para el mismo atleta y fuente en otra fecha
+   bloquea la carga.
 """
 
 from __future__ import annotations
@@ -226,10 +236,12 @@ def imtp_relative_force(peak_force_n: object, bw_kg: object) -> tuple[float | No
 
 
 def calc_imtp_relative_force(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty or "IMTP_N" not in df.columns or "BW_kg" not in df.columns:
+    if df is None or df.empty or "IMTP_N" not in df.columns:
+        return df
+    if "BW_kg" not in df.columns and BW_IMPUTED_COLUMN not in df.columns:
         return df
     peak = pd.to_numeric(df["IMTP_N"], errors="coerce")
-    bw = sanitize_bw_kg_series(df["BW_kg"])
+    bw = effective_bw_kg_series(df)
     mask = peak.notna() & (peak > 0) & bw.notna()
     if IMTP_REL_GROSS_COLUMN not in df.columns:
         df[IMTP_REL_GROSS_COLUMN] = np.nan
@@ -310,6 +322,23 @@ DEFAULT_INSTRUMENT_TYPICAL_ERROR_PCT = 3.0
 INTRAINDIVIDUAL_MIN_VALID = 3
 
 
+def drop_identical_consecutive_takes(values: list[float]) -> list[float]:
+    """Quita una toma identica a la anterior (misma medicion cargada dos veces).
+
+    Dos tomas reales nunca dan exactamente el mismo valor: un par identico es
+    un duplicado (p. ej. la misma toma con la fecha corrida). Dejarlo da una
+    diferencia 0 que baja el TE intraindividual hacia 0 y achica la SD de
+    Hopkins: el umbral queda por debajo del ruido real y el error se lee como
+    cambio.
+    """
+    kept: list[float] = []
+    for value in values:
+        if kept and math.isclose(value, kept[-1], rel_tol=1e-9, abs_tol=1e-9):
+            continue
+        kept.append(value)
+    return kept
+
+
 def resolve_change_threshold(
     variable: str,
     previous_value: object,
@@ -321,12 +350,16 @@ def resolve_change_threshold(
 
     - Con >= 3 mediciones validas: max(0.2*SD intraindividual [Hopkins],
       TE intraindividual = SD de las diferencias sucesivas / sqrt(2)).
+      Los pares de tomas identicas se excluyen antes (TE = 0 no es
+      fisiologico: es la misma toma cargada dos veces).
     - Con menos: max(SWC fijo, TE tipico del instrumento), ambos como % del
       valor anterior. Un umbral por debajo del ruido de medicion convierte el
       error en "cambio".
     """
     previous = _number(previous_value)
-    values = [v for v in (_number(x) for x in history_values) if v is not None]
+    values = drop_identical_consecutive_takes(
+        [v for v in (_number(x) for x in history_values) if v is not None]
+    )
     n_valid = len(values)
 
     if n_valid >= INTRAINDIVIDUAL_MIN_VALID:
@@ -370,3 +403,418 @@ CHANGE_THRESHOLD_CAPTION = (
     "medición, el mayor entre 0.2·SD individual (Hopkins) y el TE intraindividual. La fuente "
     "se rotula entre paréntesis."
 )
+
+
+# ── Regla 6: peso de plataforma invalido ──────────────────────────────────
+# La plataforma estima la altura por impulso-momento: a = (F - peso) / masa,
+# integrada hasta la velocidad de despegue. Sin un peso valido (Involution
+# exporta 0 o nada en algunas tomas) ese calculo arrastra el error a
+# velocidad, altura, potencia, impulso y a las fases definidas por la
+# velocidad (frenado, propulsion, contraccion). Lo que la app recibe ya viene
+# calculado: cargarle un peso despues no lo corrige, por eso se descarta.
+# Las fuerzas crudas, el tiempo de vuelo, las asimetrias y la recepcion no
+# dependen del peso y se conservan.
+# Marcadores: solo se evalua una toma que trae cinematica calculada por la
+# plataforma. Una carga manual con solo la altura no se toca.
+PLATFORM_BW_FLAG_COLUMN = "BW_platform_flag"
+PLATFORM_BW_DETAIL_COLUMN = "BW_platform_detail"
+PLATFORM_BW_TESTS: dict[str, dict[str, tuple[str, ...]]] = {
+    "CMJ": {
+        "markers": (
+            "CMJ_takeoff_velocity_m_s",
+            "CMJ_peak_power_W",
+            "CMJ_rel_impulse",
+            "CMJ_contraction_ms",
+        ),
+        "dependent": (
+            "CMJ_cm",
+            "CMJ_takeoff_velocity_m_s",
+            "CMJ_peak_power_W",
+            "CMJ_rel_impulse",
+            "CMJ_RSI",
+            "CMJ_landing_stiffness_N_m",
+            "CMJ_brake_ms",
+            "CMJ_conc_ms",
+            "CMJ_contraction_ms",
+            "CMJ_efficiency_tvtc",
+            "CMJ_braking_RFD_N_s",
+            "CMJ_propulsive_RFD_N_s",
+            # Derivada de la app con la altura descartada.
+            "Jump_Momentum",
+        ),
+    },
+    "SJ": {
+        "markers": (
+            "SJ_takeoff_velocity_m_s",
+            "SJ_peak_power_W",
+            "SJ_rel_impulse",
+            "SJ_conc_ms",
+        ),
+        "dependent": (
+            "SJ_cm",
+            "SJ_takeoff_velocity_m_s",
+            "SJ_peak_power_W",
+            "SJ_rel_impulse",
+            "SJ_RSI",
+            "SJ_conc_ms",
+        ),
+    },
+}
+
+
+def _flight_time_height_cm(flight_ms: float | None) -> float | None:
+    if flight_ms is None or flight_ms <= 0:
+        return None
+    seconds = flight_ms / 1000.0
+    return GRAVITY_M_S2 * seconds * seconds / 8.0 * 100.0
+
+
+def _parse_flagged_tests(existing_flag: object) -> list[str]:
+    text = str(existing_flag or "").strip()
+    if not text or text.lower() == "nan":
+        return []
+    return [test for test in (part.strip().upper() for part in text.split(",")) if test in PLATFORM_BW_TESTS]
+
+
+def assess_platform_body_weight(
+    row: Mapping[str, object] | pd.Series,
+    *,
+    source: object = None,
+) -> dict[str, object]:
+    """Que tests de una toma de plataforma se calcularon sin un peso valido.
+
+    Devuelve {"tests": [...], "flag": "CMJ,SJ" | None, "detail": str | None}.
+    `row` debe traer el peso tal como vino del archivo (antes de sanear) para
+    poder decir si fue un 0. Re-evaluar un frame ya preparado conserva la
+    marca a traves de PLATFORM_BW_FLAG_COLUMN.
+    """
+    getter = row.get if hasattr(row, "get") else (lambda _key, _default=None: None)
+    row_source = source if source is not None else getter("Source")
+    existing_tests = _parse_flagged_tests(getter(PLATFORM_BW_FLAG_COLUMN))
+    existing_detail = getter(PLATFORM_BW_DETAIL_COLUMN)
+    if existing_tests:
+        detail = existing_detail if isinstance(existing_detail, str) and existing_detail.strip() else None
+        return {"tests": existing_tests, "flag": ",".join(existing_tests), "detail": detail}
+
+    from modules.evaluation_sources import SOURCE_PLATFORM, normalize_source
+
+    if normalize_source(row_source) != SOURCE_PLATFORM:
+        return {"tests": [], "flag": None, "detail": None}
+
+    raw_bw = _get(row, "BW_kg")
+    bw_valid = sanitize_bw_kg(raw_bw) is not None
+    tests: list[str] = []
+    reasons: list[str] = []
+    heights: list[str] = []
+    for test, spec in PLATFORM_BW_TESTS.items():
+        if not any(_get(row, column) is not None for column in spec["markers"]):
+            continue
+        rel_impulse = _get(row, f"{test}_rel_impulse")
+        negative_impulse = rel_impulse is not None and rel_impulse < 0
+        if bw_valid and not negative_impulse:
+            continue
+        tests.append(test)
+        if negative_impulse:
+            reasons.append(f"impulso relativo del {test} negativo ({rel_impulse:.2f}), físicamente imposible")
+        exported = _get(row, f"{test}_cm")
+        flight_height = _flight_time_height_cm(_get(row, f"{test}_flight_ms"))
+        if exported is not None:
+            text = f"{test} exportado {exported:.1f} cm"
+            if flight_height is not None:
+                text += f" (por tiempo de vuelo {flight_height:.1f} cm, otro método, no comparable)"
+            heights.append(text)
+
+    if not tests:
+        return {"tests": [], "flag": None, "detail": None}
+
+    if raw_bw is None:
+        weight_reason = "Involution no exportó el peso corporal"
+    elif not bw_valid:
+        weight_reason = f"Involution exportó peso corporal {raw_bw:g} kg"
+    else:
+        weight_reason = None
+    all_reasons = ([weight_reason] if weight_reason else []) + reasons
+    tests_text = " y ".join(tests)
+    detail = (
+        f"{'; '.join(all_reasons)}. La plataforma calculó el {tests_text} sin un peso válido: "
+        f"se descartan altura, velocidad de despegue, potencia, impulso y fases de esta toma. "
+        f"Fuerzas, tiempo de vuelo y asimetrías se conservan."
+    )
+    if heights:
+        detail += f" Dato descartado: {'; '.join(heights)}."
+    return {"tests": tests, "flag": ",".join(tests), "detail": detail}
+
+
+def apply_platform_body_weight_quality(df: pd.DataFrame) -> pd.DataFrame:
+    """Marca y anula las metricas CMJ/SJ calculadas sin peso valido.
+
+    Corre ANTES de sanear el peso, para distinguir un 0 exportado de un vacio.
+    El dato crudo queda en la base: al guardar, los NaN no se escriben.
+    """
+    if df is None or df.empty:
+        return df
+    flags: list[object] = []
+    details: list[object] = []
+    for _, row in df.iterrows():
+        result = assess_platform_body_weight(row)
+        flags.append(result["flag"])
+        details.append(result["detail"])
+    df[PLATFORM_BW_FLAG_COLUMN] = pd.Series(flags, index=df.index, dtype=object)
+    df[PLATFORM_BW_DETAIL_COLUMN] = pd.Series(details, index=df.index, dtype=object)
+    for test, spec in PLATFORM_BW_TESTS.items():
+        mask = df[PLATFORM_BW_FLAG_COLUMN].map(lambda value, t=test: t in _parse_flagged_tests(value))
+        if mask.any():
+            for column in spec["dependent"]:
+                if column in df.columns:
+                    df.loc[mask, column] = np.nan
+    return df
+
+
+def platform_body_weight_label(row: Mapping[str, object] | pd.Series | None) -> str | None:
+    if row is None:
+        return None
+    return assess_platform_body_weight(row).get("detail")  # type: ignore[return-value]
+
+
+def platform_body_weight_upload_warning(
+    record: Mapping[str, object],
+    *,
+    test_type: str,
+    source: object,
+) -> str | None:
+    """Aviso al cargar una toma CMJ/SJ de plataforma sin peso valido."""
+    if str(test_type or "").strip().upper() not in PLATFORM_BW_TESTS:
+        return None
+    result = assess_platform_body_weight(record, source=source)
+    return result.get("detail")  # type: ignore[return-value]
+
+
+# ── Regla 7: peso de una evaluacion cercana ───────────────────────────────
+# Sin peso valido, la fuerza relativa del IMTP y el momentum no existen. Si
+# el mismo atleta tiene un peso medido a <= 14 dias, se usa ese y se rotula de
+# donde salio. Va en columnas propias (no en BW_kg) para que nunca se guarde
+# en la base como si fuera medido, y no rescata nada de la regla 6: lo que la
+# plataforma calculo sin peso sigue descartado.
+BW_IMPUTE_WINDOW_DAYS = 14
+BW_IMPUTED_COLUMN = "BW_kg_imputed"
+BW_IMPUTED_FROM_COLUMN = "BW_kg_imputed_from"
+
+
+def impute_body_weight(df: pd.DataFrame, *, window_days: int = BW_IMPUTE_WINDOW_DAYS) -> pd.DataFrame:
+    if df is None or df.empty or not {"Athlete", "Date"}.issubset(df.columns):
+        return df
+    measured = sanitize_bw_kg_series(df["BW_kg"]) if "BW_kg" in df.columns else pd.Series(np.nan, index=df.index)
+    dates = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+    imputed = pd.Series(np.nan, index=df.index, dtype=float)
+    imputed_from = pd.Series(None, index=df.index, dtype=object)
+    for idx in df.index[measured.isna() & dates.notna()]:
+        same = (df["Athlete"] == df.at[idx, "Athlete"]) & measured.notna() & dates.notna()
+        same.loc[idx] = False
+        if not same.any():
+            continue
+        gaps = (dates[same] - dates.loc[idx]).dt.days
+        close = gaps[gaps.abs() <= window_days]
+        if close.empty:
+            continue
+        # El mas cercano; a igual distancia, el anterior (peso ya conocido).
+        best = sorted(close.items(), key=lambda item: (abs(item[1]), item[1] > 0))[0][0]
+        imputed.loc[idx] = float(measured.loc[best])
+        imputed_from.loc[idx] = dates.loc[best].strftime("%d/%m/%Y")
+    df[BW_IMPUTED_COLUMN] = imputed
+    df[BW_IMPUTED_FROM_COLUMN] = imputed_from
+    return df
+
+
+def effective_bw_kg_series(df: pd.DataFrame) -> pd.Series:
+    """Peso medido valido; si falta, el de una evaluacion cercana (regla 7)."""
+    if "BW_kg" in df.columns:
+        measured = sanitize_bw_kg_series(df["BW_kg"])
+    else:
+        measured = pd.Series(np.nan, index=df.index, dtype=float)
+    if BW_IMPUTED_COLUMN in df.columns:
+        measured = measured.fillna(sanitize_bw_kg_series(df[BW_IMPUTED_COLUMN]))
+    return measured
+
+
+def imputed_body_weight_label(row: Mapping[str, object] | pd.Series | None) -> str | None:
+    if row is None or not hasattr(row, "get"):
+        return None
+    if sanitize_bw_kg(row.get("BW_kg")) is not None:
+        return None
+    value = sanitize_bw_kg(row.get(BW_IMPUTED_COLUMN))
+    source_date = row.get(BW_IMPUTED_FROM_COLUMN)
+    if value is None or not isinstance(source_date, str) or not source_date.strip():
+        return None
+    return (
+        f"Peso tomado de la evaluación del {source_date} ({value:.1f} kg): "
+        "la fuerza relativa y el momentum usan ese peso"
+    )
+
+
+# ── Regla 8: toma duplicada con fecha distinta ────────────────────────────
+# Dos tomas reales no repiten exactamente varias metricas. Con los datos de
+# noviembre 2026: los IMTP duplicados con el anio corrido coincidian en 17/17
+# metricas; el par real mas parecido, en 2/8 (DJ de Gray: altura y tiempo de
+# vuelo, que son el mismo dato porque la altura sale del vuelo). Por eso,
+# ademas del minimo de 3, se pide que coincida al menos la mitad de lo
+# comparable: una metrica derivada repetida no alcanza para bloquear.
+DUPLICATE_MIN_MATCHES = 3
+DUPLICATE_MIN_SHARE = 0.5
+# Valores fijos del protocolo: coinciden siempre y no identifican la toma.
+DUPLICATE_EXCLUDED_COLUMNS = frozenset({"BW_kg", "DJ_drop_height_cm"})
+DUPLICATE_EXCLUDED_SUFFIXES = ("_time_pull_s",)
+
+
+def _duplicate_comparable_columns(columns: Iterable[str]) -> list[str]:
+    return [
+        column
+        for column in columns
+        if column not in DUPLICATE_EXCLUDED_COLUMNS
+        and not column.endswith(DUPLICATE_EXCLUDED_SUFFIXES)
+        and not column.startswith("__")
+        and not column.endswith("_reps")
+        and column not in {"Athlete", "Date", "Source", "Device", "test_type"}
+    ]
+
+
+def _row_date(value: object) -> pd.Timestamp | None:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return pd.Timestamp(parsed).normalize()
+
+
+def find_duplicate_takes(
+    record: Mapping[str, object],
+    candidates: Iterable[Mapping[str, object] | pd.Series],
+    *,
+    metric_columns: Iterable[str],
+) -> list[dict[str, object]]:
+    """Tomas del mismo atleta y fuente, en OTRA fecha, con los mismos valores.
+
+    `metric_columns` son las metricas del test que se esta cargando. Devuelve
+    una lista (vacia si no hay duplicado) con fecha, coincidencias y columnas.
+    La misma fecha no cuenta: eso es superponer una toma, no duplicarla.
+    """
+    from modules.athlete_names import normalize_athlete_name
+    from modules.evaluation_sources import normalize_source
+
+    athlete = normalize_athlete_name(record.get("Athlete"))
+    source = normalize_source(record.get("Source"))
+    record_date = _row_date(record.get("Date"))
+    columns = _duplicate_comparable_columns(metric_columns)
+    own_values = {column: _number(record.get(column)) for column in columns}
+    own_values = {column: value for column, value in own_values.items() if value is not None}
+    if not athlete or record_date is None or len(own_values) < DUPLICATE_MIN_MATCHES:
+        return []
+
+    found: dict[pd.Timestamp, dict[str, object]] = {}
+    for candidate in candidates:
+        if candidate is None or not hasattr(candidate, "get"):
+            continue
+        if normalize_athlete_name(candidate.get("Athlete")) != athlete:
+            continue
+        if normalize_source(candidate.get("Source")) != source:
+            continue
+        candidate_date = _row_date(candidate.get("Date"))
+        if candidate_date is None or candidate_date == record_date:
+            continue
+        comparable = 0
+        matched: list[str] = []
+        for column, value in own_values.items():
+            other = _number(candidate.get(column))
+            if other is None:
+                continue
+            comparable += 1
+            if math.isclose(value, other, rel_tol=1e-9, abs_tol=1e-9):
+                matched.append(column)
+        if len(matched) < DUPLICATE_MIN_MATCHES or comparable == 0:
+            continue
+        if len(matched) / comparable < DUPLICATE_MIN_SHARE:
+            continue
+        previous = found.get(candidate_date)
+        if previous is None or len(matched) > len(previous["columns"]):
+            found[candidate_date] = {
+                "date": candidate_date,
+                "matches": len(matched),
+                "comparable": comparable,
+                "columns": matched,
+            }
+    return [found[key] for key in sorted(found)]
+
+
+def duplicate_take_message(duplicates: list[dict[str, object]]) -> str | None:
+    """Texto de bloqueo: 'posible toma duplicada con fecha distinta (DD/MM/AAAA)'."""
+    if not duplicates:
+        return None
+    parts = []
+    for item in duplicates:
+        columns = list(item["columns"])  # type: ignore[arg-type]
+        shown = ", ".join(columns[:3]) + ("…" if len(columns) > 3 else "")
+        parts.append(
+            f"posible toma duplicada con fecha distinta ({item['date']:%d/%m/%Y}): "
+            f"{item['matches']} de {item['comparable']} métricas idénticas ({shown})"
+        )
+    return (
+        "; ".join(parts)
+        + ". No se guardó. Si la fecha correcta es la otra, borrá o corregí esa toma antes de cargar esta."
+    )
+
+
+def _history_rows(history: object) -> list[Mapping[str, object]]:
+    if history is None:
+        return []
+    if isinstance(history, pd.DataFrame):
+        if history.empty:
+            return []
+        return [row for _, row in history.iterrows()]
+    return [row for row in history if hasattr(row, "get")]  # type: ignore[union-attr]
+
+
+def check_duplicate_take(
+    record: Mapping[str, object],
+    *,
+    history: object = None,
+    pending: Iterable[Mapping[str, object]] = (),
+    metric_columns: Iterable[str] | None = None,
+) -> str | None:
+    """Mensaje de bloqueo si `record` repite una toma ya guardada o en cola."""
+    columns = list(metric_columns) if metric_columns is not None else list(record.get("__metric_fields") or [])
+    candidates = _history_rows(history) + [item for item in pending if item is not record]
+    return duplicate_take_message(find_duplicate_takes(record, candidates, metric_columns=columns))
+
+
+# ── Regla 9: fecha de evaluacion elegida a proposito ─────────────────────
+# El archivo de Involution no trae fecha: la pone quien carga. Con el selector
+# en "hoy" por defecto y el anio facil de errar, entraron tomas con el anio
+# corrido (IMTP 2025 en vez de 2026) y fechas de carga en vez de evaluacion.
+# El selector arranca vacio, y una fecha vieja (> 90 dias), de otro anio o
+# futura pide confirmacion explicita antes de agregarse a la cola.
+EVAL_DATE_CONFIRM_DAYS = 90
+
+
+def evaluation_date_check(value: object, today: object = None) -> dict[str, object]:
+    """{'missing', 'needs_confirmation', 'reason'} para la fecha elegida."""
+    if today is None:
+        from modules.app_clock import app_today
+
+        today = app_today()
+    reference = _row_date(today)
+    chosen = _row_date(value) if value is not None else None
+    if chosen is None or reference is None:
+        return {"missing": chosen is None, "needs_confirmation": False, "reason": None}
+    reasons: list[str] = []
+    age_days = (reference - chosen).days
+    if age_days < 0:
+        reasons.append("es una fecha futura")
+    elif age_days > EVAL_DATE_CONFIRM_DAYS:
+        reasons.append(f"tiene {age_days} días (más de {EVAL_DATE_CONFIRM_DAYS})")
+    if chosen.year != reference.year:
+        reasons.append(f"es de {chosen.year}, no de {reference.year}")
+    if not reasons:
+        return {"missing": False, "needs_confirmation": False, "reason": None}
+    return {
+        "missing": False,
+        "needs_confirmation": True,
+        "reason": f"La fecha {chosen:%d/%m/%Y} {' y '.join(reasons)}",
+    }
