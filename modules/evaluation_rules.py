@@ -317,6 +317,9 @@ INSTRUMENT_TYPICAL_ERROR_PCT: dict[str, float] = {
     "DSI": 5.0,
     "CMJ_rel_impulse": 3.0,
     "Jump_Momentum": 3.0,
+    # Altura por tiempo de vuelo (misma plataforma, otro metodo).
+    "CMJ_ft_cm": 3.0,
+    "SJ_ft_cm": 3.0,
 }
 DEFAULT_INSTRUMENT_TYPICAL_ERROR_PCT = 3.0
 INTRAINDIVIDUAL_MIN_VALID = 3
@@ -606,11 +609,82 @@ JUMP_HEIGHT_REASON = (
     "altura por impulso inconsistente con tiempo de vuelo "
     "(probable error de peso en la fase de pesaje)"
 )
-# Metricas de la app que salen de la altura descartada.
+# Todo lo que sale de la misma velocidad integrada (v = integral de
+# (F - peso) / masa) arrastra el mismo error de pesaje que la altura
+# (h = v^2 / 2g). Se excluye junto con la altura:
+# - velocidad de despegue: es v.
+# - impulso relativo (propulsivo): impulso neto / masa = delta v.
+# - potencia pico: F * v.
+# - RSI-mod (CMJ_RSI / SJ_RSI): altura / tiempo.
+# - momentum (BW * v) y EUR (CMJ/SJ): derivadas de la app con la altura.
+# - duraciones de frenado y concentrica del CMJ: el limite entre fases es
+#   v = 0, y con la masa mal la curva de v se corre.
+# - RFD de frenado y propulsivo: se calculan sobre esas fases.
+# - rigidez de aterrizaje: el desplazamiento sale de integrar v.
+# Se conservan las fuerzas medidas directamente (pico de frenado,
+# propulsiva, aterrizaje, por pierna), asimetrias, tiempo de vuelo,
+# tiempo de contraccion, estabilizacion e IMTP.
 JUMP_HEIGHT_DEPENDENT: dict[str, tuple[str, ...]] = {
-    "CMJ": ("CMJ_cm", "Jump_Momentum", "EUR"),
-    "SJ": ("SJ_cm", "EUR"),
+    "CMJ": (
+        "CMJ_cm",
+        "CMJ_takeoff_velocity_m_s",
+        "CMJ_rel_impulse",
+        "CMJ_peak_power_W",
+        "CMJ_RSI",
+        "CMJ_brake_ms",
+        "CMJ_conc_ms",
+        "CMJ_braking_RFD_N_s",
+        "CMJ_propulsive_RFD_N_s",
+        "CMJ_landing_stiffness_N_m",
+        "Jump_Momentum",
+        "EUR",
+    ),
+    "SJ": (
+        "SJ_cm",
+        "SJ_takeoff_velocity_m_s",
+        "SJ_rel_impulse",
+        "SJ_peak_power_W",
+        "SJ_RSI",
+        "EUR",
+    ),
 }
+
+
+def jump_height_flagged_tests(row: Mapping[str, object] | pd.Series) -> list[str]:
+    """Tests (CMJ/SJ) de una fila ya preparada con la altura marcada."""
+    getter = row.get if hasattr(row, "get") else (lambda _key, _default=None: None)
+    text = str(getter(JUMP_HEIGHT_FLAG_COLUMN) or "").strip()
+    if not text or text.lower() == "nan":
+        return []
+    return [part.strip().upper() for part in text.split(",") if part.strip().upper() in JUMP_HEIGHT_TESTS]
+
+
+def jump_height_tests_for_variable(variable: str) -> tuple[str, ...]:
+    """Tests cuya marca de altura invalida la variable (EUR depende de ambos)."""
+    return tuple(test for test, columns in JUMP_HEIGHT_DEPENDENT.items() if variable in columns)
+
+
+# ── Serie longitudinal por tiempo de vuelo ────────────────────────────────
+# h = g * t^2 / 8 para TODA toma con tiempo de vuelo. No depende del peso,
+# asi que atraviesa el cambio de protocolo de pesaje de oct-2026. Es otro
+# metodo (el vuelo sobreestima algo por la postura de aterrizaje; Moir 2008):
+# solo se compara vuelo contra vuelo, nunca contra la serie por impulso, y no
+# entra a radar, z ni cohorte. Siempre rotulada "por tiempo de vuelo".
+FLIGHT_TIME_LABEL = "por tiempo de vuelo"
+FLIGHT_TIME_HEIGHT_COLUMNS: dict[str, str] = {"CMJ": "CMJ_ft_cm", "SJ": "SJ_ft_cm"}
+
+
+def add_flight_time_heights(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    for test, column in FLIGHT_TIME_HEIGHT_COLUMNS.items():
+        flight_col = f"{test}_flight_ms"
+        if flight_col not in df.columns:
+            continue
+        seconds = pd.to_numeric(df[flight_col], errors="coerce") / 1000.0
+        heights = GRAVITY_M_S2 * seconds * seconds / 8.0 * 100.0
+        df[column] = heights.where(seconds > 0).round(2)
+    return df
 
 
 def jump_height_reported_column(test: str) -> str:
@@ -841,7 +915,7 @@ DUPLICATE_MIN_MATCHES = 3
 DUPLICATE_MIN_SHARE = 0.5
 # Valores fijos del protocolo: coinciden siempre y no identifican la toma.
 DUPLICATE_EXCLUDED_COLUMNS = frozenset({"BW_kg", "DJ_drop_height_cm"})
-DUPLICATE_EXCLUDED_SUFFIXES = ("_time_pull_s",)
+DUPLICATE_EXCLUDED_SUFFIXES = ("_time_pull_s", "_ft_cm")
 
 
 def _duplicate_comparable_columns(columns: Iterable[str]) -> list[str]:

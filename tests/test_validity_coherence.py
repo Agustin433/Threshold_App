@@ -32,7 +32,11 @@ from modules.evaluation_rules import (
     resolve_change_threshold,
 )
 from modules.jump_analysis import (
+    NO_IMPULSE_COMPARISON_SIGNAL,
     _prepare_jump_df,
+    build_jump_delta_display_table,
+    compare_flight_time_height,
+    compute_swc_delta,
     build_composite_profile_snapshot,
     build_jump_flag_rows,
     build_profile_radar_row,
@@ -285,6 +289,145 @@ class SingleZSourceTests(unittest.TestCase):
         raw_subset = self.state["jump_df"][self.state["jump_df"]["Athlete"] == self.ATHLETE]
         literature_snapshot, _ = build_composite_profile_snapshot(raw_subset)
         self.assertNotEqual(snapshot.get("CMJ_Z_source"), literature_snapshot.get("CMJ_Z_source"))
+
+
+# ── PR A2: dependientes de v y serie por tiempo de vuelo ──────────────────
+def _history(rows: list[dict[str, object]]) -> pd.DataFrame:
+    base = {"Source": "platform", "BW_kg": 80.0}
+    return pd.DataFrame([{**base, **row} for row in rows])
+
+
+# Ignacio De La Vega (Supabase): CMJ 17/12/2025 y SJ 20/05/2026 marcados.
+IDLV = [
+    {"Athlete": "Ignacio De La Vega", "Date": "2025-11-04", "CMJ_cm": 35.51, "CMJ_flight_ms": 528},
+    {"Athlete": "Ignacio De La Vega", "Date": "2025-12-17", "CMJ_cm": 42.54, "CMJ_flight_ms": 561},
+    {"Athlete": "Ignacio De La Vega", "Date": "2026-05-20", "CMJ_cm": 41.1, "CMJ_flight_ms": 570,
+     "SJ_cm": 40.64, "SJ_flight_ms": 536},
+    {"Athlete": "Ignacio De La Vega", "Date": "2026-10-08", "CMJ_cm": 46.04, "CMJ_flight_ms": 614,
+     "SJ_cm": 43.55, "SJ_flight_ms": 596},
+]
+# Tomas De La Vega: CMJ 13/11/2025 marcado (41.78 vs 36.7 por vuelo).
+TDLV = [
+    {"Athlete": "Tomas De La Vega", "Date": "2025-11-13", "CMJ_cm": 41.78, "CMJ_flight_ms": 547},
+    {"Athlete": "Tomas De La Vega", "Date": "2026-10-21", "CMJ_cm": 43.62, "CMJ_flight_ms": 599},
+]
+
+
+class VelocityDependentExclusionTests(unittest.TestCase):
+    def test_velocity_derived_variables_are_excluded_and_forces_kept(self):
+        # Giffon 22/05/2026: CMJ 58.0 cm vs 36.7 por vuelo, v = 3.36 m/s.
+        row = _history([{
+            "Athlete": "Agustin Giffon", "Date": "2026-05-22", "BW_kg": 77.0,
+            "CMJ_cm": 58.0, "CMJ_flight_ms": 547, "CMJ_takeoff_velocity_m_s": 3.36,
+            "CMJ_rel_impulse": 3.3, "CMJ_peak_power_W": 5200.0, "CMJ_RSI": 0.85,
+            "CMJ_brake_ms": 230.0, "CMJ_conc_ms": 260.0, "CMJ_braking_RFD_N_s": 5000.0,
+            "CMJ_propulsive_RFD_N_s": 4000.0, "CMJ_landing_stiffness_N_m": 9000.0,
+            "CMJ_propulsive_PF_N": 2300.0, "CMJ_braking_PF_L_N": 1100.0, "CMJ_landing_force_N": 3722.0,
+            "CMJ_asym_pct": 4.0, "CMJ_contraction_ms": 680.0,
+            "SJ_cm": 46.02, "SJ_flight_ms": 507, "SJ_takeoff_velocity_m_s": 3.0,
+            "SJ_rel_impulse": 3.0, "SJ_peak_power_W": 4800.0, "SJ_RSI": 1.2, "SJ_peak_force_N": 2100.0,
+            "IMTP_N": 3000.0,
+        }])
+        prepared = _prepare_jump_df(row).iloc[0]
+        excluded = (
+            "CMJ_takeoff_velocity_m_s", "CMJ_rel_impulse", "CMJ_peak_power_W", "CMJ_RSI",
+            "CMJ_brake_ms", "CMJ_conc_ms", "CMJ_braking_RFD_N_s", "CMJ_propulsive_RFD_N_s",
+            "CMJ_landing_stiffness_N_m", "Jump_Momentum", "CMJ_rel_impulse_Z",
+            "SJ_takeoff_velocity_m_s", "SJ_rel_impulse", "SJ_peak_power_W", "SJ_RSI",
+        )
+        for column in excluded:
+            self.assertTrue(pd.isna(prepared.get(column)), column)
+        kept = {
+            "CMJ_propulsive_PF_N": 2300.0, "CMJ_braking_PF_L_N": 1100.0, "CMJ_landing_force_N": 3722.0,
+            "CMJ_asym_pct": 4.0, "CMJ_contraction_ms": 680.0, "CMJ_flight_ms": 547,
+            "SJ_peak_force_N": 2100.0, "IMTP_N": 3000.0,
+        }
+        for column, value in kept.items():
+            self.assertAlmostEqual(float(prepared[column]), value, msg=column)
+
+    def test_unflagged_take_keeps_velocity_variables(self):
+        row = _history([{**TDLV[1], "CMJ_takeoff_velocity_m_s": 2.93, "CMJ_peak_power_W": 4100.0}])
+        prepared = _prepare_jump_df(row).iloc[0]
+        self.assertAlmostEqual(float(prepared["CMJ_takeoff_velocity_m_s"]), 2.93)
+        self.assertAlmostEqual(float(prepared["CMJ_peak_power_W"]), 4100.0)
+
+
+class FlightTimeSeriesTests(unittest.TestCase):
+    def test_series_exists_for_every_take_with_flight_time(self):
+        prepared = _prepare_jump_df(_history(IDLV + TDLV))
+        self.assertTrue(prepared["CMJ_ft_cm"].notna().all())
+        flagged = prepared[(prepared["Athlete"] == "Tomas De La Vega")].iloc[0]
+        self.assertTrue(pd.isna(flagged["CMJ_cm"]))
+        self.assertAlmostEqual(float(flagged["CMJ_ft_cm"]), 36.69, places=2)
+
+    def test_flight_series_never_enters_z_radar_or_db(self):
+        prepared = _prepare_jump_df(_history(IDLV))
+        self.assertFalse(any(col.startswith(("CMJ_ft", "SJ_ft")) and col.endswith("_Z") for col in prepared.columns))
+        records = jump_df_to_db_records(prepared)
+        self.assertFalse(any("ft_cm" in key for record in records for key in record))
+
+    def test_idlv_cmj_20_05_to_08_10_2026(self):
+        prepared = _prepare_jump_df(_history(IDLV))
+        result = compare_flight_time_height(prepared, "CMJ", current_date="2026-10-08", previous_date="2026-05-20")
+        self.assertAlmostEqual(result["Valor_anterior"], 39.8, places=1)
+        self.assertAlmostEqual(result["Valor_actual"], 46.2, places=1)
+        self.assertEqual(result["Label"], "CMJ (por tiempo de vuelo)")
+        self.assertEqual(result["Signal"], "mejora relevante")
+        values = prepared.sort_values("Date")["CMJ_ft_cm"].tolist()
+        expected = max(
+            39.84 * 0.03,
+            float(np.std(np.diff(values), ddof=1) / math.sqrt(2)),
+            0.2 * float(np.std(values, ddof=1)),
+        )
+        self.assertAlmostEqual(result["Threshold_abs"], expected, places=6)
+
+    def test_tdlv_cmj_13_11_2025_to_21_10_2026(self):
+        prepared = _prepare_jump_df(_history(TDLV))
+        result = compare_flight_time_height(prepared, "CMJ")
+        self.assertAlmostEqual(result["Valor_anterior"], 36.7, places=1)
+        self.assertAlmostEqual(result["Valor_actual"], 44.0, places=1)
+        self.assertEqual(result["Fecha_anterior"], pd.Timestamp("2025-11-13"))
+        self.assertEqual(result["Threshold_label"], "TE instrumento 3%")
+        self.assertEqual(result["Signal"], "mejora relevante")
+
+    def test_flight_comparison_does_not_cross_sources(self):
+        rows = _history(TDLV)
+        rows.loc[0, "Source"] = "nonplatform"
+        self.assertIsNone(compare_flight_time_height(_prepare_jump_df(rows), "CMJ"))
+
+
+class ImpulseComparisonBlockedTests(unittest.TestCase):
+    def test_impulse_row_not_compared_across_a_flagged_take(self):
+        prepared = _prepare_jump_df(_history(TDLV))
+        delta = compute_swc_delta(prepared, "2026-10-21").set_index("Variable")
+        self.assertEqual(delta.loc["CMJ_cm", "Signal"], NO_IMPULSE_COMPARISON_SIGNAL)
+        self.assertTrue(pd.isna(delta.loc["CMJ_cm", "Valor_anterior"]))
+
+    def test_older_valid_take_is_not_used_when_the_last_one_is_flagged(self):
+        # IDLV SJ: 20/05 marcado; no se compara contra nada mas viejo.
+        prepared = _prepare_jump_df(_history(IDLV))
+        delta = compute_swc_delta(prepared, "2026-10-08").set_index("Variable")
+        self.assertEqual(delta.loc["SJ_cm", "Signal"], NO_IMPULSE_COMPARISON_SIGNAL)
+        # CMJ 20/05 es consistente: la comparacion por impulso sigue.
+        self.assertAlmostEqual(float(delta.loc["CMJ_cm", "Valor_anterior"]), 41.1)
+
+    def test_professional_change_table_adds_labelled_flight_row(self):
+        state = {"jump_df": _history(TDLV)}
+        payload = rg._build_professional_change_payload(state, "Tomas De La Vega")
+        table = payload["display_table"].set_index("Variable")
+        self.assertIn("no comparable", table.loc["CMJ", "Senal"])
+        flight = table.loc["CMJ (por tiempo de vuelo)"]
+        self.assertEqual(flight["Anterior"], "36.7")
+        self.assertEqual(flight["Actual"], "44.0")
+        self.assertIn("mejora relevante", flight["Senal"])
+        labels = list(payload["display_table"]["Variable"])
+        self.assertEqual(labels.index("CMJ (por tiempo de vuelo)"), labels.index("CMJ") + 1)
+
+    def test_no_flight_row_when_impulse_comparison_is_possible(self):
+        state = {"jump_df": _history(IDLV)}
+        labels = list(rg._build_professional_change_payload(state, "Ignacio De La Vega")["display_table"]["Variable"])
+        self.assertNotIn("CMJ (por tiempo de vuelo)", labels)
+        self.assertIn("SJ (por tiempo de vuelo)", labels)
 
 
 # ── 4. Adherencia ──────────────────────────────────────────────────────────

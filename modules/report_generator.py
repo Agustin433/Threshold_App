@@ -67,6 +67,8 @@ from modules.jump_analysis import (
     classify_neuromuscular_quadrant,
     compute_baseline_delta,
     compute_swc_delta,
+    compare_flight_time_height,
+    NO_IMPULSE_COMPARISON_SIGNAL,
     resolve_zscore,
     semaphore_label,
     z_source_of,
@@ -8218,6 +8220,39 @@ def _build_professional_composite_profile_payload(
     }
 
 
+def _professional_add_flight_time_rows(
+    history: pd.DataFrame,
+    delta_df: pd.DataFrame,
+    current_date: object,
+) -> pd.DataFrame:
+    """Fila por tiempo de vuelo cuando la comparacion por impulso no se puede.
+
+    Solo para CMJ/SJ cuya fila por impulso quedo "no comparable" por una
+    altura inconsistente con el vuelo. Va rotulada "por tiempo de vuelo" y
+    compara vuelo contra vuelo: nunca se mezcla con la serie por impulso.
+    """
+    if delta_df is None or delta_df.empty or "Variable" not in delta_df.columns:
+        return delta_df
+    extra_rows: list[dict[str, object]] = []
+    for test in ("CMJ", "SJ"):
+        impulse_rows = delta_df[delta_df["Variable"] == f"{test}_cm"]
+        if impulse_rows.empty or str(impulse_rows.iloc[0].get("Signal")) != NO_IMPULSE_COMPARISON_SIGNAL:
+            continue
+        flight_row = compare_flight_time_height(history, test, current_date=current_date)
+        if flight_row is not None:
+            extra_rows.append(flight_row)
+    if not extra_rows:
+        return delta_df
+    extra = pd.DataFrame(extra_rows)
+    ordered: list[pd.DataFrame] = []
+    for _, row in delta_df.iterrows():
+        ordered.append(row.to_frame().T)
+        match = extra[extra["Test"] + "_cm" == row["Variable"]]
+        if not match.empty:
+            ordered.append(match.drop(columns=["Test", "Method"]))
+    return pd.concat(ordered, ignore_index=True)
+
+
 def _build_professional_change_payload(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
@@ -8243,6 +8278,7 @@ def _build_professional_change_payload(
 
     latest_date = pd.to_datetime(history["Date"], errors="coerce").dropna().max()
     delta_df = compute_swc_delta(history, latest_date)
+    delta_df = _professional_add_flight_time_rows(history, delta_df, latest_date)
     display_table = build_jump_delta_display_table(delta_df)
     if not display_table.empty:
         display_table = display_table.apply(lambda column: column.map(_professional_visible_metric_text))
