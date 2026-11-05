@@ -104,7 +104,8 @@ class MonotonyMinimumInReportsTest(unittest.TestCase):
         text = unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii").lower()
         text = " ".join(text.split())
         self.assertIsNone(re.search(r"monotonia (semanal: )?\d", text), text[:400])
-        self.assertIn("no calculable (minimo 4 sesiones", text)
+        # PDF atleta (PR B): la monotonia no se muestra; queda en el PDF profe.
+        self.assertNotIn("monotonia", text)
 
 
 if __name__ == "__main__":

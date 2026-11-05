@@ -45,6 +45,7 @@ from charts.dashboard_charts import (
 from charts.load_charts import (
     chart_acwr as shared_chart_acwr,
     chart_completion as shared_chart_completion,
+    chart_estimated_strength as shared_chart_estimated_strength,
     chart_maxes_trend as shared_chart_maxes_trend,
     chart_monotony_strain as shared_chart_monotony_strain,
     chart_weekly_external as shared_chart_weekly_external,
@@ -138,6 +139,7 @@ from modules.history_mode import history_mode_caption, render_history_mode_selec
 from modules.history_view import render_history_manager
 from modules.page_state import (
     build_report_preview_signature,
+    ensure_report_history_extras,
     current_report_state_version,
     ensure_history_mode_load_state,
     ensure_load_state,
@@ -174,7 +176,9 @@ from modules.evaluation_rules import (
     platform_body_weight_upload_warning,
     validate_bw_kg_input,
 )
+from modules.strength_estimates import ESTIMATED_STRENGTH_LABEL
 from modules.jump_analysis import (
+    UNUSUAL_CHANGE_NOTE,
     build_dashboard_neuromuscular_payload,
     available_sources as jump_available_sources,
     choose_secondary_quadrant_x_spec,
@@ -233,6 +237,7 @@ from modules.persistence_guard import (
     render_persistence_banners,
 )
 from modules.report_generator import (
+    build_individual_report_payload,
     REPORT_AUDIENCE_OPTIONS,
     REPORT_SHEET_ORDER,
     REPORT_SHEET_EXPORT_NAMES,
@@ -2106,58 +2111,6 @@ def chart_volume_by_tag(raw_df: pd.DataFrame, athlete: str) -> go.Figure:
     return fig
 
 
-def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str) -> go.Figure:
-    """
-    Si el dataset tiene columna Athlete:
-    - un atleta: linea individual
-    - varios atletas: una linea por atleta
-    """
-    d = maxes_df[maxes_df["Exercise Name"] == exercise].sort_values("Added Date")
-    fig = go.Figure()
-    if d.empty:
-        fig.update_layout(**_DARK, height=320, title=dict(text=f"<b>Progresion MAX - {exercise}</b>"))
-        return fig
-
-    if "Athlete" in d.columns and d["Athlete"].nunique() > 1:
-        for athlete_name, athlete_df in d.groupby("Athlete"):
-            fig.add_trace(go.Scatter(
-                x=athlete_df["Added Date"], y=athlete_df["Max Value"],
-                mode="lines+markers",
-                name=athlete_name,
-                hovertemplate=f"<b>{athlete_name}</b><br>%{{x|%d/%m/%Y}}<br>%{{y}} kg<extra></extra>",
-            ))
-    else:
-        fig.add_trace(go.Scatter(
-            x=d["Added Date"], y=d["Max Value"],
-            mode="lines+markers",
-            line=dict(color=C["steel"], width=2.5),
-            marker=dict(size=8, color=C["steel"], line=dict(color=C["card"], width=1)),
-            hovertemplate="%{x|%d/%m/%Y}<br>%{y} kg<extra></extra>",
-            name=exercise,
-        ))
-
-    if len(d) == 1:
-        last = d.iloc[-1]
-        fig.add_annotation(
-            x=last["Added Date"], y=last["Max Value"],
-            text=f"<b>{last['Max Value']:.0f} kg</b>",
-            showarrow=True, arrowhead=2,
-            font=dict(color=C["yellow"], size=12),
-            arrowcolor=C["yellow"],
-        )
-
-    fig.update_layout(
-        **_DARK,
-        height=320,
-        title=dict(text=f"<b>Progresion MAX - {exercise}</b>",
-                   font=dict(color=C["navy"], size=13)),
-        xaxis=dict(title="Fecha", gridcolor=_GRID_SOFT, zeroline=False),
-        yaxis=dict(title="kg", gridcolor=_GRID_SOFT, zeroline=False),
-        legend=_LEGEND,
-    )
-    return fig
-
-
 def chart_completion(comp_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     colors = [C["green"] if p >= 90 else C["yellow"] if p >= 70 else C["red"]
@@ -2847,6 +2800,7 @@ chart_quadrant_exploratory = _bind_chart(shared_chart_quadrant_exploratory)
 chart_quadrant_dri_sj = _bind_chart(shared_chart_quadrant_dri_sj)
 chart_quadrant_rsi_sj = _bind_chart(shared_chart_quadrant_rsi_sj)
 chart_completion = _bind_chart(shared_chart_completion)
+chart_estimated_strength = _bind_chart(shared_chart_estimated_strength)
 chart_cmj_trend = _bind_chart(shared_chart_cmj_trend)
 chart_jump_metric_trend = _bind_chart(shared_chart_jump_metric_trend)
 make_force_time_points_chart = _bind_chart(shared_make_force_time_points_chart)
@@ -2963,11 +2917,14 @@ def _current_state_snapshot() -> dict[str, pd.DataFrame | None]:
     }
 
 
-def _current_report_state_snapshot() -> dict[str, object]:
+def _current_report_state_snapshot(*, include_history_extras: bool = False) -> dict[str, object]:
     snapshot: dict[str, object] = dict(_current_state_snapshot())
     snapshot["acwr_dict"] = st.session_state.acwr_dict or {}
     snapshot["mono_dict"] = st.session_state.mono_dict or {}
     snapshot["weekly_summaries"] = st.session_state.weekly_summaries or {}
+    if include_history_extras:
+        # Mejores marcas y fuerza estimada comparan contra todo el historial.
+        snapshot.update(ensure_report_history_extras())
     return snapshot
 
 
@@ -3028,6 +2985,41 @@ def _format_debug_seconds(value: object) -> str:
         return f"{float(value):.3f}s"
     except Exception:
         return str(value)
+
+
+def _render_athlete_achievements(athlete: str, jump_df: pd.DataFrame | None) -> None:
+    """"Lo que lograste": mismo payload que el PDF de atleta (una sola fuente)."""
+    if not athlete or athlete == "Sin atleta":
+        return
+    try:
+        ensure_load_state(ensure_base_state=False)
+        state = _current_report_state_snapshot(include_history_extras=True)
+        state["jump_df"] = jump_df
+        payload = build_individual_report_payload(state, athlete, "atleta")
+    except Exception as exc:
+        st.caption(f"No se pudo armar 'Lo que lograste': {exc}")
+        return
+    st.markdown("### 🏁 Lo que lograste")
+    data_until = payload.get("data_until")
+    if data_until is not None:
+        st.caption(f"Datos hasta {pd.Timestamp(data_until):%d/%m/%Y}")
+    lines = [str(item["text"]) for item in payload.get("achievements", [])]
+    if payload.get("references"):
+        lines.append("Tu referencia actual: " + " · ".join(payload["references"]) + ".")
+    for line in lines:
+        st.markdown(f"- {line}")
+    if payload.get("unusual_changes"):
+        st.caption(
+            "Solo profe — " + UNUSUAL_CHANGE_NOTE + ": " + "; ".join(payload["unusual_changes"])
+        )
+    for step in payload.get("next_steps", []):
+        st.markdown(f"➡️ {step}")
+    strength_df = payload.get("strength_df")
+    figure = chart_estimated_strength(strength_df) if strength_df is not None else None
+    if figure is not None:
+        st.plotly_chart(figure, use_container_width=True)
+        st.caption(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.")
+    st.markdown("---")
 
 
 def _current_report_debug_info(report_state: dict[str, object]) -> dict[str, object]:
@@ -6896,6 +6888,8 @@ elif active_main_view == "Profile":
         with st.expander("Opciones de visualizacion", expanded=True):
             ath_p = st.selectbox("Atleta", sorted(athletes_all) or ["Sin atleta"], key="sel_profile")
 
+        _render_athlete_achievements(ath_p, jdf)
+
         st.markdown("### 🧾 Perfil")
         profile_df_state = st.session_state.athlete_profile_df
         athlete_profile_row = None
@@ -7315,7 +7309,7 @@ elif active_main_view == "Reports":
     render_module_header("Reporte", "exportar datos para compartir con el cuerpo tecnico", kicker="Modulo")
 
     ensure_load_state(ensure_base_state=False)
-    report_state = _current_report_state_snapshot()
+    report_state = _current_report_state_snapshot(include_history_extras=True)
     # Un mismo reporte nunca mezcla metodos de medicion: el snapshot se recorta
     # a la fuente elegida antes de construir hojas, PDF y resumen ejecutivo.
     report_eval_source = render_evaluation_source_selector(
