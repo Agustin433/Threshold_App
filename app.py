@@ -90,8 +90,11 @@ from modules.athlete_profile import (
     NIVEL_OPTIONS,
     OTRO_DEPORTE_OPTION,
     OBJETIVO_OPTIONS,
+    EVALUATION_SEXO_OPTIONS,
     SEXO_LABELS,
     Sexo,
+    evaluation_sexo_check,
+    merge_profile_fields,
     normalize_deporte,
     normalize_sexo,
     get_comparison_cohort,
@@ -102,6 +105,7 @@ from modules.athlete_profile import (
     validate_profile_fields,
 )
 from modules.app_version import app_version
+from modules.measurement_eras import ERA_LABELS, ERA_OPTIONS
 from modules.data_loader import (
     describe_discarded_rows,
     EVALUATION_DB_COLUMN_MAP as SHARED_EVALUATION_DB_COLUMN_MAP,
@@ -178,6 +182,7 @@ from modules.evaluation_rules import (
 )
 from modules.strength_estimates import ESTIMATED_STRENGTH_LABEL
 from modules.jump_analysis import (
+    radar_reference_caption,
     UNUSUAL_CHANGE_NOTE,
     build_dashboard_neuromuscular_payload,
     available_sources as jump_available_sources,
@@ -3755,6 +3760,26 @@ MANUAL_FLIGHT_TIME_FIELDS: dict[str, tuple[str, str]] = {
 }
 
 
+def _save_profile_from_evaluation(athlete: str, *, sexo: str, deporte: str | None, nivel: str | None) -> None:
+    """Guarda el sexo (y deporte/nivel opcionales) elegidos al cargar una evaluacion."""
+    row = merge_profile_fields(
+        st.session_state.get("athlete_profile_df"), athlete, Sexo=sexo, Deporte=deporte, Nivel=nivel
+    )
+    merged_profiles = upsert_athlete_profile(row)
+    st.session_state.athlete_profile_df = None if merged_profiles.empty else merged_profiles
+    if supabase_dataset_store_enabled() and not merged_profiles.empty:
+        try:
+            save_remote_dataset("athlete_profile_df", merged_profiles)
+            clear_remote_save_failure("athlete_profile_df")
+        except Exception as remote_profile_exc:
+            _push_notice(
+                "error",
+                record_remote_save_failure(
+                    "athlete_profile_df", "Perfil de atleta", remote_profile_exc, total_hint=len(merged_profiles)
+                ),
+            )
+
+
 def _build_manual_evaluation_record(
     test_type: str,
     values: dict[str, float | None],
@@ -4338,6 +4363,19 @@ with st.sidebar:
                 horizontal=True,
                 key="eval_entry_mode",
             )
+            # Era de medicion: el IMTP y todo lo que sale de la velocidad
+            # integrada solo se compara dentro de la misma era.
+            eval_device = st.selectbox(
+                "Dispositivo / protocolo (obligatorio)",
+                list(ERA_OPTIONS),
+                index=0,
+                format_func=lambda value: ERA_LABELS.get(value, value),
+                key="eval_device_platform",
+                help=(
+                    "Cambia lo que se puede comparar: el IMTP y las métricas por impulso "
+                    "solo se comparan dentro del mismo dispositivo/protocolo."
+                ),
+            )
         else:
             # No hay export de plataforma para estos dispositivos: la carga es
             # siempre manual.
@@ -4420,6 +4458,14 @@ with st.sidebar:
                 key="eval_athlete_text",
                 placeholder="Ej: Mariano Diaz Romero",
             )
+            eval_sexo_choice = st.selectbox(
+                "Sexo del atleta (obligatorio si el perfil no lo tiene)",
+                list(EVALUATION_SEXO_OPTIONS),
+                key="eval_sexo_choice",
+                help="Sin sexo el atleta no entra a ningún grupo de comparación.",
+            )
+            eval_deporte_text = st.text_input("Deporte (opcional)", key="eval_deporte_text")
+            eval_nivel_choice = st.selectbox("Nivel (opcional)", ["—", *NIVEL_OPTIONS], key="eval_nivel_choice")
             # Arranca vacio: la fecha se elige a proposito (el archivo de
             # Involution no la trae). Regla 9 en evaluation_rules.
             eval_date = st.date_input(
@@ -4510,6 +4556,9 @@ with st.sidebar:
                 )
 
             eval_date_status = evaluation_date_check(eval_date, app_today_date())
+            eval_sexo_status = evaluation_sexo_check(
+                st.session_state.get("athlete_profile_df"), eval_athlete_name, eval_sexo_choice
+            )
             if not eval_athlete_name:
                 _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
             elif eval_date_status["missing"]:
@@ -4519,6 +4568,12 @@ with st.sidebar:
                     "warning",
                     f"Evaluaciones individuales: {eval_date_status['reason']}. "
                     "Revisala y, si es correcta, marcá \"Confirmo la fecha\" y volvé a agregar. No se agregó a la cola.",
+                )
+            elif not eval_sexo_status["ok"]:
+                _push_notice(
+                    "warning",
+                    f"Evaluaciones individuales: {eval_athlete_name} no tiene sexo en el perfil. "
+                    "Elegilo en el formulario. No se agregó a la cola.",
                 )
             elif not manual_entry and not eval_file:
                 _push_notice("warning", "Evaluaciones individuales: subi el archivo del test.")
@@ -4578,6 +4633,15 @@ with st.sidebar:
                                 "la evaluación DJ requiere altura de caída. "
                                 "Cargala desde el archivo o completala manualmente."
                             )
+                    if eval_device:
+                        record["Device"] = eval_device
+                    if eval_sexo_status["save"]:
+                        _save_profile_from_evaluation(
+                            eval_athlete_name,
+                            sexo=str(eval_sexo_status["sexo"]),
+                            deporte=normalize_deporte(eval_deporte_text) if eval_deporte_text else None,
+                            nivel=None if eval_nivel_choice == "—" else eval_nivel_choice,
+                        )
                     record["Athlete"] = eval_athlete_name
                     record["Date"] = pd.Timestamp(eval_date)
                     record["__source_file"] = (
@@ -7137,21 +7201,19 @@ elif active_main_view == "Team":
             source=team_eval_source,
         )
 
+        # Misma referencia que el radar y el PDF profe: escalon, era, N atletas.
         team_cohort_rows = [
             {
-                "Atleta": team_athlete,
-                "Cohorte": get_comparison_cohort(
-                    team_athlete, latest, profile_df_for_team_cohort,
-                )["cohort_label"],
+                "Atleta": team_row["Athlete"],
+                "Referencia": radar_reference_caption(team_row).removeprefix("Referencia: "),
             }
-            for team_athlete in sorted(latest["Athlete"].dropna().unique())
+            for _, team_row in latest.sort_values("Athlete").iterrows()
         ]
-        with st.expander("📊 Cohortes de comparacion", expanded=False):
+        with st.expander("📊 Referencias de comparacion", expanded=False):
             st.caption(
-                "Cada atleta se compara contra su cohorte de clase (deportista / poblacion "
-                "general) y sexo, cuando hay muestra suficiente. El deporte se conserva como "
-                "dato de lectura pero no define la cohorte: con match exacto por deporte "
-                "ningun grupo del plantel alcanzaba el minimo."
+                "Escalera: literatura -> deporte + nivel + sexo -> grupo de demanda + sexo -> "
+                "sexo (8 atletas o más) -> percentil (5-7) -> sin grupo (< 5). Una toma por "
+                "atleta, la última válida de 12 meses, sin mezclar sexos ni eras de medición."
             )
             st.dataframe(pd.DataFrame(team_cohort_rows), width='stretch', hide_index=True)
 

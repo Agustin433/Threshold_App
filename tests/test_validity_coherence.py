@@ -404,8 +404,10 @@ class ImpulseComparisonBlockedTests(unittest.TestCase):
         self.assertTrue(pd.isna(delta.loc["CMJ_cm", "Valor_anterior"]))
 
     def test_older_valid_take_is_not_used_when_the_last_one_is_flagged(self):
-        # IDLV SJ: 20/05 marcado; no se compara contra nada mas viejo.
-        prepared = _prepare_jump_df(_history(IDLV))
+        # IDLV SJ: 20/05 marcado; no se compara contra nada mas viejo. Las
+        # tomas se declaran de una misma era: aca se controla la regla de
+        # impulso, no la de eras (PR C).
+        prepared = _prepare_jump_df(_history([{**row, "Device": "involution_straps"} for row in IDLV]))
         delta = compute_swc_delta(prepared, "2026-10-08").set_index("Variable")
         self.assertEqual(delta.loc["SJ_cm", "Signal"], NO_IMPULSE_COMPARISON_SIGNAL)
         # CMJ 20/05 es consistente: la comparacion por impulso sigue.
@@ -424,7 +426,8 @@ class ImpulseComparisonBlockedTests(unittest.TestCase):
         self.assertEqual(labels.index("CMJ (por tiempo de vuelo)"), labels.index("CMJ") + 1)
 
     def test_no_flight_row_when_impulse_comparison_is_possible(self):
-        state = {"jump_df": _history(IDLV)}
+        # Misma era declarada: la comparacion por impulso del CMJ es posible.
+        state = {"jump_df": _history([{**row, "Device": "involution_straps"} for row in IDLV])}
         labels = list(rg._build_professional_change_payload(state, "Ignacio De La Vega")["display_table"]["Variable"])
         self.assertNotIn("CMJ (por tiempo de vuelo)", labels)
         self.assertIn("SJ (por tiempo de vuelo)", labels)

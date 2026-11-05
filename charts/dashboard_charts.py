@@ -9,6 +9,8 @@ from modules.jump_analysis import (
     JUMP_PREPARED_COLUMN,
     _prepare_jump_df,
     _available_radar_axes,
+    RADAR_MODE_PERCENTILE,
+    radar_axis_values,
     build_composite_profile_metric_rows,
     choose_secondary_quadrant_x_spec,
     classify_neuromuscular_quadrant,
@@ -313,18 +315,8 @@ def _quadrant_chart_category(
 
 def _resolve_radar_axes(row: pd.Series) -> tuple[pd.Series, list[tuple[str, str, str, str]], list[float], list[str]]:
     prepared_row = _prepare_row(row)
-    axes, notes = _available_radar_axes(prepared_row)
-
-    valid_axes: list[tuple[str, str, str, str]] = []
-    values: list[float] = []
-    for axis in axes:
-        value = resolve_zscore(prepared_row, axis[3])
-        if value is None:
-            continue
-        valid_axes.append(axis)
-        values.append(value)
-
-    return prepared_row, valid_axes, values, notes
+    payload = radar_axis_values(prepared_row)
+    return prepared_row, payload["axes"], payload["values"], payload["notes"]
 
 
 def find_latest_valid_radar_row(jump_df: pd.DataFrame) -> pd.Series | None:
@@ -343,6 +335,39 @@ def find_latest_valid_radar_row(jump_df: pd.DataFrame) -> pd.Series | None:
     return None
 
 
+def _percentile_radar(categories: list[str], values: list[float], athlete: str, notes: list[str], *, theme: dict) -> go.Figure:
+    """Radar en percentiles 0-100 (cohortes de 5-7): posicion, nunca z."""
+    colors, layout, grid, _, reference_line, legend = _theme_parts(theme)
+    closed_categories = categories + [categories[0]]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatterpolar(
+            r=[50.0] * len(closed_categories), theta=closed_categories, mode="lines",
+            line=dict(color=reference_line, dash="dot", width=1), name="Percentil 50", hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatterpolar(
+            r=values + [values[0]], theta=closed_categories, mode="lines+markers", fill="toself",
+            fillcolor="rgba(13,60,94,0.16)", line=dict(color=colors["steel"], width=2.5), name=athlete,
+            hovertemplate="<b>%{theta}</b><br>Percentil: %{r:.0f}<extra></extra>",
+        )
+    )
+    title_suffix = f" - {' / '.join(notes)}" if notes else ""
+    fig.update_layout(
+        **layout,
+        polar=dict(
+            radialaxis=dict(range=[0, 100], tickvals=[0, 25, 50, 75, 100], gridcolor=grid, linecolor=reference_line),
+            angularaxis=dict(gridcolor=grid),
+            bgcolor=colors["card"],
+        ),
+        legend=legend,
+        title=dict(text=f"<b>Posición entre pares - {athlete}{title_suffix}</b>", font=dict(color=colors["navy"], size=13), x=0.5),
+        height=480,
+    )
+    return fig
+
+
 def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, *, theme: dict) -> go.Figure:
     colors, layout, grid, _, reference_line, legend = _theme_parts(theme)
     row, axes, values, notes = _resolve_radar_axes(df_row)
@@ -351,6 +376,8 @@ def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, 
 
     if not categories:
         return go.Figure()
+    if radar_axis_values(row)["mode"] == RADAR_MODE_PERCENTILE:
+        return _percentile_radar(categories, values, athlete, notes, theme=theme)
 
     categories_closed = categories + [categories[0]]
     values_closed = values + [values[0]]
@@ -425,100 +452,32 @@ def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, 
 
 
 def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme: dict) -> go.Figure:
-    colors, layout, grid, _, reference_line, legend = _theme_parts(theme)
+    """Radar del perfil compuesto: misma regla que `chart_radar`.
+
+    Un solo escalon de referencia y una sola escala (z o percentil); sin grupo
+    de comparacion (< 5 atletas) no hay radar y se avisa.
+    """
+    colors, layout, *_ = _theme_parts(theme)
     row = profile_row if isinstance(profile_row, pd.Series) else pd.Series(profile_row)
-    radar_min = -2.5
-    radar_max = 2.5
-    missing_point_r = radar_min
-
-    categories: list[str] = []
-    values: list[float] = []
-    customdata: list[list[object]] = []
-    available_metric_count = 0
-    for metric in build_composite_profile_metric_rows(row):
-        label = str(metric.get("Variable", ""))
-        value_col = str(metric.get("value_col", ""))
-        unit = str(metric.get("Unidad", ""))
-        raw_value = _numeric_value(row.get(value_col))
-        z_value = _numeric_value(metric.get("Z-score"))
-        if raw_value is not None:
-            available_metric_count += 1
-        categories.append(label)
-        values.append(z_value if z_value is not None else missing_point_r)
-        formatted_value = str(metric.get("Valor", "-") or "-")
-        formatted_z = "-" if z_value is None else f"{z_value:.2f}"
-        source_date = metric.get("Origen / referencia", "-") or "-"
-        customdata.append([formatted_value, formatted_z, source_date])
-
-    fig = go.Figure()
-    if available_metric_count < 2:
+    payload = radar_axis_values(row)
+    if not payload["axes"]:
+        fig = go.Figure()
         fig.update_layout(
             **layout,
             height=480,
             title=dict(text=f"<b>Perfil actual compuesto - {athlete}</b>", font=dict(color=colors["navy"], size=13), x=0.5),
             annotations=[
                 dict(
-                    text="Sin metricas suficientes con z-score valido para construir un perfil util.",
-                    x=0.5,
-                    y=0.5,
-                    xref="paper",
-                    yref="paper",
-                    showarrow=False,
+                    text="Todavía no hay grupo de comparación: los valores están en la tabla.",
+                    x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
                     font=dict(color=colors["muted"], size=13),
                 )
             ],
         )
         return fig
-
-    categories_closed = categories + [categories[0]]
-    values_closed = values + [values[0]]
-    customdata_closed = customdata + [customdata[0]]
-
-    fig.add_trace(
-        go.Scatterpolar(
-            r=[1.0] * len(categories_closed),
-            theta=categories_closed,
-            mode="lines",
-            fill="none",
-            line=dict(color=reference_line, dash="dot", width=1),
-            name="z = 1",
-            hoverinfo="skip",
-        )
-    )
-    fig.add_trace(
-        go.Scatterpolar(
-            r=values_closed,
-            theta=categories_closed,
-            mode="lines+markers",
-            fill="toself",
-            fillcolor="rgba(13,60,94,0.16)",
-            line=dict(color=colors["steel"], width=2.5),
-            marker=dict(size=7, color=colors["steel"]),
-            customdata=customdata_closed,
-            name=athlete,
-            hovertemplate="<b>%{theta}</b><br>Valor: %{customdata[0]}<br>Z-score: %{customdata[1]}<br>Origen: %{customdata[2]}<extra></extra>",
-        )
-    )
-    fig.update_layout(
-        **layout,
-        polar=dict(
-            radialaxis=dict(
-                range=[radar_min, radar_max],
-                tickvals=[-2, -1, 0, 1, 2],
-                ticktext=["-2", "-1", "0", "+1", "+2"],
-                gridcolor=grid,
-                linecolor=reference_line,
-                tickfont=dict(size=8, color=colors["gray"]),
-            ),
-            angularaxis=dict(tickfont=dict(size=10, color=colors["white"]), gridcolor=grid),
-            bgcolor=colors["card"],
-        ),
-        legend=legend,
-        title=dict(text=f"<b>Perfil actual compuesto - {athlete}</b>", font=dict(color=colors["navy"], size=13), x=0.5),
-        height=480,
-    )
+    fig = chart_radar(row, athlete, None, theme=theme)
+    fig.update_layout(title=dict(text=f"<b>Perfil actual compuesto - {athlete}</b>"))
     return fig
-
 
 def chart_quadrant_rsi_sj(df: pd.DataFrame, *, theme: dict, profile_df: pd.DataFrame | None = None) -> go.Figure:
     colors, layout, _, grid_soft, reference_line, legend = _theme_parts(theme)

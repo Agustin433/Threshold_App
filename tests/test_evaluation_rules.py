@@ -66,10 +66,15 @@ GRAY = {
     "IMTP_rfd_50_N_s": 8074.0, "IMTP_rfd_100_N_s": 6414.0,
     "IMTP_force_50_N": 1346.0, "IMTP_force_100_N": 1583.0, "IMTP_force_200_N": 1864.0, "IMTP_force_250_N": 1852.0,
 }
+# Las dos tomas se declaran de la misma era: estos tests controlan el umbral
+# de cambio, no la regla de eras (PR C: entre eras distintas el CMJ por
+# impulso es "no comparable"; eso se prueba en test_reference_eras).
 DE_LA_VEGA = [
-    {"Athlete": "Ignacio De La Vega", "Date": "2026-05-15", "Source": "platform", "BW_kg": 87.0, "CMJ_cm": 41.1},
+    {"Athlete": "Ignacio De La Vega", "Date": "2026-05-15", "Source": "platform", "Device": "involution_straps",
+     "BW_kg": 87.0, "CMJ_cm": 41.1},
     {
-        "Athlete": "Ignacio De La Vega", "Date": "2026-10-31", "Source": "platform", "BW_kg": 87.5,
+        "Athlete": "Ignacio De La Vega", "Date": "2026-10-31", "Source": "platform", "Device": "involution_straps",
+        "BW_kg": 87.5,
         "CMJ_cm": 46.04, "SJ_cm": 43.55, "IMTP_N": 3491.17, "IMTP_pretension": 1095.073,
         "IMTP_rfd_50_N_s": 12356.4, "IMTP_force_50_N": 1716.16,
     },

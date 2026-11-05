@@ -71,6 +71,8 @@ from modules.jump_analysis import (
     compute_swc_delta,
     compare_flight_time_height,
     compute_evaluation_changes,
+    radar_reference_athletes,
+    radar_reference_caption,
     NO_IMPULSE_COMPARISON_SIGNAL,
     UNUSUAL_CHANGE_NOTE,
     unusual_change_note,
@@ -7675,8 +7677,8 @@ def _neuromuscular_kpi_labels(profile_payload: dict[str, object]) -> list[str]:
 
 IMTP_REFERENCE_PRIORITY_SHORT = "Sostener la calidad actual y repetir la medición de fuerza máxima para tener una referencia propia."
 IMTP_REFERENCE_PRIORITY_DETAILED = (
-    "Ya hay una medición de IMTP; repetirla en la próxima evaluación da una referencia propia "
-    "para comparar la fuerza máxima."
+    "Ya hay una medición de IMTP con el protocolo actual; repetirla en la próxima evaluación da una "
+    "referencia propia para comparar la fuerza máxima."
 )
 
 
@@ -8081,6 +8083,40 @@ PROFESSIONAL_JUMP_HEIGHT_QUALITY_NOTE = (
     "vuelo = g·t²/8. Ref: Street et al. 2001 (J Appl Biomech 17:43-54); Moir 2008 "
     "(Meas Phys Educ Exerc Sci 12:207-218)."
 )
+
+
+def _professional_reference_annex_lines(
+    composite_payload: dict[str, object] | None,
+    state: dict[str, object],
+    athlete: str,
+) -> list[str]:
+    """Anexo del PDF profe: de donde sale la referencia del radar y quienes la forman."""
+    from modules.athlete_profile import normalize_sexo
+    from modules.zscore_sources import context_references
+
+    payload = composite_payload or {}
+    row = payload.get("profile_row")
+    if row is None:
+        return []
+    lines = [radar_reference_caption(row)]
+    athletes = radar_reference_athletes(row)
+    if athletes:
+        lines.append(f"Atletas de la referencia ({len(athletes)}): " + ", ".join(athletes) + ".")
+    profile_df = _state_profile_df(state)
+    if profile_df is not None and not profile_df.empty and "Athlete" in profile_df.columns:
+        match = profile_df[profile_df["Athlete"].astype(str).str.strip() == str(athlete).strip()]
+        if not match.empty:
+            profile_row = match.iloc[-1]
+            for metric, label in (("CMJ_RSI", "RSI-mod (CMJ)"), ("CMJ_cm", "CMJ"), ("Jump_Momentum", "Momentum")):
+                for entry in context_references(metric, deporte=profile_row.get("Deporte"), sexo=profile_row.get("Sexo")):
+                    if str(entry.get("nivel")) == str(profile_row.get("Nivel")):
+                        continue
+                    lines.append(
+                        f"Contexto publicado (nivel superior, solo banda, sin z al atleta): {label} "
+                        f"{entry.get('subgroup')} {float(entry['mean']):g} ± {float(entry['sd']):g} "
+                        f"(n={entry.get('n')}) — {entry.get('source')}."
+                    )
+    return lines
 
 
 def _build_professional_composite_profile_payload(
@@ -11894,7 +11930,9 @@ def _generate_professional_profile_pdf_reportlab(
             _chart_panel(
                 radar_image,
                 title="Radar del perfil compuesto",
-                note="El radar resume la expresión actual; la tabla conserva el detalle métrico y sus z-scores visibles.",
+                note=radar_reference_caption(composite_profile.get("profile_row"))
+                if composite_profile.get("profile_row") is not None
+                else "Referencia: todavía no hay grupo de comparación.",
                 width_mm=102,
             )
             if radar_image is not None
@@ -12431,6 +12469,11 @@ def _generate_professional_profile_pdf_reportlab(
     _append_full_integrated_page(story)
     story.append(PageBreak())
     _append_full_action_plan_page(story)
+    annex_lines = _professional_reference_annex_lines(composite_profile, state, report_athlete)
+    if annex_lines:
+        story.append(PageBreak())
+        story.append(_p("Anexo: referencia de comparación", "ProfSection"))
+        story.append(_box([_p(line, "ProfBody") for line in annex_lines], padding=6))
     try:
         doc.build(story, onFirstPage=_draw_professional_footer, onLaterPages=_draw_professional_footer)
     except Exception as exc:
@@ -12947,10 +12990,11 @@ def _generate_visual_report_pdf_reportlab(
                 accent_color=palette[accent],
             )
 
-        def _rows_table(rows: list[tuple[str, str]]) -> Table:
+        def _rows_table(rows: list[tuple[str, str]]) -> object:
             for label, value in rows:
                 visible_text.extend([str(label), str(value)])
-            return _compact_key_value_table(rows)
+            # Una tabla de seccion nunca se parte entre paginas.
+            return KeepTogether([_compact_key_value_table(rows)])
 
         def _chart(payload_item: dict[str, object] | None, *, height_mm: float = 60) -> Image | None:
             try:
@@ -13039,11 +13083,10 @@ def _generate_visual_report_pdf_reportlab(
             profile_lines.append(str(profile["summary"]))
         if profile.get("strengths") and not is_client:
             profile_lines.append(f"Lo que más se destaca hoy: {profile['strengths']}.")
-        radar_image = (
-            _chart(chart_payloads.get("radar_perfil"), height_mm=70)
-            if not is_client and payload.get("radar_axes", 0) >= MIN_RADAR_AXES_FOR_ATHLETE
-            else None
-        )
+        # El radar no va en el PDF de atleta/cliente: a ancho de pagina sus
+        # rotulos no son legibles al imprimir. Queda en el PDF profe y en el
+        # dashboard.
+        radar_image = None
         if profile_lines or radar_image is not None:
             block: list[object] = [_section_title("Tu perfil"), Spacer(1, 3 * mm)]
             if profile_lines:
@@ -13063,20 +13106,11 @@ def _generate_visual_report_pdf_reportlab(
         except Exception:
             logger.exception("No se pudo armar el grafico de fuerza estimada")
         strength_image = _chart({"figure": strength_figure, "print": True}) if strength_figure is not None else None
-        if imtp or strength_image is not None:
-            block = [_section_title("Tu fuerza"), Spacer(1, 3 * mm)]
-            if imtp:
-                imtp_label = "Fuerza máxima" if is_client else "Fuerza máxima en el IMTP"
-                block.append(
-                    _note(
-                        "",
-                        f"{imtp_label}: {float(imtp['value']):.0f} N ({pd.Timestamp(imtp['date']):%d/%m/%Y}).",
-                    )
-                )
-                block.append(Spacer(1, 3 * mm))
-            if strength_image is not None:
-                block.append(strength_image)
-                block.append(_tp(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.", "ReportMuted"))
+        # Sin grafico de fuerza estimada la seccion no aparece: el IMTP ya esta
+        # en la portada y repetirlo no agrega nada.
+        if strength_image is not None:
+            block = [_section_title("Tu fuerza"), Spacer(1, 3 * mm), strength_image]
+            block.append(_tp(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.", "ReportMuted"))
             _append_section(block)
             story.append(Spacer(1, 4 * mm))
 
