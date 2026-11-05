@@ -73,6 +73,7 @@ from modules.jump_analysis import (
     compute_evaluation_changes,
     NO_IMPULSE_COMPARISON_SIGNAL,
     UNUSUAL_CHANGE_NOTE,
+    unusual_change_note,
     resolve_zscore,
     semaphore_label,
     z_source_of,
@@ -8289,13 +8290,13 @@ def _build_professional_change_payload(
         to_verify.append("intervalo corto entre evaluaciones")
     if no_previous:
         to_verify.append(f"sin dato anterior en {_professional_join_labels(no_previous)}")
-    unusual = (
-        delta_df.loc[delta_df["Unusual"].fillna(False).astype(bool), "Label"].astype(str).tolist()
-        if "Unusual" in delta_df.columns
-        else []
-    )
-    if unusual:
-        to_verify.append(f"{UNUSUAL_CHANGE_NOTE} en {_professional_join_labels(unusual)}")
+    unusual_by_note: dict[str, list[str]] = {}
+    if "Unusual" in delta_df.columns:
+        for _, unusual_row in delta_df[delta_df["Unusual"].fillna(False).astype(bool)].iterrows():
+            note = unusual_change_note(unusual_row["Variable"]) or UNUSUAL_CHANGE_NOTE
+            unusual_by_note.setdefault(note, []).append(str(unusual_row["Label"]))
+    for note, labels in unusual_by_note.items():
+        to_verify.append(f"{note} en {_professional_join_labels(labels)}")
 
     summary_lines = [_professional_visible_metric_text(line) for line in build_jump_temporal_context(delta_df)]
     summary_lines.extend(_professional_change_pattern_lines(delta_df, interval_warning))
@@ -12470,7 +12471,7 @@ def build_individual_report_payload(
     en proximos pasos.
     """
     from modules import athlete_report as ar
-    from modules.strength_estimates import estimated_strength_by_day, new_main_lift_bests
+    from modules.strength_estimates import estimated_strength_by_day, new_main_lift_bests, rolling_best_envelope
 
     audience = normalize_report_audience(audience)
     today = _professional_report_today()
@@ -12519,7 +12520,7 @@ def build_individual_report_payload(
         acwr=focus_row.get("ACWR EWMA"),
         client_trend=(
             CLIENT_TREND_LABELS.get(client_load_trend(internal_load)) if load_evaluable else None
-        ),
+        ),  # misma etiqueta descriptiva para atleta y cliente
         audience=audience,
     )
     wellness = ar.wellness_reading(_professional_wellness_context(state, athlete))
@@ -12532,7 +12533,10 @@ def build_individual_report_payload(
             imtp_value = float(imtp_rows.iloc[-1]["IMTP_N"])
             imtp_date = imtp_rows.iloc[-1]["Date"]
 
-    strength_df = estimated_strength_by_day(_individual_raw_history(state), athlete)
+    strength_df = rolling_best_envelope(
+        estimated_strength_by_day(_individual_raw_history(state), athlete),
+        today=today,
+    )
     if not strength_df.empty:
         strength_df = strength_df[strength_df["Date"] >= today - pd.Timedelta(weeks=16)]
 
@@ -12959,6 +12963,13 @@ def _generate_visual_report_pdf_reportlab(
             _draw_threshold_header(canvas_obj, doc_obj, palette=palette, mm_unit=mm, label="")
             _draw_threshold_footer(canvas_obj, doc_obj, palette=palette, mm_unit=mm)
 
+        def _append_section(block: list[object]) -> None:
+            # Titulo + primer contenido juntos; el resto fluye (sin paginas a
+            # medio llenar por bloques que no entran enteros).
+            head = block[:3] if len(block) >= 3 else block
+            story.append(KeepTogether(head))
+            story.extend(block[len(head):])
+
         # ── Portada: lo que lograste ────────────────────────────────────
         data_until = payload.get("data_until")
         story.extend(
@@ -12994,7 +13005,7 @@ def _generate_visual_report_pdf_reportlab(
         wellness = payload.get("wellness")
         imtp = payload.get("imtp")
         if load and load.get("headline"):
-            cover_cards.append(("Carga de las últimas semanas", str(load["headline"]), "#708C9F"))
+            cover_cards.append(("Carga de la última semana", str(load["headline"]), "#708C9F"))
         if wellness:
             cover_cards.append(
                 (f"Bienestar ({wellness['range']})", f"{wellness['score']:.1f} /30 ({wellness['label']})", "#2F6B52")
@@ -13040,7 +13051,7 @@ def _generate_visual_report_pdf_reportlab(
                 block.append(Spacer(1, 3 * mm))
             if radar_image is not None:
                 block.append(radar_image)
-            story.append(KeepTogether(block))
+            _append_section(block)
             story.append(Spacer(1, 4 * mm))
 
         # ── Fuerza ──────────────────────────────────────────────────────
@@ -13066,7 +13077,7 @@ def _generate_visual_report_pdf_reportlab(
             if strength_image is not None:
                 block.append(strength_image)
                 block.append(_tp(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.", "ReportMuted"))
-            story.append(KeepTogether(block))
+            _append_section(block)
             story.append(Spacer(1, 4 * mm))
 
         # ── Carga ───────────────────────────────────────────────────────
@@ -13084,7 +13095,7 @@ def _generate_visual_report_pdf_reportlab(
                 block.append(Spacer(1, 3 * mm))
             if load.get("rows"):
                 block.append(_rows_table(list(load["rows"])))
-            story.append(KeepTogether(block))
+            _append_section(block)
             story.append(Spacer(1, 4 * mm))
 
         # ── Bienestar ───────────────────────────────────────────────────
@@ -13095,7 +13106,7 @@ def _generate_visual_report_pdf_reportlab(
                 block.append(wellness_image)
                 block.append(Spacer(1, 3 * mm))
             block.append(_rows_table(list(wellness["rows"])))
-            story.append(KeepTogether(block))
+            _append_section(block)
             story.append(Spacer(1, 4 * mm))
 
         # ── Proximos pasos ──────────────────────────────────────────────

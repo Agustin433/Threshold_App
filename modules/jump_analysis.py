@@ -2477,14 +2477,32 @@ JUMP_HEIGHT_PLAUSIBILITY_VARIABLES = frozenset(
 )
 UNUSUAL_CHANGE_NOTE = "cambio inusualmente grande: verificar técnica/protocolo"
 
+# IMTP: +25% entre dos tomas suele ser aprendizaje de la tarea (primer IMTP,
+# posicion, pretension) mas que fuerza nueva: la confiabilidad del pico
+# isometrico se estabiliza despues de la familiarizacion.
+IMTP_PLAUSIBILITY_PCT = 25.0
+IMTP_PLAUSIBILITY_VARIABLES = frozenset({"IMTP_N", "IMTP_relPF", "IMTP_relPF_net"})
+UNUSUAL_IMTP_CHANGE_NOTE = "cambio inusualmente grande: verificar familiarización/protocolo"
+
+
+def unusual_change_note(variable: object) -> str | None:
+    if str(variable) in JUMP_HEIGHT_PLAUSIBILITY_VARIABLES:
+        return UNUSUAL_CHANGE_NOTE
+    if str(variable) in IMTP_PLAUSIBILITY_VARIABLES:
+        return UNUSUAL_IMTP_CHANGE_NOTE
+    return None
+
 
 def is_unusual_jump_change(variable: object, delta_pct: object) -> bool:
+    """Cambio implausible entre dos tomas: salto > +20%, IMTP > +25%."""
     pct = pd.to_numeric(pd.Series([delta_pct]), errors="coerce").iloc[0]
-    return (
-        str(variable) in JUMP_HEIGHT_PLAUSIBILITY_VARIABLES
-        and pd.notna(pct)
-        and float(pct) > JUMP_HEIGHT_PLAUSIBILITY_PCT
-    )
+    if pd.isna(pct):
+        return False
+    if str(variable) in JUMP_HEIGHT_PLAUSIBILITY_VARIABLES:
+        return float(pct) > JUMP_HEIGHT_PLAUSIBILITY_PCT
+    if str(variable) in IMTP_PLAUSIBILITY_VARIABLES:
+        return float(pct) > IMTP_PLAUSIBILITY_PCT
+    return False
 
 
 def compute_evaluation_changes(
@@ -2570,7 +2588,7 @@ def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
 
         signal_text = TEMPORAL_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-")))
         if row.get("Unusual") is True or str(row.get("Unusual")) == "True":
-            signal_text = f"{signal_text} — {UNUSUAL_CHANGE_NOTE}"
+            signal_text = f"{signal_text} — {unusual_change_note(row['Variable']) or UNUSUAL_CHANGE_NOTE}"
         rows.append(
             {
                 "Variable": row["Label"],

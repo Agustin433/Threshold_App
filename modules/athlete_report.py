@@ -82,6 +82,21 @@ KPI_LABELS = {
 
 UNCLASSIFIED_CODES = {"", "UNCLASSIFIED", "NONE", "NAN"}
 
+IMTP_GROUP = ("IMTP_N", "IMTP_relPF")
+MAX_HIGHLIGHTED_VARIABLES = 2
+
+# KPI -> columna de z para ordenar "Seguir de cerca" por relevancia.
+KPI_Z_COLUMNS = {
+    "CMJ_cm": "CMJ_Z",
+    "SJ_cm": "SJ_Z",
+    "EUR": "EUR_Z",
+    "DJ_RSI": "DJ_RSI_Z",
+    "DJ_tc_ms": "TC_inv_Z",
+    "DRI": "DRI_Z",
+    "IMTP_relPF": "IMTP_relPF_Z",
+    "IMTP_N": "IMTP_N_Z",
+}
+
 # Terminos del diccionario: se incluyen solo si aparecen en el reporte.
 DICTIONARY_TERMS: dict[str, str] = {
     "CMJ": "salto con contramovimiento: bajás y subís en un solo gesto.",
@@ -134,13 +149,31 @@ def evaluation_achievements(changes: pd.DataFrame | None, audience: str) -> list
     """
     if changes is None or changes.empty or "Signal" not in changes.columns:
         return []
+
+    def _is_unusual(row: pd.Series) -> bool:
+        return str(row.get("Unusual")) == "True"
+
+    # IMTP absoluta y relativa son la misma toma: si una es inusual (> +25%),
+    # ninguna se celebra; si se celebra, va en una sola linea.
+    imtp_rows = changes[changes["Variable"].astype(str).isin(IMTP_GROUP)]
+    imtp_unusual = any(_is_unusual(row) for _, row in imtp_rows.iterrows())
+    relative_rows = changes[changes["Variable"].astype(str) == "IMTP_relPF"]
+    relative_row = relative_rows.iloc[0] if not relative_rows.empty else None
+    absolute_improved = (
+        (changes["Variable"].astype(str) == "IMTP_N") & (changes["Signal"].astype(str) == "mejora relevante")
+    ).any()
+
     items: list[dict[str, object]] = []
     for _, row in changes.iterrows():
         variable = str(row.get("Variable"))
         spec = ACHIEVEMENT_VARIABLES.get(variable)
         if spec is None or str(row.get("Signal")) != "mejora relevante":
             continue
-        if bool(row.get("Unusual")) and str(row.get("Unusual")) != "False":
+        if _is_unusual(row):
+            continue
+        if variable in IMTP_GROUP and imtp_unusual:
+            continue
+        if variable == "IMTP_relPF" and absolute_improved:
             continue
         current = _number(row.get("Valor_actual"))
         previous = _number(row.get("Valor_anterior"))
@@ -152,8 +185,17 @@ def evaluation_achievements(changes: pd.DataFrame | None, audience: str) -> list
         sign = "+" if delta > 0 else "−"
         delta_text = _fmt_value(abs(delta), unit, digits)
         dates = f"{_fmt_date(row.get('Fecha_anterior'))} → {_fmt_date(row.get('Fecha_actual'))}"
+        extra = ""
+        if variable == "IMTP_N" and relative_row is not None:
+            rel_now = _number(relative_row.get("Valor_actual"))
+            rel_before = _number(relative_row.get("Valor_anterior"))
+            if rel_now is not None and rel_before is not None:
+                extra = f"; {rel_before:.1f} → {rel_now:.1f} N/kg"
         if higher_is_better:
-            text = f"{label}: {_fmt_value(previous, unit, digits)} → {_fmt_value(current, unit, digits)} ({sign}{delta_text}), {dates}."
+            text = (
+                f"{label}: {_fmt_value(previous, unit, digits)} → {_fmt_value(current, unit, digits)} "
+                f"({sign}{delta_text}{extra}), {dates}."
+            )
         else:
             text = f"{label} más corto: {_fmt_value(previous, unit, digits)} → {_fmt_value(current, unit, digits)} ({sign}{delta_text}), {dates}."
         items.append(
@@ -180,7 +222,10 @@ def unusual_changes_for_professional(changes: pd.DataFrame | None) -> list[str]:
         pct = _number(row.get("Delta_pct"))
         if current is None or previous is None or pct is None:
             continue
-        lines.append(f"{row.get('Label')}: {previous:.1f} → {current:.1f} (+{pct:.1f}%)")
+        from modules.jump_analysis import unusual_change_note
+
+        note = unusual_change_note(row.get("Variable")) or ""
+        lines.append(f"{row.get('Label')}: {previous:.1f} → {current:.1f} (+{pct:.1f}%) — {note}".rstrip(" —"))
     return lines
 
 
@@ -212,10 +257,11 @@ def completed_sessions(raw_df: pd.DataFrame | None, athlete: str, *, window_star
 
 
 def sessions_achievement(count: int, audience: str) -> dict[str, object] | None:
-    if count <= 0:
+    """Solo si promedian al menos 1 sesion por semana en la ventana."""
+    weeks = ACHIEVEMENT_WINDOW_DAYS // 7
+    if count <= 0 or count / weeks < 1.0:
         return None
     noun = "sesión completada" if count == 1 else "sesiones completadas"
-    weeks = ACHIEVEMENT_WINDOW_DAYS // 7
     return {"kind": "sessions", "text": f"{count} {noun} en las últimas {weeks} semanas."}
 
 
@@ -268,6 +314,46 @@ def available_kpis(kpis: object, history: pd.DataFrame | None) -> list[str]:
     return labels
 
 
+def _latest_value(history: pd.DataFrame, column: str) -> float | None:
+    if column not in history.columns:
+        return None
+    values = pd.to_numeric(history.sort_values("Date")[column], errors="coerce").dropna() if "Date" in history.columns else pd.to_numeric(history[column], errors="coerce").dropna()
+    return float(values.iloc[-1]) if not values.empty else None
+
+
+def top_kpis(kpis: object, history: pd.DataFrame | None, limit: int = MAX_HIGHLIGHTED_VARIABLES) -> list[str]:
+    """Hasta `limit` KPIs medidos, los de mayor |z| primero."""
+    if not isinstance(kpis, (list, tuple)) or history is None or history.empty:
+        return []
+    ranked: list[tuple[float, int, str]] = []
+    seen: set[str] = set()
+    for order, kpi in enumerate(kpis):
+        label = KPI_LABELS.get(str(kpi), str(kpi))
+        if label in seen or not available_kpis([kpi], history):
+            continue
+        seen.add(label)
+        z_value = _latest_value(history, KPI_Z_COLUMNS.get(str(kpi), ""))
+        ranked.append((-(abs(z_value) if z_value is not None else -1.0), order, label))
+    ranked.sort()
+    return [label for _, _, label in ranked[:limit]]
+
+
+_STRENGTH_ITEM = re.compile(r"([^,(]+?)\s*\(([+-]?\d+(?:\.\d+)?)\)")
+
+
+def top_strengths(feedback_high: object, limit: int = MAX_HIGHLIGHTED_VARIABLES) -> str | None:
+    """'SJ (+1.63), CMJ (+1.23), DJ (+1.25)' -> 'SJ, DJ' (mayor z primero)."""
+    text = str(feedback_high or "").strip().rstrip(".")
+    if not text:
+        return None
+    items = [(float(z), name.strip()) for name, z in _STRENGTH_ITEM.findall(text)]
+    if not items:
+        names = [part.strip() for part in text.split(",") if part.strip()]
+        return ", ".join(names[:limit]) or None
+    items.sort(key=lambda item: item[0], reverse=True)
+    return ", ".join(name for _, name in items[:limit])
+
+
 _FOLLOW_UP_SENTENCE = re.compile(r"\s*Seguir de cerca [^.]*\.?", re.IGNORECASE)
 
 
@@ -280,7 +366,7 @@ def focus_text(profile: dict[str, object] | None, history: pd.DataFrame | None, 
         short = str(profile.get("training_priority_short") or "").strip()
         base = short or base
         return base
-    kpis = available_kpis(profile.get("kpi_to_track"), history)
+    kpis = top_kpis(profile.get("kpi_to_track"), history)
     if kpis and base:
         return f"{base} Seguir de cerca {', '.join(kpis)}."
     return base
@@ -296,8 +382,8 @@ def profile_reading(profile: dict[str, object] | None, composite: dict[str, obje
     feedback = composite.get("feedback") if isinstance(composite.get("feedback"), dict) else {}
     strengths = None
     if composite.get("has_clear_strength") and feedback.get("high"):
-        # Sin los z entre parentesis: al atleta le sirve el nombre, no el desvio.
-        strengths = re.sub(r"\s*\([^)]*\)", "", str(feedback.get("high"))).strip().rstrip(".")
+        # Sin los z entre parentesis y solo las 2 de mayor z.
+        strengths = top_strengths(feedback.get("high"))
     return {"label": label, "summary": summary or None, "strengths": strengths}
 
 
@@ -308,9 +394,9 @@ ZONE_SENTENCES = {
     "ok": "Las últimas semanas están en línea con tu promedio.",
 }
 CLIENT_TREND_HEADLINES = {
-    "Más exigente que las anteriores": "Por encima de tu promedio",
-    "Más liviana que las anteriores": "Por debajo de tu promedio",
-    "Similar a las anteriores": "En línea con tu promedio",
+    "Más exigente que las anteriores": "Más alta que tu promedio",
+    "Más liviana que las anteriores": "Más baja que tu promedio",
+    "Similar a las anteriores": "Similar a tu promedio",
 }
 CLIENT_TREND_SENTENCES = {
     "Más exigente que las anteriores": "La última semana completa estuvo por encima de tu promedio de las semanas previas.",
@@ -372,17 +458,14 @@ def load_reading(
     internal_load = internal_load or {}
     sentences: list[str] = []
     headline: str | None = None
-    if _audience_key(audience) == CLIENT:
-        if client_trend:
-            headline = CLIENT_TREND_HEADLINES.get(client_trend, client_trend)
-            sentence = CLIENT_TREND_SENTENCES.get(client_trend)
-            if sentence:
-                sentences.append(sentence)
-    else:
-        kind = _zone_kind(zone)
-        if kind is not None:
-            headline = zone_label(zone)
-            sentences.append(ZONE_SENTENCES[kind])
+    # Atleta y cliente: etiqueta descriptiva (ultima semana completa vs tu
+    # promedio de las previas). La zona del ACWR ("Precaucion") queda en el
+    # PDF profe: el ACWR es contexto, no semaforo (Impellizzeri et al. 2020).
+    if client_trend:
+        headline = CLIENT_TREND_HEADLINES.get(client_trend, client_trend)
+        sentence = CLIENT_TREND_SENTENCES.get(client_trend)
+        if sentence:
+            sentences.append(sentence)
     blocked = bool(internal_load.get("weekly_change_blocked"))
     week_label = str(internal_load.get("analysis_week_label") or "").replace(" - ", "–") or None
     change_pct = None if blocked else internal_load.get("weekly_change_pct")
@@ -400,7 +483,7 @@ def load_reading(
         rows.append(("Cambio vs semana anterior", f"{pct:+.1f}%"))
     acwr_value = _number(acwr)
     if _audience_key(audience) == ATHLETE and acwr_value is not None:
-        rows.append(("ACWR", f"{acwr_value:.2f}"))
+        rows.append(("ACWR (contexto, no semáforo)", f"{acwr_value:.2f}"))
     if not sentences and not rows:
         return None
     return {"headline": headline, "sentences": sentences, "rows": rows}

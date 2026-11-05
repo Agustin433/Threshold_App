@@ -36,6 +36,21 @@ con -4.1% semanal.
    con barra en `modules/strength_estimates.py`, mejor valor por dia).
 9. `chart_maxes_trend` duplicado eliminado de app.py.
 
+Ajustes de revision (mismo PR):
+- IMTP absoluta y relativa > +25% entre dos tomas: solo PDF profe con
+  "cambio inusualmente grande: verificar familiarizacion/protocolo"
+  (Tomas 2565 -> 3638 N, primer IMTP). En "Lo que lograste", IMTP en una
+  linea (N con N/kg entre parentesis).
+- "N sesiones completadas" solo con >= 1 por semana en la ventana.
+- Fuerza estimada: envolvente movil de 14 dias por ejercicio; sin datos en
+  las ultimas 6 semanas el ejercicio no se muestra (y si no queda ninguno,
+  tampoco el grafico).
+- Carga atleta/cliente: "Mas alta / Similar / Mas baja que tu promedio";
+  "Precaucion" por ACWR solo en el PDF profe (Impellizzeri et al. 2020).
+- "Seguir de cerca" y "Lo que mas se destaca": maximo 2, por mayor z.
+- Secciones del PDF: titulo + primer bloque juntos, el resto fluye.
+- PDFs de muestra fuera del repo (datos de salud).
+
 Tests: `tests/test_individual_report.py`.
 
 ## 2026-11-04 - PR A2: dependientes de v y serie por tiempo de vuelo

@@ -86,6 +86,51 @@ def estimated_strength_by_day(raw_df: pd.DataFrame | None, athlete: str | None =
     return best[columns].sort_values(["Lift", "Date"]).reset_index(drop=True)
 
 
+ENVELOPE_WINDOW_DAYS = 14
+RECENT_LIFT_DAYS = 42
+
+
+def rolling_best_envelope(
+    daily_df: pd.DataFrame,
+    *,
+    today: object,
+    window_days: int = ENVELOPE_WINDOW_DAYS,
+    recent_days: int = RECENT_LIFT_DAYS,
+) -> pd.DataFrame:
+    """Mejor estimacion movil de `window_days` dias por ejercicio (envolvente).
+
+    Un dia tecnico o liviano no hunde la curva: cada punto es el mejor 1RM
+    estimado de los ultimos 14 dias. Un ejercicio sin datos en las ultimas 6
+    semanas no se muestra; si no queda ninguno, el resultado viene vacio (y el
+    reporte no muestra el grafico).
+    """
+    columns = ["Date", "Lift", "e1RM_kg", "e1RM_day_kg"]
+    if daily_df is None or daily_df.empty:
+        return pd.DataFrame(columns=columns)
+    reference = pd.Timestamp(today).normalize()
+    recent_start = reference - pd.Timedelta(days=recent_days)
+    frames: list[pd.DataFrame] = []
+    for lift, lift_df in daily_df.groupby("Lift"):
+        lift_df = lift_df.sort_values("Date")
+        if not ((lift_df["Date"] >= recent_start) & (lift_df["Date"] <= reference)).any():
+            continue
+        series = lift_df.set_index("Date")["e1RM_kg"]
+        envelope = series.rolling(f"{window_days}D").max()
+        frames.append(
+            pd.DataFrame(
+                {
+                    "Date": series.index,
+                    "Lift": lift,
+                    "e1RM_kg": envelope.values,
+                    "e1RM_day_kg": series.values,
+                }
+            )
+        )
+    if not frames:
+        return pd.DataFrame(columns=columns)
+    return pd.concat(frames, ignore_index=True)[columns]
+
+
 def new_main_lift_bests(
     maxes_df: pd.DataFrame | None,
     athlete: str | None,

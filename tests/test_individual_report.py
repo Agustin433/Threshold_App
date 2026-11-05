@@ -26,7 +26,9 @@ from modules.strength_estimates import (
     epley_1rm,
     estimated_strength_by_day,
     new_main_lift_bests,
+    rolling_best_envelope,
 )
+from charts.load_charts import chart_estimated_strength
 
 NOW = datetime(2026, 11, 4, 12, 0)
 
@@ -75,7 +77,8 @@ class AchievementsTests(unittest.TestCase):
         texts = " ".join(item["text"] for item in items)
         self.assertIn("Salto CMJ (por tiempo de vuelo): 36.7 cm → 44.0 cm", texts)
         self.assertIn("13/11/2025 → 21/10/2026", texts)
-        self.assertIn("Fuerza máxima (IMTP): 2565 N → 3638 N", texts)
+        # Primer IMTP: 2565 -> 3638 N (+41.8%) es implausible: solo PDF profe.
+        self.assertNotIn("IMTP", texts)
 
     def test_ignacio_cmj_improvement_uses_impulse(self):
         items = ar.evaluation_achievements(compute_evaluation_changes(_history(IGNACIO)), "atleta")
@@ -122,6 +125,10 @@ class AchievementsTests(unittest.TestCase):
 
     def test_sessions_and_best_marks(self):
         self.assertEqual(ar.sessions_achievement(0, "atleta"), None)
+        # Tomas: 1 sesion en 6 semanas -> no se muestra (< 1 por semana).
+        self.assertIsNone(ar.sessions_achievement(1, "atleta"))
+        self.assertIsNone(ar.sessions_achievement(5, "atleta"))
+        self.assertIn("6 sesiones completadas", ar.sessions_achievement(6, "atleta")["text"])
         self.assertIn("16 sesiones completadas", ar.sessions_achievement(16, "atleta")["text"])
         best = ar.best_mark_achievements(
             [{"Lift": "Sentadilla trasera", "Value": 110.0, "Previous": 99.0, "Date": pd.Timestamp("2026-10-21")}],
@@ -140,15 +147,37 @@ class LoadCoherenceTests(unittest.TestCase):
         "weekly_change_blocked": False,
     }
 
-    def test_giffon_acwr_phrase_and_weekly_sign(self):
+    def test_giffon_label_is_descriptive_and_weekly_sign_holds(self):
+        # ACWR 1.32 ("Precaucion" en el PDF profe) -> atleta: etiqueta descriptiva.
         reading = ar.load_reading(
-            self.GIFFON_LOAD, evaluable=True, zone="Precaucion", acwr=1.32, client_trend=None, audience="atleta"
+            self.GIFFON_LOAD,
+            evaluable=True,
+            zone="Precaucion",
+            acwr=1.32,
+            client_trend="Más exigente que las anteriores",
+            audience="atleta",
         )
         text = " ".join(reading["sentences"]).lower()
-        self.assertIn("las últimas semanas vienen más exigentes que tu promedio", text)
+        self.assertEqual(reading["headline"], "Más alta que tu promedio")
+        self.assertIn("por encima de tu promedio de las semanas previas", text)
         self.assertIn("4.1% menos carga que la anterior", text)
         self.assertNotIn("la última semana fue más exigente", text)
-        self.assertEqual(reading["headline"], "Precaución")
+        joined = _normalized(reading["headline"] + " " + text + " " + " ".join(a for a, _ in reading["rows"]))
+        for word in ("precaucion", "alto riesgo", "subcarga", "optimo", "zona"):
+            self.assertNotIn(word, joined)
+
+    def test_descriptive_labels(self):
+        for trend, label in (
+            ("Más exigente que las anteriores", "Más alta que tu promedio"),
+            ("Similar a las anteriores", "Similar a tu promedio"),
+            ("Más liviana que las anteriores", "Más baja que tu promedio"),
+        ):
+            for audience in ("atleta", "cliente"):
+                with self.subTest(trend=trend, audience=audience):
+                    reading = ar.load_reading(
+                        self.GIFFON_LOAD, evaluable=True, zone="Alto riesgo", acwr=1.6, client_trend=trend, audience=audience
+                    )
+                    self.assertEqual(reading["headline"], label)
 
     def test_weekly_sentence_matches_sign(self):
         for pct, word in ((12.0, "más"), (-12.0, "menos")):
@@ -167,7 +196,7 @@ class LoadCoherenceTests(unittest.TestCase):
         text = _normalized(" ".join(reading["sentences"]) + " " + " ".join(f"{a} {b}" for a, b in reading["rows"]))
         for word in ("acwr", "precaucion", "zona"):
             self.assertNotIn(word, text)
-        self.assertIn("por encima de tu promedio", _normalized(reading["headline"]))
+        self.assertEqual(reading["headline"], "Más alta que tu promedio")
 
     def test_not_evaluable_load_has_no_section(self):
         self.assertIsNone(
@@ -212,7 +241,8 @@ class FocusAndStepsTests(unittest.TestCase):
         }
         history = _history(TOMAS)
         text = ar.focus_text(profile, history, "atleta")
-        self.assertIn("Seguir de cerca CMJ, IMTP.", text)
+        follow = text.split("Seguir de cerca ")[1].rstrip(".").split(", ")
+        self.assertEqual(sorted(follow), ["CMJ", "IMTP"])
         self.assertNotIn("SJ", text)
         self.assertNotIn("EUR", text)
         self.assertEqual(text.count("Seguir de cerca"), 1)
@@ -246,6 +276,47 @@ class FocusAndStepsTests(unittest.TestCase):
         self.assertEqual(terms, ["CMJ", "RPE"])
 
 
+class ImtpAndHighlightsTests(unittest.TestCase):
+    def test_tomas_first_imtp_is_professional_only(self):
+        changes = compute_evaluation_changes(_history(TOMAS))
+        imtp = changes[changes["Variable"] == "IMTP_N"].iloc[0]
+        self.assertTrue(bool(imtp["Unusual"]))
+        self.assertFalse(any("IMTP" in item["text"] for item in ar.evaluation_achievements(changes, "atleta")))
+        self.assertFalse(any("Fuerza" in item["text"] for item in ar.evaluation_achievements(changes, "cliente")))
+        notes = ar.unusual_changes_for_professional(changes)
+        self.assertTrue(any("verificar familiarización/protocolo" in line for line in notes))
+        state = {"jump_df": pd.DataFrame([{**row, "Source": "platform", "BW_kg": 80.0} for row in TOMAS])}
+        payload = rg._build_professional_change_payload(state, "Tomas De La Vega")
+        self.assertTrue(any("verificar familiarización/protocolo" in item for item in payload["to_verify"]))
+
+    def test_imtp_single_line_with_relative_in_parentheses(self):
+        # Ignacio 20/05 -> 08/10/2026: 3235 -> 3491 N (+7.9%), 37.2 -> 39.9 N/kg.
+        changes = pd.DataFrame(
+            [
+                {"Variable": "IMTP_N", "Signal": "mejora relevante", "Valor_actual": 3491.17, "Valor_anterior": 3235.0,
+                 "Fecha_actual": "2026-10-08", "Fecha_anterior": "2026-05-20", "Delta_pct": 7.9, "Unusual": False},
+                {"Variable": "IMTP_relPF", "Signal": "mejora relevante", "Valor_actual": 39.92, "Valor_anterior": 37.18,
+                 "Fecha_actual": "2026-10-08", "Fecha_anterior": "2026-05-20", "Delta_pct": 7.4, "Unusual": False},
+            ]
+        )
+        items = ar.evaluation_achievements(changes, "atleta")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(
+            items[0]["text"],
+            "Fuerza máxima (IMTP): 3235 N → 3491 N (+256 N; 37.2 → 39.9 N/kg), 20/05/2026 → 08/10/2026.",
+        )
+
+    def test_highlights_are_capped_at_two_by_z(self):
+        # Ignacio (PDF profe): SJ (+1.63), CMJ (+1.23), DJ (+1.25), DJ RSI (+1.20), IMTP (+0.57).
+        self.assertEqual(ar.top_strengths("SJ (+1.63), CMJ (+1.23), DJ (+1.25), DJ RSI (+1.20), IMTP (+0.57)"), "SJ, DJ")
+        history = pd.DataFrame(
+            [{"Date": "2026-10-08", "CMJ_cm": 46.0, "CMJ_Z": 1.23, "SJ_cm": 43.5, "SJ_Z": 1.63, "EUR": 1.06, "EUR_Z": -0.59,
+              "DJ_RSI": 2.29, "DJ_RSI_Z": 1.20, "IMTP_relPF": 39.9, "IMTP_relPF_Z": 0.57}]
+        )
+        kpis = ["CMJ_cm", "SJ_cm", "EUR", "DJ_RSI", "IMTP_relPF"]
+        self.assertEqual(ar.top_kpis(kpis, history), ["SJ", "CMJ"])
+
+
 # ── 8. Fuerza estimada ────────────────────────────────────────────────────
 class StrengthEstimateTests(unittest.TestCase):
     def test_epley(self):
@@ -269,6 +340,34 @@ class StrengthEstimateTests(unittest.TestCase):
         self.assertAlmostEqual(float(result["e1RM_kg"].iloc[0]), 110 * (1 + 3 / 30))
         self.assertNotIn("hang power clean", MAIN_BARBELL_LIFTS)
         self.assertIn("no es un 1RM medido", ESTIMATED_STRENGTH_LABEL)
+
+    def test_rolling_envelope_hides_technical_day(self):
+        # Giffon: sentadilla 110 (29/09), 105 (06/10), 99 (16/10), 55 (20/10, dia tecnico).
+        daily = pd.DataFrame(
+            [
+                {"Date": pd.Timestamp(day), "Lift": "Sentadilla trasera", "e1RM_kg": value}
+                for day, value in (("2026-09-29", 110.0), ("2026-10-06", 105.0), ("2026-10-16", 99.0), ("2026-10-20", 55.0))
+            ]
+        )
+        envelope = rolling_best_envelope(daily, today="2026-11-04").set_index("Date")
+        self.assertEqual(float(envelope.loc[pd.Timestamp("2026-10-20"), "e1RM_kg"]), 99.0)
+        self.assertEqual(float(envelope.loc[pd.Timestamp("2026-10-06"), "e1RM_kg"]), 110.0)
+        self.assertEqual(float(envelope["e1RM_day_kg"].min()), 55.0)
+
+    def test_lifts_without_recent_data_are_dropped(self):
+        # Tomas: datos solo 25/08-01/09 -> sin grafico al 04/11.
+        daily = pd.DataFrame(
+            [
+                {"Date": pd.Timestamp("2026-08-25"), "Lift": "Press de banca", "e1RM_kg": 50.0},
+                {"Date": pd.Timestamp("2026-09-01"), "Lift": "Sentadilla frontal", "e1RM_kg": 65.0},
+            ]
+        )
+        self.assertTrue(rolling_best_envelope(daily, today="2026-11-04").empty)
+        mixed = pd.concat(
+            [daily, pd.DataFrame([{"Date": pd.Timestamp("2026-10-30"), "Lift": "Peso muerto", "e1RM_kg": 140.0}])]
+        )
+        self.assertEqual(rolling_best_envelope(mixed, today="2026-11-04")["Lift"].unique().tolist(), ["Peso muerto"])
+        self.assertIsNone(chart_estimated_strength(rolling_best_envelope(daily, today="2026-11-04"), theme={}))
 
     def test_new_best_needs_a_previous_mark(self):
         maxes = pd.DataFrame(

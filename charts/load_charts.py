@@ -885,7 +885,7 @@ def chart_estimated_strength(
         from charts.report_charts import apply_chart_mode
 
         fig.update_xaxes(gridcolor=grid_soft, zeroline=False)
-        fig.update_yaxes(title_text="kg (1RM estimado)", gridcolor=grid_soft, zeroline=False)
+        fig.update_yaxes(title_text="kg (mejor de 14 días)", gridcolor=grid_soft, zeroline=False)
         return apply_chart_mode(fig, "print", theme=theme, title="Fuerza estimada", print_height_mm=print_height_mm)
     fig.update_layout(
         **layout,
@@ -895,7 +895,7 @@ def chart_estimated_strength(
             font=dict(color=colors.get("navy"), size=13),
         ),
         xaxis=dict(title="Fecha", gridcolor=grid_soft, zeroline=False),
-        yaxis=dict(title="kg (1RM estimado)", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="kg (mejor de 14 días)", gridcolor=grid_soft, zeroline=False),
         legend=legend,
     )
     return fig
