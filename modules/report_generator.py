@@ -35,8 +35,10 @@ from modules.data_quality import SRPE_COVERAGE_RED_PCT, compute_data_quality_rep
 from modules.evaluation_rules import (
     IMTP_NO_RISE_FLAG,
     IMTP_NO_RISE_LABEL,
+    JUMP_HEIGHT_REASON,
     apply_imtp_quality,
     calc_imtp_relative_force,
+    jump_height_consistency_rows,
 )
 from modules.jump_analysis import sanitize_body_weight
 from modules.wellness_scales import WELLNESS_EXPORT_HEADERS, WELLNESS_RESPONSE_SCALE
@@ -65,6 +67,8 @@ from modules.jump_analysis import (
     classify_neuromuscular_quadrant,
     compute_baseline_delta,
     compute_swc_delta,
+    compare_flight_time_height,
+    NO_IMPULSE_COMPARISON_SIGNAL,
     resolve_zscore,
     semaphore_label,
     z_source_of,
@@ -2129,7 +2133,8 @@ def build_report_executive_sheet(
         )
         add_row("Semana actual", "Wellness promedio", wellness_value, " | ".join(strain_detail) or "Sin wellness consolidado.")
 
-        add_row("Adherencia", "Completion equipo", completion_snapshot["value"], completion_snapshot["detail"])
+        if completion_snapshot["numeric"] is not None:
+            add_row("Adherencia", "Completion equipo", completion_snapshot["value"], completion_snapshot["detail"])
         eval_value, eval_detail = _latest_eval_summary(summary_df)
         add_row("Evaluación útil", "Última evaluación visible", eval_value, eval_detail)
     else:
@@ -2168,7 +2173,8 @@ def build_report_executive_sheet(
         ) or "Sin wellness útil para la semana actual."
         add_row("Semana actual", "Wellness promedio", wellness_value, wellness_detail)
 
-        add_row("Adherencia", "Completion", completion_snapshot["value"], completion_snapshot["detail"])
+        if completion_snapshot["numeric"] is not None:
+            add_row("Adherencia", "Completion", completion_snapshot["value"], completion_snapshot["detail"])
 
         focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
         eval_value = focus_row.get("Fecha evaluación", "Pendiente")
@@ -4038,7 +4044,8 @@ def _build_dashboard_page(
     _pdf_text(commands, 64, 438, pulse_title, font="F2", size=12, color="#221F20")
     _pdf_text(commands, 64, 414, f"{athletes_label}: {athletes_text}", size=10, color="#5A595B")
     _pdf_text(commands, 220, 414, f"{datasets_label}: {datasets_count}", size=10, color="#5A595B")
-    _pdf_text(commands, 392, 414, f"{adherence_label}: {completion_text}", size=10, color="#5A595B")
+    if completion_value is not None:
+        _pdf_text(commands, 392, 414, f"{adherence_label}: {completion_text}", size=10, color="#5A595B")
 
     _pdf_text(commands, 48, 346, "Nota de exportación", font="F2", size=12, color="#221F20")
     _pdf_multiline(
@@ -5162,7 +5169,11 @@ def collect_report_plotly_figures(
         return [item for item in figures if item["slug"] in preferred][:2]
 
     if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and effective_athlete in jdf["Athlete"].values:
-        athlete_jdf = jdf[jdf["Athlete"] == effective_athlete].sort_values("Date")
+        # Mismo historial (preparado con la cohorte) que la tabla y los
+        # cuadrantes: una sola fuente de z en todo el PDF.
+        athlete_jdf = _professional_jump_history(state, effective_athlete)
+        if athlete_jdf.empty:
+            athlete_jdf = jdf[jdf["Athlete"] == effective_athlete].sort_values("Date")
         radar_row = build_profile_radar_row(athlete_jdf)
         if audience in {"atleta", "profe"}:
             figures.append(
@@ -6543,13 +6554,10 @@ def _build_professional_training_context(
             week_rows = rpe_source[(rpe_source["Date"] >= week_start) & (rpe_source["Date"] <= week_end) & (rpe_source["sRPE"] > 0)]
             weekly_srpe_dates = list(week_rows["Date"].unique())
             weekly_srpe_days = len(weekly_srpe_dates)
+    # Sin completion fechado no hay adherencia por ventana: la fila no se
+    # muestra (antes decia "Faltan datos" siempre).
     if completion.get("numeric") is not None:
-        adherence_text = safe_value(completion.get("value"))
-    elif sessions_count is not None:
-        adherence_text = PDF_MISSING_TEXT
-    else:
-        adherence_text = PDF_MISSING_TEXT
-    rows.append(("Adherencia formal", adherence_text))
+        rows.append(("Adherencia formal", safe_value(completion.get("value"))))
     rows.append(("Sesiones registradas", sessions_text))
     weekly_srpe_done = None
     target_week = pd.to_datetime(load_row.get("week_start"), errors="coerce")
@@ -8018,6 +8026,32 @@ def _professional_composite_metric_count(metric_table: pd.DataFrame) -> int:
     return int(values.ne("-").sum())
 
 
+def _professional_jump_height_quality_lines(history: pd.DataFrame | None) -> list[str]:
+    """Tomas con altura por impulso inconsistente con el vuelo (solo PDF profe).
+
+    La altura por tiempo de vuelo se muestra rotulada como tal: es otra
+    estimacion, no reemplaza a la informada ni entra a ningun calculo.
+    """
+    lines: list[str] = []
+    for item in jump_height_consistency_rows(history):
+        date = pd.to_datetime(item.get("Date"), errors="coerce")
+        date_text = date.strftime("%d/%m/%Y") if pd.notna(date) else "sin fecha"
+        lines.append(
+            f"{item['Test']} {date_text}: altura informada (impulso) {item['reported_cm']:.1f} cm; "
+            f"altura por tiempo de vuelo {item['flight_height_cm']:.1f} cm. Excluida de radar, z-score, "
+            "cohorte y comparaciones."
+        )
+    return lines
+
+
+PROFESSIONAL_JUMP_HEIGHT_QUALITY_TITLE = "Calidad del dato: altura de salto"
+PROFESSIONAL_JUMP_HEIGHT_QUALITY_NOTE = (
+    f"Motivo: {JUMP_HEIGHT_REASON}. Criterio: |informada − vuelo| > máx(3 cm, 8% de la altura por vuelo); "
+    "vuelo = g·t²/8. Ref: Street et al. 2001 (J Appl Biomech 17:43-54); Moir 2008 "
+    "(Meas Phys Educ Exerc Sci 12:207-218)."
+)
+
+
 def _build_professional_composite_profile_payload(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
@@ -8182,7 +8216,41 @@ def _build_professional_composite_profile_payload(
         "latest_profile_date": _format_profile_source_date(history["Date"].max()),
         "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
         "scope_note": scope_note,
+        "jump_height_quality_lines": _professional_jump_height_quality_lines(history),
     }
+
+
+def _professional_add_flight_time_rows(
+    history: pd.DataFrame,
+    delta_df: pd.DataFrame,
+    current_date: object,
+) -> pd.DataFrame:
+    """Fila por tiempo de vuelo cuando la comparacion por impulso no se puede.
+
+    Solo para CMJ/SJ cuya fila por impulso quedo "no comparable" por una
+    altura inconsistente con el vuelo. Va rotulada "por tiempo de vuelo" y
+    compara vuelo contra vuelo: nunca se mezcla con la serie por impulso.
+    """
+    if delta_df is None or delta_df.empty or "Variable" not in delta_df.columns:
+        return delta_df
+    extra_rows: list[dict[str, object]] = []
+    for test in ("CMJ", "SJ"):
+        impulse_rows = delta_df[delta_df["Variable"] == f"{test}_cm"]
+        if impulse_rows.empty or str(impulse_rows.iloc[0].get("Signal")) != NO_IMPULSE_COMPARISON_SIGNAL:
+            continue
+        flight_row = compare_flight_time_height(history, test, current_date=current_date)
+        if flight_row is not None:
+            extra_rows.append(flight_row)
+    if not extra_rows:
+        return delta_df
+    extra = pd.DataFrame(extra_rows)
+    ordered: list[pd.DataFrame] = []
+    for _, row in delta_df.iterrows():
+        ordered.append(row.to_frame().T)
+        match = extra[extra["Test"] + "_cm" == row["Variable"]]
+        if not match.empty:
+            ordered.append(match.drop(columns=["Test", "Method"]))
+    return pd.concat(ordered, ignore_index=True)
 
 
 def _build_professional_change_payload(
@@ -8210,6 +8278,7 @@ def _build_professional_change_payload(
 
     latest_date = pd.to_datetime(history["Date"], errors="coerce").dropna().max()
     delta_df = compute_swc_delta(history, latest_date)
+    delta_df = _professional_add_flight_time_rows(history, delta_df, latest_date)
     display_table = build_jump_delta_display_table(delta_df)
     if not display_table.empty:
         display_table = display_table.apply(lambda column: column.map(_professional_visible_metric_text))
@@ -11836,6 +11905,20 @@ def _generate_professional_profile_pdf_reportlab(
         target.append(_two_column(radar_panel, profile_summary_flow, left_width_mm=104, right_width_mm=70))
         target.append(Spacer(1, 4 * mm))
         target.append(_dataframe_table(composite_profile.get("metric_table"), col_widths_mm=[35, 31, 21, 87]))
+        height_quality_lines = list(composite_profile.get("jump_height_quality_lines") or [])
+        if height_quality_lines:
+            target.append(Spacer(1, 3 * mm))
+            target.append(
+                _box(
+                    [_p(PROFESSIONAL_JUMP_HEIGHT_QUALITY_TITLE, "ProfCardTitle")]
+                    + [_p(f"- {line}", "ProfMuted") for line in height_quality_lines]
+                    + [_p(PROFESSIONAL_JUMP_HEIGHT_QUALITY_NOTE, "ProfMuted")],
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    padding=6,
+                    accent_color=palette["line_dark"],
+                )
+            )
         feedback = composite_profile.get("feedback", {}) if isinstance(composite_profile.get("feedback"), dict) else {}
         target.append(Spacer(1, 4 * mm))
         target.append(
@@ -12462,7 +12545,7 @@ def _generate_visual_report_pdf_reportlab(
             [
                 _p(f"Semana actual\n{week_value}", "ReportMuted"),
                 _p(f"Readiness\n{readiness['label']}", "ReportMuted"),
-                _p(f"{adherence_label}\n{completion_text}", "ReportMuted"),
+                *([_p(f"{adherence_label}\n{completion_text}", "ReportMuted")] if completion_value is not None else []),
             ]
         ]
         return _build_threshold_table(
@@ -12471,7 +12554,7 @@ def _generate_visual_report_pdf_reportlab(
             TableStyleClass=TableStyle,
             mm_unit=mm,
             palette=palette,
-            col_widths_mm=[56, 56, 56],
+            col_widths_mm=[168 / len(data[0])] * len(data[0]),
             show_inner_grid=False,
             border_width=0.7,
             left_padding=8,
@@ -12836,8 +12919,11 @@ def _generate_visual_report_pdf_reportlab(
                     _zone_color(focus_row.get("Zona")) if load_available else "#708C9F",
                 ),
                 ("Bienestar", _athlete_recent_wellness_text(), "#2F6B52"),
-                ("Adherencia", _athlete_completion_text(), "#708C9F"),
             ]
+            # Sin completion por ventana no hay adherencia que mostrar: el
+            # tile se omite en vez de decir siempre "Todavia no registrado".
+            if completion_value is not None:
+                cards.append(("Adherencia", _athlete_completion_text(), "#708C9F"))
             return cards
 
         def _athlete_dictionary_lines() -> list[str]:
@@ -12970,7 +13056,11 @@ def _generate_visual_report_pdf_reportlab(
                     ),
                     wellness_summary.get("pain_n"),
                 ),
-                {"label": "Adherencia", "value": _athlete_completion_text(), "note": ""},
+                *(
+                    [{"label": "Adherencia", "value": _athlete_completion_text(), "note": ""}]
+                    if completion_value is not None
+                    else []
+                ),
                 {"label": WELLNESS_WEEK_DAYS_LABEL, "value": str(athlete_score_days) if athlete_score_days > 0 else "Todavía no registrado", "note": ""},
             ]
 
@@ -13987,12 +14077,10 @@ def _generate_visual_report_pdf_reportlab(
                     _client_recent_wellness_label(),
                     "#2F6B52",
                 ),
-                (
-                    "Constancia",
-                    completion_display_text(completion_value, fallback=_client_missing_text("registration"))
+                *(
+                    [("Constancia", completion_display_text(completion_value), "#708C9F")]
                     if completion_value is not None
-                    else _client_missing_text("registration"),
-                    "#708C9F",
+                    else []
                 ),
                 ("Foco actual", _client_focus_label(), "#134263"),
             ]
@@ -14047,12 +14135,11 @@ def _generate_visual_report_pdf_reportlab(
                     if _row_has_wellness_data(focus_row)
                     else _client_missing_text("registration"),
                 },
-                {
-                    "label": "Constancia del plan",
-                    "value": completion_display_text(completion_value, fallback=_client_missing_text("registration"))
+                *(
+                    [{"label": "Constancia del plan", "value": completion_display_text(completion_value)}]
                     if completion_value is not None
-                    else _client_missing_text("registration"),
-                },
+                    else []
+                ),
                 {
                     "label": "Lectura actual",
                     "value": (
@@ -14096,12 +14183,11 @@ def _generate_visual_report_pdf_reportlab(
                     if sessions_registered is not None and (_row_has_load_data(focus_row) or str(internal_load.get("analysis_scope") or "") == "current_week_partial")
                     else _client_missing_text("registration"),
                 },
-                {
-                    "label": "Constancia",
-                    "value": completion_display_text(completion_value, fallback=_client_missing_text("registration"))
+                *(
+                    [{"label": "Constancia", "value": completion_display_text(completion_value)}]
                     if completion_value is not None
-                    else _client_missing_text("registration"),
-                },
+                    else []
+                ),
             ]
 
         def _client_load_lines() -> list[str]:

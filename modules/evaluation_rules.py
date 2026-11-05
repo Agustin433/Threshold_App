@@ -317,6 +317,9 @@ INSTRUMENT_TYPICAL_ERROR_PCT: dict[str, float] = {
     "DSI": 5.0,
     "CMJ_rel_impulse": 3.0,
     "Jump_Momentum": 3.0,
+    # Altura por tiempo de vuelo (misma plataforma, otro metodo).
+    "CMJ_ft_cm": 3.0,
+    "SJ_ft_cm": 3.0,
 }
 DEFAULT_INSTRUMENT_TYPICAL_ERROR_PCT = 3.0
 INTRAINDIVIDUAL_MIN_VALID = 3
@@ -346,62 +349,58 @@ def resolve_change_threshold(
     *,
     swc_pct: float,
 ) -> dict[str, object]:
-    """Umbral minimo de cambio real y su fuente.
+    """Umbral minimo de cambio real y su fuente: max(TE, SWC), siempre.
 
-    - Con >= 3 mediciones validas: max(0.2*SD intraindividual [Hopkins],
-      TE intraindividual = SD de las diferencias sucesivas / sqrt(2)).
-      Los pares de tomas identicas se excluyen antes (TE = 0 no es
-      fisiologico: es la misma toma cargada dos veces).
-    - Con menos: max(SWC fijo, TE tipico del instrumento), ambos como % del
-      valor anterior. Un umbral por debajo del ruido de medicion convierte el
-      error en "cambio".
+    Candidatos (gana el mayor; la fuente se rotula):
+    - SWC: con >= 3 mediciones validas, 0.2*SD intraindividual (Hopkins);
+      con menos, el SWC fijo de la variable (% del valor anterior).
+    - TE del instrumento (% del valor anterior): siempre. Un umbral por
+      debajo del ruido de medicion convierte el error en "cambio" (antes,
+      con 3+ tomas, el SJ quedaba en 0.6 cm "Hopkins 0.2·SD").
+    - TE intraindividual = SD de las diferencias sucesivas / sqrt(2), con
+      >= 3 mediciones. Los pares de tomas identicas se excluyen antes (TE = 0
+      no es fisiologico: es la misma toma cargada dos veces).
     """
     previous = _number(previous_value)
     values = drop_identical_consecutive_takes(
         [v for v in (_number(x) for x in history_values) if v is not None]
     )
     n_valid = len(values)
+    intraindividual = n_valid >= INTRAINDIVIDUAL_MIN_VALID
+    suffix = f", N={n_valid}" if intraindividual else ""
 
-    if n_valid >= INTRAINDIVIDUAL_MIN_VALID:
-        sd = float(np.std(values, ddof=1))
-        swc_abs = abs(0.2 * sd)
+    # (umbral, metodo, etiqueta). El orden desempata: ante igualdad gana el
+    # primero, que es el ruido (TE) y no el SWC.
+    candidates: list[tuple[float, str, str]] = []
+    reference = previous if previous is not None and previous > 0 else (values[-1] if values else None)
+    if reference is not None and reference > 0:
+        te_pct = INSTRUMENT_TYPICAL_ERROR_PCT.get(variable, DEFAULT_INSTRUMENT_TYPICAL_ERROR_PCT)
+        candidates.append((abs(reference * float(te_pct) / 100), "TE instrumento", f"TE instrumento {te_pct:g}%{suffix}"))
+    if intraindividual:
         diffs = np.diff(values)
-        te_abs = float(np.std(diffs, ddof=1) / math.sqrt(2)) if len(diffs) >= 2 else float("nan")
-        if not math.isnan(te_abs) and te_abs > swc_abs:
-            return {
-                "threshold_abs": te_abs,
-                "method": "TE intraindividual",
-                "label": f"TE intraindividual, N={n_valid}",
-            }
-        return {
-            "threshold_abs": swc_abs,
-            "method": "Hopkins",
-            "label": f"Hopkins 0.2·SD, N={n_valid}",
-        }
+        if len(diffs) >= 2:
+            te_abs = float(np.std(diffs, ddof=1) / math.sqrt(2))
+            candidates.append((te_abs, "TE intraindividual", f"TE intraindividual{suffix}"))
+        sd = float(np.std(values, ddof=1))
+        candidates.append((abs(0.2 * sd), "Hopkins", f"Hopkins 0.2·SD{suffix}"))
+    elif previous is not None and previous > 0:
+        candidates.append((abs(previous * float(swc_pct) / 100), "SWC fijo", f"SWC fijo {float(swc_pct):g}%"))
 
-    if previous is None or previous <= 0:
+    candidates = [c for c in candidates if not math.isnan(c[0])]
+    if not candidates:
         return {"threshold_abs": float("nan"), "method": None, "label": None}
-    te_pct = INSTRUMENT_TYPICAL_ERROR_PCT.get(variable, DEFAULT_INSTRUMENT_TYPICAL_ERROR_PCT)
-    swc_abs = abs(previous * float(swc_pct) / 100)
-    te_abs = abs(previous * float(te_pct) / 100)
-    if te_abs >= swc_abs:
-        return {
-            "threshold_abs": te_abs,
-            "method": "TE instrumento",
-            "label": f"TE instrumento {te_pct:g}%",
-        }
-    return {
-        "threshold_abs": swc_abs,
-        "method": "SWC fijo",
-        "label": f"SWC fijo {float(swc_pct):g}%",
-    }
+    best = candidates[0]
+    for candidate in candidates[1:]:
+        if candidate[0] > best[0]:
+            best = candidate
+    return {"threshold_abs": best[0], "method": best[1], "label": best[2]}
 
 
 CHANGE_THRESHOLD_CAPTION = (
-    "Umbral de cambio: con menos de 3 mediciones válidas se usa el mayor entre el SWC fijo y el "
-    "error típico del instrumento (p. ej. 3% en altura de salto en plataforma); desde la tercera "
-    "medición, el mayor entre 0.2·SD individual (Hopkins) y el TE intraindividual. La fuente "
-    "se rotula entre paréntesis."
+    "Umbral de cambio = max(TE, SWC) en todas las variables. TE: error típico del instrumento "
+    "(p. ej. 3% en altura de salto en plataforma) y, desde la tercera medición, el TE "
+    "intraindividual. SWC: fijo con menos de 3 mediciones válidas, 0.2·SD individual (Hopkins) "
+    "desde la tercera. Gana el mayor y su fuente se rotula entre paréntesis."
 )
 
 
@@ -589,6 +588,260 @@ def platform_body_weight_upload_warning(
     return result.get("detail")  # type: ignore[return-value]
 
 
+# ── Regla 6b: altura por impulso inconsistente con el tiempo de vuelo ─────
+# La plataforma informa la altura por impulso-momento (v_despegue^2 / 2g, con
+# v integrada desde (F - peso) / masa). El tiempo de vuelo da otra estimacion
+# independiente del peso: h = g * t^2 / 8. Las dos difieren poco en una toma
+# bien hecha (el vuelo sobreestima algo por la postura de aterrizaje: Moir
+# 2008, Meas Phys Educ Exerc Sci 12:207-218). Un error de pocos kg en la fase
+# de pesaje se integra durante todo el impulso y desplaza la velocidad de
+# despegue (Street et al. 2001, J Appl Biomech 17:43-54): una diferencia
+# mayor a max(3 cm, 8% de la altura por vuelo) no es ruido de tecnica.
+# Esa altura no entra a radar, z-score, cohorte ni comparaciones. El dato
+# crudo queda en la base (los NaN no se escriben al guardar); la altura por
+# vuelo se conserva aparte solo para mostrarla rotulada en el PDF profe.
+JUMP_HEIGHT_FLAG_COLUMN = "Jump_height_flag"
+JUMP_HEIGHT_DETAIL_COLUMN = "Jump_height_detail"
+JUMP_HEIGHT_TESTS = ("CMJ", "SJ")
+JUMP_HEIGHT_MIN_DIFF_CM = 3.0
+JUMP_HEIGHT_MIN_DIFF_PCT = 8.0
+JUMP_HEIGHT_REASON = (
+    "altura por impulso inconsistente con tiempo de vuelo "
+    "(probable error de peso en la fase de pesaje)"
+)
+# Todo lo que sale de la misma velocidad integrada (v = integral de
+# (F - peso) / masa) arrastra el mismo error de pesaje que la altura
+# (h = v^2 / 2g). Se excluye junto con la altura:
+# - velocidad de despegue: es v.
+# - impulso relativo (propulsivo): impulso neto / masa = delta v.
+# - potencia pico: F * v.
+# - RSI-mod (CMJ_RSI / SJ_RSI): altura / tiempo.
+# - momentum (BW * v) y EUR (CMJ/SJ): derivadas de la app con la altura.
+# - duraciones de frenado y concentrica del CMJ: el limite entre fases es
+#   v = 0, y con la masa mal la curva de v se corre.
+# - RFD de frenado y propulsivo: se calculan sobre esas fases.
+# - rigidez de aterrizaje: el desplazamiento sale de integrar v.
+# Se conservan las fuerzas medidas directamente (pico de frenado,
+# propulsiva, aterrizaje, por pierna), asimetrias, tiempo de vuelo,
+# tiempo de contraccion, estabilizacion e IMTP.
+JUMP_HEIGHT_DEPENDENT: dict[str, tuple[str, ...]] = {
+    "CMJ": (
+        "CMJ_cm",
+        "CMJ_takeoff_velocity_m_s",
+        "CMJ_rel_impulse",
+        "CMJ_peak_power_W",
+        "CMJ_RSI",
+        "CMJ_brake_ms",
+        "CMJ_conc_ms",
+        "CMJ_braking_RFD_N_s",
+        "CMJ_propulsive_RFD_N_s",
+        "CMJ_landing_stiffness_N_m",
+        "Jump_Momentum",
+        "EUR",
+    ),
+    "SJ": (
+        "SJ_cm",
+        "SJ_takeoff_velocity_m_s",
+        "SJ_rel_impulse",
+        "SJ_peak_power_W",
+        "SJ_RSI",
+        "EUR",
+    ),
+}
+
+
+def jump_height_flagged_tests(row: Mapping[str, object] | pd.Series) -> list[str]:
+    """Tests (CMJ/SJ) de una fila ya preparada con la altura marcada."""
+    getter = row.get if hasattr(row, "get") else (lambda _key, _default=None: None)
+    text = str(getter(JUMP_HEIGHT_FLAG_COLUMN) or "").strip()
+    if not text or text.lower() == "nan":
+        return []
+    return [part.strip().upper() for part in text.split(",") if part.strip().upper() in JUMP_HEIGHT_TESTS]
+
+
+def jump_height_tests_for_variable(variable: str) -> tuple[str, ...]:
+    """Tests cuya marca de altura invalida la variable (EUR depende de ambos)."""
+    return tuple(test for test, columns in JUMP_HEIGHT_DEPENDENT.items() if variable in columns)
+
+
+# ── Serie longitudinal por tiempo de vuelo ────────────────────────────────
+# h = g * t^2 / 8 para TODA toma con tiempo de vuelo. No depende del peso,
+# asi que atraviesa el cambio de protocolo de pesaje de oct-2026. Es otro
+# metodo (el vuelo sobreestima algo por la postura de aterrizaje; Moir 2008):
+# solo se compara vuelo contra vuelo, nunca contra la serie por impulso, y no
+# entra a radar, z ni cohorte. Siempre rotulada "por tiempo de vuelo".
+FLIGHT_TIME_LABEL = "por tiempo de vuelo"
+FLIGHT_TIME_HEIGHT_COLUMNS: dict[str, str] = {"CMJ": "CMJ_ft_cm", "SJ": "SJ_ft_cm"}
+
+
+def add_flight_time_heights(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    for test, column in FLIGHT_TIME_HEIGHT_COLUMNS.items():
+        flight_col = f"{test}_flight_ms"
+        if flight_col not in df.columns:
+            continue
+        seconds = pd.to_numeric(df[flight_col], errors="coerce") / 1000.0
+        heights = GRAVITY_M_S2 * seconds * seconds / 8.0 * 100.0
+        df[column] = heights.where(seconds > 0).round(2)
+    return df
+
+
+def jump_height_reported_column(test: str) -> str:
+    return f"{test}_cm_reported"
+
+
+def jump_height_flight_column(test: str) -> str:
+    return f"{test}_flight_height_cm"
+
+
+def flight_time_height_cm(flight_ms: object) -> float | None:
+    """h = g * t^2 / 8 (cm). Independiente del peso corporal."""
+    return _flight_time_height_cm(_number(flight_ms))
+
+
+def jump_height_tolerance_cm(flight_height_cm: float) -> float:
+    return max(JUMP_HEIGHT_MIN_DIFF_CM, abs(flight_height_cm) * JUMP_HEIGHT_MIN_DIFF_PCT / 100.0)
+
+
+def is_jump_height_inconsistent(reported_cm: object, flight_ms: object) -> bool:
+    reported = _number(reported_cm)
+    flight_height = flight_time_height_cm(flight_ms)
+    if reported is None or flight_height is None:
+        return False
+    return abs(reported - flight_height) > jump_height_tolerance_cm(flight_height)
+
+
+def _jump_height_detail(items: list[dict[str, object]]) -> str:
+    parts = [
+        f"{item['test']}: informada {float(item['reported']):.1f} cm vs "
+        f"por tiempo de vuelo {float(item['flight']):.1f} cm"
+        for item in items
+    ]
+    return (
+        f"{JUMP_HEIGHT_REASON[0].upper()}{JUMP_HEIGHT_REASON[1:]}. {'; '.join(parts)}. "
+        "La altura informada no entra a radar, z-score, cohorte ni comparaciones."
+    )
+
+
+def assess_jump_height_consistency(row: Mapping[str, object] | pd.Series) -> dict[str, object]:
+    """Que alturas CMJ/SJ de una toma de plataforma no cierran con su vuelo.
+
+    Devuelve {"tests": [...], "flag": "CMJ,SJ" | None, "detail": str | None,
+    "items": [{"test", "reported", "flight"}]}. Re-evaluar un frame ya
+    preparado conserva la marca (la altura ya quedo en NaN).
+    """
+    getter = row.get if hasattr(row, "get") else (lambda _key, _default=None: None)
+    existing_text = str(getter(JUMP_HEIGHT_FLAG_COLUMN) or "").strip()
+    existing = [
+        part.strip().upper()
+        for part in existing_text.split(",")
+        if existing_text.lower() != "nan" and part.strip().upper() in JUMP_HEIGHT_TESTS
+    ]
+    if existing:
+        items = [
+            {
+                "test": test,
+                "reported": _get(row, jump_height_reported_column(test)),
+                "flight": _get(row, jump_height_flight_column(test)),
+            }
+            for test in existing
+        ]
+        detail = getter(JUMP_HEIGHT_DETAIL_COLUMN)
+        if not isinstance(detail, str) or not detail.strip() or detail.strip().lower() == "nan":
+            complete = [item for item in items if item["reported"] is not None and item["flight"] is not None]
+            detail = _jump_height_detail(complete) if complete else JUMP_HEIGHT_REASON
+        return {"tests": existing, "flag": ",".join(existing), "detail": detail, "items": items}
+
+    from modules.evaluation_sources import SOURCE_PLATFORM, normalize_source
+
+    if normalize_source(getter("Source")) != SOURCE_PLATFORM:
+        return {"tests": [], "flag": None, "detail": None, "items": []}
+
+    items: list[dict[str, object]] = []
+    for test in JUMP_HEIGHT_TESTS:
+        reported = _get(row, f"{test}_cm")
+        flight_ms = _get(row, f"{test}_flight_ms")
+        if not is_jump_height_inconsistent(reported, flight_ms):
+            continue
+        items.append({"test": test, "reported": reported, "flight": flight_time_height_cm(flight_ms)})
+    if not items:
+        return {"tests": [], "flag": None, "detail": None, "items": []}
+    tests = [str(item["test"]) for item in items]
+    return {"tests": tests, "flag": ",".join(tests), "detail": _jump_height_detail(items), "items": items}
+
+
+def apply_jump_height_consistency(df: pd.DataFrame) -> pd.DataFrame:
+    """Marca y saca de todo calculo las alturas CMJ/SJ inconsistentes con el vuelo.
+
+    Corre despues de la regla 6 (una toma sin peso valido ya perdio la altura
+    y se rotula por esa causa). Guarda la altura informada y la de vuelo en
+    columnas propias, que no se persisten.
+    """
+    if df is None or df.empty:
+        return df
+    flags: list[object] = []
+    details: list[object] = []
+    reported_values: dict[str, list[float]] = {test: [] for test in JUMP_HEIGHT_TESTS}
+    flight_values: dict[str, list[float]] = {test: [] for test in JUMP_HEIGHT_TESTS}
+    for _, row in df.iterrows():
+        result = assess_jump_height_consistency(row)
+        flags.append(result["flag"])
+        details.append(result["detail"])
+        by_test = {item["test"]: item for item in result["items"]}  # type: ignore[union-attr]
+        for test in JUMP_HEIGHT_TESTS:
+            item = by_test.get(test)
+            reported_values[test].append(np.nan if item is None or item["reported"] is None else float(item["reported"]))
+            flight_values[test].append(np.nan if item is None or item["flight"] is None else float(item["flight"]))
+    df[JUMP_HEIGHT_FLAG_COLUMN] = pd.Series(flags, index=df.index, dtype=object)
+    df[JUMP_HEIGHT_DETAIL_COLUMN] = pd.Series(details, index=df.index, dtype=object)
+    for test in JUMP_HEIGHT_TESTS:
+        df[jump_height_reported_column(test)] = pd.Series(reported_values[test], index=df.index, dtype=float)
+        df[jump_height_flight_column(test)] = pd.Series(flight_values[test], index=df.index, dtype=float)
+        mask = df[jump_height_reported_column(test)].notna()
+        if mask.any():
+            for column in JUMP_HEIGHT_DEPENDENT[test]:
+                if column in df.columns:
+                    df.loc[mask, column] = np.nan
+    return df
+
+
+def jump_height_consistency_label(row: Mapping[str, object] | pd.Series | None) -> str | None:
+    """Rotulo corto para dashboard y PDF de atleta/cliente: sin la altura por
+    vuelo, que solo se muestra (rotulada) en el PDF profe."""
+    if row is None:
+        return None
+    tests = assess_jump_height_consistency(row).get("tests") or []
+    if not tests:
+        return None
+    return (
+        f"{' y '.join(tests)}: {JUMP_HEIGHT_REASON}. "
+        "Esa altura no entra a radar, z-score, cohorte ni comparaciones."
+    )
+
+
+def jump_height_consistency_rows(df: pd.DataFrame | None) -> list[dict[str, object]]:
+    """Tomas marcadas, con ambas alturas, para listarlas (PDF profe)."""
+    if df is None or df.empty or JUMP_HEIGHT_FLAG_COLUMN not in df.columns:
+        return []
+    rows: list[dict[str, object]] = []
+    for _, row in df.iterrows():
+        result = assess_jump_height_consistency(row)
+        for item in result["items"]:  # type: ignore[union-attr]
+            if item["reported"] is None or item["flight"] is None:
+                continue
+            rows.append(
+                {
+                    "Athlete": row.get("Athlete"),
+                    "Date": row.get("Date"),
+                    "Test": item["test"],
+                    "reported_cm": float(item["reported"]),
+                    "flight_height_cm": float(item["flight"]),
+                }
+            )
+    return rows
+
+
 # ── Regla 7: peso de una evaluacion cercana ───────────────────────────────
 # Sin peso valido, la fuerza relativa del IMTP y el momentum no existen. Si
 # el mismo atleta tiene un peso medido a <= 14 dias, se usa ese y se rotula de
@@ -662,7 +915,7 @@ DUPLICATE_MIN_MATCHES = 3
 DUPLICATE_MIN_SHARE = 0.5
 # Valores fijos del protocolo: coinciden siempre y no identifican la toma.
 DUPLICATE_EXCLUDED_COLUMNS = frozenset({"BW_kg", "DJ_drop_height_cm"})
-DUPLICATE_EXCLUDED_SUFFIXES = ("_time_pull_s",)
+DUPLICATE_EXCLUDED_SUFFIXES = ("_time_pull_s", "_ft_cm")
 
 
 def _duplicate_comparable_columns(columns: Iterable[str]) -> list[str]:

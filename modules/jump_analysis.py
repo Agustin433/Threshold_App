@@ -23,9 +23,18 @@ from modules.evaluation_sources import (
 from modules.evaluation_rules import (
     BW_IMPUTED_FROM_COLUMN,
     IMTP_QUALITY_FLAG_COLUMN,
+    JUMP_HEIGHT_DETAIL_COLUMN,
+    JUMP_HEIGHT_FLAG_COLUMN,
     PLATFORM_BW_DETAIL_COLUMN,
     PLATFORM_BW_FLAG_COLUMN,
+    FLIGHT_TIME_HEIGHT_COLUMNS,
+    FLIGHT_TIME_LABEL,
+    add_flight_time_heights,
+    apply_jump_height_consistency,
     apply_platform_body_weight_quality,
+    jump_height_consistency_label,
+    jump_height_flagged_tests,
+    jump_height_tests_for_variable,
     effective_bw_kg_series,
     impute_body_weight,
     imputed_body_weight_label,
@@ -68,6 +77,8 @@ NON_NUMERIC_EVALUATION_COLUMNS = {
     IMTP_QUALITY_FLAG_COLUMN,
     PLATFORM_BW_FLAG_COLUMN,
     PLATFORM_BW_DETAIL_COLUMN,
+    JUMP_HEIGHT_FLAG_COLUMN,
+    JUMP_HEIGHT_DETAIL_COLUMN,
     BW_IMPUTED_FROM_COLUMN,
 }
 
@@ -207,6 +218,22 @@ TEMPORAL_SIGNAL_BADGES = {
     # porque el signo por si solo no distingue mejora de perdida.
     "cambio relevante sin direccion": "± cambio relevante — leer numerador y denominador",
     "sin cambio relevante sin direccion": "~ sin cambio relevante",
+    "no comparable por impulso": "✕ no comparable: altura por impulso inconsistente",
+}
+
+NO_IMPULSE_COMPARISON_SIGNAL = "no comparable por impulso"
+
+# Formato de la serie por tiempo de vuelo en la tabla de cambios. No va en
+# VARIABLE_META a proposito: esa tabla alimenta z, radar y comparaciones por
+# defecto, y esta serie solo se compara vuelo contra vuelo.
+FLIGHT_TIME_VARIABLE_META: dict[str, dict[str, object]] = {
+    column: {
+        "label": f"{test} ({FLIGHT_TIME_LABEL})",
+        "higher_is_better": True,
+        "fallback_pct": 1.5,
+        "fmt": "{:.1f}",
+    }
+    for test, column in FLIGHT_TIME_HEIGHT_COLUMNS.items()
 }
 
 
@@ -1459,6 +1486,10 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
     if platform_bw_label:
         flags.append({"level": "red", "text": f"Peso de plataforma inválido: {platform_bw_label}"})
 
+    height_label = jump_height_consistency_label(row_series)
+    if height_label:
+        flags.append({"level": "red", "text": height_label})
+
     imputed_bw_label = imputed_body_weight_label(row_series)
     if imputed_bw_label:
         flags.append({"level": "yellow", "text": imputed_bw_label})
@@ -2231,6 +2262,24 @@ def compute_swc_delta(
         threshold_label = pd.NA
         signal = "sin dato anterior"
 
+        # Una toma de este test con la altura por impulso inconsistente entre
+        # la anterior valida y la actual: comparar contra una mas vieja diria
+        # "vs evaluacion anterior" sin serlo. Ver compare_flight_time_height.
+        flagged_tests = jump_height_tests_for_variable(variable)
+        impulse_blocked = False
+        if flagged_tests:
+            window = working_df[working_df["Date"] <= current_row_date]
+            if pd.notna(previous_date):
+                window = window[window["Date"] > pd.Timestamp(previous_date).normalize()]
+            impulse_blocked = any(
+                set(flagged_tests) & set(jump_height_flagged_tests(window_row))
+                for _, window_row in window.iterrows()
+            )
+        if impulse_blocked:
+            previous_value = np.nan
+            previous_date = pd.NaT
+            signal = NO_IMPULSE_COMPARISON_SIGNAL
+
         if pd.notna(current_value) and pd.notna(previous_value):
             delta_abs = float(current_value) - float(previous_value)
             if float(previous_value) > 0:
@@ -2331,13 +2380,100 @@ def build_jump_temporal_context(delta_df: pd.DataFrame) -> list[str]:
     return lines
 
 
+def compare_flight_time_height(
+    history: pd.DataFrame,
+    test: str,
+    *,
+    current_date: object = None,
+    previous_date: object = None,
+    source: str | None = None,
+) -> dict[str, object] | None:
+    """Cambio de altura por tiempo de vuelo entre dos tomas (vuelo vs vuelo).
+
+    Mismo metodo en las dos puntas (h = g*t^2/8) y misma fuente. Umbral
+    max(TE, SWC) con la serie por vuelo hasta la toma actual. Por defecto
+    compara la ultima toma con vuelo contra la anterior con vuelo; con
+    `previous_date` se puede pedir una punta fija (p. ej. la primera, para
+    "Lo que lograste"). Devuelve None si falta alguna punta. Nunca se mezcla
+    con la serie por impulso ni entra a radar, z o cohorte.
+    """
+    test = str(test).upper()
+    column = FLIGHT_TIME_HEIGHT_COLUMNS.get(test)
+    if column is None or history is None or history.empty or "Date" not in history.columns:
+        return None
+    working = history.copy()
+    if column not in working.columns:
+        working = add_flight_time_heights(working)
+    if column not in working.columns:
+        return None
+    working["Date"] = pd.to_datetime(working["Date"], errors="coerce").dt.normalize()
+    working[column] = pd.to_numeric(working[column], errors="coerce")
+    working = working[working["Date"].notna() & working[column].notna()].sort_values("Date")
+    if working.empty:
+        return None
+
+    if current_date is not None:
+        current_ts = pd.Timestamp(current_date).normalize()
+        working = working[working["Date"] <= current_ts]
+        if working.empty or not (working["Date"] == current_ts).any():
+            return None
+    else:
+        current_ts = working["Date"].iloc[-1]
+    working = _restrict_history_to_current_source(working, current_ts, source)
+    current_row = working[working["Date"] == current_ts].iloc[-1]
+    earlier = working[working["Date"] < current_ts]
+    if previous_date is not None:
+        earlier = earlier[earlier["Date"] == pd.Timestamp(previous_date).normalize()]
+    if earlier.empty:
+        return None
+    previous_row = earlier.iloc[-1]
+
+    current_value = float(current_row[column])
+    previous_value = float(previous_row[column])
+    meta = FLIGHT_TIME_VARIABLE_META[column]
+    threshold = resolve_change_threshold(
+        column,
+        previous_value,
+        working[column].tolist(),
+        swc_pct=float(meta["fallback_pct"]),
+    )
+    delta_abs = current_value - previous_value
+    threshold_abs = threshold["threshold_abs"]
+    if threshold_abs is None or pd.isna(threshold_abs):
+        signal = "sin dato anterior"
+    elif delta_abs > threshold_abs:
+        signal = "mejora relevante"
+    elif delta_abs < -threshold_abs:
+        signal = "caida relevante"
+    else:
+        signal = "sin cambio relevante"
+    return {
+        "Variable": column,
+        "Label": str(meta["label"]),
+        "Method": FLIGHT_TIME_LABEL,
+        "Test": test,
+        "Valor_actual": current_value,
+        "Valor_anterior": previous_value,
+        "Fecha_actual": current_ts,
+        "Fecha_anterior": pd.Timestamp(previous_row["Date"]).normalize(),
+        "Delta_abs": delta_abs,
+        "Delta_pct": (delta_abs / previous_value * 100) if previous_value > 0 else np.nan,
+        "Threshold_abs": float(threshold_abs) if threshold_abs is not None and pd.notna(threshold_abs) else np.nan,
+        "Threshold_method": threshold["method"],
+        "Threshold_label": threshold["label"],
+        "N_valid": int(len(working)),
+        "Signal": signal,
+        "Higher_is_better": True,
+    }
+
+
 def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
     if delta_df is None or delta_df.empty:
         return pd.DataFrame(columns=["Variable", "Actual", "Anterior", "Delta abs", "Delta %", "Threshold", "Senal"])
 
     rows: list[dict[str, object]] = []
     for _, row in delta_df.iterrows():
-        meta = VARIABLE_META.get(str(row["Variable"]), {})
+        meta = VARIABLE_META.get(str(row["Variable"])) or FLIGHT_TIME_VARIABLE_META.get(str(row["Variable"]), {})
         formatter = meta.get("fmt", "{:.2f}")
 
         def _fmt_value(value) -> str:
@@ -2628,8 +2764,27 @@ def select_primary_profile_row(
     return None
 
 
+def _prepared_or_prepare(jump_df: pd.DataFrame) -> pd.DataFrame:
+    """El frame tal cual si ya paso por `_prepare_jump_df`; si no, se prepara.
+
+    Re-preparar un historial ya preparado (y filtrado a un atleta) sin
+    `profile_df` recalculaba los z: el z de literatura fresco pisaba el de
+    cohorte. El PDF profe mostraba asi dos z distintos para la misma toma
+    (tabla 1.25 vs cuadrante 1.29 en CMJ). Una sola fuente: la que preparo el
+    llamador, con su cohorte.
+    """
+    if jump_df is None or jump_df.empty:
+        return pd.DataFrame()
+    if (
+        JUMP_PREPARED_COLUMN in jump_df.columns
+        and jump_df[JUMP_PREPARED_COLUMN].fillna(False).astype(bool).all()
+    ):
+        return jump_df.copy()
+    return _prepare_jump_df(jump_df)
+
+
 def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series | None, pd.DataFrame]:
-    data = _prepare_jump_df(jump_df)
+    data = _prepared_or_prepare(jump_df)
     if data.empty:
         return None, pd.DataFrame(columns=["Variable", "Fecha origen"])
 
@@ -2738,7 +2893,7 @@ def _count_renderable_radar_axes(row: pd.Series | dict[str, object]) -> int:
 
 def build_profile_radar_row(jump_df: pd.DataFrame) -> pd.Series | None:
     """Choose the safest radar row, upgrading to a composed snapshot only when it adds axes."""
-    data = _prepare_jump_df(jump_df)
+    data = _prepared_or_prepare(jump_df)
     if data.empty:
         return None
 
@@ -2973,7 +3128,13 @@ def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
             device_values = group["Device"].dropna()
             if not device_values.empty:
                 merged_row["Device"] = device_values.iloc[-1]
-        for flag_column in (IMTP_QUALITY_FLAG_COLUMN, PLATFORM_BW_FLAG_COLUMN, PLATFORM_BW_DETAIL_COLUMN):
+        for flag_column in (
+            IMTP_QUALITY_FLAG_COLUMN,
+            PLATFORM_BW_FLAG_COLUMN,
+            PLATFORM_BW_DETAIL_COLUMN,
+            JUMP_HEIGHT_FLAG_COLUMN,
+            JUMP_HEIGHT_DETAIL_COLUMN,
+        ):
             if flag_column in group.columns:
                 flag_values = group[flag_column].dropna()
                 if not flag_values.empty:
@@ -3042,6 +3203,11 @@ def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = No
     # exportado de un vacio), asi que va antes de sanearlo. El peso de una
     # evaluacion cercana se resuelve despues, solo para relativas de la app.
     result = apply_platform_body_weight_quality(result)
+    # Altura por impulso que no cierra con el tiempo de vuelo: fuera de todo
+    # calculo antes de derivar EUR, momentum y z-scores.
+    result = apply_jump_height_consistency(result)
+    # Serie por tiempo de vuelo para toda toma con vuelo (solo vuelo-vs-vuelo).
+    result = add_flight_time_heights(result)
     result = sanitize_body_weight(result)
     result = impute_body_weight(result)
     result = apply_imtp_quality(result)
