@@ -7677,8 +7677,8 @@ def _neuromuscular_kpi_labels(profile_payload: dict[str, object]) -> list[str]:
 
 IMTP_REFERENCE_PRIORITY_SHORT = "Sostener la calidad actual y repetir la medición de fuerza máxima para tener una referencia propia."
 IMTP_REFERENCE_PRIORITY_DETAILED = (
-    "Ya hay una medición de IMTP; repetirla en la próxima evaluación da una referencia propia "
-    "para comparar la fuerza máxima."
+    "Ya hay una medición de IMTP con el protocolo actual; repetirla en la próxima evaluación da una "
+    "referencia propia para comparar la fuerza máxima."
 )
 
 

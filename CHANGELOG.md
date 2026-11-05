@@ -2,6 +2,51 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-05 - PR C: referencia de z-scores, radar y eras de medicion
+
+1. Radar y cuadrantes nunca usan la serie propia (INTRA_INDIVIDUAL): esa
+   comparacion vive en "Lo que lograste" y en la tabla de cambios.
+2. `modules/reference_engine.py`: una toma por atleta (la ultima valida de
+   los ultimos 12 meses, por metrica, fuente y era). `cohort_size` cuenta
+   atletas; SD entre atletas (ddof=1). Las tomas historicas se puntuan contra
+   la referencia de su propia era.
+3. `modules/measurement_eras.py`: columna `device` (valkyria_sin_straps
+   < 29/01/2026, valkyria_straps 29/01-30/09/2026, involution_straps
+   >= 01/10/2026). IMTP y derivados de la velocidad integrada solo se
+   comparan dentro de la misma era; alturas por tiempo de vuelo, DJ y fuerzas
+   medidas si entre eras. Tabla de cambios profe: "no comparable: cambio de
+   software/protocolo". Formulario: dispositivo obligatorio (default
+   involution_straps).
+4. Grupo de demanda desde Deporte (mapa unico en `athlete_profile.py`):
+   intermitentes de equipo, raqueta/combate, resistencia, fuerza-potencia,
+   poblacion general. Deportes compuestos: el primero reconocido.
+5. Escalera: literatura (deporte + nivel + sexo + instrumento + era) ->
+   Deporte+Nivel+Sexo (>= 8) -> Grupo+Sexo (>= 8) -> Sexo (>= 8) ->
+   percentil con 5-7 atletas (radar 0-100, nunca mezclado con z) -> < 5 sin
+   radar ("todavia no hay grupo de comparacion"). Nunca se mezclan sexos ni
+   eras; sin sexo no hay grupo.
+6. IMTP en radar/cuadrantes: relativa (N/kg); la absoluta queda descriptiva.
+7. Sexo obligatorio al cargar una evaluacion (se guarda en el perfil);
+   deporte y nivel opcionales.
+8. Literatura: McMahon et al. 2022 (Sensors 22(22):8669,
+   doi:10.3390/s22228669), mRSI de rugby: forwards 0.44 +/- 0.08 (n=66),
+   backs 0.49 +/- 0.08 (n=55), solo como contexto mientras el nivel no
+   coincida. Cada referencia declara `normalizacion`, `eras` y `nivel_uso`
+   ("z" o "contexto"); `validate_reference_tables()` lo exige.
+9. PDF profe: debajo del radar "Referencia: <escalon>, era <device>, N
+   atletas, tomas de <min> a <max>"; lista de atletas en un anexo.
+10. PDF atleta/cliente (pendientes de PR B): sin radar; "Tu fuerza" solo con
+    grafico de fuerza estimada; sin "Seguir de cerca"; sin ACWR en tabla ni
+    diccionario; tablas que no se parten entre paginas.
+11. Cita corregida: Comfort et al. 2019, Strength Cond J 41(2):57-79 (no
+    J Strength Cond Res).
+
+Consecuencia con los datos reales: la era involution_straps tiene < 8
+atletas, asi que SJ, CMJ (impulso) e IMTP salen del radar de quienes ya
+midieron con Involution; DJ, DJ RSI y tiempo de contacto se mantienen.
+
+Tests: `tests/test_reference_eras.py`.
+
 ## 2026-11-05 - PR B: reportes de atleta y cliente muestran lo que hay
 
 Diagnostico con los PDF reales del 04/11/2026: el PDF atleta no tenia

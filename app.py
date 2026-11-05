@@ -4561,12 +4561,6 @@ with st.sidebar:
             )
             if not eval_athlete_name:
                 _push_notice("warning", "Evaluaciones individuales: ingresa el nombre del atleta.")
-            elif not eval_sexo_status["ok"]:
-                _push_notice(
-                    "warning",
-                    f"Evaluaciones individuales: {eval_athlete_name} no tiene sexo en el perfil. "
-                    "Elegilo en el formulario. No se agregó a la cola.",
-                )
             elif eval_date_status["missing"]:
                 _push_notice("warning", "Evaluaciones individuales: elegí la fecha de evaluación.")
             elif eval_date_status["needs_confirmation"] and not eval_date_confirmed:
@@ -4574,6 +4568,12 @@ with st.sidebar:
                     "warning",
                     f"Evaluaciones individuales: {eval_date_status['reason']}. "
                     "Revisala y, si es correcta, marcá \"Confirmo la fecha\" y volvé a agregar. No se agregó a la cola.",
+                )
+            elif not eval_sexo_status["ok"]:
+                _push_notice(
+                    "warning",
+                    f"Evaluaciones individuales: {eval_athlete_name} no tiene sexo en el perfil. "
+                    "Elegilo en el formulario. No se agregó a la cola.",
                 )
             elif not manual_entry and not eval_file:
                 _push_notice("warning", "Evaluaciones individuales: subi el archivo del test.")

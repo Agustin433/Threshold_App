@@ -80,9 +80,14 @@ class AchievementsTests(unittest.TestCase):
         # Primer IMTP: 2565 -> 3638 N (+41.8%) es implausible: solo PDF profe.
         self.assertNotIn("IMTP", texts)
 
-    def test_ignacio_cmj_improvement_uses_impulse(self):
+    def test_ignacio_cmj_improvement_uses_flight_time_across_eras(self):
+        # PR C: 20/05/2026 (Valkyria) -> 08/10/2026 (Involution): el impulso no
+        # se compara entre eras; el vuelo si (misma plataforma).
         items = ar.evaluation_achievements(compute_evaluation_changes(_history(IGNACIO)), "atleta")
-        self.assertTrue(any(item["text"].startswith("Salto CMJ: 41.1 cm → 46.0 cm") for item in items))
+        self.assertTrue(
+            any(item["text"].startswith("Salto CMJ (por tiempo de vuelo): 39.8 cm → 46.2 cm") for item in items)
+        )
+        self.assertFalse(any(item["text"].startswith("Salto CMJ: ") for item in items))
 
     def test_holgado_unusual_jump_change_is_hidden_from_athlete(self):
         changes = compute_evaluation_changes(_history(HOLGADO))
@@ -241,11 +246,12 @@ class FocusAndStepsTests(unittest.TestCase):
         }
         history = _history(TOMAS)
         text = ar.focus_text(profile, history, "atleta")
-        follow = text.split("Seguir de cerca ")[1].rstrip(".").split(", ")
-        self.assertEqual(sorted(follow), ["CMJ", "IMTP"])
+        # PR C: "Seguir de cerca ..." queda solo en el PDF profe.
+        self.assertNotIn("Seguir de cerca", text)
         self.assertNotIn("SJ", text)
         self.assertNotIn("EUR", text)
-        self.assertEqual(text.count("Seguir de cerca"), 1)
+        # El orden por |z| (maximo 2) sigue disponible para el profe.
+        self.assertLessEqual(len(ar.top_kpis(profile["kpi_to_track"], history)), 2)
 
     def test_next_steps_are_capped_and_positive(self):
         steps = ar.next_steps(
@@ -277,15 +283,24 @@ class FocusAndStepsTests(unittest.TestCase):
 
 
 class ImtpAndHighlightsTests(unittest.TestCase):
+    def test_tomas_imtp_across_eras_is_not_comparable(self):
+        # PR C: 13/11/2025 (Valkyria sin straps) -> 21/10/2026 (Involution).
+        changes = compute_evaluation_changes(_history(TOMAS)).set_index("Variable")
+        self.assertEqual(changes.loc["IMTP_N", "Signal"], "no comparable por era")
+        self.assertTrue(pd.isna(changes.loc["IMTP_N", "Valor_anterior"]))
+        self.assertFalse(any("IMTP" in item["text"] for item in ar.evaluation_achievements(changes.reset_index(), "atleta")))
+
     def test_tomas_first_imtp_is_professional_only(self):
-        changes = compute_evaluation_changes(_history(TOMAS))
+        # Misma era declarada: aca se controla la plausibilidad (> +25%).
+        same_era = [{**row, "Device": "involution_straps"} for row in TOMAS]
+        changes = compute_evaluation_changes(_history(same_era))
         imtp = changes[changes["Variable"] == "IMTP_N"].iloc[0]
         self.assertTrue(bool(imtp["Unusual"]))
         self.assertFalse(any("IMTP" in item["text"] for item in ar.evaluation_achievements(changes, "atleta")))
         self.assertFalse(any("Fuerza" in item["text"] for item in ar.evaluation_achievements(changes, "cliente")))
         notes = ar.unusual_changes_for_professional(changes)
         self.assertTrue(any("verificar familiarización/protocolo" in line for line in notes))
-        state = {"jump_df": pd.DataFrame([{**row, "Source": "platform", "BW_kg": 80.0} for row in TOMAS])}
+        state = {"jump_df": pd.DataFrame([{**row, "Source": "platform", "BW_kg": 80.0} for row in same_era])}
         payload = rg._build_professional_change_payload(state, "Tomas De La Vega")
         self.assertTrue(any("verificar familiarización/protocolo" in item for item in payload["to_verify"]))
 

@@ -62,6 +62,8 @@ class EvaluationDateFormTest(unittest.TestCase):
         at.run()
         at.selectbox(key="eval_athlete_select").set_value("Escribir nuevo...")
         at.text_input(key="eval_athlete_text").input("Ana Lopez")
+        # PR C: sexo obligatorio si el atleta no tiene perfil con sexo.
+        at.selectbox(key="eval_sexo_choice").set_value("Femenino")
         if eval_date is not None:
             at.date_input(key="eval_date").set_value(eval_date)
         confirm_box = next(box for box in at.checkbox if str(box.key).startswith("eval_date_confirm_"))

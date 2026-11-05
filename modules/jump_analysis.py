@@ -11,11 +11,10 @@ import pandas as pd
 
 from modules.athlete_names import normalize_athlete_name
 
-from modules.athlete_profile import get_comparison_cohort, normalize_deporte
+from modules.athlete_profile import normalize_deporte
 from modules.data_loader import _normalize_legacy_imtp_rfd_aliases_frame
 from modules.evaluation_sources import (
     DEFAULT_SOURCE,
-    MIN_COHORT_SIZE,
     SOURCE_ORDER,
     SOURCE_PLATFORM,
     normalize_source,
@@ -60,7 +59,6 @@ from modules.reference_engine import ReferenceEngine
 from modules.zscore_sources import (
     Z_SOURCES_WITH_NUMERIC_Z,
     ZSource,
-    resolve_z_source,
 )
 
 # Columnas de la tabla de evaluaciones que NO son metricas numericas. Se
@@ -771,142 +769,9 @@ def _round_column(frame: pd.DataFrame, column: str, digits: int) -> None:
         frame[column] = pd.to_numeric(frame[column], errors="coerce").round(digits)
 
 
-def _group_internal_z(
-    values: pd.Series,
-    athlete_series: pd.Series | None,
-    *,
-    invert: bool = False,
-    min_count: int = 2,
-    source_series: pd.Series | None = None,
-) -> pd.Series:
-    """Z intra-atleta. Se agrupa por (atleta, fuente), nunca solo por atleta.
-
-    Un cambio de dispositivo dentro de la serie temporal de un atleta mueve la
-    media y el desvio, y el salto de metodo se leeria como cambio real de
-    rendimiento. Separar por fuente hace que cada dispositivo tenga su propia
-    referencia interna.
-    """
-    zscores = pd.Series(np.nan, index=values.index, dtype=float)
-    if athlete_series is None:
-        return zscores
-
-    if source_series is None:
-        group_keys = athlete_series
-    else:
-        group_keys = (
-            athlete_series.astype(str) + "\x1f" + source_series.map(normalize_source).astype(str)
-        ).where(athlete_series.notna())
-
-    grouped = pd.DataFrame({"value": values, "athlete": group_keys})
-    for athlete, idx in grouped.groupby("athlete").groups.items():
-        if pd.isna(athlete):
-            continue
-        series = values.loc[idx]
-        valid = series.dropna()
-        if len(valid) < min_count:
-            continue
-        std = float(valid.std(ddof=0))
-        if std <= 0:
-            continue
-        z = (series - float(valid.mean())) / std
-        zscores.loc[idx] = -z if invert else z
-    return zscores
-
-
-def _dataset_fallback_z(
-    values: pd.Series,
-    *,
-    invert: bool = False,
-    source_series: pd.Series | None = None,
-) -> pd.Series:
-    """Fallback poblacional sin perfil. Se calcula por fuente, no sobre todo.
-
-    Sin `profile_df` no hay cohorte Deporte+Nivel y se compara contra el
-    dataset entero; aun asi ese dataset no debe mezclar metodos de medicion.
-    """
-    if source_series is not None and source_series.nunique(dropna=False) > 1:
-        result = pd.Series(np.nan, index=values.index, dtype=float)
-        for _, idx in values.groupby(source_series.map(normalize_source)).groups.items():
-            subset = values.loc[idx]
-            result.loc[idx] = _dataset_fallback_z(subset, invert=invert)
-        return result
-
-    valid = values.dropna()
-    if len(valid) < 2:
-        return pd.Series(np.nan, index=values.index, dtype=float)
-    std = float(valid.std(ddof=0))
-    if std <= 0:
-        return pd.Series(np.nan, index=values.index, dtype=float)
-    z = (values - float(valid.mean())) / std
-    return (-z if invert else z).astype(float)
-
-
-def build_cohort_cache(
-    frame: pd.DataFrame,
-    profile_df: pd.DataFrame | None,
-    *,
-    min_cohort_size: int = MIN_COHORT_SIZE,
-) -> dict[str, dict[str, object]]:
-    """Resolve each athlete's comparison cohort once, reused across every metric."""
-    cache: dict[str, dict[str, object]] = {}
-    if frame is None or frame.empty or "Athlete" not in frame.columns:
-        return cache
-    for athlete in frame["Athlete"].dropna().unique():
-        # La cohorte se resuelve sobre el frame completo; `_cohort_z` recorta
-        # despues por fuente fila a fila. Asi un atleta medido con los dos
-        # metodos conserva una sola identidad de cohorte (Deporte+Nivel) y no
-        # se fragmenta la etiqueta que se muestra al usuario.
-        cache[athlete] = get_comparison_cohort(athlete, frame, profile_df, min_cohort_size=min_cohort_size)
-    return cache
-
-
-def _cohort_z(
-    frame: pd.DataFrame,
-    values: pd.Series,
-    cohort_cache: dict[str, dict[str, object]],
-    *,
-    invert: bool = False,
-) -> pd.Series:
-    zscores = pd.Series(np.nan, index=values.index, dtype=float)
-    if "Athlete" not in frame.columns:
-        return zscores
-
-    source_series = (
-        frame["Source"].map(normalize_source)
-        if "Source" in frame.columns
-        else pd.Series(DEFAULT_SOURCE, index=frame.index)
-    )
-
-    group_cols = {"athlete": frame["Athlete"], "source": source_series}
-    for (athlete, row_source), idx in pd.DataFrame(group_cols).groupby(["athlete", "source"]).groups.items():
-        if pd.isna(athlete):
-            continue
-        cohort_info = cohort_cache.get(athlete)
-        if not cohort_info:
-            continue
-        cohort_df = cohort_info.get("cohort_df")
-        if cohort_df is None or cohort_df.empty:
-            continue
-        # La cohorte se restringe a la misma fuente: una poblacion mixta de
-        # plataforma y tiempo de vuelo tiene un desvio inflado por la
-        # diferencia de metodo, no por variabilidad real entre atletas.
-        cohort_index = cohort_df.index
-        cohort_source = source_series.reindex(cohort_index)
-        cohort_index = cohort_index[(cohort_source == row_source).fillna(False)]
-        cohort_values = values.reindex(cohort_index).dropna()
-        if len(cohort_values) < 2:
-            continue
-        std = float(cohort_values.std(ddof=0))
-        if std <= 0:
-            continue
-        mean = float(cohort_values.mean())
-        z = (values.loc[idx] - mean) / std
-        zscores.loc[idx] = -z if invert else z
-    return zscores
-
-
-# `_external_z` quedo eliminada junto con el benchmark sintetico. La
-# comparacion contra poblacion publicada la decide `resolve_z_source`.
+# El z de serie propia, el fallback al dataset entero y la cohorte por filas
+# quedaron eliminados: la referencia la resuelve `modules.reference_engine`
+# (una toma por atleta, por era y sexo).
 
 
 def _profile_lookup(profile_df: pd.DataFrame | None) -> dict[str, dict[str, object]]:
@@ -919,136 +784,6 @@ def _profile_lookup(profile_df: pd.DataFrame | None) -> dict[str, dict[str, obje
         if key:
             lookup[key] = row.to_dict()
     return lookup
-
-
-def _resolve_zscore(
-    frame: pd.DataFrame,
-    metric_col: str,
-    *,
-    invert: bool = False,
-    internal_min_count: int = 2,
-    allow_dataset_fallback: bool = True,
-    cohort_cache: dict[str, dict[str, object]] | None = None,
-    profile_lookup: dict[str, dict[str, object]] | None = None,
-) -> tuple[pd.Series, pd.Series]:
-    """Calcula el z de una metrica segun la procedencia que le corresponda.
-
-    Devuelve `(z, origen)`. La decision de con que comparar se toma en
-    `modules.zscore_sources.resolve_z_source`, fila a fila, porque depende del
-    perfil del atleta (sexo, deporte, nivel), del instrumento con el que se
-    midio y del tamano de su cohorte.
-
-    Antes esta funcion aplicaba un benchmark externo global cuyo desvio era
-    `excellent - mean`, un proxy que sobreestimaba el desvio real entre 1.9x y
-    2.3x y que se usaba para cualquier atleta sin mirar su poblacion. Ahora un
-    z solo se calcula si hay con que: sin poblacion aplicable la metrica queda
-    en `REFERENCE_BAND` y no produce z.
-    """
-    values = _numeric_series(frame, metric_col)
-    athlete_series = frame["Athlete"] if "Athlete" in frame.columns else None
-    source_series = (
-        frame["Source"].map(normalize_source)
-        if "Source" in frame.columns
-        else pd.Series(DEFAULT_SOURCE, index=frame.index)
-    )
-    profile_lookup = profile_lookup or {}
-
-    internal = _group_internal_z(
-        values,
-        athlete_series,
-        invert=invert,
-        min_count=internal_min_count,
-        source_series=source_series,
-    )
-    if not allow_dataset_fallback:
-        cohort = pd.Series(np.nan, index=values.index, dtype=float)
-    elif cohort_cache is not None:
-        cohort = _cohort_z(frame, values, cohort_cache, invert=invert)
-    else:
-        cohort = _dataset_fallback_z(values, invert=invert, source_series=source_series)
-
-    # Tomas validas por (atleta, fuente): habilita o no la lectura propia.
-    if athlete_series is not None:
-        group_key = athlete_series.astype(str) + "\x1f" + source_series.astype(str)
-        measurement_counts = values.notna().groupby(group_key).transform("sum")
-    else:
-        measurement_counts = pd.Series(0, index=values.index)
-
-    z_values = pd.Series(np.nan, index=values.index, dtype=float)
-    origins = pd.Series("", index=values.index, dtype=object)
-    percentiles = pd.Series(np.nan, index=values.index, dtype=float)
-    ranks = pd.Series(pd.NA, index=values.index, dtype="Int64")
-    cohort_sizes = pd.Series(pd.NA, index=values.index, dtype="Int64")
-
-    # Indice de la cohorte de cada atleta, para calcular percentiles sin
-    # rearmarla en cada fila.
-    cohort_index_by_athlete: dict[str, pd.Index] = {}
-    for name, info in (cohort_cache or {}).items():
-        cohort_df = info.get("cohort_df")
-        if cohort_df is not None and not cohort_df.empty:
-            cohort_index_by_athlete[name] = cohort_df.index
-
-    for idx in values.index:
-        athlete = str(frame.at[idx, "Athlete"]).strip() if athlete_series is not None else ""
-        cohort_info = (cohort_cache or {}).get(athlete) or {}
-        # Solo cuenta como cohorte la resuelta por Deporte+Nivel. El fallback
-        # "general" agrupa a todo el dataset mezclando deportes, niveles y
-        # sexos: su tamano es grande pero no describe una poblacion, asi que
-        # no puede habilitar un z de cohorte. "muestra_insuficiente" es la
-        # unica variante de fallback que trae un cohort_size real y acotado
-        # (las demas devuelven 0 o el tamano del dataset entero): dejarlo
-        # pasar es lo que permite que 5 a 7 pares resuelvan a COHORT_RANK en
-        # vez de quedar indistinguibles del fallback general.
-        if cohort_info.get("cohort_level") == "muestra_insuficiente":
-            cohort_size = int(cohort_info.get("cohort_size") or 0)
-        elif cohort_info.get("is_fallback", True):
-            cohort_size = 0
-        else:
-            cohort_size = int(cohort_info.get("cohort_size") or 0)
-
-        decision = resolve_z_source(
-            metric_col,
-            profile=profile_lookup.get(athlete),
-            source=source_series.at[idx],
-            cohort_size=cohort_size,
-            measurement_count=int(measurement_counts.at[idx] or 0),
-        )
-        origins.at[idx] = str(decision.z_source)
-
-        if pd.isna(values.at[idx]):
-            continue
-        if decision.z_source is ZSource.LITERATURE_Z and decision.sd:
-            raw = (float(values.at[idx]) - float(decision.mean)) / float(decision.sd)
-            z_values.at[idx] = -raw if invert else raw
-        elif decision.z_source is ZSource.COHORT_Z:
-            z_values.at[idx] = cohort.at[idx]
-        elif decision.z_source is ZSource.INTRA_INDIVIDUAL:
-            z_values.at[idx] = internal.at[idx]
-        elif decision.z_source is ZSource.COHORT_RANK:
-            # Se calcula percentil, no z: con 5 a 7 pares el orden es
-            # informativo pero el desvio no. El z queda NaN a proposito para
-            # que ningun eje lo grafique como si fuera una distancia.
-            # El rango se restringe a la misma fuente que _cohort_z: mezclar
-            # plataforma y tiempo de vuelo invierte el orden real (metodos
-            # distintos, no variabilidad entre atletas).
-            peer_index = cohort_index_by_athlete.get(athlete, values.index[0:0])
-            row_source = source_series.at[idx]
-            peer_source = source_series.reindex(peer_index)
-            peer_index = peer_index[(peer_source == row_source).fillna(False)]
-            peers = values.reindex(peer_index).dropna()
-            if len(peers) >= 2:
-                below = int((peers < float(values.at[idx])).sum())
-                pct = round(100.0 * below / (len(peers) - 1), 1) if len(peers) > 1 else 50.0
-                percentiles.at[idx] = min(100.0, max(0.0, 100.0 - pct if invert else pct))
-                ranks.at[idx] = (
-                    int((peers > float(values.at[idx])).sum()) + 1
-                    if not invert
-                    else int((peers < float(values.at[idx])).sum()) + 1
-                )
-                cohort_sizes.at[idx] = len(peers)
-        # REFERENCE_BAND no produce ni z ni rango a proposito.
-
-    return z_values.where(values.notna()), origins, percentiles, ranks, cohort_sizes
 
 
 def calc_eur(df: pd.DataFrame) -> pd.DataFrame:
@@ -1211,12 +946,13 @@ def calc_jump_momentum(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Neuromuscular z-scores with external-first and internal fallback logic.
+    """z-scores contra la referencia que corresponde a cada toma.
 
-    `profile_df` is optional. When provided, the population fallback used for
-    metrics without an external benchmark compares each athlete against their
-    Deporte+Nivel cohort (see `modules.athlete_profile.get_comparison_cohort`)
-    instead of the whole dataset. When omitted, behavior is unchanged.
+    La decision vive en `modules.reference_engine`: literatura (si la
+    poblacion y la era coinciden), cohorte Deporte+Nivel+Sexo, Grupo de
+    demanda+Sexo o Sexo (>= 8 atletas, una toma por atleta, misma era y
+    fuente), percentil con 5-7 y nada con < 5. Sin `profile_df` no hay sexo y
+    no hay z. La serie propia del atleta nunca produce z.
     """
     zscore_specs = (
         ("SJ_cm", "SJ_Z", False),
@@ -3081,6 +2817,20 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
             snapshot[field] = source_row.get(field)
             snapshot[f"{field}__source_date"] = _format_profile_source_date(source_row.get("Date"))
             snapshot[f"{field}__source_date_iso"] = _format_profile_source_iso_date(source_row.get("Date"))
+
+    # Ejes del radar que no estan en la tabla compuesta (DJ RSI): mismo z,
+    # origen y referencia que su ultima toma valida.
+    composite_value_cols = {metric[1] for metric in COMPOSITE_PROFILE_METRICS} | {"IMTP_N"}
+    for _, axis_value_col, _, axis_z_col in RADAR_FULL_AXES:
+        if axis_value_col in composite_value_cols or snapshot.get(f"{axis_z_col}_source"):
+            continue
+        source_row = _latest_valid_numeric_row(data, axis_value_col)
+        if source_row is None:
+            continue
+        snapshot.setdefault(axis_value_col, source_row.get(axis_value_col))
+        snapshot[axis_z_col] = resolve_zscore(source_row, axis_z_col)
+        for suffix in ("_source", "_reference_source", "_percentile", "_rank", "_cohort_n"):
+            snapshot[f"{axis_z_col}{suffix}"] = source_row.get(f"{axis_z_col}{suffix}")
 
     for primary_col, alias_col in ZSCORE_ALIAS_GROUPS:
         z_value = resolve_zscore(snapshot, primary_col)

@@ -41,8 +41,9 @@ def _build_two_cohort_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def _expected_z(values: list[float], target: float) -> float:
+    # Desvio muestral (ddof=1) entre N atletas, una toma por atleta (PR C).
     arr = np.array(values, dtype=float)
-    return round(float((target - arr.mean()) / arr.std(ddof=0)), 2)
+    return round(float((target - arr.mean()) / arr.std(ddof=1)), 2)
 
 
 def build_valid_cohort_frames() -> tuple[pd.DataFrame, pd.DataFrame, list[float]]:

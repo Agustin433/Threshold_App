@@ -555,7 +555,8 @@ class JumpProfileSystemTest(unittest.TestCase):
         figure = chart_composite_profile_radar(composite_row, "Atleta Compuesto", theme=_chart_theme())
         axis_order = list(figure.data[-1].theta)[:-1]
 
-        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "Tiempo de contacto", "EUR", "IMTP"])
+        # PR C: el radar compuesto usa los mismos ejes que el radar estandar.
+        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ height", "DJ RSI", "Tiempo de contacto", "IMTP relPF"])
 
         metric_table = build_composite_profile_metric_table(composite_row)
         self.assertEqual(
@@ -642,12 +643,12 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(radial_values[4], 0.80)
 
     def test_contact_time_composite_zscore_keeps_lower_is_better_semantics(self):
-        jump_df = pd.DataFrame(
+        # Contacto mas corto que la cohorte (203-210 ms) -> z positivo.
+        jump_df = _prepare_with_cohort(
             [
-                    {"Athlete": "Atleta TC", "Date": "2026-04-01", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 260.0},
-                    {"Athlete": "Atleta TC", "Date": "2026-04-08", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 250.0},
-                    {"Athlete": "Atleta TC", "Date": "2026-04-15", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 240.0},
-                    {"Athlete": "Atleta TC", "Date": "2026-04-22", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 220.0},
+                    {"Athlete": "Atleta TC", "Date": "2026-04-01", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 200.0},
+                    {"Athlete": "Atleta TC", "Date": "2026-04-08", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 195.0},
+                    {"Athlete": "Atleta TC", "Date": "2026-04-15", "DJ_drop_height_cm": 30.0, "DJ_cm": 24.0, "DJ_tc_ms": 190.0},
             ]
         )
 
@@ -670,11 +671,11 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         figure = chart_composite_profile_radar(composite_row, "Atleta Sin IMTP", theme=_chart_theme())
         axis_order = list(figure.data[-1].theta)[:-1]
-        radial_values = list(figure.data[-1].r)[:-1]
-        radar_center = figure.layout.polar.radialaxis.range[0]
 
-        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "Tiempo de contacto", "EUR", "IMTP"])
-        self.assertEqual(radial_values[-1], radar_center)
+        # Sin IMTP el eje no se dibuja (antes quedaba en el centro, que se lee
+        # como un valor muy bajo).
+        self.assertNotIn("IMTP relPF", axis_order)
+        self.assertEqual(axis_order[:2], ["SJ", "CMJ"])
 
     def test_composite_profile_chart_keeps_missing_internal_axis_fixed_at_center(self):
         jump_df = _prepare_with_cohort(
@@ -688,11 +689,9 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         figure = chart_composite_profile_radar(composite_row, "Atleta Parcial", theme=_chart_theme())
         axis_order = list(figure.data[-1].theta)[:-1]
-        radial_values = list(figure.data[-1].r)[:-1]
-        radar_center = figure.layout.polar.radialaxis.range[0]
 
-        self.assertEqual(axis_order, ["SJ", "CMJ", "DJ", "DRI", "Tiempo de contacto", "EUR", "IMTP"])
-        self.assertEqual(radial_values[1], radar_center)
+        # Un eje sin dato no se dibuja en el centro: directamente no aparece.
+        self.assertNotIn("CMJ", axis_order)
 
         metric_table = build_composite_profile_metric_table(composite_row)
         cmj_row = metric_table[metric_table["Variable"] == "CMJ"].iloc[0]
@@ -1002,11 +1001,9 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         self.assertTrue(pd.isna(composite_row.get("IMTP_relPF")))
         self.assertEqual(imtp_row["Valor"], "3385 N")
-        # El valor exacto dependia del fallback al dataset entero, que se
-        # elimino. Lo que importa aca es que el IMTP crudo produzca z propio
-        # cuando no hay peso corporal para derivar el relativo.
-        self.assertTrue(pd.notna(imtp_row["Z-score"]))
-        self.assertIsInstance(float(imtp_row["Z-score"]), float)
+        # PR C: el IMTP absoluto es solo descriptivo (sin z); radar y
+        # cuadrantes usan la fuerza relativa bruta.
+        self.assertEqual(imtp_row["Z-score"], "—")
         self.assertEqual(dict(zip(source_table["Variable"], source_table["Fecha origen"]))["IMTP"], "07/05/2026")
         self.assertEqual(imtp_metric["value_col"], "IMTP_N")
         self.assertEqual(imtp_metric["z_col"], "IMTP_N_Z")
@@ -1314,7 +1311,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(len(jump_df), 1)
         self.assertTrue(pd.isna(jump_df.iloc[0].get("DSI")))
 
-    def test_rel_impulse_row_uses_internal_z_when_athlete_has_three_records(self):
+    def test_rel_impulse_row_never_uses_internal_z(self):
         jump_df = _prepare_with_cohort(
                 [
                     {
@@ -1361,7 +1358,9 @@ class JumpProfileSystemTest(unittest.TestCase):
         impulse_row = metric_table[metric_table["Variable"] == "Impulso Relativo Propulsivo"].iloc[0]
 
         self.assertAlmostEqual(float(impulse_row["Valor"]), 3.0, places=3)
-        self.assertAlmostEqual(float(impulse_row["Z"]), 1.22, places=2)
+        # PR C: la serie propia ya no produce z (con 3 tomas daba +1.22); sin
+        # pares con impulso medido no hay z.
+        self.assertEqual(impulse_row["Z"], "-")
 
     def test_compute_swc_delta_handles_first_second_and_hopkins_cases(self):
         jump_df = _temporal_jump_df()

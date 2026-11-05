@@ -169,11 +169,9 @@ class SameDayCollisionTest(unittest.TestCase):
 
 
 class ZScorePartitionTest(unittest.TestCase):
-    def test_within_athlete_z_does_not_mix_devices(self):
-        # El atleta progresa igual en cada dispositivo, pero la alfombra lee
-        # sistematicamente mas alto. Se usa SJ_cm porque no tiene benchmark
-        # externo: asi el resultado depende solo del z intra-atleta, que es lo
-        # que este test controla.
+    def test_own_series_never_produces_z(self):
+        # PR C: la serie propia (antes z intra-atleta por dispositivo) ya no
+        # produce z: la comparacion consigo mismo vive en la tabla de cambios.
         records = []
         for day, height in enumerate([30.0, 30.5, 31.0], start=1):
             records.append(_sj_record("Ana Lopez", f"2026-05-0{day}", height, SOURCE_PLATFORM))
@@ -181,20 +179,8 @@ class ZScorePartitionTest(unittest.TestCase):
             records.append(_sj_record("Ana Lopez", f"2026-05-0{day}", height, SOURCE_NONPLATFORM))
 
         df = _records_to_jump_df(records)
-        platform_z = filter_by_source(df, SOURCE_PLATFORM).sort_values("Date")["SJ_Z"]
-        nonplatform_z = filter_by_source(df, SOURCE_NONPLATFORM).sort_values("Date")["SJ_Z"]
-
-        # Cada fuente recorre el mismo rango relativo, asi que sus z deben
-        # coincidir. Pooled, el escalon de 8 cm domina y los dos grupos
-        # quedarian separados en extremos opuestos.
-        np.testing.assert_allclose(
-            platform_z.to_numpy(dtype=float),
-            nonplatform_z.to_numpy(dtype=float),
-            atol=1e-6,
-        )
-        np.testing.assert_allclose(
-            platform_z.to_numpy(dtype=float), [-1.22, 0.0, 1.22], atol=0.01
-        )
+        self.assertTrue(df["SJ_Z"].isna().all())
+        self.assertFalse(df["SJ_Z_source"].eq("intra_individual").any())
 
     def test_cohort_z_is_computed_per_source(self):
         """La cohorte, cuando es valida, sigue separada por fuente.
