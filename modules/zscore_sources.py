@@ -43,6 +43,7 @@ from modules.evaluation_sources import (
     SOURCE_PLATFORM,
     normalize_source,
 )
+from modules.measurement_eras import ALL_ERAS, ERA_INVOLUTION_STRAPS
 
 
 class ZSource(StrEnum):
@@ -63,9 +64,11 @@ Z_SOURCE_LABELS: dict[str, str] = {
 
 # Miembros del enum que producen un z numerico comparable en un eje.
 # `COHORT_RANK` queda afuera a proposito: una posicion no es una distancia y
-# mapearla a un eje de z seria disfrazarla.
+# mapearla a un eje de z seria disfrazarla. `INTRA_INDIVIDUAL` tambien: la
+# serie propia (2 tomas con ddof=0 da siempre +/-1) no es una poblacion; la
+# comparacion consigo mismo vive en "Lo que lograste" y la tabla de cambios.
 Z_SOURCES_WITH_NUMERIC_Z: frozenset[ZSource] = frozenset(
-    {ZSource.LITERATURE_Z, ZSource.COHORT_Z, ZSource.INTRA_INDIVIDUAL}
+    {ZSource.LITERATURE_Z, ZSource.COHORT_Z}
 )
 
 # Con una sola toma no hay serie contra la cual comparar.
@@ -102,7 +105,17 @@ class ZDecision:
 # desvio de otra, resuelve a banda de criterio.
 #
 # Para sumar una entrada hacen falta las cinco claves de identidad (metric,
-# deporte, nivel, sexo, instrument_class) mas mean, sd, n y source.
+# deporte, nivel, sexo, instrument_class) mas mean, sd, n y source, y:
+# - "eras": eras de medicion propias con las que es comparable. McMahon 2022
+#   uso Kistler 1000 Hz con impulso-momento y pesaje correcto: se toma como
+#   compatible solo con Involution (Valkyria inflaba la altura por impulso).
+# - "nivel_uso": "z" si la poblacion coincide con la del atleta; "contexto"
+#   si es de nivel superior (solo banda en el PDF profe, nunca z al atleta).
+# - "normalizacion" ("bruta"/"neta"): obligatoria para IMTP relativo.
+MCMAHON_2022 = (
+    "McMahon et al. 2022, Sensors 22(22):8669, doi:10.3390/s22228669 - "
+    "rugby league profesional, Kistler 1000 Hz, impulso-momento"
+)
 REFERENCE_TABLES: tuple[dict[str, object], ...] = (
     {
         "metric": "CMJ_cm",
@@ -114,7 +127,9 @@ REFERENCE_TABLES: tuple[dict[str, object], ...] = (
         "mean": 34.1,
         "sd": 4.2,
         "n": 66,
-        "source": "McMahon et al. 2022, Sensors 22(22):8669 - rugby league profesional, Kistler 1000 Hz",
+        "source": MCMAHON_2022,
+        "eras": (ERA_INVOLUTION_STRAPS,),
+        "nivel_uso": "z",
     },
     {
         "metric": "CMJ_cm",
@@ -126,7 +141,9 @@ REFERENCE_TABLES: tuple[dict[str, object], ...] = (
         "mean": 36.4,
         "sd": 4.5,
         "n": 55,
-        "source": "McMahon et al. 2022, Sensors 22(22):8669 - rugby league profesional, Kistler 1000 Hz",
+        "source": MCMAHON_2022,
+        "eras": (ERA_INVOLUTION_STRAPS,),
+        "nivel_uso": "z",
     },
     {
         "metric": "Jump_Momentum",
@@ -138,7 +155,9 @@ REFERENCE_TABLES: tuple[dict[str, object], ...] = (
         "mean": 262.6,
         "sd": 25.5,
         "n": 66,
-        "source": "McMahon et al. 2022, Sensors 22(22):8669 - rugby league profesional, Kistler 1000 Hz",
+        "source": MCMAHON_2022,
+        "eras": (ERA_INVOLUTION_STRAPS,),
+        "nivel_uso": "z",
     },
     {
         "metric": "Jump_Momentum",
@@ -150,9 +169,77 @@ REFERENCE_TABLES: tuple[dict[str, object], ...] = (
         "mean": 240.3,
         "sd": 27.8,
         "n": 55,
-        "source": "McMahon et al. 2022, Sensors 22(22):8669 - rugby league profesional, Kistler 1000 Hz",
+        "source": MCMAHON_2022,
+        "eras": (ERA_INVOLUTION_STRAPS,),
+        "nivel_uso": "z",
+    },
+    {
+        "metric": "CMJ_RSI",
+        "deporte": "Rugby League",
+        "nivel": "Alto rendimiento",
+        "sexo": Sexo.MASCULINO,
+        "instrument_class": INSTRUMENT_PLATFORM,
+        "subgroup": "forwards",
+        "mean": 0.44,
+        "sd": 0.08,
+        "n": 66,
+        "source": MCMAHON_2022,
+        "eras": (ERA_INVOLUTION_STRAPS,),
+        "nivel_uso": "z",
+    },
+    {
+        "metric": "CMJ_RSI",
+        "deporte": "Rugby League",
+        "nivel": "Alto rendimiento",
+        "sexo": Sexo.MASCULINO,
+        "instrument_class": INSTRUMENT_PLATFORM,
+        "subgroup": "backs",
+        "mean": 0.49,
+        "sd": 0.08,
+        "n": 55,
+        "source": MCMAHON_2022,
+        "eras": (ERA_INVOLUTION_STRAPS,),
+        "nivel_uso": "z",
     },
 )
+
+REFERENCE_REQUIRED_KEYS = (
+    "metric", "deporte", "nivel", "sexo", "instrument_class", "mean", "sd", "n", "source", "eras", "nivel_uso",
+)
+IMTP_RELATIVE_METRICS = ("IMTP_relPF", "IMTP_relPF_net")
+
+
+def validate_reference_tables(tables: tuple[dict[str, object], ...] = REFERENCE_TABLES) -> list[str]:
+    """Errores de la tabla de referencias (vacia = valida)."""
+    errors: list[str] = []
+    for index, entry in enumerate(tables):
+        missing = [key for key in REFERENCE_REQUIRED_KEYS if key not in entry]
+        if missing:
+            errors.append(f"entrada {index} ({entry.get('metric')}): faltan {', '.join(missing)}")
+        if entry.get("nivel_uso") not in {"z", "contexto"}:
+            errors.append(f"entrada {index}: nivel_uso debe ser 'z' o 'contexto'")
+        if entry.get("metric") in IMTP_RELATIVE_METRICS and entry.get("normalizacion") not in {"bruta", "neta"}:
+            errors.append(f"entrada {index}: IMTP relativo sin normalizacion (bruta/neta)")
+    return errors
+
+
+def context_references(metric: str, *, deporte: object, sexo: object) -> list[dict[str, object]]:
+    """Referencias del mismo deporte de nivel superior: solo banda en el PDF profe.
+
+    Nunca producen z al atleta. El deporte se compara por la primera palabra
+    ("Rugby" encuentra "Rugby League").
+    """
+    sexo_key = normalize_sexo(sexo)
+    sport = _clean(deporte).lower().split(" ")[0] if _clean(deporte) else ""
+    if not sport or sexo_key is Sexo.NO_ESPECIFICADO:
+        return []
+    return [
+        dict(entry)
+        for entry in REFERENCE_TABLES
+        if entry["metric"] == metric
+        and _clean(entry["deporte"]).lower().split(" ")[0] == sport
+        and normalize_sexo(entry["sexo"]) is sexo_key
+    ]
 
 
 def _clean(value: object) -> str:
@@ -172,6 +259,8 @@ def lookup_reference(
     nivel: object,
     sexo: object,
     instrument_class: object | None = None,
+    era: object | None = None,
+    use: str | None = None,
 ) -> dict[str, object] | None:
     """Devuelve la referencia publicada para esa poblacion, o None.
 
@@ -202,6 +291,9 @@ def lookup_reference(
         and _clean(entry["nivel"]).lower() == nivel_key
         and normalize_sexo(entry["sexo"]) is sexo_key
         and (instrument_key is None or normalize_source(entry["instrument_class"]) == instrument_key)
+        # Era compatible: una metrica sin era propia ('todas') no se restringe.
+        and (era is None or str(era) == ALL_ERAS or str(era) in tuple(entry.get("eras") or ()))
+        and (use is None or entry.get("nivel_uso") == use)
     ]
     if not matches:
         return None

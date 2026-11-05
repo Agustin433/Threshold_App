@@ -105,7 +105,6 @@ DICTIONARY_TERMS: dict[str, str] = {
     "drop jump": "salto inmediato después de caer de un cajón.",
     "IMTP": "tirón isométrico: fuerza máxima contra una barra fija.",
     "RPE": "esfuerzo percibido de la sesión, de 0 a 10.",
-    "ACWR": "relación entre tu carga de la última semana y tu carga habitual.",
     "UA": "unidades arbitrarias de carga: RPE por minutos de sesión.",
     "1RM": "el máximo peso que podrías levantar una vez.",
     "por tiempo de vuelo": "altura calculada con el tiempo que estuviste en el aire; se compara solo contra otra medición del mismo tipo.",
@@ -366,9 +365,7 @@ def focus_text(profile: dict[str, object] | None, history: pd.DataFrame | None, 
         short = str(profile.get("training_priority_short") or "").strip()
         base = short or base
         return base
-    kpis = top_kpis(profile.get("kpi_to_track"), history)
-    if kpis and base:
-        return f"{base} Seguir de cerca {', '.join(kpis)}."
+    # "Seguir de cerca ..." queda solo en el PDF profe.
     return base
 
 
@@ -481,9 +478,8 @@ def load_reading(
     pct = _number(change_pct)
     if pct is not None:
         rows.append(("Cambio vs semana anterior", f"{pct:+.1f}%"))
-    acwr_value = _number(acwr)
-    if _audience_key(audience) == ATHLETE and acwr_value is not None:
-        rows.append(("ACWR (contexto, no semáforo)", f"{acwr_value:.2f}"))
+    # El ACWR queda en el PDF profe: "Más alta/Similar/Más baja que tu
+    # promedio" ya lo comunica sin convertirlo en semaforo.
     if not sentences and not rows:
         return None
     return {"headline": headline, "sentences": sentences, "rows": rows}

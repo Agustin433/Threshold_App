@@ -49,6 +49,14 @@ from modules.evaluation_rules import (
     resolve_change_threshold,
     sanitize_bw_kg_series,
 )
+from modules.measurement_eras import (
+    ERA_CHANGE_NOTE,
+    ERA_CHANGE_SIGNAL,
+    era_from_date,
+    era_series,
+    is_era_dependent,
+)
+from modules.reference_engine import ReferenceEngine
 from modules.zscore_sources import (
     Z_SOURCES_WITH_NUMERIC_Z,
     ZSource,
@@ -219,6 +227,7 @@ TEMPORAL_SIGNAL_BADGES = {
     "cambio relevante sin direccion": "± cambio relevante — leer numerador y denominador",
     "sin cambio relevante sin direccion": "~ sin cambio relevante",
     "no comparable por impulso": "✕ no comparable: altura por impulso inconsistente",
+    ERA_CHANGE_SIGNAL: f"✕ {ERA_CHANGE_NOTE}",
 }
 
 NO_IMPULSE_COMPARISON_SIGNAL = "no comparable por impulso"
@@ -1220,11 +1229,14 @@ def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd
         ("Jump_Momentum", "Jump_Momentum_Z", False),
         ("EUR", "EUR_Z", False),
         ("DSI", "DSI_Z", False),
-        ("IMTP_N", "IMTP_N_Z", False),
+        ("CMJ_RSI", "CMJ_RSI_Z", False),
+        ("CMJ_rel_impulse", "CMJ_rel_impulse_Z", False),
     )
+    # IMTP absoluto (N) ya no tiene z: en radar y cuadrantes va la fuerza
+    # relativa bruta (N/kg); la absoluta queda descriptiva en el PDF profe.
 
-    cohort_cache = build_cohort_cache(df, profile_df) if profile_df is not None else None
     profile_lookup = _profile_lookup(profile_df)
+    engine = ReferenceEngine(df, profile_lookup)
 
     numeric_z_sources = {str(source) for source in Z_SOURCES_WITH_NUMERIC_Z}
 
@@ -1273,22 +1285,27 @@ def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd
         df[f"{z_col}_rank"] = ranks
         df[f"{z_col}_cohort_n"] = cohort_sizes
 
+    rank_source = str(ZSource.COHORT_RANK)
     for metric_col, z_col, invert in zscore_specs:
-        _apply(z_col, *_resolve_zscore(
-            df,
-            metric_col,
-            invert=invert,
-            cohort_cache=cohort_cache,
-            profile_lookup=profile_lookup,
-        ))
-
-    _apply("CMJ_rel_impulse_Z", *_resolve_zscore(
-        df,
-        "CMJ_rel_impulse",
-        internal_min_count=3,
-        allow_dataset_fallback=False,
-        profile_lookup=profile_lookup,
-    ))
+        resolved = engine.resolve(metric_col, invert=invert)
+        _apply(
+            z_col,
+            resolved["z"],
+            resolved["origin"],
+            resolved["percentile"],
+            resolved["rank"],
+            resolved["cohort_n"],
+        )
+        # Descripcion de la referencia (escalon, era, N, fechas, atletas). Una
+        # re-preparacion sin perfil no la borra: se conserva la anterior.
+        reference_col = f"{z_col}_reference_source"
+        fresh_reference = resolved["reference"].where(
+            resolved["origin"].isin(numeric_z_sources | {rank_source}), ""
+        )
+        if reference_col in df.columns:
+            previous = df[reference_col].astype(object).where(df[reference_col].notna(), "")
+            fresh_reference = fresh_reference.where(fresh_reference != "", previous)
+        df[reference_col] = fresh_reference
 
     # Backward-compatible aliases used elsewhere in the app/reporting.
     # El alias se rellena desde el canonico y viceversa, pero nunca por encima
@@ -1424,21 +1441,105 @@ def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tupl
         axes = list(RADAR_NO_IMTP_AXES[:2])
         notes.append("Perfil parcial")
 
-    plottable = [axis for axis in axes if has_plottable_z(row_series, axis[3])]
+    plottable, mode = _radar_plottable_axes(row_series, axes)
     dropped = len(axes) - len(plottable)
     if dropped:
         notes.append(f"{dropped} eje(s) sin poblacion de referencia")
-
-    origins = {z_source_of(row_series, axis[3]) for axis in plottable}
-    if len(origins) > 1:
-        # Se conserva el origen mas representado para no mezclar escalas.
-        dominant = max(origins, key=lambda origin: sum(
-            1 for axis in plottable if z_source_of(row_series, axis[3]) == origin
-        ))
-        plottable = [axis for axis in plottable if z_source_of(row_series, axis[3]) == dominant]
-        notes.append("Se omitieron ejes de otra procedencia para no mezclar escalas")
-
+    if mode == RADAR_MODE_PERCENTILE:
+        notes.append("percentiles (posición entre pares)")
     return plottable, notes
+
+
+RADAR_MODE_Z = "z"
+RADAR_MODE_PERCENTILE = "percentil"
+RADAR_MIN_PERCENTILE_AXES = 3
+
+
+def _axis_reference_key(row: pd.Series, z_col: str) -> tuple[str, str]:
+    """(origen, escalon) de un eje: un radar nunca mezcla escalas ni escalones."""
+    from modules.reference_engine import parse_reference
+
+    info = parse_reference(row.get(f"{z_col}_reference_source")) or {}
+    return z_source_of(row, z_col), str(info.get("level") or "")
+
+
+def has_plottable_percentile(row: pd.Series | dict[str, object], z_col: str) -> bool:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    value = pd.to_numeric(pd.Series([row_series.get(f"{z_col}_percentile")]), errors="coerce").iloc[0]
+    return pd.notna(value) and z_source_of(row_series, z_col) == str(ZSource.COHORT_RANK)
+
+
+def _radar_plottable_axes(row: pd.Series, axes: list[tuple[str, str, str, str]]) -> tuple[list[tuple[str, str, str, str]], str]:
+    """Ejes graficables y modo del radar ("z" o "percentil"), nunca mezclados.
+
+    Se prefiere z. Si no hay ningun eje con z pero si 3 o mas con percentil
+    (cohortes de 5-7 atletas), el radar va en percentiles 0-100. Dentro de un
+    modo se conserva el (origen, escalon) mas representado.
+    """
+    z_axes = [axis for axis in axes if has_plottable_z(row, axis[3])]
+    mode = RADAR_MODE_Z
+    candidates = z_axes
+    if not z_axes:
+        pct_axes = [axis for axis in axes if has_plottable_percentile(row, axis[3])]
+        if len(pct_axes) >= RADAR_MIN_PERCENTILE_AXES:
+            candidates, mode = pct_axes, RADAR_MODE_PERCENTILE
+    if not candidates:
+        return [], RADAR_MODE_Z
+    keys = [_axis_reference_key(row, axis[3]) for axis in candidates]
+    dominant = max(set(keys), key=keys.count)
+    return [axis for axis, key in zip(candidates, keys) if key == dominant], mode
+
+
+def radar_axis_values(row: pd.Series | dict[str, object]) -> dict[str, object]:
+    """Ejes, valores y modo del radar, y la referencia para el pie del grafico."""
+    from modules.reference_engine import parse_reference
+
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    axes, notes = _available_radar_axes(row_series)
+    _, mode = _radar_plottable_axes(row_series, list(axes)) if axes else ([], RADAR_MODE_Z)
+    values: list[float] = []
+    references: list[dict[str, object]] = []
+    for axis in axes:
+        if mode == RADAR_MODE_PERCENTILE:
+            values.append(float(pd.to_numeric(pd.Series([row_series.get(f"{axis[3]}_percentile")])).iloc[0]))
+        else:
+            values.append(float(resolve_zscore(row_series, axis[3])))
+        info = parse_reference(row_series.get(f"{axis[3]}_reference_source"))
+        if info:
+            references.append(info)
+    return {"axes": list(axes), "values": values, "mode": mode, "notes": notes, "references": references}
+
+
+def radar_reference_caption(row: pd.Series | dict[str, object]) -> str:
+    """Pie del radar del PDF profe: escalon, era(s), N atletas y fechas."""
+    from modules.measurement_eras import era_label
+    from modules.reference_engine import NO_GROUP_TEXT, level_label
+
+    payload = radar_axis_values(row)
+    references = payload["references"]
+    if not payload["axes"] or not references:
+        return f"Referencia: {NO_GROUP_TEXT}."
+    level = level_label(references[0]["level"])
+    eras = sorted({era_label(info["era"]) for info in references})
+    sizes = sorted({int(info["size"]) for info in references})
+    size_text = str(sizes[0]) if len(sizes) == 1 else f"{sizes[0]}-{sizes[-1]}"
+    def _as_date(text: object) -> pd.Timestamp:
+        return pd.to_datetime(text, format="%d/%m/%Y", errors="coerce")
+    starts = [_as_date(info["date_min"]) for info in references if info.get("date_min")]
+    ends = [_as_date(info["date_max"]) for info in references if info.get("date_max")]
+    starts = [d for d in starts if pd.notna(d)]
+    ends = [d for d in ends if pd.notna(d)]
+    dates = f", tomas de {min(starts):%d/%m/%Y} a {max(ends):%d/%m/%Y}" if starts and ends else ""
+    mode = " (percentiles: posición entre pares)" if payload["mode"] == RADAR_MODE_PERCENTILE else ""
+    return f"Referencia: {level}, era {' / '.join(eras)}, {size_text} atletas{dates}{mode}."
+
+
+def radar_reference_athletes(row: pd.Series | dict[str, object]) -> list[str]:
+    """Atletas que forman la referencia del radar (anexo del PDF profe)."""
+    names: set[str] = set()
+    for info in radar_axis_values(row)["references"]:
+        names.update(info.get("athletes") or [])
+    return sorted(names)
 
 
 def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, str]]:
@@ -2234,6 +2335,7 @@ def compute_swc_delta(
     current_rows = working_df[working_df["Date"] == current_ts].sort_values("Date")
     current_row = current_rows.iloc[-1] if not current_rows.empty else working_df.iloc[-1]
     current_row_date = pd.Timestamp(current_row["Date"]).normalize()
+    working_eras = era_series(working_df)
 
     selected_variables = _default_temporal_variables(working_df, variables=variables)
     rows: list[dict[str, object]] = []
@@ -2247,6 +2349,17 @@ def compute_swc_delta(
         valid_rows[variable] = series.loc[series.notna()].values
         if valid_rows.empty:
             continue
+        # IMTP y lo que sale de la velocidad integrada: solo dentro de la
+        # misma era de medicion (software/protocolo). Una toma anterior de
+        # otra era no se compara ni entra al umbral.
+        era_blocked = False
+        if is_era_dependent(variable):
+            eras = working_eras.reindex(valid_rows.index)
+            current_era = working_eras.get(current_row.name, era_from_date(current_row_date))
+            earlier_any = valid_rows[valid_rows["Date"] < current_row_date]
+            valid_rows = valid_rows[eras == current_era]
+            earlier_same = valid_rows[valid_rows["Date"] < current_row_date]
+            era_blocked = not earlier_any.empty and earlier_same.empty
 
         current_value = pd.to_numeric(pd.Series([current_row.get(variable)]), errors="coerce").iloc[0]
         previous_rows = valid_rows[valid_rows["Date"] < current_row_date].sort_values("Date")
@@ -2275,7 +2388,12 @@ def compute_swc_delta(
                 set(flagged_tests) & set(jump_height_flagged_tests(window_row))
                 for _, window_row in window.iterrows()
             )
-        if impulse_blocked:
+        if era_blocked and pd.isna(previous_value):
+            # La toma anterior es de otra era: ese es el motivo, no la altura.
+            previous_value = np.nan
+            previous_date = pd.NaT
+            signal = ERA_CHANGE_SIGNAL
+        elif impulse_blocked:
             previous_value = np.nan
             previous_date = pd.NaT
             signal = NO_IMPULSE_COMPARISON_SIGNAL
@@ -2479,7 +2597,8 @@ UNUSUAL_CHANGE_NOTE = "cambio inusualmente grande: verificar técnica/protocolo"
 
 # IMTP: +25% entre dos tomas suele ser aprendizaje de la tarea (primer IMTP,
 # posicion, pretension) mas que fuerza nueva: la confiabilidad del pico
-# isometrico se estabiliza despues de la familiarizacion.
+# isometrico se estabiliza despues de la familiarizacion (consenso IMTP:
+# Comfort et al. 2019, Strength Cond J 41(2):57-79).
 IMTP_PLAUSIBILITY_PCT = 25.0
 IMTP_PLAUSIBILITY_VARIABLES = frozenset({"IMTP_N", "IMTP_relPF", "IMTP_relPF_net"})
 UNUSUAL_IMTP_CHANGE_NOTE = "cambio inusualmente grande: verificar familiarización/protocolo"
@@ -2532,7 +2651,10 @@ def compute_evaluation_changes(
     extra_rows: list[dict[str, object]] = []
     for test in FLIGHT_TIME_HEIGHT_COLUMNS:
         impulse_rows = delta_df[delta_df["Variable"] == f"{test}_cm"]
-        if impulse_rows.empty or str(impulse_rows.iloc[0].get("Signal")) != NO_IMPULSE_COMPARISON_SIGNAL:
+        if impulse_rows.empty or str(impulse_rows.iloc[0].get("Signal")) not in {
+            NO_IMPULSE_COMPARISON_SIGNAL,
+            ERA_CHANGE_SIGNAL,
+        }:
             continue
         flight_row = compare_flight_time_height(history, test, current_date=current_date)
         if flight_row is not None:
@@ -2918,6 +3040,8 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
         # el numero pero perdia de donde salio, y toda superficie que lo lee lo
         # descartaba por no poder verificar que no fuera un desvio prestado.
         snapshot[f"{source_z_col}_source"] = z_source_of(source_row, source_z_col)
+        for suffix in ("_reference_source", "_percentile", "_rank", "_cohort_n"):
+            snapshot[f"{source_z_col}{suffix}"] = source_row.get(f"{source_z_col}{suffix}")
         snapshot[f"{value_col}__source_date"] = source_date
         snapshot[f"{value_col}__source_date_iso"] = source_date_iso
         snapshot[f"{source_value_col}__source_date"] = source_date
@@ -2929,6 +3053,8 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
             snapshot["DJtc_Z"] = tc_z
             snapshot["TC_inv_Z_source"] = tc_origin
             snapshot["DJtc_Z_source"] = tc_origin
+            for suffix in ("_reference_source", "_percentile", "_rank", "_cohort_n"):
+                snapshot[f"TC_inv_Z{suffix}"] = source_row.get(f"TC_inv_Z{suffix}")
         if value_col == "IMTP_relPF":
             snapshot["IMTP_N"] = source_row.get("IMTP_N")
             snapshot["IMTP_relPF_net"] = source_row.get("IMTP_relPF_net")

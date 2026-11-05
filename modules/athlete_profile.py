@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from datetime import date
 from collections.abc import Iterable, Mapping
@@ -194,6 +195,91 @@ def normalize_deporte(value: object) -> str | None:
         if _strip_accents(option).lower() == key:
             return option
     return text
+
+# ── Grupo de demanda (un solo lugar) ──────────────────────────────────────
+# Escalon intermedio de la cohorte de referencia: deportes con exigencias
+# neuromusculares parecidas. La clave se compara sin acentos ni mayusculas.
+DEMAND_TEAM = "intermitente_equipo"
+DEMAND_RACKET_COMBAT = "raqueta_combate"
+DEMAND_ENDURANCE = "resistencia"
+DEMAND_STRENGTH_POWER = "fuerza_potencia"
+DEMAND_GENERAL = "poblacion_general"
+
+DEMAND_GROUP_LABELS: dict[str, str] = {
+    DEMAND_TEAM: "deportes intermitentes de equipo",
+    DEMAND_RACKET_COMBAT: "deportes de raqueta y combate",
+    DEMAND_ENDURANCE: "deportes de resistencia",
+    DEMAND_STRENGTH_POWER: "deportes de fuerza-potencia",
+    DEMAND_GENERAL: "población general activa",
+}
+
+# Palabra clave (sin acentos, minuscula) -> (deporte canonico, grupo).
+_SPORT_KEYWORDS: tuple[tuple[str, str, str], ...] = (
+    ("futbol", "Fútbol", DEMAND_TEAM),
+    ("futboll", "Fútbol", DEMAND_TEAM),
+    ("fulbo", "Fútbol", DEMAND_TEAM),
+    ("soccer", "Fútbol", DEMAND_TEAM),
+    ("handball", "Handball", DEMAND_TEAM),
+    ("handbal", "Handball", DEMAND_TEAM),
+    ("balonmano", "Handball", DEMAND_TEAM),
+    ("hockey", "Hockey sobre césped", DEMAND_TEAM),
+    ("rugby", "Rugby", DEMAND_TEAM),
+    ("basquet", "Básquet", DEMAND_TEAM),
+    ("basket", "Básquet", DEMAND_TEAM),
+    ("basquetbol", "Básquet", DEMAND_TEAM),
+    ("voley", "Vóley", DEMAND_TEAM),
+    ("volley", "Vóley", DEMAND_TEAM),
+    ("voleibol", "Vóley", DEMAND_TEAM),
+    ("tenis", "Tenis", DEMAND_RACKET_COMBAT),
+    ("padel", "Pádel", DEMAND_RACKET_COMBAT),
+    ("squash", "Squash", DEMAND_RACKET_COMBAT),
+    ("taekwondo", "Taekwondo", DEMAND_RACKET_COMBAT),
+    ("boxeo", "Boxeo", DEMAND_RACKET_COMBAT),
+    ("judo", "Judo", DEMAND_RACKET_COMBAT),
+    ("karate", "Karate", DEMAND_RACKET_COMBAT),
+    ("running", "Running", DEMAND_ENDURANCE),
+    ("trail", "Trail running", DEMAND_ENDURANCE),
+    ("maraton", "Running", DEMAND_ENDURANCE),
+    ("ciclismo", "Ciclismo", DEMAND_ENDURANCE),
+    ("bicicleta", "Ciclismo", DEMAND_ENDURANCE),
+    ("natacion", "Natación", DEMAND_ENDURANCE),
+    ("triatlon", "Triatlón", DEMAND_ENDURANCE),
+    ("halterofilia", "Halterofilia", DEMAND_STRENGTH_POWER),
+    ("levantamiento", "Halterofilia", DEMAND_STRENGTH_POWER),
+    ("lanzamiento", "Lanzamientos", DEMAND_STRENGTH_POWER),
+    ("lanzamientos", "Lanzamientos", DEMAND_STRENGTH_POWER),
+    ("saltos", "Saltos", DEMAND_STRENGTH_POWER),
+    ("powerlifting", "Powerlifting", DEMAND_STRENGTH_POWER),
+)
+_SPORT_KEYWORD_INDEX = {keyword: (sport, group) for keyword, sport, group in _SPORT_KEYWORDS}
+
+
+def primary_sport(value: object) -> tuple[str, str] | None:
+    """(deporte canonico, grupo) del primer deporte reconocido en el texto.
+
+    Deportes compuestos ("Futbol/ padel", "Futbol y Ballet acuatico") toman el
+    primero reconocido en el orden en que estan escritos.
+    """
+    text = str(value or "").strip()
+    if not text or text.lower() in {"nan", "none", "<na>"}:
+        return None
+    words = re.findall(r"[a-z]+", _strip_accents(text).lower())
+    for word in words:
+        if word in _SPORT_KEYWORD_INDEX:
+            return _SPORT_KEYWORD_INDEX[word]
+    return None
+
+
+def primary_deporte(value: object) -> str | None:
+    match = primary_sport(value)
+    return match[0] if match else None
+
+
+def demand_group(value: object) -> str:
+    """Grupo de demanda del deporte; sin deporte reconocido, poblacion general."""
+    match = primary_sport(value)
+    return match[1] if match else DEMAND_GENERAL
+
 
 OBJETIVO_OPTIONS: tuple[str, ...] = (
     "Rendimiento deportivo específico",
@@ -515,3 +601,47 @@ def validate_profile_fields(profile: Mapping[str, object], *, today: date | None
     if _is_blank(profile.get("Objetivo_primario")):
         errors.append("Objetivo primario es obligatorio.")
     return errors
+
+
+SEXO_FROM_PROFILE_OPTION = "Usar el del perfil"
+EVALUATION_SEXO_OPTIONS: tuple[str, ...] = (SEXO_FROM_PROFILE_OPTION, "Masculino", "Femenino")
+
+
+def profile_sexo(profile_df: pd.DataFrame | None, athlete: object) -> Sexo:
+    if profile_df is None or profile_df.empty or "Athlete" not in profile_df.columns or "Sexo" not in profile_df.columns:
+        return Sexo.NO_ESPECIFICADO
+    name = str(athlete or "").strip().casefold()
+    rows = profile_df[profile_df["Athlete"].astype(str).str.strip().str.casefold() == name]
+    if rows.empty:
+        return Sexo.NO_ESPECIFICADO
+    return normalize_sexo(rows.iloc[-1].get("Sexo"))
+
+
+def evaluation_sexo_check(profile_df: pd.DataFrame | None, athlete: object, chosen: object) -> dict[str, object]:
+    """Sexo obligatorio al cargar una evaluacion.
+
+    Sin sexo el atleta no entra a ninguna referencia (nunca se mezclan sexos).
+    Si el perfil ya lo tiene, alcanza; si no, se exige elegirlo y se guarda en
+    el perfil (deporte y nivel son opcionales).
+    """
+    existing = profile_sexo(profile_df, athlete)
+    selected = normalize_sexo(None if str(chosen) == SEXO_FROM_PROFILE_OPTION else chosen)
+    if selected is not Sexo.NO_ESPECIFICADO:
+        return {"ok": True, "sexo": selected, "save": selected is not existing}
+    if existing is not Sexo.NO_ESPECIFICADO:
+        return {"ok": True, "sexo": existing, "save": False}
+    return {"ok": False, "sexo": Sexo.NO_ESPECIFICADO, "save": False}
+
+
+def merge_profile_fields(profile_df: pd.DataFrame | None, athlete: str, **fields: object) -> dict[str, object]:
+    """Fila de perfil existente con los campos nuevos no vacios encima."""
+    row: dict[str, object] = {column: None for column in ATHLETE_PROFILE_COLUMNS}
+    if profile_df is not None and not profile_df.empty and "Athlete" in profile_df.columns:
+        matches = profile_df[profile_df["Athlete"].astype(str).str.strip().str.casefold() == str(athlete).strip().casefold()]
+        if not matches.empty:
+            row.update({key: value for key, value in matches.iloc[-1].to_dict().items() if key in row})
+    row["Athlete"] = athlete
+    for key, value in fields.items():
+        if value is not None and str(value).strip() not in {"", "—"}:
+            row[key] = value
+    return row
