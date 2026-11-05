@@ -667,3 +667,34 @@ def collect_state_athletes(dataset_keys: list[str] | None = None) -> list[str]:
             continue
         athletes.update(frame["Athlete"].dropna().astype(str).str.strip().tolist())
     return sorted(athletes)
+
+
+REPORT_HISTORY_EXTRAS_KEY = "report_history_extras"
+REPORT_HISTORY_EXTRAS_VERSION_KEY = "report_history_extras_version"
+
+
+def ensure_report_history_extras() -> dict[str, object]:
+    """Historial completo de Raw Workouts y maxes para "Lo que lograste".
+
+    Las mejores marcas y la fuerza estimada comparan contra todo el historial,
+    no contra la ventana reciente. Raw sale del mismo cache que los modelos de
+    carga; maxes se lee una vez por version del store.
+    """
+    _ensure_session_defaults()
+    version = current_local_store_version(keys=["raw_df", "maxes_df"])
+    cached = st.session_state.get(REPORT_HISTORY_EXTRAS_KEY)
+    if isinstance(cached, dict) and st.session_state.get(REPORT_HISTORY_EXTRAS_VERSION_KEY) == version:
+        return cached
+    extras: dict[str, object] = {"raw_history_df": None, "maxes_history_df": None}
+    try:
+        full_state = ensure_full_history_state(keys=LOAD_DATASET_KEYS)
+        extras["raw_history_df"] = full_state.get("raw_df")
+    except Exception:
+        pass
+    try:
+        extras["maxes_history_df"] = load_full_history_state(keys=["maxes_df"]).get("maxes_df")
+    except Exception:
+        pass
+    st.session_state[REPORT_HISTORY_EXTRAS_KEY] = extras
+    st.session_state[REPORT_HISTORY_EXTRAS_VERSION_KEY] = version
+    return extras

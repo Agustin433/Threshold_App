@@ -2,6 +2,42 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-05 - PR B: reportes de atleta y cliente muestran lo que hay
+
+Diagnostico con los PDF reales del 04/11/2026: el PDF atleta no tenia
+seccion de comparacion (no era la ventana de 6 semanas: `jump_df` se carga
+completo); Giffon tenia IMTP pero sin z ("imtp_reference_missing") y el
+texto pedia "Completar IMTP"; portada y seccion de bienestar usaban ventanas
+distintas (17.3 vs 13.7); la frase de carga del cliente decia "mas exigente"
+con -4.1% semanal.
+
+1. "Lo que lograste" (primera seccion, PDF atleta/cliente y dashboard):
+   `compute_evaluation_changes` es el motor unico (tambien de la tabla de
+   cambios del PDF profe) sobre todo el historial. Solo mejoras que superan
+   max(TE, SWC); CMJ/SJ por tiempo de vuelo si el impulso no es comparable.
+   Cambio de altura > +20% entre dos tomas: no se muestra al atleta; el PDF
+   profe lo marca "cambio inusualmente grande: verificar tecnica/protocolo"
+   (Holgado CMJ 37.5 -> 51.5 cm). Suma mejores marcas nuevas (maxes, solo
+   levantamientos principales con registro previo) y sesiones completadas.
+   Sin mejoras: "Tu referencia actual: ...".
+2. PDF atleta/cliente sin "Sin patron definido", confianza, asimetria IMTP,
+   tiempo al pico ni frases meta; el foco aparece una vez.
+3. Secciones sin datos evaluables (carga sin sRPE, bienestar < 3 dias) no
+   ocupan lugar: pasan a "Proximos pasos" (maximo 2, en positivo).
+4. Coherencia: frase de carga con el signo del cambio semanal y referente
+   explicito ("las ultimas semanas vienen mas exigentes que tu promedio");
+   frase de bienestar segun la clasificacion; un unico valor de bienestar
+   (ultima semana completa) con su rango; foco sin metricas que el atleta no
+   tiene; sin confianza en atleta/cliente.
+5. Portada: "Datos hasta DD/MM/AAAA".
+6. Diccionario: solo terminos presentes, junto a "Proximos pasos".
+7. Textos de faltante y proximos pasos en `modules/report_messages.py`.
+8. Grafico "Fuerza estimada" (Epley, 1-10 reps, levantamientos principales
+   con barra en `modules/strength_estimates.py`, mejor valor por dia).
+9. `chart_maxes_trend` duplicado eliminado de app.py.
+
+Tests: `tests/test_individual_report.py`.
+
 ## 2026-11-04 - PR A2: dependientes de v y serie por tiempo de vuelo
 
 1. Si la altura CMJ/SJ de una toma esta marcada (regla 6b), tambien salen de

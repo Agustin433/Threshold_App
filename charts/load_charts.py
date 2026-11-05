@@ -848,6 +848,59 @@ def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str, *, theme: dict) -> 
     return fig
 
 
+def chart_estimated_strength(
+    strength_df: pd.DataFrame,
+    *,
+    theme: dict,
+    mode: str = "screen",
+    print_height_mm: float = 64.0,
+) -> go.Figure | None:
+    """Fuerza estimada (Epley) por dia en los levantamientos principales.
+
+    `strength_df` sale de `modules.strength_estimates.estimated_strength_by_day`
+    (mejor valor por dia). None si no hay datos: el reporte no muestra un
+    grafico vacio.
+    """
+    from modules.strength_estimates import ESTIMATED_STRENGTH_LABEL
+
+    if strength_df is None or strength_df.empty or not {"Date", "Lift", "e1RM_kg"}.issubset(strength_df.columns):
+        return None
+    colors, layout, _, grid_soft, legend = _theme_parts(theme)
+    palette = [colors.get(key) for key in ("navy", "steel", "yellow", "green", "red") if colors.get(key)]
+    fig = go.Figure()
+    for index, (lift, lift_df) in enumerate(strength_df.sort_values("Date").groupby("Lift", sort=True)):
+        color = palette[index % len(palette)] if palette else None
+        fig.add_trace(
+            go.Scatter(
+                x=lift_df["Date"],
+                y=lift_df["e1RM_kg"],
+                mode="lines+markers",
+                name=str(lift),
+                line=dict(color=color, width=2.5) if color else dict(width=2.5),
+                marker=dict(size=7),
+                hovertemplate=f"<b>{lift}</b><br>%{{x|%d/%m/%Y}}<br>%{{y:.0f}} kg<extra></extra>",
+            )
+        )
+    if mode == "print":
+        from charts.report_charts import apply_chart_mode
+
+        fig.update_xaxes(gridcolor=grid_soft, zeroline=False)
+        fig.update_yaxes(title_text="kg (1RM estimado)", gridcolor=grid_soft, zeroline=False)
+        return apply_chart_mode(fig, "print", theme=theme, title="Fuerza estimada", print_height_mm=print_height_mm)
+    fig.update_layout(
+        **layout,
+        height=360,
+        title=dict(
+            text=f"<b>Fuerza estimada</b><br><sup>{ESTIMATED_STRENGTH_LABEL}</sup>",
+            font=dict(color=colors.get("navy"), size=13),
+        ),
+        xaxis=dict(title="Fecha", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="kg (1RM estimado)", gridcolor=grid_soft, zeroline=False),
+        legend=legend,
+    )
+    return fig
+
+
 def chart_completion(comp_df: pd.DataFrame, *, theme: dict, athlete_label: str = "Todos") -> go.Figure:
     colors, layout, _, grid_soft, _ = _theme_parts(theme)
     if comp_df is None or comp_df.empty or not {"Date", "Pct"}.issubset(comp_df.columns):

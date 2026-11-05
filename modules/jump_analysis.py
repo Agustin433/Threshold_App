@@ -2467,6 +2467,75 @@ def compare_flight_time_height(
     }
 
 
+# Un cambio de altura de salto de mas de +20% entre dos tomas no es
+# imposible pero es raro entre bloques de entrenamiento: antes de celebrarlo
+# se revisa tecnica y protocolo. No se muestra al atleta; el profe lo ve con
+# la nota.
+JUMP_HEIGHT_PLAUSIBILITY_PCT = 20.0
+JUMP_HEIGHT_PLAUSIBILITY_VARIABLES = frozenset(
+    {"CMJ_cm", "SJ_cm", "DJ_cm", *FLIGHT_TIME_HEIGHT_COLUMNS.values()}
+)
+UNUSUAL_CHANGE_NOTE = "cambio inusualmente grande: verificar técnica/protocolo"
+
+
+def is_unusual_jump_change(variable: object, delta_pct: object) -> bool:
+    pct = pd.to_numeric(pd.Series([delta_pct]), errors="coerce").iloc[0]
+    return (
+        str(variable) in JUMP_HEIGHT_PLAUSIBILITY_VARIABLES
+        and pd.notna(pct)
+        and float(pct) > JUMP_HEIGHT_PLAUSIBILITY_PCT
+    )
+
+
+def compute_evaluation_changes(
+    history: pd.DataFrame,
+    current_date: object = None,
+    variables: list[str] | None = None,
+) -> pd.DataFrame:
+    """Cambios de la ultima evaluacion contra la anterior, sobre TODO el historial.
+
+    Motor unico de la tabla de cambios del PDF profe y de "Lo que lograste"
+    (atleta, cliente, dashboard): `compute_swc_delta` (umbral max(TE, SWC),
+    sin comparar a traves de una altura inconsistente) mas, cuando la
+    comparacion por impulso de CMJ/SJ no es posible, la fila "por tiempo de
+    vuelo" (vuelo contra vuelo). Agrega `Unusual`: cambio de altura de salto
+    mayor a +20% entre dos tomas.
+    """
+    if history is None or history.empty or "Date" not in history.columns:
+        return pd.DataFrame()
+    if current_date is None:
+        current_date = pd.to_datetime(history["Date"], errors="coerce").dropna().max()
+    if current_date is None or pd.isna(current_date):
+        return pd.DataFrame()
+    delta_df = compute_swc_delta(history, current_date, variables=variables)
+    if delta_df is None or delta_df.empty:
+        return pd.DataFrame()
+
+    extra_rows: list[dict[str, object]] = []
+    for test in FLIGHT_TIME_HEIGHT_COLUMNS:
+        impulse_rows = delta_df[delta_df["Variable"] == f"{test}_cm"]
+        if impulse_rows.empty or str(impulse_rows.iloc[0].get("Signal")) != NO_IMPULSE_COMPARISON_SIGNAL:
+            continue
+        flight_row = compare_flight_time_height(history, test, current_date=current_date)
+        if flight_row is not None:
+            extra_rows.append(flight_row)
+    if extra_rows:
+        extra = pd.DataFrame(extra_rows)
+        ordered: list[pd.DataFrame] = []
+        for _, row in delta_df.iterrows():
+            ordered.append(row.to_frame().T)
+            match = extra[extra["Test"] + "_cm" == row["Variable"]]
+            if not match.empty:
+                ordered.append(match.drop(columns=["Test", "Method"]))
+        delta_df = pd.concat(ordered, ignore_index=True)
+    delta_df = delta_df.reset_index(drop=True)
+    delta_df["Unusual"] = [
+        is_unusual_jump_change(variable, pct)
+        for variable, pct in zip(delta_df["Variable"], delta_df["Delta_pct"])
+    ]
+    return delta_df
+
+
 def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
     if delta_df is None or delta_df.empty:
         return pd.DataFrame(columns=["Variable", "Actual", "Anterior", "Delta abs", "Delta %", "Threshold", "Senal"])
@@ -2499,6 +2568,9 @@ def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
         if pd.notna(delta_abs):
             delta_abs_text = f"{float(delta_abs):+.{3 if row['Variable'] == 'EUR' else 2}f}".rstrip("0").rstrip(".")
 
+        signal_text = TEMPORAL_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-")))
+        if row.get("Unusual") is True or str(row.get("Unusual")) == "True":
+            signal_text = f"{signal_text} — {UNUSUAL_CHANGE_NOTE}"
         rows.append(
             {
                 "Variable": row["Label"],
@@ -2507,7 +2579,7 @@ def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
                 "Delta abs": delta_abs_text,
                 "Delta %": delta_pct_text,
                 "Threshold": threshold_text,
-                "Senal": TEMPORAL_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-"))),
+                "Senal": signal_text,
             }
         )
 

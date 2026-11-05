@@ -179,22 +179,27 @@ class YellowCoverageReportsTest(unittest.TestCase):
                 self.assertNotIn("optimo", text.split("estado de")[-1][:40] if "estado de" in text else "")
 
     def test_not_evaluable_text_is_shown(self):
-        for audience, text in self.texts.items():
+        # Profe: conserva el aviso. Atleta/cliente: la seccion no aparece y se
+        # convierte en un proximo paso accionable (PR B).
+        self.assertIn("no evaluable: cobertura insuficiente", self.texts["profe"])
+        for audience in ("atleta", "cliente"):
             with self.subTest(audience=audience):
-                self.assertIn("no evaluable: cobertura insuficiente", text)
+                text = self.texts[audience]
+                self.assertNotIn("no evaluable", text)
+                self.assertNotIn("carga reciente", text)
+                self.assertIn("con 3 por semana ya podemos leer", text)
 
     def test_weekly_srpe_is_partial(self):
+        self.assertRegex(self.texts["profe"], r"\d+ ua \(parcial: 1 de 4 sesiones\)")
         for audience, text in self.texts.items():
             with self.subTest(audience=audience):
-                self.assertRegex(text, r"\d+ ua \(parcial: 1 de 4 sesiones\)")
                 self.assertIsNone(re.search(r"\b270 ua(?! \()", text), f"{audience}: 270 UA sin cobertura")
 
     def test_pain_and_stress_use_ten_point_scale(self):
+        self.assertRegex(self.texts["profe"], r"dolor[^/]{0,60}/10")
         for audience in ("profe", "cliente"):
             with self.subTest(audience=audience):
-                text = self.texts[audience]
-                self.assertNotRegex(text, r"\d/5\b")
-                self.assertRegex(text, r"dolor[^/]{0,60}/10")
+                self.assertNotRegex(self.texts[audience], r"\d/5\b")
 
 
 if __name__ == "__main__":

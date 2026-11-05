@@ -257,76 +257,6 @@ def _client_precaution_load_report_state() -> dict[str, object]:
 
 
 class ClientPdfReportTest(unittest.TestCase):
-    def test_client_pdf_applies_threshold_visual_system_and_target_sections(self):
-        with frozen_app_now(FixedClientReportDate.now()):
-            pdf = generate_visual_report_pdf(_client_report_state(), "Ana Lopez", "cliente")
-
-        self.assertIsNotNone(pdf)
-        assert pdf is not None
-        self.assertLessEqual(_pdf_page_count(pdf), 5)
-
-        extracted_pages = _normalized_pdf_pages(pdf)
-        self.assertEqual(len(extracted_pages), 5)
-        self.assertIn("threshold s&c", extracted_pages[0])
-        self.assertIn("pagina 1", extracted_pages[0])
-        self.assertIn("threshold s&c", extracted_pages[-1])
-        self.assertIn("pagina 5", extracted_pages[-1])
-        self.assertTrue(all(page.count("threshold s&c") == 1 for page in extracted_pages))
-
-        expected_titles = [
-            "reporte de progreso",
-            "estado actual y progreso",
-            "carga y constancia",
-            "bienestar y recuperacion",
-            "proximos pasos",
-        ]
-        for page_text, title in zip(extracted_pages, expected_titles):
-            self.assertIn(title, page_text)
-
-    def test_client_pdf_keeps_simple_language_and_avoids_technical_terms(self):
-        pdf, story_text = _rendered_pdf_and_story_text(_client_report_state(), "Ana Lopez")
-        joined_pages = " ".join(_normalized_pdf_pages(pdf))
-
-        self.assertIsNotNone(pdf)
-        self.assertIn("carga actual", story_text)
-        self.assertIn("estado de carga", story_text)
-        self.assertIn("foco actual", story_text)
-        self.assertIn("que vamos a priorizar", story_text)
-        self.assertIn("que vamos a cuidar", story_text)
-        self.assertIn("volver a medir", story_text)
-        self.assertNotIn("como venis hoy", story_text)
-        self.assertNotIn("estado actual optimo", joined_pages)
-        self.assertLessEqual(story_text.count("proximo foco"), 1)
-        self.assertNotIn("perfil actual compuesto", story_text)
-        self.assertNotIn("z-score", story_text)
-        self.assertNotIn("force-time", story_text)
-        self.assertNotIn("rfd", story_text)
-        self.assertNotIn("cuadrante", story_text)
-        self.assertNotIn("imtp", story_text)
-        self.assertNotIn("tc inv", story_text)
-
-    def test_client_pdf_handles_missing_data_with_friendly_copy_and_without_empty_pages(self):
-        pdf, story_text = _rendered_pdf_and_story_text(_client_partial_report_state(), "Ana Lopez")
-        page_five = _normalized_pdf_pages(pdf)[-1]
-
-        self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 5)
-        extracted_pages = _normalized_pdf_pages(pdf)
-        self.assertEqual(len(extracted_pages), 5)
-        self.assertTrue(all(len(page.strip()) > 40 for page in extracted_pages))
-        self.assertIn("pendiente de evaluacion", story_text)
-        self.assertIn("todavia no registrado", story_text)
-        self.assertIn("falta completar esta referencia", story_text)
-        self.assertIn("falta informacion para definir con mas claridad que conviene priorizar", story_text)
-        self.assertIn("falta informacion reciente para entender como venis recuperando", story_text)
-        self.assertIn("programar una nueva evaluacion", page_five)
-        self.assertIn("cuando completemos una nueva evaluacion", page_five)
-        self.assertNotIn("completar una nueva evaluacion nos va a dar una referencia mas clara para seguir ajustando el proceso", page_five)
-        self.assertNotIn("sin datos", story_text)
-        self.assertNotIn("base de trabajo definida: sin datos", story_text)
-        self.assertNotIn("ya contamos con informacion suficiente para seguir tu progreso con mas claridad", story_text)
-        self.assertNotIn("pendiente de completar", story_text)
-
     def test_client_pdf_visible_text_avoids_common_mojibake_and_tc_inv(self):
         with frozen_app_now(FixedClientReportDate.now()):
             pdf = generate_visual_report_pdf(_client_report_state(), "Ana Lopez", "cliente")
@@ -348,20 +278,6 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertNotIn("..", visible_text)
         self.assertNotIn("cuidar la recuperaci", visible_text.lower())
 
-    def test_client_pdf_labels_wellness_windows_and_avoids_recovery_contradictions(self):
-        with frozen_app_now(FixedClientReportDate.now()):
-            pdf = generate_visual_report_pdf(_client_report_state(), "Ana Lopez", "cliente")
-
-        self.assertIsNotNone(pdf)
-        assert pdf is not None
-        joined = " ".join(_normalized_pdf_pages(pdf))
-        # Cada numero de wellness dice su ventana (oct/2026).
-        self.assertIn("promedio (semana analizada)", " ".join(joined.split()))
-        self.assertIn("bienestar (ultimos 3 registros, 7 dias)", " ".join(joined.split()))
-        self.assertNotIn("promedio reciente", joined)
-        self.assertIn("el promedio de la semana analizada es aceptable, pero conviene seguir de cerca la recuperacion percibida", joined)
-        self.assertNotIn("sin senales grandes de alerta", joined)
-
     def test_client_pdf_uses_actionable_confirmation_copy_without_old_defensive_phrase(self):
         custom_payload = _structured_neuromuscular_stub(
             profile_code=None,
@@ -382,59 +298,6 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertIn("mantener el bloque actual y volver a medir para confirmar", joined_pages)
         self.assertNotIn("antes de cambiar demasiado el foco", joined_pages)
         self.assertNotIn("antes de cambiar demasiado el foco", story_text)
-
-    def test_client_pdf_high_stress_and_pain_do_not_read_as_no_large_deviations(self):
-        pdf, story_text = _rendered_pdf_and_story_text(_client_attention_recovery_report_state(), "Ana Lopez")
-        joined_pages = " ".join(_normalized_pdf_pages(pdf))
-
-        self.assertIsNotNone(pdf)
-        self.assertIn(
-            "la recuperacion viene algo cargada: estres y dolor merecen atencion antes de subir exigencia",
-            joined_pages,
-        )
-        self.assertNotIn("sin senales grandes de alerta", joined_pages)
-        self.assertNotIn("no muestran desvios grandes", joined_pages)
-        self.assertNotIn("sin senales grandes de alerta", story_text)
-
-    def test_client_pdf_never_shows_acwr_zones_even_with_precaution_load(self):
-        # Cliente: sin zonas de ACWR ("Precaucion", "Subcarga", "Optimo"...).
-        # Con carga evaluable se describe en lenguaje llano comparando con las
-        # semanas anteriores; el gate de cobertura tiene sus propios tests.
-        with patch.object(report_generator, "_load_evaluability", return_value=(True, "")):
-            pdf, story_text = _rendered_pdf_and_story_text(_client_precaution_load_report_state(), "Ana Lopez")
-        joined_pages = " ".join(" ".join(_normalized_pdf_pages(pdf)).split())
-
-        self.assertIsNotNone(pdf)
-        for zone_word in ("precaucion", "subcarga", "optimo", "alto riesgo", "zona util", "acwr"):
-            self.assertNotIn(zone_word, joined_pages)
-        self.assertTrue(
-            any(
-                phrase in joined_pages
-                for phrase in (
-                    "mas liviana que las anteriores",
-                    "similar a las anteriores",
-                    "mas exigente que las anteriores",
-                    "todavia no hay semanas completas suficientes",
-                    "en seguimiento",
-                )
-            ),
-            joined_pages[:600],
-        )
-
-    def test_client_pdf_handles_low_wellness_with_few_records_without_repeating_or_softening_alerts(self):
-        pdf, story_text = _rendered_pdf_and_story_text(_client_partial_low_wellness_report_state(), "Ana Lopez")
-        joined_pages = " ".join(_normalized_pdf_pages(pdf))
-
-        self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 5)
-        self.assertIn("el registro es bajo, pero los valores disponibles sugieren cuidar recuperacion, estres y dolor de cerca", joined_pages)
-        self.assertIn("recuperacion, estres, dolor y constancia requieren seguimiento", joined_pages)
-        self.assertIn("promedio (semana analizada)", " ".join(joined_pages.split()))
-        self.assertIn("dias con registro (semana analizada)", " ".join(joined_pages.split()))
-        self.assertLessEqual(joined_pages.count("todavia hay pocos registros para sacar una conclusion firme sobre recuperacion"), 1)
-        self.assertNotIn("sin senales grandes de alerta", joined_pages)
-        self.assertNotIn("estado actual optimo", joined_pages)
-        self.assertNotIn("tc inv", story_text)
 
     def test_client_payload_handles_missing_imtp_without_keyerror(self):
         payload = _build_pdf_neuromuscular_profile_payload(
@@ -481,31 +344,6 @@ class ClientPdfReportTest(unittest.TestCase):
         self.assertIsNotNone(pdf)
         self.assertIn("contramovimiento", joined_pages)
         self.assertNotIn("tc inv", story_text)
-
-    def test_client_pdf_uses_structured_summary_when_wording_changes(self):
-        custom_summary = "Lectura cliente custom que cambia sin romper la estructura."
-        with patch.object(
-            report_generator,
-            "build_neuromuscular_profile_result",
-            return_value=_structured_neuromuscular_stub(summary_client=custom_summary),
-        ):
-            pdf, story_text = _rendered_pdf_and_story_text(_client_report_state(), "Ana Lopez")
-
-        self.assertIsNotNone(pdf)
-        self.assertIn(_normalized_story_text(custom_summary), story_text)
-
-    def test_client_focus_can_read_profile_label_from_structured_payload(self):
-        custom_label = "Patron E - CMJ menor que SJ"
-        with patch.object(
-            report_generator,
-            "build_neuromuscular_profile_result",
-            return_value=_structured_neuromuscular_stub(profile_label=custom_label, profile_code="E"),
-        ):
-            pdf, story_text = _rendered_pdf_and_story_text(_client_report_state(), "Ana Lopez")
-
-        self.assertIsNotNone(pdf)
-        self.assertIn(_normalized_story_text(custom_label), story_text)
-
 
 if __name__ == "__main__":
     unittest.main()

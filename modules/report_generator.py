@@ -41,6 +41,7 @@ from modules.evaluation_rules import (
     jump_height_consistency_rows,
 )
 from modules.jump_analysis import sanitize_body_weight
+from modules.report_messages import MISSING_GENERIC
 from modules.wellness_scales import WELLNESS_EXPORT_HEADERS, WELLNESS_RESPONSE_SCALE
 from modules.metrics import MONOTONY_MIN_SESSIONS
 from modules.load_monitoring import (
@@ -55,6 +56,7 @@ from modules.load_monitoring import (
 )
 from modules.jump_analysis import (
     choose_secondary_quadrant_x_spec,
+    _count_renderable_radar_axes,
     _format_profile_source_date,
     _prepare_jump_df,
     build_neuromuscular_profile_result,
@@ -68,7 +70,9 @@ from modules.jump_analysis import (
     compute_baseline_delta,
     compute_swc_delta,
     compare_flight_time_height,
+    compute_evaluation_changes,
     NO_IMPULSE_COMPARISON_SIGNAL,
+    UNUSUAL_CHANGE_NOTE,
     resolve_zscore,
     semaphore_label,
     z_source_of,
@@ -146,7 +150,9 @@ REPORT_AUDIENCE_OPTIONS = {
 
 REPORT_AUDIENCE_LABELS = {value: key for key, value in REPORT_AUDIENCE_OPTIONS.items()}
 EUR_RATIO_LABEL = "EUR (ratio)"
-PDF_MISSING_TEXT = "Faltan datos"
+# Textos de faltante: un solo lugar (modules.report_messages). El PDF profe
+# los muestra todos; atleta/cliente los convierte en proximos pasos.
+PDF_MISSING_TEXT = MISSING_GENERIC
 PROFESSIONAL_NO_CLEAR_LAGGING_TEXT = "No aparece una variable claramente rezagada según el umbral actual."
 PROFESSIONAL_NO_CLEAR_LAGGING_NEXT_BLOCK = (
     "Mantener el perfil actual y priorizar consistencia técnica, sin abrir nuevos focos innecesarios."
@@ -7666,11 +7672,33 @@ def _neuromuscular_kpi_labels(profile_payload: dict[str, object]) -> list[str]:
     return list(dict.fromkeys([label for label in labels if str(label).strip()]))
 
 
+IMTP_REFERENCE_PRIORITY_SHORT = "Sostener la calidad actual y repetir la medición de fuerza máxima para tener una referencia propia."
+IMTP_REFERENCE_PRIORITY_DETAILED = (
+    "Ya hay una medición de IMTP; repetirla en la próxima evaluación da una referencia propia "
+    "para comparar la fuerza máxima."
+)
+
+
+def _priority_text_flags(profile_payload: dict[str, object]) -> set[str]:
+    """Flags para el texto de prioridad.
+
+    "missing_imtp" tambien se marca cuando la IMTP existe pero no tiene z
+    ("imtp_reference_missing"). Para el texto son casos distintos: no se le pide
+    "completar IMTP" a quien ya lo hizo; le falta una referencia previa.
+    """
+    flags = set(profile_payload.get("flags", []))
+    if "imtp_reference_missing" in flags:
+        flags.discard("missing_imtp")
+    return flags
+
+
 def _neuromuscular_priority_short(profile_payload: dict[str, object]) -> str:
     primary_code = _neuromuscular_primary_code(profile_payload)
-    flags = set(profile_payload.get("flags", []))
+    flags = _priority_text_flags(profile_payload)
     if primary_code in NEUROMUSCULAR_PRIORITY_SHORT_TEXT:
         return _professional_visible_metric_text(NEUROMUSCULAR_PRIORITY_SHORT_TEXT[primary_code])
+    if "imtp_reference_missing" in flags and "missing_dj" not in flags:
+        return IMTP_REFERENCE_PRIORITY_SHORT
     if {"missing_imtp", "missing_dj"}.issubset(flags):
         return "Completar las mediciones clave que faltan y sostener la calidad actual."
     if "missing_dj" in flags:
@@ -7687,8 +7715,10 @@ def _neuromuscular_priority_detailed(profile_payload: dict[str, object]) -> str:
     detail = NEUROMUSCULAR_PRIORITY_DETAILED_TEXT.get(primary_code, "")
     short_text = _neuromuscular_priority_short(profile_payload)
     if not detail:
-        flags = set(profile_payload.get("flags", []))
-        if {"missing_imtp", "missing_dj"}.issubset(flags):
+        flags = _priority_text_flags(profile_payload)
+        if "imtp_reference_missing" in flags and "missing_dj" not in flags:
+            detail = IMTP_REFERENCE_PRIORITY_DETAILED
+        elif {"missing_imtp", "missing_dj"}.issubset(flags):
             detail = "Completar IMTP y Drop Jump antes de mover demasiado la prioridad física del bloque."
         elif "missing_dj" in flags:
             detail = "Completar el Drop Jump para leer mejor la reactividad y no ajustar el bloque con una foto parcial."
@@ -8212,45 +8242,13 @@ def _build_professional_composite_profile_payload(
         "evidence": neuromuscular_profile.get("evidence", []),
         "kpi_to_track": neuromuscular_profile.get("kpi_to_track", []),
         "has_clear_lagging": has_clear_lagging,
+        "has_clear_strength": has_clear_strength,
         "summary_line": summary_line.strip(),
         "latest_profile_date": _format_profile_source_date(history["Date"].max()),
         "note": PROFESSIONAL_COMPOSITE_PROFILE_NOTE,
         "scope_note": scope_note,
         "jump_height_quality_lines": _professional_jump_height_quality_lines(history),
     }
-
-
-def _professional_add_flight_time_rows(
-    history: pd.DataFrame,
-    delta_df: pd.DataFrame,
-    current_date: object,
-) -> pd.DataFrame:
-    """Fila por tiempo de vuelo cuando la comparacion por impulso no se puede.
-
-    Solo para CMJ/SJ cuya fila por impulso quedo "no comparable" por una
-    altura inconsistente con el vuelo. Va rotulada "por tiempo de vuelo" y
-    compara vuelo contra vuelo: nunca se mezcla con la serie por impulso.
-    """
-    if delta_df is None or delta_df.empty or "Variable" not in delta_df.columns:
-        return delta_df
-    extra_rows: list[dict[str, object]] = []
-    for test in ("CMJ", "SJ"):
-        impulse_rows = delta_df[delta_df["Variable"] == f"{test}_cm"]
-        if impulse_rows.empty or str(impulse_rows.iloc[0].get("Signal")) != NO_IMPULSE_COMPARISON_SIGNAL:
-            continue
-        flight_row = compare_flight_time_height(history, test, current_date=current_date)
-        if flight_row is not None:
-            extra_rows.append(flight_row)
-    if not extra_rows:
-        return delta_df
-    extra = pd.DataFrame(extra_rows)
-    ordered: list[pd.DataFrame] = []
-    for _, row in delta_df.iterrows():
-        ordered.append(row.to_frame().T)
-        match = extra[extra["Test"] + "_cm" == row["Variable"]]
-        if not match.empty:
-            ordered.append(match.drop(columns=["Test", "Method"]))
-    return pd.concat(ordered, ignore_index=True)
 
 
 def _build_professional_change_payload(
@@ -8277,8 +8275,7 @@ def _build_professional_change_payload(
         }
 
     latest_date = pd.to_datetime(history["Date"], errors="coerce").dropna().max()
-    delta_df = compute_swc_delta(history, latest_date)
-    delta_df = _professional_add_flight_time_rows(history, delta_df, latest_date)
+    delta_df = compute_evaluation_changes(history, latest_date)
     display_table = build_jump_delta_display_table(delta_df)
     if not display_table.empty:
         display_table = display_table.apply(lambda column: column.map(_professional_visible_metric_text))
@@ -8292,6 +8289,13 @@ def _build_professional_change_payload(
         to_verify.append("intervalo corto entre evaluaciones")
     if no_previous:
         to_verify.append(f"sin dato anterior en {_professional_join_labels(no_previous)}")
+    unusual = (
+        delta_df.loc[delta_df["Unusual"].fillna(False).astype(bool), "Label"].astype(str).tolist()
+        if "Unusual" in delta_df.columns
+        else []
+    )
+    if unusual:
+        to_verify.append(f"{UNUSUAL_CHANGE_NOTE} en {_professional_join_labels(unusual)}")
 
     summary_lines = [_professional_visible_metric_text(line) for line in build_jump_temporal_context(delta_df)]
     summary_lines.extend(_professional_change_pattern_lines(delta_df, interval_warning))
@@ -12435,6 +12439,159 @@ def _generate_professional_profile_pdf_reportlab(
         ) from exc
     return buffer.getvalue()
 
+def _individual_raw_history(state: dict[str, object]) -> pd.DataFrame | None:
+    for key in ("raw_history_df", "prepared_raw_df", "raw_df"):
+        frame = state.get(key)
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            return frame
+    return None
+
+
+def _individual_maxes_history(state: dict[str, object]) -> pd.DataFrame | None:
+    for key in ("maxes_history_df", "maxes_df"):
+        frame = state.get(key)
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            return frame
+    return None
+
+
+MIN_RADAR_AXES_FOR_ATHLETE = 3
+
+
+def build_individual_report_payload(
+    state: dict[str, object],
+    athlete: str,
+    audience: str = "atleta",
+) -> dict[str, object]:
+    """Contenido de los reportes de atleta y cliente (PDF y dashboard).
+
+    Lo que lograste, perfil, fuerza, carga, bienestar y proximos pasos salen
+    de aca. Las secciones sin datos evaluables vienen en None y se convierten
+    en proximos pasos.
+    """
+    from modules import athlete_report as ar
+    from modules.strength_estimates import estimated_strength_by_day, new_main_lift_bests
+
+    audience = normalize_report_audience(audience)
+    today = _professional_report_today()
+    window_start = today - pd.Timedelta(days=ar.ACHIEVEMENT_WINDOW_DAYS)
+
+    history = _professional_jump_history(state, athlete)
+    dated = pd.to_datetime(history["Date"], errors="coerce").dropna() if not history.empty else pd.Series(dtype="datetime64[ns]")
+    evaluation_dates = sorted(dated.dt.normalize().unique())
+    has_evaluation = bool(evaluation_dates)
+    changes = compute_evaluation_changes(history) if len(evaluation_dates) >= 2 else pd.DataFrame()
+    has_comparison = (
+        not changes.empty
+        and "Valor_anterior" in changes.columns
+        and pd.to_numeric(changes["Valor_anterior"], errors="coerce").notna().any()
+    )
+
+    composite = _build_professional_composite_profile_payload(state, athlete) if has_evaluation else {}
+    profile = composite.get("neuromuscular_profile") if isinstance(composite.get("neuromuscular_profile"), dict) else {}
+    staleness = profile.get("staleness_label") if isinstance(profile, dict) else None
+
+    achievements = ar.evaluation_achievements(changes, audience)
+    bests = new_main_lift_bests(
+        _individual_maxes_history(state),
+        athlete,
+        window_start=window_start,
+        window_end=today,
+    )
+    achievements.extend(ar.best_mark_achievements(bests, audience))
+    sessions = ar.sessions_achievement(
+        ar.completed_sessions(_individual_raw_history(state), athlete, window_start=window_start, window_end=today),
+        audience,
+    )
+    if sessions:
+        achievements.append(sessions)
+    has_evaluation_achievement = any(item["kind"] == "evaluation" for item in achievements)
+    references = [] if has_evaluation_achievement else ar.reference_lines(history, audience)
+
+    summary_df = build_executive_summary_df(state, athlete, audience)
+    focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
+    internal_load = _build_professional_internal_load_context(state, athlete)
+    load_evaluable = bool(_load_evaluability(state, athlete, internal_load)[0])
+    load = ar.load_reading(
+        internal_load,
+        evaluable=load_evaluable,
+        zone=focus_row.get("Zona"),
+        acwr=focus_row.get("ACWR EWMA"),
+        client_trend=(
+            CLIENT_TREND_LABELS.get(client_load_trend(internal_load)) if load_evaluable else None
+        ),
+        audience=audience,
+    )
+    wellness = ar.wellness_reading(_professional_wellness_context(state, athlete))
+
+    imtp_value = None
+    imtp_date = None
+    if not history.empty and "IMTP_N" in history.columns:
+        imtp_rows = history[pd.to_numeric(history["IMTP_N"], errors="coerce").notna()].sort_values("Date")
+        if not imtp_rows.empty:
+            imtp_value = float(imtp_rows.iloc[-1]["IMTP_N"])
+            imtp_date = imtp_rows.iloc[-1]["Date"]
+
+    strength_df = estimated_strength_by_day(_individual_raw_history(state), athlete)
+    if not strength_df.empty:
+        strength_df = strength_df[strength_df["Date"] >= today - pd.Timedelta(weeks=16)]
+
+    data_until = ar.latest_data_date(
+        [
+            (state.get("jump_df"), ("Date",)),
+            (state.get("rpe_df"), ("Date",)),
+            (state.get("wellness_df"), ("Date",)),
+            (state.get("raw_df"), ("Fecha_sesion", "Completed Date", "Date")),
+            (state.get("maxes_df"), ("Added Date", "Date")),
+        ],
+        athlete,
+    )
+
+    radar_axes = 0
+    if has_evaluation:
+        try:
+            radar_axes = _count_renderable_radar_axes(build_profile_radar_row(history))
+        except Exception:
+            radar_axes = 0
+    steps = ar.next_steps(
+        has_evaluation=has_evaluation,
+        has_comparison=has_comparison,
+        evaluation_stale=bool(staleness),
+        load_available=load is not None,
+        wellness_available=wellness is not None,
+        audience=audience,
+    )
+    next_evaluation = ar.next_evaluation_line(evaluation_dates[-1], today) if evaluation_dates else None
+    if next_evaluation and next_evaluation.startswith("Ya corresponde") and has_evaluation and (not has_comparison or staleness):
+        # Ya lo dice el proximo paso de evaluacion: no se repite.
+        next_evaluation = None
+
+    completion_value = _focus_completion_value(state, athlete)
+
+    return {
+        "athlete": athlete,
+        "audience": audience,
+        "data_until": data_until,
+        "radar_axes": radar_axes,
+        # Solo con completion fechado (ventana); si no, el tile no existe.
+        "completion_text": completion_display_text(completion_value) if completion_value is not None else None,
+        "achievements": achievements,
+        "references": references,
+        "unusual_changes": ar.unusual_changes_for_professional(changes),
+        "changes": changes,
+        "profile": ar.profile_reading(profile, composite, audience) if has_evaluation else {"label": None, "summary": None, "strengths": None},
+        "focus": ar.focus_text(profile, history, audience) if has_evaluation else "",
+        "imtp": {"value": imtp_value, "date": imtp_date} if imtp_value is not None else None,
+        "strength_df": strength_df,
+        "load": load,
+        "wellness": wellness,
+        "next_steps": steps,
+        "next_evaluation": next_evaluation,
+        "has_evaluation": has_evaluation,
+        "has_comparison": has_comparison,
+    }
+
+
 def _generate_visual_report_pdf_reportlab(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str = "Todos",
@@ -12732,1983 +12889,240 @@ def _generate_visual_report_pdf_reportlab(
         story.append(icon_logo)
         story.append(Spacer(1, 8 * mm))
 
-    if audience == "atleta" and effective_athlete != "Todos":
-        focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
-        athlete_neuromuscular_profile = _build_current_pdf_neuromuscular_profile_payload(
-            state,
-            effective_athlete,
-            audience="atleta",
+    if audience in {"atleta", "cliente"} and effective_athlete != "Todos":
+        # Reporte de atleta y cliente: muestra lo que hay. Una seccion sin
+        # datos evaluables no aparece (ni pagina ni grafico vacio); se
+        # convierte en un item de "Proximos pasos". Todo sale del mismo
+        # payload que usa el dashboard.
+        from reportlab.platypus import KeepTogether
+
+        from charts.load_charts import chart_estimated_strength
+        from modules.athlete_report import dictionary_lines
+        from modules.strength_estimates import ESTIMATED_STRENGTH_LABEL
+
+        is_client = audience == "cliente"
+        payload = build_individual_report_payload(state, effective_athlete, audience)
+        chart_payloads = (
+            _collect_client_pdf_chart_payloads(state, effective_athlete)
+            if is_client
+            else _collect_athlete_pdf_chart_payloads(state, effective_athlete)
         )
-        force_time_payload = build_force_time_report_payload(
-            _latest_jump_row(state, effective_athlete),
-            test_id="imtp",
-            report_type="athlete",
-        )
-        completion_value = _focus_completion_value(state, effective_athlete)
-        internal_load = _build_professional_internal_load_context(state, effective_athlete)
-        focus_row = _gate_focus_row_load(focus_row, state, effective_athlete, internal_load)
-        wellness_context = _professional_wellness_context(state, effective_athlete)
-        profile_reading = _athlete_profile_interpretation(
-            focus_row,
-            neuromuscular_profile=athlete_neuromuscular_profile,
-        )
-        final_blocks = _athlete_final_focus_blocks(
-            focus_row,
-            completion_value,
-            neuromuscular_profile=athlete_neuromuscular_profile,
-        )
-        athlete_charts = _collect_athlete_pdf_chart_payloads(state, effective_athlete)
-        evaluation_available = _row_has_eval_data(focus_row)
-        load_available = _row_has_load_data(focus_row)
-        wellness_available = _row_has_wellness_data(focus_row)
-        athlete_focus = (
-            _professional_visible_metric_text(athlete_neuromuscular_profile.get("training_priority_short"))
-            if evaluation_available and athlete_neuromuscular_profile.get("source") == "core"
-            else (_current_focus_text(focus_row, audience="atleta") if not summary_df.empty else "Nueva evaluación")
-        )
-        load_lines = _athlete_load_status_lines(focus_row, internal_load)
-        wellness_summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
-        wellness_scale = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
-        athlete_score_value = _coerce_float(wellness_summary.get("score_mean"))
-        athlete_score_meta = _report_wellness_score_label(athlete_score_value) if athlete_score_value is not None else None
-        force_time_summary = dict(force_time_payload.get("summary", {}))
-        asymmetry_summary = dict(force_time_payload.get("asymmetry", {}))
-        interpretation = dict(force_time_payload.get("interpretation", {}))
-        force_time_points = [
-            point
-            for point in list(force_time_payload.get("force_time_points", []))
-            if _coerce_float(point.get("value_n")) is not None
-        ]
-        rfd_points = [
-            point
-            for point in list(force_time_payload.get("rfd_points", []))
-            if _coerce_float(point.get("value_n_s")) is not None
-        ]
-        profile_label = _professional_visible_metric_text(
-            athlete_neuromuscular_profile.get("profile_label")
-            or _profile_text(focus_row, fallback="Pendiente de evaluación")
-        )
+        visible_text: list[str] = []
 
-        def _athlete_metric(value: object, *, digits: int = 1, suffix: str = "", fallback: str = "Dato todavía no disponible") -> str:
-            numeric = _coerce_float(value)
-            if numeric is None:
-                return fallback
-            return _display_metric(numeric, digits=digits, suffix=suffix)
+        def _tp(text: object, style_name: str = "ReportBody") -> Paragraph:
+            visible_text.append(str(text or ""))
+            return _p(text, style_name)
 
-        def _athlete_zone_text() -> str:
-            if load_available and _has_text(focus_row.get("Zona")):
-                return _display_zone(focus_row.get("Zona"))
-            return "En seguimiento"
+        box_kwargs = {
+            "paragraph_builder": _tp,
+            "TableClass": Table,
+            "TableStyleClass": TableStyle,
+            "mm_unit": mm,
+            "palette": palette,
+        }
 
-        def _athlete_completion_text() -> str:
-            return completion_display_text(completion_value, fallback="Todavía no registrado")
+        def _section_title(title: str) -> object:
+            return _build_pdf_page_title(
+                title,
+                **box_kwargs,
+                eyebrow="",
+                title_style="ReportSection",
+                subtitle_style="ReportMuted",
+                eyebrow_style="ReportMuted",
+            )
 
-        def _athlete_recent_wellness_text() -> str:
-            recent_value = _coerce_float(focus_row.get("Wellness 3d"))
-            if recent_value is not None:
-                return _display_metric(recent_value, digits=1)
-            if athlete_score_meta is not None:
-                return f"{float(athlete_score_meta['score']):.1f} {WELLNESS_SCORE_UNIT}"
-            return "Todavía no registrado"
-
-        def _athlete_focus_summary_sentence() -> str:
-            if evaluation_available and athlete_neuromuscular_profile.get("source") == "core":
-                focus_phrase = _sentence_fragment(athlete_focus, lowercase=True) or "sostener la calidad actual"
-                return f"El foco actual es {focus_phrase}."
-            normalized = _professional_normalized_text(athlete_focus)
-            if normalized == "nueva evaluacion":
-                return "El foco actual es completar una nueva evaluación y sostener continuidad."
-            if normalized == "fuerza base":
-                return "El foco actual es construir una base de fuerza más sólida antes de pedir más reactividad."
-            if normalized == "recuperar cmj":
-                return "El foco actual es recuperar calidad de salto sin perder continuidad."
-            if normalized == "regular carga":
-                return "El foco actual es ordenar la carga y sostener mejor la tolerancia."
-            if normalized == "subir estimulo":
-                return "El foco actual es recuperar continuidad de estímulo sin aumentar la carga de forma brusca."
-            return "El foco actual es sostener lo que viene funcionando y seguir construyendo con continuidad."
-
-        def _athlete_focus_plan_text() -> str:
-            if evaluation_available and athlete_neuromuscular_profile.get("source") == "core":
-                return _professional_visible_metric_text(
-                    athlete_neuromuscular_profile.get("training_priority_detailed")
-                    or athlete_neuromuscular_profile.get("training_priority_short")
-                    or athlete_focus
-                )
-            normalized = _professional_normalized_text(athlete_focus)
-            if normalized == "nueva evaluacion":
-                return "Completar una nueva evaluación para tener una referencia más clara y seguir ajustando el trabajo."
-            if normalized == "fuerza base":
-                return "Construir una base de fuerza más sólida antes de pedir más reactividad."
-            if normalized == "recuperar cmj":
-                return "Recuperar calidad de salto y disponibilidad antes de volver a empujar el volumen."
-            if normalized == "regular carga":
-                return "Seguir progresando sin aumentar la carga de forma brusca y sostener mejor la tolerancia."
-            if normalized == "subir estimulo":
-                return "Recuperar continuidad de estímulo para volver a construir con una señal más clara."
-            return "Sostener lo que viene funcionando y seguir construyendo con continuidad."
-
-        def _athlete_overview_text() -> str:
-            if summary_df.empty:
-                return "Todavía falta información para una lectura más clara. Por ahora conviene completar una evaluación, registrar bienestar y sostener continuidad."
-            lines: list[str] = ["Hoy tenemos una referencia útil para seguir tu proceso."]
-            if evaluation_available:
-                lines.append(profile_reading["meaning"])
-            elif load_available or wellness_available or completion_value is not None:
-                lines.append("Todavía faltan evaluaciones físicas, así que la lectura se apoya en carga, bienestar y adherencia recientes.")
-            else:
-                lines.append("Todavía faltan evaluaciones y registros recientes para una lectura más completa.")
-            zone = _professional_normalized_text(_athlete_zone_text())
-            if load_available:
-                if _zone_not_evaluable(zone):
-                    lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
-                elif "alto riesgo" in zone:
-                    lines.append("La carga reciente viene exigente y conviene ordenarla para sostener mejor la tolerancia.")
-                elif "precaucion" in zone:
-                    lines.append("La carga reciente pide un poco más de cuidado para sostener continuidad.")
-                elif "subcarga" in zone:
-                    lines.append("La carga reciente quedó baja y conviene recuperar continuidad de estímulo.")
-                else:
-                    lines.append("La carga reciente está en una zona útil para seguir construyendo.")
-            if athlete_score_meta is not None and athlete_score_value is not None:
-                if athlete_score_value < 3.0:
-                    lines.append("El bienestar reciente viene bajo y conviene cruzarlo de cerca con sueño, estrés y dolor.")
-                else:
-                    lines.append("El bienestar reciente acompaña y suma contexto para entender cómo venís recuperando.")
-            elif wellness_context.get("state") == "partial":
-                lines.append("Hay pocos registros de bienestar: sirven como primera señal, pero todavía no como una tendencia cerrada.")
-            if completion_value is not None and completion_value < 80:
-                lines.append("La adherencia del plan necesita más continuidad para leer mejor cómo responde el proceso.")
-            lines.append(_athlete_focus_summary_sentence())
-            return " ".join(lines)
-
-        def _athlete_status_box() -> Table:
-            return _build_threshold_box(
-                [
-                    _p("Carga actual", "CardLabel"),
-                    _p(_athlete_zone_text(), "ReportSection"),
-                    _p("Lectura simple de esta ventana.", "ReportMuted"),
-                ],
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                width_mm=58,
-                padding=8,
-                background=palette["panel_alt"],
+        def _note(title: str, lines: object, *, accent: str = "navy", background: str = "card") -> object:
+            return _build_note_box(
+                title,
+                lines,
+                **box_kwargs,
+                title_style="BlockTitle",
+                body_style="ReportBody",
+                background=palette[background],
                 border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-                border_width=0.7,
+                accent_color=palette[accent],
             )
 
-        def _athlete_cover_cards() -> list[tuple[str, str, str]]:
-            cards: list[tuple[str, str, str]] = [
-                ("Perfil actual", _short_profile_label(profile_label) if evaluation_available else "Pendiente", "#134263"),
-                (
-                    "CMJ",
-                    _athlete_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm", fallback="Pendiente de evaluación")
-                    if evaluation_available
-                    else "Pendiente de evaluación",
-                    "#0D3C5E",
-                ),
-                (
-                    "ACWR EWMA",
-                    _athlete_metric(focus_row.get("ACWR EWMA"), digits=2, fallback="Todavía no registrado")
-                    if load_available
-                    else "Todavía no registrado",
-                    _zone_color(focus_row.get("Zona")) if load_available else "#708C9F",
-                ),
-                ("Bienestar", _athlete_recent_wellness_text(), "#2F6B52"),
-            ]
-            # Sin completion por ventana no hay adherencia que mostrar: el
-            # tile se omite en vez de decir siempre "Todavia no registrado".
-            if completion_value is not None:
-                cards.append(("Adherencia", _athlete_completion_text(), "#708C9F"))
-            return cards
+        def _rows_table(rows: list[tuple[str, str]]) -> Table:
+            for label, value in rows:
+                visible_text.extend([str(label), str(value)])
+            return _compact_key_value_table(rows)
 
-        def _athlete_dictionary_lines() -> list[str]:
-            return [f"{label}: {text}" for label, text in _athlete_metric_explanation_rows(focus_row)]
-
-        def _athlete_metric_row(label: str, value: str, n_value: object, *, include_count: bool = True) -> dict[str, object]:
-            count = int(_coerce_float(n_value) or 0)
-            rendered = value
-            if include_count and value != PDF_MISSING_TEXT and count > 0:
-                rendered = f"{value}  {_report_sample_suffix(count)}"
-            return {"label": label, "value": rendered, "note": _report_sample_warning(count)}
-
-        def _athlete_load_rows() -> list[dict[str, object]]:
-            if internal_load.get("analysis_scope") == "current_week_partial":
-                week_text = (
-                    _athlete_metric(internal_load.get("current_week_total"), digits=0, suffix=" UA", fallback="Semana en curso")
-                    if _coerce_float(internal_load.get("current_week_total")) is not None
-                    else "Semana en curso"
-                )
-                change_text = "Semana en curso"
-                sessions_text = (
-                    str(int(_coerce_float(internal_load.get("current_week_sessions")) or 0))
-                    if _coerce_float(internal_load.get("current_week_sessions")) is not None
-                    else PDF_MISSING_TEXT
-                )
-            else:
-                week_text = (
-                    internal_load_weekly_srpe_text(internal_load, internal_load.get("last_week_total"))
-                    if _coerce_float(internal_load.get("last_week_total")) is not None
-                    else _athlete_metric(internal_load.get("last_week_total"), digits=0, suffix=" UA")
-                )
-                weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
-                change_text = f"{weekly_change_pct:+.1f}%" if weekly_change_pct is not None else PDF_MISSING_TEXT
-                sessions_registered = _coerce_float(internal_load.get("sessions_registered"))
-                sessions_text = str(int(sessions_registered)) if sessions_registered is not None else PDF_MISSING_TEXT
-            return [
-                {"label": "Estado de carga", "value": _athlete_zone_text()},
-                {"label": "Última semana visible", "value": week_text},
-                {"label": "Cambio vs semana previa", "value": change_text},
-                {"label": "ACWR EWMA", "value": _athlete_metric(focus_row.get("ACWR EWMA"), digits=2)},
-                {
-                    "label": "Monotonía",
-                    "value": _athlete_metric(
-                        focus_row.get("Monotonia"),
-                        digits=2,
-                        fallback=f"No calculable (mínimo {MONOTONY_MIN_SESSIONS} sesiones con sRPE en la semana)",
-                    ),
-                },
-                {"label": "Sesiones con sRPE (semana)", "value": sessions_text},
-            ]
-
-        def _athlete_load_summary_line() -> str:
-            zone = _professional_normalized_text(_athlete_zone_text())
-            if internal_load.get("analysis_scope") == "current_week_partial":
-                total = _coerce_float(internal_load.get("current_week_total"))
-                sessions = int(_coerce_float(internal_load.get("current_week_sessions")) or 0)
-                if total is not None:
-                    return f"La semana sigue en curso: acumulás {total:.0f} UA en {sessions} sesiones y conviene esperar el cierre semanal para compararla mejor."
-                return "La semana sigue en curso y todavía faltan datos suficientes para leer mejor la carga reciente."
-            if not load_available:
-                return "Faltan datos recientes de carga interna para entender mejor cómo venís tolerando el entrenamiento."
-            if _zone_not_evaluable(zone):
-                return LOAD_NOT_EVALUABLE_PLAIN_LINE
-            if "alto riesgo" in zone:
-                return "La carga reciente viene alta y conviene ordenarla para sostener mejor la tolerancia."
-            if "precaucion" in zone:
-                return "La carga reciente pide un poco más de cuidado para sostener continuidad."
-            if "subcarga" in zone:
-                return "La carga reciente quedó baja y conviene recuperar continuidad de estímulo."
-            return "La carga reciente se mueve en una zona útil para seguir construyendo con continuidad."
-
-        def _athlete_load_watch_lines() -> list[str]:
-            lines: list[str] = []
-            if _coerce_float(focus_row.get("Monotonia")) is not None:
-                lines.append("Si la semana se parece demasiado entre días, conviene darle más variación al bloque.")
-            if completion_value is not None and completion_value < 80:
-                lines.append("La adherencia también importa: si baja, la lectura de carga se vuelve más ruidosa.")
-            if not lines:
-                lines.append("Lo importante es sostener continuidad y evitar cambios bruscos de una semana a otra.")
-            return lines[:2]
-
-        def _athlete_wellness_signal_is_concerning() -> bool:
-            stress_mean = _coerce_float(wellness_summary.get("stress_mean"))
-            pain_mean = _coerce_float(wellness_summary.get("pain_mean"))
-            recent_value = _coerce_float(focus_row.get("Wellness 3d"))
-            mean_low = athlete_score_value is not None and athlete_score_value < 3.0
-            stress_high = stress_mean is not None and _professional_wellness_high(stress_mean, wellness_scale.get("stress"))
-            pain_high = pain_mean is not None and _professional_wellness_high(pain_mean, wellness_scale.get("pain"))
-            recent_low = recent_value is not None and recent_value < 3.0
-            return bool(
-                mean_low
-                or stress_high
-                or pain_high
-                or (wellness_context.get("state") == "partial" and recent_low)
-                or (athlete_score_value is None and recent_low)
-            )
-
-        def _athlete_wellness_rows() -> list[dict[str, object]]:
-            athlete_score_days = int(_coerce_float(wellness_summary.get("score_n")) or 0)
-            return [
-                _athlete_metric_row(
-                    f"Bienestar ({WELLNESS_WEEK_WINDOW})",
-                    (
-                        f"{float(athlete_score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({athlete_score_meta['label']})"
-                        if athlete_score_meta is not None
-                        else "Todavía no registrado"
-                    ),
-                    wellness_summary.get("score_n"),
-                ),
-                _athlete_metric_row(
-                    f"Sueño ({WELLNESS_WEEK_WINDOW})",
-                    _athlete_metric(wellness_summary.get("sleep_mean"), digits=1, suffix=" h", fallback="Todavía no registrado"),
-                    wellness_summary.get("sleep_n"),
-                ),
-                _athlete_metric_row(
-                    f"Estrés ({WELLNESS_WEEK_WINDOW})",
-                    (
-                        f"{_display_metric(wellness_summary.get('stress_mean'), digits=1)}{wellness_scale.get('stress', '')}"
-                        if _coerce_float(wellness_summary.get("stress_mean")) is not None
-                        else "Todavía no registrado"
-                    ),
-                    wellness_summary.get("stress_n"),
-                ),
-                _athlete_metric_row(
-                    f"Dolor ({WELLNESS_WEEK_WINDOW})",
-                    (
-                        f"{_display_metric(wellness_summary.get('pain_mean'), digits=1)}{wellness_scale.get('pain', '')}"
-                        if _coerce_float(wellness_summary.get("pain_mean")) is not None
-                        else "Todavía no registrado"
-                    ),
-                    wellness_summary.get("pain_n"),
-                ),
-                *(
-                    [{"label": "Adherencia", "value": _athlete_completion_text(), "note": ""}]
-                    if completion_value is not None
-                    else []
-                ),
-                {"label": WELLNESS_WEEK_DAYS_LABEL, "value": str(athlete_score_days) if athlete_score_days > 0 else "Todavía no registrado", "note": ""},
-            ]
-
-        def _athlete_wellness_summary_line() -> str:
-            if wellness_context.get("state") == "missing":
-                return "Todavía faltan registros recientes de bienestar para entender mejor cómo venís recuperando."
-            if wellness_context.get("state") == "partial":
-                if _athlete_wellness_signal_is_concerning():
-                    return "Hay pocos registros, pero lo disponible sugiere cuidar recuperación, estrés y dolor de cerca."
-                return "Hay pocos registros de bienestar: sirven como una primera señal, pero todavía no como una tendencia cerrada."
-            if athlete_score_value is not None and athlete_score_value < 3.0:
-                return "El bienestar reciente viene bajo y conviene cruzarlo de cerca con la carga, el sueño, el estrés y el dolor."
-            return "El bienestar reciente acompaña y suma contexto para entender mejor cómo venís recuperando."
-
-        def _athlete_wellness_watch_lines() -> list[str]:
-            if wellness_context.get("state") == "missing":
-                return [
-                    "Sueño, estrés y dolor todavía necesitan más registros para leerse mejor.",
-                    "La carga se interpreta mejor cuando se cruza con sueño, estrés, dolor y adherencia.",
-                ]
-            if wellness_context.get("state") == "partial":
-                if _athlete_wellness_signal_is_concerning():
-                    return [
-                        "Los registros disponibles sugieren cuidar recuperación, estrés y dolor de cerca.",
-                        "Con más registros vamos a poder leer mejor la tendencia sin sobrerreaccionar a un solo día.",
-                    ]
-                return [
-                    "Con más registros vamos a poder leer mejor la tendencia de recuperación.",
-                    "La carga se interpreta mejor cuando se cruza con sueño, estrés, dolor y adherencia.",
-                ]
-            if _athlete_wellness_signal_is_concerning():
-                return [
-                    "Si sueño, estrés o dolor empeoran, conviene ajustar la carga antes de forzar.",
-                    "La carga se interpreta mejor cuando se cruza con sueño, estrés, dolor y adherencia.",
-                ]
-            return [
-                "El bienestar reciente acompaña, pero conviene seguir registrándolo para confirmar la tendencia.",
-                "La carga se interpreta mejor cuando se cruza con sueño, estrés, dolor y adherencia.",
-            ]
-
-        def _athlete_imtp_peak_force() -> object:
-            return force_time_summary.get("peak_force_n") if _coerce_float(force_time_summary.get("peak_force_n")) is not None else focus_row.get("IMTP N")
-
-        def _athlete_imtp_cards() -> list[tuple[str, str, str]]:
-            stronger_side = _professional_force_side_label(asymmetry_summary.get("stronger_side"))
-            time_to_peak = _coerce_float(force_time_summary.get("time_to_peak_s"))
-            return [
-                ("Fuerza máxima", _athlete_metric(_athlete_imtp_peak_force(), digits=0, suffix=" N"), "#134263"),
-                ("Asimetría", _athlete_metric(force_time_summary.get("absolute_asymmetry_pct"), digits=1, suffix="%", fallback=_athlete_metric(focus_row.get("IMTP_asym_pct"), digits=1, suffix="%")), "#B87445"),
-                ("Lado dominante", stronger_side if stronger_side != PDF_MISSING_TEXT else "Sin dato", "#708C9F"),
-                ("Tiempo al pico", _athlete_metric(time_to_peak, digits=2, suffix=" s"), "#0D3C5E"),
-            ]
-
-        def _athlete_force_time_copy(text: object) -> str:
-            clean = _repair_mojibake_text(str(text or "")).strip()
-            replacements = {
-                "evaluacion": "evaluación",
-                "adquisicion": "adquisición",
-                "Asimetria": "Asimetría",
-                "asimetria": "asimetría",
-                "produccion": "producción",
-                "maxima": "máxima",
-                "isometrica": "isométrica",
-                "posicion": "posición",
-                "medicion": "medición",
-                "descripcion": "descripción",
-                "especifico": "específico",
-                "expresion": "expresión",
-            }
-            for source, target in replacements.items():
-                clean = re.sub(rf"\b{re.escape(source)}\b", target, clean)
-            clean = clean.replace("describe como expresa", "describe cómo expresa")
-            clean = clean.replace("como descripción", "como descripción")
-            clean = clean.replace("cómo descripción", "como descripción")
-            return clean
-
-        def _athlete_two_col_cards(cards: list[tuple[str, str, str]]) -> Table:
-            rows: list[list[object]] = []
-            row_cells: list[object] = []
-            for idx, (label, value, _) in enumerate(cards, start=1):
-                row_cells.append(
-                    _build_metric_card(
-                        label,
-                        value,
-                        paragraph_builder=_p,
-                        TableClass=Table,
-                        TableStyleClass=TableStyle,
-                        mm_unit=mm,
-                        palette=palette,
-                        width_mm=86,
-                    )
-                )
-                if idx % 2 == 0:
-                    rows.append(row_cells)
-                    row_cells = []
-            if row_cells:
-                while len(row_cells) < 2:
-                    row_cells.append("")
-                rows.append(row_cells)
-            table = Table(rows, colWidths=[86 * mm, 86 * mm], hAlign="LEFT")
-            table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-            return table
-
-        def _athlete_force_time_table() -> Table | None:
-            if not force_time_points:
+        def _chart(payload_item: dict[str, object] | None, *, height_mm: float = 60) -> Image | None:
+            try:
+                return _chart_image(payload_item, height_mm=height_mm)
+            except Exception:
+                logger.exception("No se pudo renderizar un grafico del reporte individual")
                 return None
-            data: list[list[object]] = [[_p("Ventana", "ReportTableHeader"), _p("Fuerza", "ReportTableHeader")]]
-            for point in force_time_points[:5]:
-                label = str(point.get("label") or "-")
-                if label.casefold() == "peak":
-                    label = "Pico"
-                data.append(
-                    [
-                        _p(label, "ReportTableCell"),
-                        _p(_athlete_metric(point.get("value_n"), digits=0, suffix=" N"), "ReportTableCell"),
-                    ]
-                )
-            return _build_threshold_table(
-                data,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                col_widths_mm=[44, 130],
-                header_rows=1,
-                repeat_rows=1,
-                border_width=0.7,
-                inner_grid_width=0.35,
-                left_padding=6,
-                right_padding=6,
-                top_padding=5,
-                bottom_padding=5,
-            )
 
-        def _athlete_imtp_summary_line() -> str:
-            peak_force = _coerce_float(_athlete_imtp_peak_force())
-            asymmetry_value = _coerce_float(force_time_summary.get("absolute_asymmetry_pct"))
-            if peak_force is None:
-                return "Todavía no hay un IMTP reciente para leer tu base de fuerza con más claridad."
-            line = "El IMTP te da una referencia de fuerza máxima registrada en una posición fija."
-            if asymmetry_value is not None:
-                line += " La diferencia entre lados ayuda a ver si uno está empujando más que el otro."
-            return line
-
-        def _athlete_imtp_meaning_lines() -> list[str]:
-            peak_force = _coerce_float(_athlete_imtp_peak_force())
-            asymmetry_value = _coerce_float(force_time_summary.get("absolute_asymmetry_pct"))
-            lines: list[str] = []
-            if peak_force is not None:
-                lines.append(f"Tu fuerza máxima registrada en esta medición fue {_display_metric(peak_force, digits=0, suffix=' N')}.")
-            if asymmetry_value is not None:
-                stronger_side = _professional_force_side_label(asymmetry_summary.get("stronger_side"))
-                if stronger_side != PDF_MISSING_TEXT:
-                    lines.append(
-                        f"La diferencia entre lados fue de {_display_metric(asymmetry_value, digits=1, suffix='%')} y el lado que más empujó fue {stronger_side}."
-                    )
-                else:
-                    lines.append(f"La diferencia entre lados fue de {_display_metric(asymmetry_value, digits=1, suffix='%')}.")
-            elif peak_force is not None:
-                lines.append("En esta medición no aparece una diferencia clara entre lados para seguir de cerca.")
-            if force_time_points:
-                lines.append("Los puntos force-time muestran cómo aparece la fuerza al inicio y cómo sigue creciendo antes del pico.")
-            elif peak_force is not None:
-                lines.append("Aunque falten puntos force-time, igual podemos usar el IMTP como referencia simple de fuerza máxima.")
-            return lines[:3] or ["Usamos esta referencia para entender tu base de fuerza y qué conviene cuidar en el próximo bloque."]
-
-        def _athlete_imtp_care_line() -> str:
-            if _coerce_float(_athlete_imtp_peak_force()) is None:
-                return "Conviene completar un IMTP para tener una referencia más clara de fuerza y simetría."
-            return "Lo usamos como referencia, no como conclusión aislada: conviene cruzarlo con salto, carga y cómo venís recuperando."
-
-        def _athlete_watch_block_text() -> str:
-            if completion_value is not None and completion_value < 80:
-                return "Sostener más continuidad del plan va a ayudar a leer mejor cómo responde el proceso."
-            if wellness_context.get("state") == "missing":
-                return "Mantener registros de bienestar va a ayudar a confirmar mejor la tendencia."
-            if wellness_context.get("state") == "partial":
-                return _athlete_wellness_watch_lines()[0]
-            if _athlete_wellness_signal_is_concerning():
-                return "La recuperación reciente merece seguimiento cercano junto con sueño, estrés y dolor."
-            if _coerce_float(focus_row.get("Monotonia")) is not None and _coerce_float(focus_row.get("Monotonia")) > 2.0:
-                return "Conviene que la semana no se repita demasiado para sostener mejor la tolerancia."
-            if load_available and _professional_normalized_text(_athlete_zone_text()) in {"alto riesgo", "precaucion", "subcarga"}:
-                return "Conviene seguir de cerca la carga reciente para sostener continuidad sin cambios bruscos."
-            return "El bienestar reciente acompaña, pero conviene seguir registrándolo para confirmar la tendencia."
-
-        def _athlete_chrome(canvas_obj, doc_obj) -> None:
+        def _individual_chrome(canvas_obj, doc_obj) -> None:
             _draw_threshold_header(canvas_obj, doc_obj, palette=palette, mm_unit=mm, label="")
             _draw_threshold_footer(canvas_obj, doc_obj, palette=palette, mm_unit=mm)
 
-        cover_intro = Table(
-            [[
-                _build_note_box(
-                    "Lectura simple",
-                    _athlete_overview_text(),
-                    paragraph_builder=_p,
-                    TableClass=Table,
-                    TableStyleClass=TableStyle,
-                    mm_unit=mm,
-                    palette=palette,
-                    width_mm=112,
-                    title_style="BlockTitle",
-                    body_style="ReportBody",
-                    background=palette["panel"],
-                    border_color=palette["line_dark"],
-                    accent_color=palette["navy"],
-                ),
-                _athlete_status_box(),
-            ]],
-            colWidths=[112 * mm, 58 * mm],
-            hAlign="LEFT",
-        )
-        cover_intro.setStyle(
-            TableStyle(
-                [
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]
-            )
-        )
-
+        # ── Portada: lo que lograste ────────────────────────────────────
+        data_until = payload.get("data_until")
         story.extend(
             [
-                _p("Reporte individual para atleta", "ReportMuted"),
-                _p(effective_athlete, "ReportTitle"),
-                _p(f"Fecha: {app_now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
-                Spacer(1, 4 * mm),
-                cover_intro,
-                Spacer(1, 5 * mm),
-                _metric_cards_table(_athlete_cover_cards()),
-                Spacer(1, 5 * mm),
-                _build_decision_box(
-                    "Foco del próximo bloque",
-                    _athlete_focus_plan_text(),
-                    paragraph_builder=_p,
-                    TableClass=Table,
-                    TableStyleClass=TableStyle,
-                    mm_unit=mm,
-                    palette=palette,
-                    title_style="ReportDecisionTitle",
-                    body_style="ReportBodyWhite",
-                    note_style="ReportMutedWhite",
-                    note="Lectura pensada para entender qué sigue y qué conviene cuidar ahora.",
+                _tp("Reporte de progreso" if is_client else "Reporte individual para atleta", "ReportMuted"),
+                _tp(effective_athlete, "ReportTitle"),
+                _tp(
+                    f"Datos hasta {pd.Timestamp(data_until):%d/%m/%Y}" if data_until is not None else "",
+                    "ReportMuted",
                 ),
                 Spacer(1, 4 * mm),
-                _build_note_box(
-                    "Diccionario rápido",
-                    _athlete_dictionary_lines(),
-                    paragraph_builder=_p,
-                    TableClass=Table,
-                    TableStyleClass=TableStyle,
-                    mm_unit=mm,
-                    palette=palette,
-                    title_style="BlockTitle",
-                    body_style="ReportMuted",
-                    background=palette["card"],
-                    border_color=palette["line_dark"],
-                    accent_color=palette["steel"],
-                ),
             ]
         )
-
-        story.append(PageBreak())
-        story.append(
-            _build_pdf_page_title(
-                "Perfil neuromuscular",
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                subtitle="Una lectura simple de tu perfil actual de salto, reactividad y fuerza para orientar el próximo bloque.",
-                eyebrow="",
-                title_style="ReportSection",
-                subtitle_style="ReportMuted",
-                eyebrow_style="ReportMuted",
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué muestra",
-                profile_reading["what"],
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        radar_payload = athlete_charts.get("radar_perfil")
-        radar_image = _chart_image(radar_payload, height_mm=70)
-        story.append(
-            _build_chart_container(
-                radar_image,
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title="Radar de perfil",
-                note="El radar acompaña la lectura, pero la decisión se apoya sobre todo en qué significa hoy para vos.",
-                empty_text=(
-                    "Hoy no se pudo renderizar el radar, pero la lectura del perfil sigue disponible."
-                    if radar_payload
-                    else "Faltan datos de evaluación para mostrar el radar neuromuscular."
-                ),
-                title_style="BlockTitle",
-                note_style="ReportMuted",
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué significa para vos",
-                profile_reading["meaning"],
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_decision_box(
-                "Qué vamos a priorizar",
-                profile_reading["priority"],
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="ReportDecisionTitle",
-                body_style="ReportBodyWhite",
-                note_style="ReportMutedWhite",
-                note="El foco no cambia la etiqueta del perfil: traduce esa foto a una prioridad de trabajo.",
-            )
-        )
-
-        story.append(PageBreak())
-        story.append(
-            _build_pdf_page_title(
-                "Fuerza e IMTP",
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                subtitle="Una lectura simple de tu referencia de fuerza isométrica y, si existe, de cómo aparece esa fuerza en el tiempo.",
-                eyebrow="",
-                title_style="ReportSection",
-                subtitle_style="ReportMuted",
-                eyebrow_style="ReportMuted",
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué muestra",
-                _athlete_imtp_summary_line(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(_athlete_two_col_cards(_athlete_imtp_cards()))
-        force_time_table = _athlete_force_time_table()
-        if force_time_table is not None:
-            story.append(Spacer(1, 4 * mm))
+        achievement_lines = [f"• {item['text']}" for item in payload.get("achievements", [])]
+        references = list(payload.get("references") or [])
+        if references:
+            achievement_lines.append("Tu referencia actual: " + " · ".join(references) + ".")
+        if achievement_lines:
             story.append(
-                _build_note_box(
-                    "Cómo aparece la fuerza al inicio",
-                    "Estos puntos muestran cómo empieza a aparecer la fuerza y cómo sigue creciendo antes del pico.",
-                    paragraph_builder=_p,
-                    TableClass=Table,
-                    TableStyleClass=TableStyle,
-                    mm_unit=mm,
-                    palette=palette,
-                    title_style="BlockTitle",
-                    body_style="ReportMuted",
-                    background=palette["panel"],
-                    border_color=palette["line_dark"],
-                    accent_color=palette["steel"],
-                )
-            )
-            story.append(Spacer(1, 3 * mm))
-            story.append(force_time_table)
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué significa para vos",
-                _athlete_imtp_meaning_lines(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué vamos a cuidar",
-                [
-                    _athlete_imtp_care_line(),
-                    "La RFD ayuda a ver qué tan rápido aparece la fuerza, pero la usamos con cautela cuando todavía no tenemos una referencia propia de confiabilidad."
-                    if rfd_points
-                    else "Si todavía faltan datos force-time, igual podemos usar el IMTP como referencia simple de fuerza.",
-                ],
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-
-        story.append(PageBreak())
-        story.append(
-            _build_pdf_page_title(
-                "Carga reciente",
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                subtitle="Una lectura simple de cómo venís tolerando el entrenamiento y de si la carga se está moviendo con continuidad.",
-                eyebrow="",
-                title_style="ReportSection",
-                subtitle_style="ReportMuted",
-                eyebrow_style="ReportMuted",
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué significa",
-                _athlete_load_summary_line(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        load_chart_payload = athlete_charts.get("load")
-        load_image = _chart_image(load_chart_payload, height_mm=56)
-        story.append(
-            _build_chart_container(
-                load_image,
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title="Cómo venís tolerando el entrenamiento",
-                note=(
-                    "El gráfico acompaña la lectura de continuidad, tolerancia y ritmo reciente del entrenamiento."
-                    if load_image is not None
-                    else "Con la información disponible, la lectura sigue siendo útil aunque hoy no haya gráfico para mostrar."
-                ),
-                empty_text=(
-                    "Hoy no se pudo renderizar el gráfico de carga, pero la lectura reciente sigue disponible."
-                    if load_chart_payload
-                    else "Faltan datos de carga interna para mostrar este gráfico reciente."
-                ),
-                title_style="BlockTitle",
-                note_style="ReportMuted",
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(_compact_key_value_table(_athlete_load_rows()))
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué cuidar",
-                _athlete_load_watch_lines(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
-            )
-        )
-
-        story.append(PageBreak())
-        story.append(
-            _build_pdf_page_title(
-                "Bienestar y adherencia",
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                subtitle="La carga se entiende mejor cuando se cruza con sueño, estrés, dolor y continuidad del plan.",
-                eyebrow="",
-                title_style="ReportSection",
-                subtitle_style="ReportMuted",
-                eyebrow_style="ReportMuted",
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué significa",
-                _athlete_wellness_summary_line(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        wellness_chart_payload = athlete_charts.get("wellness") or athlete_charts.get("completion")
-        wellness_image = _chart_image(wellness_chart_payload, height_mm=52)
-        story.append(
-            _build_chart_container(
-                wellness_image,
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title=str(wellness_chart_payload.get("title") or "Bienestar reciente") if wellness_chart_payload else "Bienestar y adherencia",
-                note=(
-                    "Sirve para sumar contexto sobre recuperación y continuidad, no para juzgar un día aislado."
-                    if wellness_image is not None
-                    else "Con más registros esta vista va a ayudar a seguir mejor cómo venís recuperando y sosteniendo el plan."
-                ),
-                empty_text=(
-                    "Hoy no se pudo renderizar este gráfico, pero la lectura de bienestar y adherencia sigue disponible."
-                    if wellness_chart_payload
-                    else "Todavía no hay registros suficientes para mostrar este gráfico de bienestar o adherencia."
-                ),
-                title_style="BlockTitle",
-                note_style="ReportMuted",
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(_compact_key_value_table(_athlete_wellness_rows()))
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué cuidar",
-                _athlete_wellness_watch_lines(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
-            )
-        )
-
-        story.append(PageBreak())
-        story.append(
-            _build_pdf_page_title(
-                "Fortalezas y próximos pasos",
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                subtitle="Lo más importante de esta ventana, lo que conviene vigilar y qué sigue para el próximo bloque.",
-                eyebrow="",
-                title_style="ReportSection",
-                subtitle_style="ReportMuted",
-                eyebrow_style="ReportMuted",
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        strength_block = final_blocks[0] if final_blocks else {}
-        review_block = next((block for block in final_blocks if block.get("title") == "Próxima medición o revisión"), {})
-        story.append(
-            _build_decision_box(
-                "Foco del próximo bloque",
-                _athlete_focus_plan_text(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="ReportDecisionTitle",
-                body_style="ReportBodyWhite",
-                note_style="ReportMutedWhite",
-                note="El foco principal traduce la foto actual del atleta a una prioridad concreta de trabajo.",
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                str(strength_block.get("title") or "Fortaleza principal"),
-                str(strength_block.get("body") or PDF_MISSING_TEXT),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Punto a vigilar",
-                _athlete_watch_block_text(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Próxima medición o revisión",
-                str(review_block.get("body") or PDF_MISSING_TEXT),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Nota de lectura",
-                "Este informe no promete rendimiento ni reemplaza el criterio del entrenador. Sirve para entender qué se ve hoy, qué significa para vos y qué conviene hacer después con la información disponible.",
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportMuted",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
-            )
-        )
-        try:
-            doc.build(story, onFirstPage=_athlete_chrome, onLaterPages=_athlete_chrome)
-        except Exception:
-            logger.exception("Fallo al construir el PDF de atleta de %s", effective_athlete)
-            return None
-        return buffer.getvalue()
-
-    if audience == "cliente" and effective_athlete != "Todos":
-        focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
-        client_neuromuscular_profile = _build_current_pdf_neuromuscular_profile_payload(
-            state,
-            effective_athlete,
-            audience="cliente",
-        )
-        completion_value = _focus_completion_value(state, effective_athlete)
-        internal_load = _build_professional_internal_load_context(state, effective_athlete)
-        focus_row = _gate_focus_row_load(focus_row, state, effective_athlete, internal_load)
-        client_trend = (
-            None
-            if _zone_not_evaluable(focus_row.get("Zona"))
-            or not _load_evaluability(state, effective_athlete, internal_load)[0]
-            else client_load_trend(internal_load)
-        )
-        focus_row = focus_row.copy()
-        focus_row[CLIENT_LOAD_PHRASE_COL] = (
-            f"semana {CLIENT_TREND_LABELS[client_trend].lower()}" if client_trend is not None else ""
-        )
-        wellness_context = _professional_wellness_context(state, effective_athlete)
-        client_charts = _collect_client_pdf_chart_payloads(state, effective_athlete)
-
-        def _client_missing_text(kind: str = "generic") -> str:
-            mapping = {
-                "generic": "Dato todavía no disponible",
-                "evaluation": "Pendiente de evaluación",
-                "registration": "Todavía no registrado",
-                "reference": "Falta completar esta referencia",
-            }
-            return mapping.get(kind, mapping["generic"])
-
-        def _client_text(value: object, fallback: str = "Dato todavía no disponible") -> str:
-            text = _ascii_text(value).strip()
-            normalized = text.casefold()
-            if not text or normalized in {"-", "sin dato", "sin datos", "nan", "none"}:
-                return fallback
-            return text
-
-        def _client_metric(value: object, *, digits: int = 1, suffix: str = "", fallback: str = "Dato todavía no disponible") -> str:
-            return _client_text(_display_metric(value, digits=digits, suffix=suffix), fallback=fallback)
-
-        def _client_focus_label() -> str:
-            if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core":
-                return _client_text(
-                    client_neuromuscular_profile.get("training_priority_short"),
-                    fallback="Seguir construyendo",
-                )
-            return _client_text(_current_focus_text(focus_row, audience="cliente"), fallback="Seguir construyendo")
-
-        def _client_focus_phrase() -> str:
-            focus = _sentence_fragment(_client_focus_label())
-            normalized = _professional_normalized_text(focus)
-            if normalized == "hacer nueva evaluacion":
-                return "hacer una nueva evaluación"
-            return focus.lower()
-
-        def _client_focus_summary_sentence() -> str:
-            normalized = _professional_normalized_text(_client_focus_label())
-            if normalized == "hacer nueva evaluacion":
-                return "El foco actual es completar una nueva evaluación y sostener continuidad."
-            if normalized == "sostener progreso":
-                return "El foco actual es sostener continuidad y seguir construyendo."
-            if normalized == "ordenar carga":
-                return "El foco actual es ordenar la carga de la semana y sostener continuidad."
-            if normalized == "ganar continuidad":
-                return "El foco actual es ganar continuidad para leer mejor el proceso."
-            if normalized == "recuperar potencia":
-                return "El foco actual es recuperar potencia sin perder continuidad."
-            if normalized == "construir fuerza base":
-                return "El foco actual es construir fuerza base y sostener continuidad."
-            return f"El foco actual es {_client_focus_phrase()}."
-
-        def _client_focus_plan_sentence() -> str:
-            normalized = _professional_normalized_text(_client_focus_label())
-            if normalized == "hacer nueva evaluacion":
-                return "El foco ahora es completar una nueva evaluación para tener una referencia más clara y seguir ajustando el proceso."
-            if normalized == "sostener progreso":
-                return "El foco ahora es sostener lo que viene funcionando y seguir construyendo con continuidad."
-            if normalized == "ordenar carga":
-                return "El foco ahora es ordenar la carga de la semana para que el cuerpo la tolere mejor y podamos sostener continuidad."
-            if normalized == "ganar continuidad":
-                return "El foco ahora es ganar continuidad en el plan para que la lectura del proceso sea más clara."
-            if normalized == "recuperar potencia":
-                return "El foco ahora es recuperar potencia con calma, sin perder continuidad en el proceso."
-            if normalized == "construir fuerza base":
-                return "El foco ahora es construir una base más sólida para que el progreso se sostenga mejor."
-            return f"El foco ahora es {_client_focus_phrase()}."
-
-        def _client_completion_needs_follow_up() -> bool:
-            return completion_value is not None and completion_value < 80
-
-        def _client_recent_wellness_value() -> float | None:
-            return _coerce_float(focus_row.get("Wellness 3d"))
-
-        def _client_recent_wellness_is_low(value: float | None) -> bool:
-            if value is None:
-                return False
-            return value < 15 if value > 5 else value < 3.0
-
-        def _client_recent_wellness_label() -> str:
-            return (
-                _client_metric(_client_recent_wellness_value(), digits=1, fallback=_client_missing_text("registration"))
-                if _client_recent_wellness_value() is not None
-                else _client_missing_text("registration")
-            )
-
-        def _client_wellness_mean_value() -> float | None:
-            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
-            return _coerce_float(summary.get("score_mean"))
-
-        def _client_wellness_days_count() -> int:
-            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
-            day_candidates = [
-                _coerce_float(summary.get("days")),
-                _coerce_float(summary.get("score_n")),
-                _coerce_float(summary.get("sleep_n")),
-                _coerce_float(summary.get("stress_n")),
-                _coerce_float(summary.get("pain_n")),
-            ]
-            return max([int(value) for value in day_candidates if value is not None] or [0])
-
-        def _client_wellness_signal_is_concerning() -> bool:
-            mean_value = _client_wellness_mean_value()
-            recent_value = _client_recent_wellness_value()
-            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
-            scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
-            stress_mean = _coerce_float(summary.get("stress_mean"))
-            pain_mean = _coerce_float(summary.get("pain_mean"))
-            return bool(
-                (mean_value is not None and mean_value < 3.0)
-                or _client_recent_wellness_is_low(recent_value)
-                or (stress_mean is not None and _professional_wellness_high(stress_mean, scales.get("stress")))
-                or (pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain")))
-            )
-
-        def _client_wellness_summary_line() -> str:
-            if wellness_context.get("state") == "missing":
-                return "Falta información reciente para entender cómo venís recuperando."
-            if wellness_context.get("state") == "partial":
-                if _client_wellness_signal_is_concerning():
-                    return "El registro es bajo, pero los valores disponibles sugieren cuidar recuperación, estrés y dolor de cerca."
-                return "Todavía hay pocos registros para sacar una conclusión firme sobre recuperación."
-            mean_value = _client_wellness_mean_value()
-            recent_value = _client_recent_wellness_value()
-            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
-            scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
-            sleep_mean = _coerce_float(summary.get("sleep_mean"))
-            stress_mean = _coerce_float(summary.get("stress_mean"))
-            pain_mean = _coerce_float(summary.get("pain_mean"))
-            stress_high = stress_mean is not None and _professional_wellness_high(stress_mean, scales.get("stress"))
-            pain_high = pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain"))
-            sleep_stable = sleep_mean is not None and sleep_mean >= 6.5
-            if stress_high or pain_high:
-                if sleep_stable and not _client_recent_wellness_is_low(recent_value) and mean_value is not None and mean_value >= 3.0:
-                    return "Sueño parece estable, pero estrés y dolor merecen seguimiento."
-                return "La recuperación viene algo cargada: estrés y dolor merecen atención antes de subir exigencia."
-            if _client_recent_wellness_is_low(recent_value) and mean_value is not None and mean_value >= 3.0:
-                return "El promedio de la semana analizada es aceptable, pero conviene seguir de cerca la recuperación percibida."
-            if mean_value is not None and mean_value < 3.0:
-                return "El promedio de la semana analizada viene algo bajo y conviene seguir de cerca la recuperación."
-            if _client_recent_wellness_is_low(recent_value):
-                return "La recuperación percibida viene baja y conviene seguirla de cerca."
-            return "El bienestar reciente acompaña sin señales grandes de alerta."
-
-        def _client_strengths_lines() -> list[str]:
-            lines: list[str] = []
-            zone = _professional_normalized_text(_client_zone_text())
-            if _row_has_eval_data(focus_row):
-                lines.append("Ya tenemos una referencia útil para seguir tu proceso.")
-            if client_trend == CLIENT_TREND_SIMILAR:
-                lines.append("La carga de la última semana fue similar a las anteriores: hay continuidad.")
-            mean_value = _client_wellness_mean_value()
-            if mean_value is not None and mean_value >= 3.0:
-                lines.append("El promedio de bienestar de la semana analizada se mantiene en una zona aceptable.")
-            if completion_value is not None and completion_value >= 80:
-                lines.append("La constancia del plan ayuda a leer mejor cómo viene el proceso.")
-            return list(dict.fromkeys(lines))[:3] or ["Ya empezamos a juntar información útil para seguir tu proceso."]
-
-        def _client_watchouts_lines() -> list[str]:
-            lines: list[str] = []
-            zone = _professional_normalized_text(_client_zone_text())
-            summary_parts: list[str] = []
-            if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core":
-                translated_flags = list(client_neuromuscular_profile.get("flag_messages_client", []))
-                if translated_flags:
-                    return translated_flags[:1] + ["Conviene usar el próximo control para confirmar si esta señal se sostiene."]
-            if client_trend == CLIENT_TREND_HEAVIER:
-                summary_parts.append("carga reciente")
-                lines.append("La última semana fue más exigente que las anteriores; conviene cuidar la recuperación.")
-            elif client_trend == CLIENT_TREND_LIGHTER:
-                summary_parts.append("carga reciente")
-                lines.append("La última semana fue más liviana que las anteriores.")
-            wellness_line = _client_wellness_summary_line()
-            if "conviene seguir" in wellness_line or "viene algo bajo" in wellness_line:
-                summary_parts.append("recuperación percibida")
-                lines.append(wellness_line)
-            elif "registro es bajo" in wellness_line:
-                summary_parts.extend(["recuperación", "estrés", "dolor"])
-                lines.append(wellness_line)
-            if _client_completion_needs_follow_up():
-                summary_parts.append("constancia")
-                lines.append("La constancia todavía merece seguimiento para leer mejor el proceso.")
-            if summary_parts:
-                labels = list(dict.fromkeys(summary_parts))
-                if labels == ["recuperación percibida"]:
-                    summary_text = "La recuperación percibida necesita seguimiento."
-                elif labels == ["constancia"]:
-                    summary_text = "La constancia necesita seguimiento."
-                elif labels == ["carga reciente"]:
-                    summary_text = "La carga reciente necesita seguimiento."
-                elif len(labels) == 1:
-                    summary_text = labels[0].capitalize() + " requiere seguimiento."
-                else:
-                    summary_text = (", ".join(labels[:-1]) + f" y {labels[-1]}").capitalize() + " requieren seguimiento."
-                return [summary_text] + list(dict.fromkeys(lines))[:2]
-            return ["No aparece una alarma grande; el foco está en sostener continuidad."]
-
-        def _client_next_steps_list() -> list[str]:
-            lines: list[str] = []
-            zone = _professional_normalized_text(_client_zone_text())
-            if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core":
-                lines.append(_professional_visible_metric_text(f"Sostener el foco en {_client_focus_phrase()}."))
-            if _professional_normalized_text(_client_focus_label()) == "hacer nueva evaluacion":
-                lines.append("Programar una nueva evaluación para sumar una referencia más clara del proceso.")
-            if _client_completion_needs_follow_up():
-                lines.append("Sostener más continuidad en el plan para que la lectura del proceso sea más clara.")
-            if client_trend in {CLIENT_TREND_HEAVIER, CLIENT_TREND_LIGHTER}:
-                lines.append("Lo importante es evitar cambios bruscos y sostener continuidad de una semana a otra.")
-            wellness_line = _client_wellness_summary_line()
-            if "conviene seguir" in wellness_line or "viene algo bajo" in wellness_line or "registro es bajo" in wellness_line:
-                lines.append("Si sueño, estrés, dolor o recuperación empeoran, ajustamos la carga antes de forzar.")
-            if len(lines) < 2 and _professional_normalized_text(_client_focus_label()) != "hacer nueva evaluacion":
-                lines.append("Volver a medir nos va a ayudar a confirmar si el proceso se sostiene.")
-            if not lines:
-                lines.append("Mantener la línea actual y volver a medir para confirmar si el proceso se sostiene.")
-            return list(dict.fromkeys([line for line in lines if str(line).strip()]))[:3]
-
-        def _client_load_watch_lines() -> list[str]:
-            return [
-                "Lo importante no es un día aislado, sino sostener continuidad y evitar cambios bruscos.",
-                "Si la semana se vuelve demasiado exigente o demasiado liviana, ajustamos antes de que el proceso se vuelva confuso.",
-            ]
-
-        def _client_wellness_watch_lines() -> list[str]:
-            if wellness_context.get("state") == "missing":
-                return [
-                    "Sueño, estrés y dolor todavía necesitan más registros para leerse mejor.",
-                    "Cuando aparezcan más registros, vamos a ajustar con más precisión.",
-                ]
-            if wellness_context.get("state") == "partial":
-                if _client_wellness_signal_is_concerning():
-                    return [
-                        "Recuperación, estrés y dolor merecen seguimiento cercano mientras sumamos más registros.",
-                        "Si los próximos registros siguen bajos, ajustamos la carga antes de forzar.",
-                    ]
-                return [
-                    "Sueño, estrés y dolor merecen seguimiento mientras sumamos más registros.",
-                    "Con más registros vamos a poder leer mejor la tendencia.",
-                ]
-            if _client_wellness_signal_is_concerning():
-                return [
-                    "Recuperación percibida, estrés y dolor merecen seguimiento cercano.",
-                    "Si sueño, estrés o dolor empeoran, ajustamos la carga antes de forzar.",
-                ]
-            return [
-                "Seguir registrando bienestar nos va a ayudar a confirmar la tendencia.",
-                "Si sueño, estrés o dolor empeoran, ajustamos la carga antes de forzar.",
-            ]
-
-        def _client_zone_text() -> str:
-            # Sin zonas de ACWR para el cliente: "No evaluable" o la
-            # comparacion con las semanas anteriores en lenguaje llano.
-            if _client_load_not_evaluable():
-                return LOAD_ZONE_NOT_EVALUABLE
-            if client_trend is None:
-                return "En seguimiento"
-            return CLIENT_TREND_LABELS[client_trend]
-
-        def _client_load_not_evaluable() -> bool:
-            return _zone_not_evaluable(focus_row.get("Zona"))
-
-        def _client_cards() -> list[tuple[str, str, str]]:
-            return [
-                (
-                    "Salto vertical",
-                    _client_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm", fallback=_client_missing_text("evaluation"))
-                    if _row_has_eval_data(focus_row)
-                    else _client_missing_text("evaluation"),
-                    "#134263",
-                ),
-                (
-                    WELLNESS_RECENT_CLIENT_LABEL,
-                    _client_recent_wellness_label(),
-                    "#2F6B52",
-                ),
-                *(
-                    [("Constancia", completion_display_text(completion_value), "#708C9F")]
-                    if completion_value is not None
-                    else []
-                ),
-                ("Foco actual", _client_focus_label(), "#134263"),
-            ]
-
-        def _client_overview_text() -> str:
-            if summary_df.empty:
-                return "Todavía falta información para una lectura más clara. Por ahora el foco es completar registros, sumar una evaluación inicial y sostener continuidad."
-            if _row_has_eval_data(focus_row) or _row_has_load_data(focus_row) or _row_has_wellness_data(focus_row):
-                lines = ["Hoy tenemos una referencia útil para seguir el proceso."]
-                if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core":
-                    lines.append(
-                        _professional_visible_metric_text(
-                            client_neuromuscular_profile.get("summary_client")
-                            or client_neuromuscular_profile.get("summary_short")
-                            or ""
-                        )
-                    )
-                zone = _professional_normalized_text(_client_zone_text())
-                if _client_load_not_evaluable():
-                    lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
-                elif client_trend is not None:
-                    lines.append(CLIENT_TREND_SENTENCES[client_trend])
-                if _row_has_wellness_data(focus_row) or wellness_context.get("state") == "partial":
-                    lines.append(_client_wellness_summary_line())
-                if _client_completion_needs_follow_up():
-                    if any(key in _professional_normalized_text(" ".join(lines)) for key in ["recuperacion", "registro es bajo", "pocos registros"]):
-                        lines.append("La recuperación y la constancia necesitan seguimiento.")
-                    else:
-                        lines.append("La constancia necesita seguimiento para leer mejor el proceso.")
-                lines.append(_client_focus_summary_sentence())
-                return " ".join(lines)
-            return "Ya empezamos a juntar información útil, pero todavía falta completar algunas referencias para leer mejor tu proceso. El foco actual es completar una nueva evaluación y sostener continuidad."
-
-        def _client_state_rows() -> list[dict[str, object]]:
-            rows: list[dict[str, object]] = [
-                {"label": "Estado de carga", "value": _client_zone_text()},
-                {
-                    "label": "Tu salto hoy",
-                    "value": _client_metric(focus_row.get("CMJ cm"), digits=1, suffix=" cm", fallback=_client_missing_text("evaluation"))
-                    if _row_has_eval_data(focus_row)
-                    else _client_missing_text("evaluation"),
-                },
-                {
-                    "label": "Cambio contra tu primera referencia",
-                    "value": _client_metric(focus_row.get("CMJ vs BL %"), digits=1, suffix="%", fallback=_client_missing_text("reference"))
-                    if _coerce_float(focus_row.get("CMJ vs BL %")) is not None
-                    else _client_missing_text("reference"),
-                },
-                {
-                    "label": WELLNESS_RECENT_CLIENT_LABEL,
-                    "value": _client_metric(focus_row.get("Wellness 3d"), digits=1, fallback=_client_missing_text("registration"))
-                    if _row_has_wellness_data(focus_row)
-                    else _client_missing_text("registration"),
-                },
-                *(
-                    [{"label": "Constancia del plan", "value": completion_display_text(completion_value)}]
-                    if completion_value is not None
-                    else []
-                ),
-                {
-                    "label": "Lectura actual",
-                    "value": (
-                        _professional_visible_metric_text(
-                            client_neuromuscular_profile.get("profile_label")
-                            or "Ya tenemos una referencia útil para seguir tu proceso."
-                        )
-                        if _row_has_eval_data(focus_row) and client_neuromuscular_profile.get("source") == "core"
-                        else (
-                            "Ya tenemos una referencia útil para seguir tu proceso."
-                            if _row_has_eval_data(focus_row)
-                            else "Falta completar esta referencia para definir mejor la lectura actual."
-                        )
-                    ),
-                },
-            ]
-            return rows
-
-        def _client_load_rows() -> list[dict[str, object]]:
-            change_text = _client_missing_text("reference")
-            weekly_change_pct = _coerce_float(internal_load.get("weekly_change_pct"))
-            sessions_registered = _coerce_float(internal_load.get("sessions_registered"))
-            if str(internal_load.get("analysis_scope") or "") == "current_week_partial":
-                change_text = "Semana en curso"
-            elif weekly_change_pct is not None:
-                change_text = f"{weekly_change_pct:+.1f}%"
-            elif _coerce_float(internal_load.get("weekly_change")) is not None:
-                change_text = _client_metric(internal_load.get("weekly_change"), digits=0, suffix=" UA")
-            return [
-                {"label": "Estado de la carga", "value": _client_zone_text()},
-                {
-                    "label": "Última semana visible",
-                    "value": internal_load_weekly_srpe_text(internal_load, internal_load.get("last_week_total"))
-                    if _coerce_float(internal_load.get("last_week_total")) is not None
-                    else ("Semana en curso" if str(internal_load.get("analysis_scope") or "") == "current_week_partial" else _client_missing_text("registration")),
-                },
-                {"label": "Cambio reciente", "value": change_text},
-                {
-                    "label": "Sesiones con sRPE (semana)",
-                    "value": str(int(sessions_registered))
-                    if sessions_registered is not None and (_row_has_load_data(focus_row) or str(internal_load.get("analysis_scope") or "") == "current_week_partial")
-                    else _client_missing_text("registration"),
-                },
-                *(
-                    [{"label": "Constancia", "value": completion_display_text(completion_value)}]
-                    if completion_value is not None
-                    else []
-                ),
-            ]
-
-        def _client_load_lines() -> list[str]:
-            lines: list[str] = []
-            zone = _professional_normalized_text(_client_zone_text())
-            scope = str(internal_load.get("analysis_scope") or "")
-            if scope == "current_week_partial":
-                total = _coerce_float(internal_load.get("current_week_total"))
-                sessions = int(_coerce_float(internal_load.get("current_week_sessions")) or 0)
-                if total is not None:
-                    lines.append(f"La semana sigue en curso. Por ahora acumulaste {total:.0f} UA en {sessions} sesiones y conviene esperar el cierre semanal para compararla mejor.")
-                else:
-                    lines.append("La semana sigue en curso y todavía falta información para leer bien la carga reciente.")
-            elif _client_load_not_evaluable():
-                lines.append(LOAD_NOT_EVALUABLE_PLAIN_LINE)
-            elif client_trend is not None:
-                lines.append(CLIENT_TREND_SENTENCES[client_trend])
-            elif _row_has_load_data(focus_row) or _coerce_float(internal_load.get("last_week_total")) is not None:
-                lines.append("Todavía no hay semanas completas suficientes para comparar la carga con las anteriores.")
-            else:
-                lines.append("Falta información reciente para entender bien cómo venís entrenando.")
-            if completion_value is not None and completion_value < 70:
-                lines.append(f"La constancia actual ({completion_display_text(completion_value)}) merece seguimiento porque puede volver más ruidosa la lectura del proceso.")
-            elif completion_value is not None:
-                lines.append("La constancia del plan ayuda a leer mejor si el proceso se está sosteniendo.")
-            else:
-                lines.append("La constancia del plan todavía no está registrada con suficiente claridad.")
-            return lines[:3]
-
-        def _client_wellness_rows() -> list[dict[str, object]]:
-            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
-            scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
-            score_value = _coerce_float(summary.get("score_mean"))
-            score_label = _client_missing_text("registration")
-            if score_value is not None:
-                score_meta = _report_wellness_score_label(score_value)
-                score_label = f"{float(score_meta['score']):.1f} {WELLNESS_SCORE_UNIT} ({score_meta['label']})"
-            days_count = _client_wellness_days_count()
-            return [
-                {"label": f"Promedio ({WELLNESS_WEEK_WINDOW})", "value": score_label, "note": safe_value(wellness_context.get("analysis_week_label"), fallback="")},
-                {"label": f"Sueño ({WELLNESS_WEEK_WINDOW})", "value": _client_metric(summary.get("sleep_mean"), digits=1, suffix=" h", fallback=_client_missing_text("registration"))},
-                {"label": f"Estrés ({WELLNESS_WEEK_WINDOW})", "value": _client_metric(summary.get("stress_mean"), digits=1, suffix=str(scales.get("stress", "")), fallback=_client_missing_text("registration"))},
-                {"label": f"Dolor ({WELLNESS_WEEK_WINDOW})", "value": _client_metric(summary.get("pain_mean"), digits=1, suffix=str(scales.get("pain", "")), fallback=_client_missing_text("registration"))},
-                {"label": WELLNESS_WEEK_DAYS_LABEL, "value": str(days_count) if days_count > 0 else _client_missing_text("registration")},
-            ]
-
-        def _client_wellness_lines() -> list[str]:
-            summary = wellness_context.get("last_week_summary", {}) if isinstance(wellness_context.get("last_week_summary"), dict) else {}
-            scales = wellness_context.get("scales", {}) if isinstance(wellness_context.get("scales"), dict) else {}
-            sleep_mean = _coerce_float(summary.get("sleep_mean"))
-            stress_mean = _coerce_float(summary.get("stress_mean"))
-            pain_mean = _coerce_float(summary.get("pain_mean"))
-            if wellness_context.get("state") == "missing":
-                return [
-                    "Con más registros vamos a poder leer mejor la tendencia.",
-                    "Sueño, estrés y dolor van a ayudarnos a entender mejor cómo venís recuperando.",
-                ]
-            if wellness_context.get("state") == "partial":
-                if _client_wellness_signal_is_concerning():
-                    return [
-                        "Igual sirve como primera señal para mirar sueño, estrés y dolor.",
-                        "Con más registros vamos a poder leer mejor la tendencia.",
-                    ]
-                return [
-                    "Igual sirve como primera señal para mirar sueño, estrés y dolor.",
-                    "Con más registros vamos a poder leer mejor la tendencia.",
-                ]
-            lines: list[str] = []
-            stress_high = stress_mean is not None and _professional_wellness_high(stress_mean, scales.get("stress"))
-            pain_high = pain_mean is not None and _professional_wellness_high(pain_mean, scales.get("pain"))
-            if stress_high or pain_high:
-                if sleep_mean is not None and sleep_mean >= 6.5:
-                    lines.append("Sueño parece estable, pero estrés y dolor merecen seguimiento.")
-                else:
-                    lines.append("La recuperación viene algo cargada: estrés y dolor merecen atención antes de subir exigencia.")
-            elif sleep_mean is not None and sleep_mean < 6.5:
-                lines.append("El sueño reciente merece seguimiento para que la recuperación acompañe mejor el trabajo.")
-            if not lines:
-                lines.append("Sueño, estrés y dolor no muestran desvíos grandes en esta ventana.")
-            lines.append("La idea es usar esta información para cuidar recuperación y continuidad, no para juzgar un día aislado.")
-            return list(dict.fromkeys(lines))[:3]
-
-        def _client_review_text() -> str:
-            if _row_has_eval_data(focus_row):
-                return "Volver a medir en 6-8 semanas ayuda a confirmar si el progreso se sostiene."
-            return "Cuando completemos una nueva evaluación, vamos a tener una referencia más clara para seguir ajustando el proceso."
-
-        def _client_status_box() -> Table:
-            return _build_threshold_box(
-                [
-                    _p("Carga actual", "CardLabel"),
-                    _p(_client_zone_text(), "ReportSection"),
-                    _p("Lectura general de esta ventana.", "ReportMuted"),
-                ],
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                width_mm=58,
-                padding=8,
-                background=palette["panel_alt"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-                border_width=0.7,
-            )
-
-        def _client_cover_cards_table(cards: list[tuple[str, str, str]]) -> Table:
-            rows: list[list[object]] = []
-            row: list[object] = []
-            for idx, (label, value, _) in enumerate(cards, start=1):
-                cell = _build_metric_card(
-                    label,
-                    value,
-                    paragraph_builder=_p,
-                    TableClass=Table,
-                    TableStyleClass=TableStyle,
-                    mm_unit=mm,
-                    palette=palette,
-                    width_mm=86,
-                )
-                row.append(cell)
-                if idx % 2 == 0:
-                    rows.append(row)
-                    row = []
-            if row:
-                while len(row) < 2:
-                    row.append("")
-                rows.append(row)
-            table = Table(rows, colWidths=[86 * mm, 86 * mm], hAlign="LEFT")
-            table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-            return table
-
-        def _client_chrome(canvas_obj, doc_obj) -> None:
-            _draw_threshold_header(canvas_obj, doc_obj, palette=palette, mm_unit=mm, label="")
-            _draw_threshold_footer(canvas_obj, doc_obj, palette=palette, mm_unit=mm)
-
-        client_cards = _client_cards()
-        client_has_profile_signal = (
-            _row_has_eval_data(focus_row)
-            or _row_has_load_data(focus_row)
-            or _row_has_wellness_data(focus_row)
-        )
-        client_strengths = _client_strengths_lines()
-        client_gaps = _client_watchouts_lines()
-        client_next_steps = _client_next_steps_list()
-        if not client_has_profile_signal:
-            client_strengths = ["Ya empezamos a juntar información útil para seguir tu proceso."]
-            client_gaps = ["Falta información para definir con más claridad qué conviene priorizar."]
-            client_next_steps = [
-                "Programar una nueva evaluación nos va a dar una referencia más clara para seguir ajustando el proceso.",
-                "Sostener más continuidad en el plan va a ayudar a leer mejor cómo viene el proceso.",
-            ]
-        client_focus = _client_focus_label()
-
-        cover_intro = Table(
-            [[
-                _build_note_box(
-                    "Lectura breve",
-                    _client_overview_text(),
-                    paragraph_builder=_p,
-                    TableClass=Table,
-                    TableStyleClass=TableStyle,
-                    mm_unit=mm,
-                    palette=palette,
-                    width_mm=112,
-                    title_style="BlockTitle",
-                    body_style="ReportBody",
-                    background=palette["panel"],
-                    border_color=palette["line_dark"],
-                    accent_color=palette["navy"],
-                ),
-                _client_status_box(),
-            ]],
-            colWidths=[112 * mm, 58 * mm],
-            hAlign="LEFT",
-        )
-        cover_intro.setStyle(
-            TableStyle(
-                [
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]
-            )
-        )
-
-        story.extend(
-            [
-                _p("Reporte de progreso", "ReportMuted"),
-                _p(effective_athlete, "ReportTitle"),
-                _p(f"Fecha: {app_now():%d/%m/%Y} | Ventana visible: últimas 6 semanas", "ReportMuted"),
-                Spacer(1, 4 * mm),
-                cover_intro,
-                Spacer(1, 5 * mm),
-                _client_cover_cards_table(client_cards),
-                Spacer(1, 5 * mm),
                 _build_decision_box(
-                    "Qué vamos a priorizar",
-                    f"Hoy la prioridad es {_client_focus_phrase()}.",
-                    paragraph_builder=_p,
-                    TableClass=Table,
-                    TableStyleClass=TableStyle,
-                    mm_unit=mm,
-                    palette=palette,
+                    "Lo que lograste",
+                    "\n".join(achievement_lines),
+                    **box_kwargs,
                     title_style="ReportDecisionTitle",
                     body_style="ReportBodyWhite",
                     note_style="ReportMutedWhite",
-                    note="Lectura simple para entender cómo venís y qué vamos a cuidar ahora.",
-                ),
-            ]
-        )
+                )
+            )
+            story.append(Spacer(1, 4 * mm))
 
-        story.append(PageBreak())
-        story.append(_build_pdf_page_title(
-            "Estado actual y progreso",
-            paragraph_builder=_p,
-            TableClass=Table,
-            TableStyleClass=TableStyle,
-            mm_unit=mm,
-            palette=palette,
-            subtitle="Una foto simple de cómo estás hoy y de si ya hay una referencia para comparar el proceso.",
-            eyebrow="",
-            title_style="ReportSection",
-            subtitle_style="ReportMuted",
-            eyebrow_style="ReportMuted",
-        ))
-        story.append(Spacer(1, 4 * mm))
-        state_chart_payload = client_charts.get("cmj_trend") or client_charts.get("completion")
-        state_chart = _chart_image(state_chart_payload, height_mm=66) if state_chart_payload else None
-        story.append(
-            _build_chart_container(
-                state_chart,
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title=state_chart_payload.get("title", "Progreso reciente") if state_chart_payload else "Progreso reciente",
-                note=(
-                    "Sirve para ver si ya hay una referencia útil para comparar tu proceso con más claridad."
-                    if state_chart is not None
-                    else "Cuando tengamos más registros, esta vista va a ayudar a seguir mejor tu progreso."
-                ),
-                empty_text="Todavía no hay historial suficiente para mostrar una tendencia clara.",
-                title_style="BlockTitle",
-                note_style="ReportMuted",
-                accent_color=palette["steel"],
+        cover_cards: list[tuple[str, str, str]] = []
+        load = payload.get("load")
+        wellness = payload.get("wellness")
+        imtp = payload.get("imtp")
+        if load and load.get("headline"):
+            cover_cards.append(("Carga de las últimas semanas", str(load["headline"]), "#708C9F"))
+        if wellness:
+            cover_cards.append(
+                (f"Bienestar ({wellness['range']})", f"{wellness['score']:.1f} /30 ({wellness['label']})", "#2F6B52")
             )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(_compact_key_value_table(_client_state_rows()))
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Lo que estamos viendo",
-                [client_strengths[0], client_gaps[0]],
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
+        if payload.get("completion_text"):
+            cover_cards.append(("Constancia" if is_client else "Adherencia", str(payload["completion_text"]), "#708C9F"))
+        if imtp:
+            cover_cards.append(
+                (
+                    "Fuerza máxima" if is_client else "Fuerza máxima (IMTP)",
+                    f"{float(imtp['value']):.0f} N",
+                    "#134263",
+                )
             )
-        )
+        if cover_cards:
+            for label, value, _ in cover_cards:
+                visible_text.extend([label, value])
+            story.append(_metric_cards_table(cover_cards))
+            story.append(Spacer(1, 4 * mm))
+        focus = str(payload.get("focus") or "").strip()
+        if focus:
+            story.append(_note("Foco del próximo bloque", focus, accent="steel", background="panel"))
+            story.append(Spacer(1, 4 * mm))
 
-        story.append(PageBreak())
-        story.append(_build_pdf_page_title(
-            "Carga y constancia",
-            paragraph_builder=_p,
-            TableClass=Table,
-            TableStyleClass=TableStyle,
-            mm_unit=mm,
-            palette=palette,
-            subtitle="Una lectura simple para ver si la semana viene estable, baja o exigente, y si hay continuidad del plan.",
-            eyebrow="",
-            title_style="ReportSection",
-            subtitle_style="ReportMuted",
-            eyebrow_style="ReportMuted",
-        ))
-        story.append(Spacer(1, 4 * mm))
-        load_chart_payload = client_charts.get("sessions_per_week") or client_charts.get("completion")
-        load_chart = _chart_image(load_chart_payload, height_mm=56) if load_chart_payload else None
-        story.append(
-            _build_note_box(
-                "Qué significa",
-                _client_load_lines()[0],
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
+        # ── Perfil ──────────────────────────────────────────────────────
+        profile = payload.get("profile") or {}
+        profile_lines: list[str] = []
+        if profile.get("label"):
+            profile_lines.append(f"Perfil actual: {profile['label']}.")
+        if profile.get("summary"):
+            profile_lines.append(str(profile["summary"]))
+        if profile.get("strengths") and not is_client:
+            profile_lines.append(f"Lo que más se destaca hoy: {profile['strengths']}.")
+        radar_image = (
+            _chart(chart_payloads.get("radar_perfil"), height_mm=70)
+            if not is_client and payload.get("radar_axes", 0) >= MIN_RADAR_AXES_FOR_ATHLETE
+            else None
         )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_chart_container(
-                load_chart,
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title=load_chart_payload.get("title", "Cómo venís tolerando el entrenamiento") if load_chart_payload else "Cómo venís tolerando el entrenamiento",
-                note=(
-                    "El gráfico acompaña la lectura de continuidad, tolerancia y ritmo reciente del entrenamiento."
-                    if load_chart is not None
-                    else "La lectura resume continuidad, tolerancia y ritmo reciente del entrenamiento con la información disponible."
-                ),
-                empty_text="Todavía no hay información suficiente para mostrar este gráfico de carga reciente.",
-                title_style="BlockTitle",
-                note_style="ReportMuted",
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(_compact_key_value_table(_client_load_rows()))
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Lectura de la semana",
-                _client_load_lines(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué mirar",
-                _client_load_watch_lines(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
+        if profile_lines or radar_image is not None:
+            block: list[object] = [_section_title("Tu perfil"), Spacer(1, 3 * mm)]
+            if profile_lines:
+                block.append(_note("", profile_lines))
+                block.append(Spacer(1, 3 * mm))
+            if radar_image is not None:
+                block.append(radar_image)
+            story.append(KeepTogether(block))
+            story.append(Spacer(1, 4 * mm))
 
-        story.append(PageBreak())
-        story.append(_build_pdf_page_title(
-            "Bienestar y recuperación",
-            paragraph_builder=_p,
-            TableClass=Table,
-            TableStyleClass=TableStyle,
-            mm_unit=mm,
-            palette=palette,
-            subtitle="Una referencia simple para ver si sueño, estrés y dolor están acompañando el trabajo.",
-            eyebrow="",
-            title_style="ReportSection",
-            subtitle_style="ReportMuted",
-            eyebrow_style="ReportMuted",
-        ))
-        story.append(Spacer(1, 4 * mm))
-        wellness_chart_payload = client_charts.get("wellness")
-        wellness_chart = _chart_image(wellness_chart_payload, height_mm=56) if wellness_chart_payload else None
-        story.append(
-            _build_note_box(
-                "Qué significa",
-                _client_wellness_summary_line(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_chart_container(
-                wellness_chart,
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title=wellness_chart_payload.get("title", "Bienestar reciente") if wellness_chart_payload else "Bienestar reciente",
-                note=(
-                    "La idea es entender cómo venís recuperando y si hace falta cuidar algo más de cerca."
-                    if wellness_chart is not None
-                    else "Con más registros esta vista va a ayudar a seguir mejor cómo venís recuperando."
-                ),
-                empty_text="Todavía no hay registros suficientes para mostrar un gráfico de bienestar reciente.",
-                title_style="BlockTitle",
-                note_style="ReportMuted",
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(_compact_key_value_table(_client_wellness_rows()))
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Lectura de recuperación",
-                _client_wellness_lines(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["steel"],
-            )
-        )
-        story.append(Spacer(1, 4 * mm))
-        story.append(
-            _build_note_box(
-                "Qué vamos a cuidar",
-                _client_wellness_watch_lines(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["card"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
-
-        story.append(PageBreak())
-        story.append(_build_pdf_page_title(
-            "Próximos pasos",
-            paragraph_builder=_p,
-            TableClass=Table,
-            TableStyleClass=TableStyle,
-            mm_unit=mm,
-            palette=palette,
-            subtitle="Lo que está funcionando, lo que vamos a cuidar y la prioridad de esta etapa.",
-            eyebrow="",
-            title_style="ReportSection",
-            subtitle_style="ReportMuted",
-            eyebrow_style="ReportMuted",
-        ))
-        story.append(Spacer(1, 4 * mm))
-        next_focus_box = _build_decision_box(
-            "Qué vamos a priorizar",
-            _client_focus_plan_sentence(),
-            paragraph_builder=_p,
-            TableClass=Table,
-            TableStyleClass=TableStyle,
-            mm_unit=mm,
-            palette=palette,
-            title_style="ReportDecisionTitle",
-            body_style="ReportBodyWhite",
-            note_style="ReportMutedWhite",
-            note="La decisión se apoya en la información disponible de esta ventana.",
-        )
-        what_is_working = _box_flow(
-            [_p("Qué está funcionando bien", "BlockTitle"), _p(client_strengths[0], "ReportBody")],
-            padding=8,
-        )
-        what_to_watch = _box_flow(
-            [_p("Qué vamos a cuidar", "BlockTitle"), _p(client_gaps[0], "ReportBody")],
-            padding=8,
-        )
-        next_steps_box = _box_flow(
-            [_p("Próximos pasos", "BlockTitle")] + _build_threshold_bullets(client_next_steps[:3], paragraph_builder=_p, style_name="ReportBody"),
-            padding=8,
-        )
-        story.append(next_focus_box)
-        story.append(Spacer(1, 4 * mm))
-        story.append(what_is_working)
-        story.append(Spacer(1, 4 * mm))
-        story.append(what_to_watch)
-        story.append(Spacer(1, 4 * mm))
-        story.append(next_steps_box)
-        story.append(Spacer(1, 5 * mm))
-        story.append(
-            _build_note_box(
-                "Volver a medir",
-                _client_review_text(),
-                paragraph_builder=_p,
-                TableClass=Table,
-                TableStyleClass=TableStyle,
-                mm_unit=mm,
-                palette=palette,
-                title_style="BlockTitle",
-                body_style="ReportBody",
-                background=palette["panel"],
-                border_color=palette["line_dark"],
-                accent_color=palette["navy"],
-            )
-        )
+        # ── Fuerza ──────────────────────────────────────────────────────
+        strength_figure = None
         try:
-            doc.build(story, onFirstPage=_client_chrome, onLaterPages=_client_chrome)
+            strength_figure = chart_estimated_strength(
+                payload.get("strength_df"), theme=_build_report_chart_theme(), mode="print"
+            )
         except Exception:
-            logger.exception("Fallo al construir el PDF de cliente de %s", effective_athlete)
+            logger.exception("No se pudo armar el grafico de fuerza estimada")
+        strength_image = _chart({"figure": strength_figure, "print": True}) if strength_figure is not None else None
+        if imtp or strength_image is not None:
+            block = [_section_title("Tu fuerza"), Spacer(1, 3 * mm)]
+            if imtp:
+                imtp_label = "Fuerza máxima" if is_client else "Fuerza máxima en el IMTP"
+                block.append(
+                    _note(
+                        "",
+                        f"{imtp_label}: {float(imtp['value']):.0f} N ({pd.Timestamp(imtp['date']):%d/%m/%Y}).",
+                    )
+                )
+                block.append(Spacer(1, 3 * mm))
+            if strength_image is not None:
+                block.append(strength_image)
+                block.append(_tp(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.", "ReportMuted"))
+            story.append(KeepTogether(block))
+            story.append(Spacer(1, 4 * mm))
+
+        # ── Carga ───────────────────────────────────────────────────────
+        if load:
+            block = [_section_title("Carga reciente"), Spacer(1, 3 * mm)]
+            if load.get("sentences"):
+                block.append(_note("", list(load["sentences"])))
+                block.append(Spacer(1, 3 * mm))
+            load_image = _chart(
+                chart_payloads.get("sessions_per_week" if is_client else "load"),
+                height_mm=56,
+            )
+            if load_image is not None:
+                block.append(load_image)
+                block.append(Spacer(1, 3 * mm))
+            if load.get("rows"):
+                block.append(_rows_table(list(load["rows"])))
+            story.append(KeepTogether(block))
+            story.append(Spacer(1, 4 * mm))
+
+        # ── Bienestar ───────────────────────────────────────────────────
+        if wellness:
+            block = [_section_title("Bienestar"), Spacer(1, 3 * mm), _note("", wellness["sentence"]), Spacer(1, 3 * mm)]
+            wellness_image = _chart(chart_payloads.get("wellness"), height_mm=52)
+            if wellness_image is not None:
+                block.append(wellness_image)
+                block.append(Spacer(1, 3 * mm))
+            block.append(_rows_table(list(wellness["rows"])))
+            story.append(KeepTogether(block))
+            story.append(Spacer(1, 4 * mm))
+
+        # ── Proximos pasos ──────────────────────────────────────────────
+        closing_lines = [f"• {line}" for line in payload.get("next_steps", [])]
+        if payload.get("next_evaluation"):
+            closing_lines.append(str(payload["next_evaluation"]))
+        # Proximos pasos + diccionario + nota van juntos: el diccionario nunca
+        # queda solo en una pagina.
+        closing: list[object] = []
+        if closing_lines:
+            closing.extend([_section_title("Próximos pasos"), Spacer(1, 3 * mm), _note("", closing_lines), Spacer(1, 3 * mm)])
+        dictionary = dictionary_lines(" ".join(visible_text + closing_lines))
+        if dictionary:
+            closing.append(_note("Diccionario", dictionary, accent="steel", background="panel"))
+            closing.append(Spacer(1, 3 * mm))
+        closing.append(
+            _tp(
+                "Este informe no promete rendimiento ni reemplaza el criterio del entrenador: muestra qué lograste "
+                "y qué sigue con la información disponible.",
+                "ReportMuted",
+            )
+        )
+        story.append(KeepTogether(closing))
+        try:
+            doc.build(story, onFirstPage=_individual_chrome, onLaterPages=_individual_chrome)
+        except Exception:
+            logger.exception("Fallo al construir el PDF %s de %s", audience, effective_athlete)
             return None
         return buffer.getvalue()
 
