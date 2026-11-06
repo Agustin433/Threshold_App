@@ -320,9 +320,10 @@ class StrengthChartAndLayoutTests(unittest.TestCase):
             pdf = rg.generate_visual_report_pdf(_giffon_state(), "Agustin Giffon", "atleta")
         pages = [page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages]
         joined = " ".join(pages)
-        # Las mismas secciones que el PDF real: fuerza, carga, bienestar y cierre.
+        # Las mismas secciones que el PDF real: fuerza, carga y bienestar
+        # (PR G: juntas en "Como venis aguantando") y cierre.
         self.assertIn("Tu fuerza", joined)
-        self.assertIn("Carga reciente", joined)
+        self.assertIn("Cómo venís aguantando", joined)
         self.assertIn("Bienestar", joined)
         self.assertIn("Diccionario", joined)
         self.assertGreaterEqual(len(pages), 1)

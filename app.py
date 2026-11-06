@@ -29,6 +29,7 @@ import warnings
 from charts.athlete_charts import (
     chart_athlete_evolution as shared_chart_athlete_evolution,
     chart_group_position as shared_chart_group_position,
+    chart_tolerance as shared_chart_tolerance,
 )
 from charts.dashboard_charts import (
     build_quadrant_exclusions,
@@ -247,6 +248,8 @@ from modules.persistence_guard import (
 )
 from modules.report_generator import (
     EVOLUTION_BAND_CAPTION,
+    TOLERANCE_BAND_CAPTION,
+    TOLERANCE_FEW_RECORDS_CAPTION,
     build_individual_report_payload,
     REPORT_AUDIENCE_OPTIONS,
     REPORT_SHEET_ORDER,
@@ -2813,6 +2816,7 @@ chart_completion = _bind_chart(shared_chart_completion)
 chart_estimated_strength = _bind_chart(shared_chart_estimated_strength)
 chart_athlete_evolution = _bind_chart(shared_chart_athlete_evolution)
 chart_group_position = _bind_chart(shared_chart_group_position)
+chart_tolerance = _bind_chart(shared_chart_tolerance)
 chart_cmj_trend = _bind_chart(shared_chart_cmj_trend)
 chart_jump_metric_trend = _bind_chart(shared_chart_jump_metric_trend)
 make_force_time_points_chart = _bind_chart(shared_make_force_time_points_chart)
@@ -3000,7 +3004,7 @@ def _format_debug_seconds(value: object) -> str:
 
 
 def _render_athlete_visual_blocks(payload: dict[str, object]) -> None:
-    """Evolucion, numeros de hoy y posicion en el grupo: mismas funciones que el PDF."""
+    """Evolucion, numeros de hoy, como venis aguantando y posicion: mismas funciones que el PDF."""
     evolution_figure = chart_athlete_evolution(payload.get("evolution"))
     if evolution_figure is not None:
         st.markdown("#### 📈 Tu evolución")
@@ -3012,6 +3016,14 @@ def _render_athlete_visual_blocks(payload: dict[str, object]) -> None:
         for column, tile in zip(st.columns(len(tiles)), tiles):
             column.metric(str(tile["label"]), str(tile["value"]), help=str(tile["note"]))
             column.caption(str(tile["note"]))
+    tolerance = payload.get("tolerance")
+    tolerance_figure = chart_tolerance(tolerance)
+    if tolerance_figure is not None:
+        st.markdown("#### 🔋 Cómo venís aguantando")
+        for sentence in tolerance.get("sentences", []):
+            st.markdown(sentence)
+        st.plotly_chart(tolerance_figure, use_container_width=True)
+        st.caption(TOLERANCE_FEW_RECORDS_CAPTION if tolerance.get("few_records") else TOLERANCE_BAND_CAPTION)
     position = payload.get("position")
     position_figure = chart_group_position(position)
     if position_figure is not None:

@@ -141,3 +141,86 @@ def chart_group_position(
         fig.update_yaxes(automargin=True)
         return fig
     return apply_chart_mode(fig, "screen", theme=theme, title=POSITION_TITLE, screen_height=110 + 55 * len(bars))
+
+
+TOLERANCE_TITLE = "Cómo venís aguantando"
+TOLERANCE_SCORE_LABEL = "Bienestar"
+TOLERANCE_BAND_LABEL = "Rango habitual (±1 DE, 28 d)"
+TOLERANCE_LOAD_LABEL = "Carga semanal (UA)"
+FEW_RECORDS_LEGEND = "pocos registros"
+
+
+def chart_tolerance(
+    reading: dict[str, object] | None,
+    *,
+    theme: dict,
+    mode: ChartMode = "screen",
+    print_height_mm: float = 60.0,
+) -> go.Figure | None:
+    """Bienestar diario (6 semanas) con banda personal y, si hay sRPE, carga semanal en barras.
+
+    Mismo eje temporal; la carga va en el eje derecho. Sin sRPE no hay barras
+    (ni eje). Con 3-5 registros: puntos sin banda y la leyenda "pocos
+    registros". None sin lectura (< 3 registros).
+    """
+    if not reading:
+        return None
+    colors = theme["colors"]
+    points = reading.get("points")
+    if points is None or len(points) == 0:
+        return None
+    weekly = reading.get("weekly_load")
+    has_load = weekly is not None and len(weekly) > 0
+    fig = make_subplots(specs=[[{"secondary_y": has_load}]])
+    if has_load:
+        fig.add_trace(
+            go.Bar(
+                x=[pd.Timestamp(week) + pd.Timedelta(days=3) for week in weekly["week_start"]],
+                y=[float(value) for value in weekly["load"]],
+                width=[6 * 24 * 3600 * 1000] * len(weekly),
+                marker=dict(color="rgba(112,140,159,0.28)"),
+                name=TOLERANCE_LOAD_LABEL,
+                hovertemplate="Semana del %{x|%d/%m}: %{y:.0f} UA<extra></extra>",
+            ),
+            secondary_y=True,
+        )
+    full = reading.get("mode") == "completo"
+    if full and points["band_mean"].notna().any():
+        fig.add_trace(
+            go.Scatter(x=points["Date"], y=points["band_high"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"),
+            secondary_y=False,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=points["Date"], y=points["band_low"], mode="lines", line=dict(width=0), fill="tonexty",
+                fillcolor="rgba(47,107,82,0.15)", name=TOLERANCE_BAND_LABEL, hoverinfo="skip",
+            ),
+            secondary_y=False,
+        )
+    fig.add_trace(
+        go.Scatter(
+            x=points["Date"],
+            y=points["score"],
+            mode="lines+markers" if full else "markers",
+            line=dict(color=colors.get("green", "#2F6B52"), width=2.5),
+            marker=dict(size=9, color=colors.get("green", "#2F6B52")),
+            name=TOLERANCE_SCORE_LABEL + ("" if full else f" — {FEW_RECORDS_LEGEND}"),
+            hovertemplate="%{x|%d/%m}: %{y:.0f}/30<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+    start = pd.Timestamp(reading["window_start"])
+    end = pd.Timestamp(reading["window_end"])
+    first_monday = start + pd.Timedelta(days=(7 - start.dayofweek) % 7)
+    fig.update_xaxes(
+        range=[start, end + pd.Timedelta(days=1)], tickformat="%d/%m", tick0=first_monday,
+        dtick=7 * 24 * 3600 * 1000, showgrid=False,
+    )
+    fig.update_yaxes(range=[0, 30], title_text="bienestar /30", secondary_y=False, zeroline=False)
+    if has_load:
+        # Las barras ocupan la mitad de abajo: la linea de bienestar es lo principal.
+        top = float(max(weekly["load"])) * 2.1
+        fig.update_yaxes(range=[0, top], title_text="UA", secondary_y=True, showgrid=False, zeroline=False)
+    if mode == "print":
+        return apply_chart_mode(fig, "print", theme=theme, title=None, print_height_mm=print_height_mm)
+    return apply_chart_mode(fig, "screen", theme=theme, title=TOLERANCE_TITLE, screen_height=360)

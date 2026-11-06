@@ -2,6 +2,33 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-06 - PR G: "Como venis aguantando" (bienestar y carga en atleta/cliente)
+
+Problema real: Ignacio De La Vega tiene 42 registros de bienestar y su PDF no
+mostraba nada, porque la regla exigia 3 dias en la ULTIMA semana completa.
+
+1. Seccion "Como venis aguantando" en el PDF atleta/cliente y en el dashboard
+   del atleta, con la ventana del reporte (6 semanas). Reemplaza las
+   secciones "Carga reciente" y "Bienestar": sus frases y su tabla de la
+   ultima semana quedan adentro (Giffon conserva lo que tenia).
+2. Grafico: bienestar diario con banda personal (media +/- 1 DE de los 28
+   dias previos a cada registro, con >= 5 registros previos; se calcula con
+   el historial completo) y, si hay sRPE, carga semanal en barras en el eje
+   derecho (solo semanas completas dentro de la ventana). Sin sRPE no hay
+   barras ni eje.
+3. Regla: >= 6 registros en 6 semanas -> grafico completo; 3-5 -> puntos sin
+   banda, "pocos registros"; < 3 -> solo el item de Proximos pasos (que
+   tambien sigue con 3-5).
+4. Frase segun el desvio medio respecto de la banda (+/- 0.5 DE): "Venis
+   dentro de tu rango habitual" / "Las ultimas semanas venis por debajo de
+   tu rango: cuidemos sueno y recuperacion" / "Venis mejor que tu promedio".
+   Si el rango habitual cae en Atencion/Critico se dice. De sueno, estres y
+   dolor se destaca solo el que mas se movio (>= 0.5 DE vs su historia).
+5. Historial completo de bienestar y sRPE en el estado del reporte
+   (`wellness_history_df`, `rpe_history_df`).
+
+Tests: `tests/test_tolerance_report.py`.
+
 ## 2026-11-06 - PR E: reporte de atleta con contenido visual
 
 Diagnostico (PDFs reales post #36): Tomas no tenia ningun grafico y su pagina
