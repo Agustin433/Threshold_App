@@ -2,6 +2,41 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-06 - PR E: reporte de atleta con contenido visual
+
+Diagnostico (PDFs reales post #36): Tomas no tenia ningun grafico y su pagina
+2 estaba casi vacia; Ignacio solo tenia fuerza estimada.
+
+1. "Tu evolucion" (despues de "Lo que lograste"): una linea por prueba con
+   todas las evaluaciones, solo metricas comparables entre eras (CMJ por
+   tiempo de vuelo, DJ RSI); IMTP relativa solo con 2+ tomas en la misma
+   era. Punto con fecha y valor; banda = primera toma +/- max(TE, SWC). Un
+   lugar por evaluacion en el eje X (las tomas cercanas no se pisan). Un
+   salto inusual (> +20% / IMTP > +25%) no se grafica. Con 1 evaluacion no
+   hay grafico.
+2. "Tu posicion en el grupo" reemplaza "Lo que mas se destaca": barras 0-100
+   por prueba con referencia (CMJ vuelo, SJ, DJ RSI, IMTP relativo); punto =
+   percentil (Phi(z), o posicion entre pares con cohorte de 5-7); banda = el
+   intervalo del PDF profe (incertidumbre del SD) pasado a percentil.
+   "Comparado con N atletas de Threshold (<escalon>). No es una norma de
+   rendimiento." Sin z en el PDF atleta.
+3. "Tus numeros hoy": CMJ por vuelo, DJ RSI e IMTP relativa (N/kg) con su
+   era ("protocolo anterior" si no es la vigente) y adherencia. Sale el tile
+   de IMTP en N y las tarjetas de carga y bienestar de la portada (repetian
+   el dato de sus secciones).
+4. Compaginacion: el PDF se arma midiendo el llenado de cada pagina; si una
+   pagina intermedia queda por debajo del 40%, o la ultima se puede
+   absorber, se prueban graficos al 90% y 80% (piso: ~9 pt de fuente) y se
+   elige la variante con menos paginas que cumple la regla. Si todo entra
+   en una pagina, el PDF tiene una pagina. Bloques chicos (evolucion,
+   posicion, fuerza) nunca se separan de su titulo ni de su leyenda.
+5. Dashboard del atleta: los mismos tres bloques con las mismas funciones
+   (`modules.athlete_report`, `charts.athlete_charts`).
+6. Test de paginas de Giffon: rango (1-3) + regla de llenado medida en la
+   misma compaginacion, sin depender de las fuentes del entorno.
+
+Tests: `tests/test_athlete_visual_report.py`.
+
 ## 2026-11-06 - PR D: ajustes post PR C (radar y textos)
 
 1. Radar: eje "CMJ (vuelo)" (CMJ_ft_cm -> CMJ_ft_Z), misma escalera de

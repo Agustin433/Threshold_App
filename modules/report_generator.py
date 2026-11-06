@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import copy
 from io import BytesIO
 from pathlib import Path
 import logging
@@ -12714,6 +12715,10 @@ def build_individual_report_payload(
         "profile": ar.profile_reading(profile, composite, audience) if has_evaluation else {"label": None, "summary": None, "strengths": None},
         "focus": ar.focus_text(profile, history, audience) if has_evaluation else "",
         "imtp": {"value": imtp_value, "date": imtp_date} if imtp_value is not None else None,
+        # PR E: contenido visual (mismas funciones para PDF y dashboard).
+        "evolution": ar.evolution_series(history, audience) if has_evaluation else [],
+        "position": ar.group_position(composite.get("profile_row"), audience) if has_evaluation else None,
+        "tiles": ar.today_tiles(history, audience) if has_evaluation else [],
         "strength_df": strength_df,
         "load": load,
         "wellness": wellness,
@@ -13058,7 +13063,9 @@ def _generate_visual_report_pdf_reportlab(
         # payload que usa el dashboard.
         from reportlab.platypus import KeepTogether
 
+        from charts.athlete_charts import chart_athlete_evolution, chart_group_position
         from charts.load_charts import chart_estimated_strength
+        from charts.report_charts import PRINT_CANVAS_WIDTH_PX, PRINT_WIDTH_MM
         from modules.athlete_report import dictionary_lines
         from modules.strength_estimates import ESTIMATED_STRENGTH_LABEL
 
@@ -13112,6 +13119,8 @@ def _generate_visual_report_pdf_reportlab(
             table = _paired_key_value_table(rows) if paired else _compact_key_value_table(rows)
             return KeepTogether([table])
 
+        scalable_images: list[tuple[object, float, float]] = []
+
         def _chart(payload_item: dict[str, object] | None, *, height_mm: float = 60) -> Image | None:
             try:
                 if payload_item and payload_item.get("print") and payload_item.get("figure") is not None:
@@ -13125,7 +13134,10 @@ def _generate_visual_report_pdf_reportlab(
                     figure.update_layout(height=print_height_px(height_mm))
                     _single_row_legend(figure)
                     payload_item = {**payload_item, "figure": figure}
-                return _chart_image(payload_item, height_mm=height_mm)
+                image = _chart_image(payload_item, height_mm=height_mm)
+                if image is not None:
+                    scalable_images.append((image, float(image.drawWidth), float(image.drawHeight)))
+                return image
             except Exception:
                 logger.exception("No se pudo renderizar un grafico del reporte individual")
                 return None
@@ -13186,31 +13198,70 @@ def _generate_visual_report_pdf_reportlab(
             )
             story.append(Spacer(1, 4 * mm))
 
-        cover_cards: list[tuple[str, str, str]] = []
-        load = payload.get("load")
-        wellness = payload.get("wellness")
-        imtp = payload.get("imtp")
-        if load and load.get("headline"):
-            cover_cards.append(("Carga de la última semana", str(load["headline"]), "#708C9F"))
-        if wellness:
-            cover_cards.append(
-                (f"Bienestar ({wellness['range']})", f"{wellness['score']:.1f} /30 ({wellness['label']})", "#2F6B52")
+        theme = _build_report_chart_theme()
+
+        # ── Tu evolucion ────────────────────────────────────────────────
+        evolution_figure = None
+        try:
+            evolution_figure = chart_athlete_evolution(
+                payload.get("evolution"), theme=theme, mode="print", print_height_mm=INDIVIDUAL_EVOLUTION_CHART_MM
             )
-        if payload.get("completion_text"):
-            cover_cards.append(("Constancia" if is_client else "Adherencia", str(payload["completion_text"]), "#708C9F"))
-        if imtp:
-            cover_cards.append(
-                (
-                    "Fuerza máxima" if is_client else "Fuerza máxima (IMTP)",
-                    f"{float(imtp['value']):.0f} N",
-                    "#134263",
+        except Exception:
+            logger.exception("No se pudo armar el grafico de evolucion")
+        evolution_image = (
+            _chart({"figure": evolution_figure, "print": True}, height_mm=INDIVIDUAL_EVOLUTION_CHART_MM)
+            if evolution_figure is not None
+            else None
+        )
+        if evolution_image is not None:
+            # Bloque chico: titulo, grafico y leyenda de la banda siempre juntos.
+            story.append(
+                KeepTogether(
+                    [
+                        _section_title("Tu evolución"),
+                        Spacer(1, 2 * mm),
+                        evolution_image,
+                        _tp(EVOLUTION_BAND_CAPTION, "ReportMuted"),
+                    ]
                 )
             )
-        if cover_cards:
-            for label, value, _ in cover_cards:
-                visible_text.extend([label, value])
-            story.append(_metric_cards_table(cover_cards))
             story.append(Spacer(1, 4 * mm))
+
+        # ── Tus numeros hoy ─────────────────────────────────────────────
+        # Tiles de evaluacion (CMJ vuelo, DJ RSI, IMTP relativa con su era) y
+        # adherencia. La IMTP en N ya no va como tile. Carga y bienestar no se
+        # repiten aca: tienen su seccion con el mismo dato.
+        load = payload.get("load")
+        wellness = payload.get("wellness")
+        tile_cards = [(f"{tile['label']}\n{tile['note']}", tile["value"], "#134263") for tile in payload.get("tiles") or []]
+        if payload.get("completion_text"):
+            tile_cards.append(("Constancia" if is_client else "Adherencia", str(payload["completion_text"]), "#708C9F"))
+        if tile_cards:
+            for label, value, _ in tile_cards:
+                visible_text.extend([label, value])
+            story.append(KeepTogether([_section_title("Tus números hoy"), Spacer(1, 2 * mm), _metric_cards_table(tile_cards)]))
+            story.append(Spacer(1, 4 * mm))
+        # ── Tu posicion en el grupo ─────────────────────────────────────
+        position = payload.get("position")
+        position_figure = None
+        try:
+            position_figure = chart_group_position(position, theme=theme, mode="print")
+        except Exception:
+            logger.exception("No se pudo armar el grafico de posicion en el grupo")
+        position_image = _chart({"figure": position_figure, "print": True}, height_mm=float(position_figure.layout.height or 0) * PRINT_WIDTH_MM / PRINT_CANVAS_WIDTH_PX) if position_figure is not None else None
+        if position_image is not None:
+            story.append(
+                KeepTogether(
+                    [
+                        _section_title("Tu posición en el grupo"),
+                        Spacer(1, 2 * mm),
+                        _tp(str(position.get("subtitle") or ""), "ReportMuted"),
+                        position_image,
+                    ]
+                )
+            )
+            story.append(Spacer(1, 4 * mm))
+
         focus = str(payload.get("focus") or "").strip()
         if focus:
             story.append(_note("Foco del próximo bloque", focus, accent="steel", background="panel"))
@@ -13223,8 +13274,7 @@ def _generate_visual_report_pdf_reportlab(
             profile_lines.append(f"Perfil actual: {profile['label']}.")
         if profile.get("summary"):
             profile_lines.append(str(profile["summary"]))
-        if profile.get("strengths") and not is_client:
-            profile_lines.append(f"Lo que más se destaca hoy: {profile['strengths']}.")
+        # "Lo que mas se destaca" pasa a "Tu posicion en el grupo" (grafico).
         # El radar no va en el PDF de atleta/cliente: a ancho de pagina sus
         # rotulos no son legibles al imprimir. Queda en el PDF profe y en el
         # dashboard.
@@ -13258,9 +13308,16 @@ def _generate_visual_report_pdf_reportlab(
         # Sin grafico de fuerza estimada la seccion no aparece: el IMTP ya esta
         # en la portada y repetirlo no agrega nada.
         if strength_image is not None:
-            block = [_section_title("Tu fuerza"), Spacer(1, 3 * mm), strength_image]
-            block.append(_tp(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.", "ReportMuted"))
-            _append_section(block)
+            story.append(
+                KeepTogether(
+                    [
+                        _section_title("Tu fuerza"),
+                        Spacer(1, 3 * mm),
+                        strength_image,
+                        _tp(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.", "ReportMuted"),
+                    ]
+                )
+            )
             story.append(Spacer(1, 4 * mm))
 
         # ── Carga ───────────────────────────────────────────────────────
@@ -13327,11 +13384,16 @@ def _generate_visual_report_pdf_reportlab(
         )
         story.append(KeepTogether(closing))
         try:
-            doc.build(story, onFirstPage=_individual_chrome, onLaterPages=_individual_chrome)
+            return _build_individual_pdf_with_layout(
+                story,
+                scalable_images,
+                on_page=_individual_chrome,
+                doc_class=SimpleDocTemplate,
+                mm_unit=mm,
+            )
         except Exception:
             logger.exception("Fallo al construir el PDF %s de %s", audience, effective_athlete)
             return None
-        return buffer.getvalue()
 
     subtitle = {
         "atleta": "Reporte individual para atleta",
@@ -13491,9 +13553,90 @@ def _build_pdf_document(page_contents: list[str]) -> bytes:
     return bytes(output)
 
 
+# ── Compaginacion del PDF atleta/cliente (PR E) ─────────────────────────────
+# Ninguna pagina (salvo la ultima) con menos de este llenado; si el contenido
+# entra en una pagina, el PDF tiene una pagina.
+INDIVIDUAL_MIN_PAGE_FILL = 0.40
+# Escalas de los graficos que se prueban, en orden, hasta cumplir la regla.
+# Piso 0.8: la fuente de impresion (11 pt) no baja de ~9 pt.
+INDIVIDUAL_CHART_SCALES = (1.0, 0.9, 0.8)
+# Ultima compaginacion armada (llenado por pagina, escala): la leen los tests
+# para verificar la regla sin depender de fuentes ni del entorno.
+LAST_INDIVIDUAL_LAYOUT: dict[str, object] = {}
+
+
+def _layout_is_acceptable(page_fill: list[float]) -> bool:
+    return all(fill >= INDIVIDUAL_MIN_PAGE_FILL for fill in page_fill[:-1])
+
+
+def _build_individual_pdf_with_layout(story, scalable_images, *, on_page, doc_class, mm_unit) -> bytes:
+    """Arma el PDF midiendo el llenado de cada pagina.
+
+    Con escala 1 si no queda ninguna pagina intermedia por debajo del 40% y
+    la ultima no se podria absorber; si no, prueba graficos mas chicos (sin
+    re-renderizar: misma imagen a menor tamano) y se queda con la variante de
+    menos paginas que cumple la regla.
+    """
+    from reportlab.lib.pagesizes import A4
+
+    class _FillTrackingDoc(doc_class):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.page_fill: list[float] = []
+
+        def afterPage(self):  # noqa: N802 (API de reportlab)
+            frame = self.frame
+            top = frame._y1 + frame._height
+            self.page_fill.append(max(0.0, min(1.0, (top - frame._y) / frame._height)))
+
+    def _build(scale: float) -> tuple[bytes, list[float]]:
+        # reportlab consume y parte los flowables al armar: cada intento usa
+        # una copia fresca, con los graficos escalados en la copia.
+        memo: dict[int, object] = {}
+        fresh_story = copy.deepcopy(list(story), memo)
+        for image, width, height in scalable_images:
+            target = memo.get(id(image))
+            if target is None:
+                continue
+            target.drawWidth = width * scale
+            target.drawHeight = height * scale
+            target.hAlign = "CENTER" if scale < 1.0 else "LEFT"
+        buffer = BytesIO()
+        doc = _FillTrackingDoc(
+            buffer,
+            pagesize=A4,
+            leftMargin=18 * mm_unit,
+            rightMargin=18 * mm_unit,
+            topMargin=18 * mm_unit,
+            bottomMargin=14 * mm_unit,
+        )
+        doc.build(fresh_story, onFirstPage=on_page, onLaterPages=on_page)
+        return buffer.getvalue(), list(doc.page_fill)
+
+    best: tuple[int, int, int, bytes, list[float], float] | None = None
+    for order, scale in enumerate(INDIVIDUAL_CHART_SCALES if scalable_images else (1.0,)):
+        pdf, page_fill = _build(scale)
+        acceptable = _layout_is_acceptable(page_fill)
+        key = (len(page_fill), 0 if acceptable else 1, order)
+        if best is None or key < best[:3]:
+            best = (*key, pdf, page_fill, scale)
+        # Una pagina, o regla cumplida sin una ultima pagina que se pueda
+        # absorber achicando: no hace falta probar mas.
+        if len(page_fill) == 1 or (acceptable and page_fill[-1] > 1.0 - INDIVIDUAL_MIN_PAGE_FILL):
+            break
+    LAST_INDIVIDUAL_LAYOUT.clear()
+    LAST_INDIVIDUAL_LAYOUT.update({"page_fill": best[4], "scale": best[5]})
+    return best[3]
+
+
 # Altos (mm) de los graficos del PDF atleta/cliente: con estos el reporte
 # tipico (fuerza + carga + bienestar) entra en 2 paginas.
 INDIVIDUAL_STRENGTH_CHART_MM = 54.0
+INDIVIDUAL_EVOLUTION_CHART_MM = 58.0
+EVOLUTION_BAND_CAPTION = (
+    "Banda gris: cambio menor al error de medición (max(TE, SWC)) desde tu primera toma. "
+    "Un punto por evaluación."
+)
 INDIVIDUAL_LOAD_CHART_MM = 42.0
 INDIVIDUAL_WELLNESS_CHART_MM = 40.0
 

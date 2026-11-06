@@ -26,6 +26,10 @@ import re
 from io import BytesIO
 from pathlib import Path
 import warnings
+from charts.athlete_charts import (
+    chart_athlete_evolution as shared_chart_athlete_evolution,
+    chart_group_position as shared_chart_group_position,
+)
 from charts.dashboard_charts import (
     build_quadrant_exclusions,
     quadrant_exclusion_summary,
@@ -242,6 +246,7 @@ from modules.persistence_guard import (
     render_persistence_banners,
 )
 from modules.report_generator import (
+    EVOLUTION_BAND_CAPTION,
     build_individual_report_payload,
     REPORT_AUDIENCE_OPTIONS,
     REPORT_SHEET_ORDER,
@@ -2806,6 +2811,8 @@ chart_quadrant_dri_sj = _bind_chart(shared_chart_quadrant_dri_sj)
 chart_quadrant_rsi_sj = _bind_chart(shared_chart_quadrant_rsi_sj)
 chart_completion = _bind_chart(shared_chart_completion)
 chart_estimated_strength = _bind_chart(shared_chart_estimated_strength)
+chart_athlete_evolution = _bind_chart(shared_chart_athlete_evolution)
+chart_group_position = _bind_chart(shared_chart_group_position)
 chart_cmj_trend = _bind_chart(shared_chart_cmj_trend)
 chart_jump_metric_trend = _bind_chart(shared_chart_jump_metric_trend)
 make_force_time_points_chart = _bind_chart(shared_make_force_time_points_chart)
@@ -2992,6 +2999,27 @@ def _format_debug_seconds(value: object) -> str:
         return str(value)
 
 
+def _render_athlete_visual_blocks(payload: dict[str, object]) -> None:
+    """Evolucion, numeros de hoy y posicion en el grupo: mismas funciones que el PDF."""
+    evolution_figure = chart_athlete_evolution(payload.get("evolution"))
+    if evolution_figure is not None:
+        st.markdown("#### 📈 Tu evolución")
+        st.plotly_chart(evolution_figure, use_container_width=True)
+        st.caption(EVOLUTION_BAND_CAPTION)
+    tiles = list(payload.get("tiles") or [])
+    if tiles:
+        st.markdown("#### 🔢 Tus números hoy")
+        for column, tile in zip(st.columns(len(tiles)), tiles):
+            column.metric(str(tile["label"]), str(tile["value"]), help=str(tile["note"]))
+            column.caption(str(tile["note"]))
+    position = payload.get("position")
+    position_figure = chart_group_position(position)
+    if position_figure is not None:
+        st.markdown("#### 📊 Tu posición en el grupo")
+        st.caption(str(position.get("subtitle") or ""))
+        st.plotly_chart(position_figure, use_container_width=True)
+
+
 def _render_athlete_achievements(athlete: str, jump_df: pd.DataFrame | None) -> None:
     """"Lo que lograste": mismo payload que el PDF de atleta (una sola fuente)."""
     if not athlete or athlete == "Sin atleta":
@@ -3013,6 +3041,7 @@ def _render_athlete_achievements(athlete: str, jump_df: pd.DataFrame | None) -> 
         lines.append("Tu referencia actual: " + " · ".join(payload["references"]) + ".")
     for line in lines:
         st.markdown(f"- {line}")
+    _render_athlete_visual_blocks(payload)
     if payload.get("unusual_changes"):
         st.caption(
             "Solo profe — " + UNUSUAL_CHANGE_NOTE + ": " + "; ".join(payload["unusual_changes"])
