@@ -635,3 +635,210 @@ def dictionary_lines(text: str) -> list[str]:
 def finite(value: object) -> bool:
     number = _number(value)
     return number is not None and math.isfinite(number)
+
+
+# ── Contenido visual (PR E): evolucion, posicion en el grupo, numeros de hoy ──
+# Solo metricas comparables entre eras (misma plataforma): CMJ por tiempo de
+# vuelo y DJ RSI. La IMTP cambia de valor con el protocolo (straps, deteccion
+# del pico), asi que solo se grafica dentro de una misma era.
+EVOLUTION_METRICS: tuple[tuple[str, str, str, str, int, bool], ...] = (
+    # (columna, rotulo atleta, rotulo cliente, unidad, decimales, solo_misma_era)
+    ("CMJ_ft_cm", "Salto CMJ (vuelo)", "Salto vertical", "cm", 1, False),
+    ("DJ_RSI", "Reactividad (DJ RSI)", "Reactividad", "", 2, False),
+    ("IMTP_relPF", "Fuerza máxima por kg (IMTP)", "Fuerza en relación a tu peso", "N/kg", 1, True),
+)
+
+# (columna z, columna valor, rotulo atleta, rotulo cliente)
+POSITION_TESTS: tuple[tuple[str, str, str, str], ...] = (
+    ("CMJ_ft_Z", "CMJ_ft_cm", "CMJ (vuelo)", "Salto vertical"),
+    ("SJ_Z", "SJ_cm", "SJ", "Salto sin impulso previo"),
+    ("DJ_RSI_Z", "DJ_RSI", "DJ RSI", "Reactividad"),
+    ("IMTP_relPF_Z", "IMTP_relPF", "IMTP relativo", "Fuerza en relación a tu peso"),
+)
+
+POSITION_LEVEL_TEXT = {
+    "literatura": "referencia publicada",
+    "deporte_nivel_sexo": "mismo deporte, nivel y sexo",
+    "grupo_sexo": "deportes de demanda similar, mismo sexo",
+    "sexo": "mismo sexo",
+}
+POSITION_DISCLAIMER = "No es una norma de rendimiento."
+PREVIOUS_PROTOCOL_LABEL = "protocolo anterior"
+
+
+def _plausibility_limit_pct(column: str) -> float | None:
+    from modules.jump_analysis import (
+        IMTP_PLAUSIBILITY_PCT,
+        IMTP_PLAUSIBILITY_VARIABLES,
+        JUMP_HEIGHT_PLAUSIBILITY_PCT,
+    )
+
+    if column in IMTP_PLAUSIBILITY_VARIABLES:
+        return IMTP_PLAUSIBILITY_PCT
+    if column.endswith("_cm"):
+        return JUMP_HEIGHT_PLAUSIBILITY_PCT
+    return None
+
+
+def _dated_values(history: pd.DataFrame, column: str) -> pd.DataFrame:
+    """Una toma por fecha (la ultima del dia) con valor valido."""
+    if history is None or history.empty or column not in history.columns or "Date" not in history.columns:
+        return pd.DataFrame(columns=["Date", "value", "era"])
+    from modules.measurement_eras import era_series
+
+    frame = history.copy()
+    frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce").dt.normalize()
+    frame["value"] = pd.to_numeric(frame[column], errors="coerce")
+    frame["era"] = era_series(frame)
+    frame = frame.dropna(subset=["Date", "value"]).sort_values("Date")
+    return frame.groupby("Date", as_index=False).last()[["Date", "value", "era"]]
+
+
+def evolution_series(history: pd.DataFrame | None, audience: str = ATHLETE) -> list[dict[str, object]]:
+    """Series de "Tu evolucion": una por prueba con 2+ tomas comparables.
+
+    Cada serie trae los puntos (fecha, valor) y la banda = primera toma
+    comparable +/- max(TE, SWC) (mismo umbral que "Lo que lograste"). Un salto
+    inusual (> +20% salto, > +25% IMTP) no se grafica: tampoco se celebra.
+    """
+    from modules.evaluation_rules import resolve_change_threshold
+    from modules.jump_analysis import FLIGHT_TIME_VARIABLE_META, VARIABLE_META
+
+    if history is None or history.empty:
+        return []
+    client = _audience_key(audience) == CLIENT
+    series: list[dict[str, object]] = []
+    for column, label, client_label, unit, digits, same_era in EVOLUTION_METRICS:
+        points = _dated_values(history, column)
+        if points.empty:
+            continue
+        if same_era:
+            points = points[points["era"] == points["era"].iloc[-1]]
+        limit = _plausibility_limit_pct(column)
+        kept: list[tuple[pd.Timestamp, float]] = []
+        for date, value in zip(points["Date"], points["value"]):
+            if limit is not None and kept and kept[-1][1] > 0 and (value - kept[-1][1]) / kept[-1][1] * 100 > limit:
+                continue
+            kept.append((pd.Timestamp(date), float(value)))
+        if len(kept) < 2:
+            continue
+        meta = FLIGHT_TIME_VARIABLE_META.get(column) or VARIABLE_META.get(column) or {}
+        threshold = resolve_change_threshold(
+            column,
+            kept[0][1],
+            [value for _, value in kept],
+            swc_pct=float(meta.get("fallback_pct", 2.0)),
+        )
+        threshold_abs = threshold.get("threshold_abs")
+        band = (
+            (kept[0][1] - float(threshold_abs), kept[0][1] + float(threshold_abs))
+            if threshold_abs is not None and not math.isnan(float(threshold_abs))
+            else None
+        )
+        series.append(
+            {
+                "variable": column,
+                "label": client_label if client else label,
+                "unit": unit,
+                "digits": digits,
+                "dates": [date for date, _ in kept],
+                "values": [value for _, value in kept],
+                "band": band,
+                "threshold_label": threshold.get("label"),
+                "era": str(points["era"].iloc[-1]) if same_era else None,
+            }
+        )
+    return series
+
+
+def _normal_cdf_pct(z: float) -> float:
+    return 50.0 * (1.0 + math.erf(float(z) / math.sqrt(2.0)))
+
+
+def group_position(row: pd.Series | dict[str, object] | None, audience: str = ATHLETE) -> dict[str, object] | None:
+    """"Tu posicion en el grupo": percentil 0-100 por prueba con referencia.
+
+    Con z (cohorte >= 8 o literatura): percentil = Phi(z) y la banda sale del
+    mismo intervalo del PDF profe (incertidumbre del SD) pasado a percentil.
+    Con cohorte de 5-7 el percentil es la posicion entre pares (sin banda).
+    Nunca se muestra el z. Sin ninguna prueba con referencia: None.
+    """
+    from modules.jump_analysis import has_plottable_percentile, has_plottable_z, resolve_zscore
+    from modules.reference_engine import parse_reference, z_interval
+
+    if row is None:
+        return None
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    client = _audience_key(audience) == CLIENT
+    bars: list[dict[str, object]] = []
+    sizes: list[int] = []
+    levels: list[str] = []
+    for z_col, _value_col, label, client_label in POSITION_TESTS:
+        info = parse_reference(row_series.get(f"{z_col}_reference_source")) or {}
+        n_raw = pd.to_numeric(pd.Series([row_series.get(f"{z_col}_cohort_n")]), errors="coerce").iloc[0]
+        n = int(info.get("size") or (0 if pd.isna(n_raw) else int(n_raw)))
+        if has_plottable_z(row_series, z_col):
+            z_value = float(resolve_zscore(row_series, z_col))
+            percentile = _normal_cdf_pct(z_value)
+            interval = z_interval(z_value, n) if n else None
+            band = (_normal_cdf_pct(interval[0]), _normal_cdf_pct(interval[1])) if interval else None
+        elif has_plottable_percentile(row_series, z_col):
+            percentile = float(pd.to_numeric(pd.Series([row_series.get(f"{z_col}_percentile")])).iloc[0])
+            band = None
+        else:
+            continue
+        bars.append(
+            {
+                "test": z_col,
+                "label": client_label if client else label,
+                "percentile": round(percentile, 1),
+                "band": (round(band[0], 1), round(band[1], 1)) if band else None,
+                "n": n,
+            }
+        )
+        if n:
+            sizes.append(n)
+        if info.get("level"):
+            levels.append(str(info["level"]))
+    if not bars:
+        return None
+    if sizes:
+        n_text = str(sizes[0]) if min(sizes) == max(sizes) else f"{min(sizes)}–{max(sizes)}"
+    else:
+        n_text = "?"
+    level = max(set(levels), key=levels.count) if levels else ""
+    level_text = POSITION_LEVEL_TEXT.get(level, level)
+    level_part = f" ({level_text})" if level_text else ""
+    subtitle = f"Comparado con {n_text} atletas de Threshold{level_part}. {POSITION_DISCLAIMER}"
+    return {"bars": bars, "subtitle": subtitle, "n_text": n_text, "level": level}
+
+
+def today_tiles(history: pd.DataFrame | None, audience: str = ATHLETE) -> list[dict[str, str]]:
+    """"Tus numeros hoy": ultimo CMJ por vuelo, DJ RSI e IMTP relativo.
+
+    La IMTP relativa lleva la era: si no es la vigente se rotula "protocolo
+    anterior" (no se compara con la actual).
+    """
+    from modules.measurement_eras import CURRENT_ERA, era_label
+
+    if history is None or history.empty:
+        return []
+    client = _audience_key(audience) == CLIENT
+    specs = (
+        ("CMJ_ft_cm", "Salto CMJ (vuelo)", "Salto vertical", "cm", 1),
+        ("DJ_RSI", "Reactividad (DJ RSI)", "Reactividad", "", 2),
+        ("IMTP_relPF", "Fuerza máxima por kg (IMTP)", "Fuerza en relación a tu peso", "N/kg", 1),
+    )
+    tiles: list[dict[str, str]] = []
+    for column, label, client_label, unit, digits in specs:
+        points = _dated_values(history, column)
+        if points.empty:
+            continue
+        last = points.iloc[-1]
+        value_text = f"{float(last['value']):.{digits}f}" + (f" {unit}" if unit else "")
+        note = f"{pd.Timestamp(last['Date']):%d/%m/%Y}"
+        if column == "IMTP_relPF":
+            era = str(last["era"])
+            note += f" · {PREVIOUS_PROTOCOL_LABEL}" if era != CURRENT_ERA else f" · {era_label(era)}"
+        tiles.append({"variable": column, "label": client_label if client else label, "value": value_text, "note": note})
+    return tiles
