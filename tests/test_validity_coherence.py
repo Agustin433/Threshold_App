@@ -245,6 +245,11 @@ def _cohort_team() -> tuple[pd.DataFrame, pd.DataFrame]:
     return pd.DataFrame(rows), profiles
 
 
+def _table_z(text: object) -> float:
+    """z puntual de la tabla profe: '+1.0 (0.8 a 1.3), n=9' -> 1.0 (PR D)."""
+    return float(str(text).split()[0])
+
+
 class SingleZSourceTests(unittest.TestCase):
     ATHLETE = "Atleta 04"
     METRICS = {"SJ": "SJ_Z", "CMJ": "CMJ_Z", "DRI": "DRI_Z", "EUR": "EUR_Z"}
@@ -263,7 +268,8 @@ class SingleZSourceTests(unittest.TestCase):
             with self.subTest(metric=label):
                 expected = resolve_zscore(quadrant_row, z_col)
                 self.assertIsNotNone(expected)
-                self.assertAlmostEqual(float(table.loc[label, "Z-score"]), round(float(expected), 2))
+                self.assertIn("n=", str(table.loc[label, "Z-score"]))
+                self.assertAlmostEqual(_table_z(table.loc[label, "Z-score"]), float(expected), delta=0.051)
 
     def test_quadrant_sections_match_table(self):
         payload = rg._build_professional_composite_profile_payload(self.state, self.ATHLETE)
@@ -271,10 +277,10 @@ class SingleZSourceTests(unittest.TestCase):
         sections = {s["meaning_type"]: s for s in rg._build_professional_quadrant_sections(self.state, self.ATHLETE)}
         dri_sj = sections["dri_sj"]["selected"]
         eur_cmj = sections["eur_cmj"]["selected"]
-        self.assertAlmostEqual(dri_sj["x"], float(table.loc["DRI", "Z-score"]))
-        self.assertAlmostEqual(dri_sj["y"], float(table.loc["SJ", "Z-score"]))
-        self.assertAlmostEqual(eur_cmj["x"], float(table.loc["EUR", "Z-score"]))
-        self.assertAlmostEqual(eur_cmj["y"], float(table.loc["CMJ", "Z-score"]))
+        self.assertAlmostEqual(dri_sj["x"], _table_z(table.loc["DRI", "Z-score"]), delta=0.051)
+        self.assertAlmostEqual(dri_sj["y"], _table_z(table.loc["SJ", "Z-score"]), delta=0.051)
+        self.assertAlmostEqual(eur_cmj["x"], _table_z(table.loc["EUR", "Z-score"]), delta=0.051)
+        self.assertAlmostEqual(eur_cmj["y"], _table_z(table.loc["CMJ", "Z-score"]), delta=0.051)
 
     def test_re_preparing_athlete_history_no_longer_overwrites_cohort_z(self):
         history = rg._professional_jump_history(self.state, self.ATHLETE)
@@ -360,9 +366,12 @@ class FlightTimeSeriesTests(unittest.TestCase):
         self.assertTrue(pd.isna(flagged["CMJ_cm"]))
         self.assertAlmostEqual(float(flagged["CMJ_ft_cm"]), 36.69, places=2)
 
-    def test_flight_series_never_enters_z_radar_or_db(self):
+    def test_flight_series_only_cmj_has_z_and_never_reaches_db(self):
+        # PR D: CMJ por vuelo tiene z (eje del radar cuando el CMJ por impulso
+        # no es comparable por era). SJ por vuelo sigue sin z. Nada va a la DB.
         prepared = _prepare_jump_df(_history(IDLV))
-        self.assertFalse(any(col.startswith(("CMJ_ft", "SJ_ft")) and col.endswith("_Z") for col in prepared.columns))
+        flight_z = {col for col in prepared.columns if col.startswith(("CMJ_ft", "SJ_ft")) and col.endswith("_Z")}
+        self.assertEqual(flight_z, {"CMJ_ft_Z"})
         records = jump_df_to_db_records(prepared)
         self.assertFalse(any("ft_cm" in key for record in records for key in record))
 

@@ -848,6 +848,9 @@ def chart_maxes_trend(maxes_df: pd.DataFrame, exercise: str, *, theme: dict) -> 
     return fig
 
 
+ESTIMATED_STRENGTH_PRINT_TITLE = "Fuerza estimada (kg, mejor de 14 días)"
+
+
 def chart_estimated_strength(
     strength_df: pd.DataFrame,
     *,
@@ -885,17 +888,21 @@ def chart_estimated_strength(
         from charts.report_charts import apply_chart_mode
 
         fig.update_xaxes(gridcolor=grid_soft, zeroline=False)
-        fig.update_yaxes(title_text="kg (mejor de 14 días)", gridcolor=grid_soft, zeroline=False)
-        return apply_chart_mode(fig, "print", theme=theme, title="Fuerza estimada", print_height_mm=print_height_mm)
+        # Rotulo corto en el eje: uno largo vertical no entra en un grafico
+        # bajo y se monta sobre el titulo. La ventana va en el titulo.
+        fig.update_yaxes(title_text="kg", gridcolor=grid_soft, zeroline=False)
+        return apply_chart_mode(
+            fig, "print", theme=theme, title=ESTIMATED_STRENGTH_PRINT_TITLE, print_height_mm=print_height_mm
+        )
     fig.update_layout(
         **layout,
         height=360,
         title=dict(
-            text=f"<b>Fuerza estimada</b><br><sup>{ESTIMATED_STRENGTH_LABEL}</sup>",
+            text=f"<b>{ESTIMATED_STRENGTH_PRINT_TITLE}</b><br><sup>{ESTIMATED_STRENGTH_LABEL}</sup>",
             font=dict(color=colors.get("navy"), size=13),
         ),
         xaxis=dict(title="Fecha", gridcolor=grid_soft, zeroline=False),
-        yaxis=dict(title="kg (mejor de 14 días)", gridcolor=grid_soft, zeroline=False),
+        yaxis=dict(title="kg", gridcolor=grid_soft, zeroline=False),
         legend=legend,
     )
     return fig

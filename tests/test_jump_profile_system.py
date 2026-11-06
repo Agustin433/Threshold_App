@@ -9,6 +9,7 @@ from modules.evaluation_sources import MIN_COHORT_SIZE
 from modules.zscore_sources import ZSource
 
 from charts.dashboard_charts import (
+    RADAR_FEW_AXES_TEXT,
     chart_composite_profile_radar,
     chart_jump_metric_trend,
     chart_quadrant_exploratory,
@@ -17,6 +18,8 @@ from charts.dashboard_charts import (
     find_latest_valid_radar_row,
 )
 from modules.jump_analysis import (
+    radar_axis_values,
+    radar_fallback_rows,
     PATTERN_LIBRARY,
     NEUROMUSCULAR_PATTERN_FIELDS,
     _prepare_jump_df,
@@ -869,11 +872,12 @@ class JumpProfileSystemTest(unittest.TestCase):
 
         figure = chart_radar(partial_row, "Atleta Parcial", None, theme=_chart_theme())
 
-        self.assertTrue(len(figure.data) >= 2)
-        # Antes SJ quedaba fuera porque su z no se materializaba. Con cohorte
-        # valida ambos ejes tienen z, asi que el perfil parcial ahora renderiza
-        # los dos: es mas informacion, no un cambio de criterio.
-        self.assertEqual(list(figure.data[-1].theta), ["SJ", "CMJ", "SJ"])
+        # Los dos ejes tienen z, pero con menos de 3 un radar no tiene forma
+        # que leer (PR D): aviso y tabla, no poligono.
+        self.assertEqual([axis[0] for axis in radar_axis_values(partial_row)["axes"]], ["SJ", "CMJ"])
+        self.assertEqual(len(figure.data), 0)
+        self.assertEqual(figure.layout.annotations[0].text, RADAR_FEW_AXES_TEXT)
+        self.assertEqual([row["Variable"] for row in radar_fallback_rows(partial_row)], ["SJ", "CMJ"])
 
     def test_profile_radar_row_does_not_fabricate_relpf_from_previous_body_weight(self):
         jump_df = _prepare_with_cohort(

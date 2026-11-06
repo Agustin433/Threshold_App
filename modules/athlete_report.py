@@ -337,20 +337,54 @@ def top_kpis(kpis: object, history: pd.DataFrame | None, limit: int = MAX_HIGHLI
     return [label for _, _, label in ranked[:limit]]
 
 
-_STRENGTH_ITEM = re.compile(r"([^,(]+?)\s*\(([+-]?\d+(?:\.\d+)?)\)")
+# El rotulo puede traer su propio parentesis: "CMJ (vuelo) (+1.07)".
+_STRENGTH_ITEM = re.compile(r"([^,]+?)\s*\(([+-]?\d+(?:\.\d+)?)\)")
+
+
+def strength_test_of(name: object) -> str:
+    """Prueba de la que sale una variable: CMJ, SJ, DJ o IMTP.
+
+    DJ RSI, altura de DJ, DRI y tiempo de contacto son la misma prueba; dos de
+    ellas juntas no son dos fortalezas sino una contada dos veces.
+    """
+    text = str(name or "").strip().upper()
+    first = text.split(" ")[0] if text else ""
+    if first.startswith("IMTP"):
+        return "IMTP"
+    if first.startswith("CMJ"):
+        return "CMJ"
+    if first.startswith("SJ"):
+        return "SJ"
+    if first.startswith("DJ") or first.startswith("DRI") or text.startswith("TIEMPO DE CONTACTO") or first == "RSI":
+        return "DJ"
+    return first or text
 
 
 def top_strengths(feedback_high: object, limit: int = MAX_HIGHLIGHTED_VARIABLES) -> str | None:
-    """'SJ (+1.63), CMJ (+1.23), DJ (+1.25)' -> 'SJ, DJ' (mayor z primero)."""
+    """'SJ (+1.63), CMJ (+1.23), DJ (+1.25)' -> 'SJ, DJ' (mayor z primero).
+
+    Maximo una variable por prueba: 'DJ RSI (+1.4), DJ (+1.3), CMJ (+0.9)'
+    -> 'DJ RSI, CMJ'.
+    """
     text = str(feedback_high or "").strip().rstrip(".")
     if not text:
         return None
     items = [(float(z), name.strip()) for name, z in _STRENGTH_ITEM.findall(text)]
     if not items:
-        names = [part.strip() for part in text.split(",") if part.strip()]
-        return ", ".join(names[:limit]) or None
-    items.sort(key=lambda item: item[0], reverse=True)
-    return ", ".join(name for _, name in items[:limit])
+        items = [(0.0, part.strip()) for part in text.split(",") if part.strip()]
+    else:
+        items.sort(key=lambda item: item[0], reverse=True)
+    chosen: list[str] = []
+    seen_tests: set[str] = set()
+    for _, name in items:
+        test = strength_test_of(name)
+        if test in seen_tests:
+            continue
+        seen_tests.add(test)
+        chosen.append(name)
+        if len(chosen) >= limit:
+            break
+    return ", ".join(chosen) or None
 
 
 _FOLLOW_UP_SENTENCE = re.compile(r"\s*Seguir de cerca [^.]*\.?", re.IGNORECASE)
