@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from modules.app_clock import app_today_date
+
 from modules.athlete_profile import (
     BIRTH_DATE_MIN,
     CONTEXTO_OPTIONS,
@@ -146,9 +148,12 @@ class ManualProfileFormTest(unittest.TestCase):
             at = self._app()
             widget = at.date_input(key="profile_birth_0")
             self.assertEqual(widget.min, BIRTH_DATE_MIN)
-            self.assertEqual(widget.max, date.today())
+            # Mismo reloj que la app (hora de Argentina): con date.today() en
+            # UTC el test fallaba todos los dias entre las 21 y las 24 h.
+            today = app_today_date()
+            self.assertEqual(widget.max, today)
             self.assertLessEqual(widget.min, date(1981, 5, 10))
-            self.assertGreater(date.today() + timedelta(days=1), widget.max)
+            self.assertGreater(today + timedelta(days=1), widget.max)
 
     def test_accepts_1981_and_saves(self):
         with isolated_store() as store:
