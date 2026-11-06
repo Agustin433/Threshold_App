@@ -38,6 +38,8 @@ PLATFORM_ERAS: tuple[tuple[str, pd.Timestamp], ...] = (
     (ERA_INVOLUTION_STRAPS, pd.Timestamp("2026-10-01")),
 )
 DEFAULT_ERA = ERA_INVOLUTION_STRAPS
+# Era vigente: la ultima de PLATFORM_ERAS.
+CURRENT_ERA = PLATFORM_ERAS[-1][0]
 
 ERA_LABELS: dict[str, str] = {
     ERA_VALKYRIA_NO_STRAPS: "Valkyria sin straps",

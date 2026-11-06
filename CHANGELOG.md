@@ -2,6 +2,33 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-06 - PR D: ajustes post PR C (radar y textos)
+
+1. Radar: eje "CMJ (vuelo)" (CMJ_ft_cm -> CMJ_ft_Z), misma escalera de
+   referencia y una toma por atleta, sin restriccion de era (misma
+   plataforma). Reemplaza al CMJ por impulso cuando este no tiene referencia
+   (era Involution con < 8 atletas). El perfil compuesto lo usa con el mismo
+   criterio, rotulado "CMJ (vuelo)".
+2. Menos de 3 ejes con z/percentil: no se dibuja radar. Dashboard: aviso;
+   PDF profe: tabla Variable / Valor / Comparacion / Referencia.
+3. PDF profe: cada z con intervalo por la incertidumbre del SD de la
+   cohorte, SE(SD) ~ SD/sqrt(2(n-1)): "+1.0 (0.8 a 1.3), n=9" (tabla del
+   perfil, lectura principal, variable dominante/rezagada). Un decimal: con
+   n ~ 10 el segundo decimal es ruido. No incluye la incertidumbre de la media
+   ni el error tipico de la medicion.
+4. Foco IMTP: "con el protocolo actual" solo si la ultima IMTP es de la era
+   vigente (involution_straps); si no, "Tu ultima medicion de IMTP es con el
+   protocolo anterior; en la proxima evaluacion tomamos una nueva referencia"
+   (Giffon, valkyria_straps 22/05/2026).
+5. "Lo que mas se destaca": maximo 2 variables de pruebas distintas (CMJ,
+   SJ, DJ, IMTP); DJ RSI, DJ, DRI y tiempo de contacto son la misma prueba.
+6. Grafico de fuerza estimada: eje Y "kg" (el rotulo largo vertical pisaba el
+   titulo); la ventana va en el titulo. PDF atleta/cliente: encabezado mas
+   bajo, graficos mas bajos con leyenda en un renglon, tabla de bienestar en
+   pares y diccionario compacto: Giffon pasa de 3 a 2 paginas.
+
+Tests: `tests/test_post_reference_adjustments.py`.
+
 ## 2026-11-05 - PR C: referencia de z-scores, radar y eras de medicion
 
 1. Radar y cuadrantes nunca usan la serie propia (INTRA_INDIVIDUAL): esa

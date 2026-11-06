@@ -10,6 +10,7 @@ from modules.jump_analysis import (
     _prepare_jump_df,
     _available_radar_axes,
     RADAR_MODE_PERCENTILE,
+    RADAR_MIN_AXES,
     radar_axis_values,
     build_composite_profile_metric_rows,
     choose_secondary_quadrant_x_spec,
@@ -368,6 +369,27 @@ def _percentile_radar(categories: list[str], values: list[float], athlete: str, 
     return fig
 
 
+RADAR_FEW_AXES_TEXT = "Menos de 3 ejes con grupo de comparación: no se dibuja radar, los valores están en la tabla."
+
+
+def _radar_table_notice(athlete: str, title: str, *, theme: dict) -> go.Figure:
+    """Con 1-2 ejes un radar no tiene forma que leer: aviso en lugar del grafico."""
+    colors, layout, *_ = _theme_parts(theme)
+    fig = go.Figure()
+    fig.update_layout(
+        **layout,
+        height=480,
+        title=dict(text=f"<b>{title} - {athlete}</b>", font=dict(color=colors["navy"], size=13), x=0.5),
+        annotations=[
+            dict(
+                text=RADAR_FEW_AXES_TEXT, x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
+                font=dict(color=colors["muted"], size=13),
+            )
+        ],
+    )
+    return fig
+
+
 def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, *, theme: dict) -> go.Figure:
     colors, layout, grid, _, reference_line, legend = _theme_parts(theme)
     row, axes, values, notes = _resolve_radar_axes(df_row)
@@ -376,6 +398,8 @@ def chart_radar(df_row: pd.Series, athlete: str, team_mean: dict | None = None, 
 
     if not categories:
         return go.Figure()
+    if len(categories) < RADAR_MIN_AXES:
+        return _radar_table_notice(athlete, "Radar Neuromuscular", theme=theme)
     if radar_axis_values(row)["mode"] == RADAR_MODE_PERCENTILE:
         return _percentile_radar(categories, values, athlete, notes, theme=theme)
 
@@ -475,6 +499,8 @@ def chart_composite_profile_radar(profile_row: pd.Series, athlete: str, *, theme
             ],
         )
         return fig
+    if not payload["drawable"]:
+        return _radar_table_notice(athlete, "Perfil actual compuesto", theme=theme)
     fig = chart_radar(row, athlete, None, theme=theme)
     fig.update_layout(title=dict(text=f"<b>Perfil actual compuesto - {athlete}</b>"))
     return fig

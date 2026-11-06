@@ -54,6 +54,7 @@ from modules.measurement_eras import (
     era_from_date,
     era_series,
     is_era_dependent,
+    resolve_era,
 )
 from modules.reference_engine import ReferenceEngine
 from modules.zscore_sources import (
@@ -361,6 +362,10 @@ RADAR_NO_IMTP_AXES = (
     ("DJ height", "DJ_cm", "cm", "DJ_height_Z"),
     ("DJ RSI", "DJ_RSI", "m/s", "DJ_RSI_Z"),
 )
+
+# Reemplaza al CMJ por impulso cuando ese z no se puede usar (p. ej. la era
+# Involution todavia no tiene 8 atletas): el vuelo se compara entre eras.
+RADAR_CMJ_FLIGHT_AXIS = ("CMJ (vuelo)", "CMJ_ft_cm", "cm", "CMJ_ft_Z")
 
 RADAR_NO_DJ_AXES = (
     ("SJ", "SJ_cm", "cm", "SJ_Z"),
@@ -967,6 +972,10 @@ def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd
         ("DSI", "DSI_Z", False),
         ("CMJ_RSI", "CMJ_RSI_Z", False),
         ("CMJ_rel_impulse", "CMJ_rel_impulse_Z", False),
+        # Altura por tiempo de vuelo: misma plataforma en todas las eras, asi
+        # que su cohorte no se parte por era (eje del radar cuando el CMJ por
+        # impulso no es comparable).
+        ("CMJ_ft_cm", "CMJ_ft_Z", False),
     )
     # IMTP absoluto (N) ya no tiene z: en radar y cuadrantes va la fuerza
     # relativa bruta (N/kg); la absoluta queda descriptiva en el PDF profe.
@@ -1177,6 +1186,7 @@ def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tupl
         axes = list(RADAR_NO_IMTP_AXES[:2])
         notes.append("Perfil parcial")
 
+    axes = _with_cmj_flight_axis(row_series, axes)
     plottable, mode = _radar_plottable_axes(row_series, axes)
     dropped = len(axes) - len(plottable)
     if dropped:
@@ -1189,6 +1199,23 @@ def _available_radar_axes(row: pd.Series | dict[str, object]) -> tuple[list[tupl
 RADAR_MODE_Z = "z"
 RADAR_MODE_PERCENTILE = "percentil"
 RADAR_MIN_PERCENTILE_AXES = 3
+# Con 1-2 ejes no hay forma que leer: se muestra tabla en vez de radar.
+RADAR_MIN_AXES = 3
+
+
+def _axis_is_usable(row: pd.Series, z_col: str) -> bool:
+    return has_plottable_z(row, z_col) or has_plottable_percentile(row, z_col)
+
+
+def _with_cmj_flight_axis(row: pd.Series, axes: list[tuple[str, str, str, str]]) -> list[tuple[str, str, str, str]]:
+    """CMJ por vuelo en lugar del CMJ por impulso cuando este no tiene referencia."""
+    result: list[tuple[str, str, str, str]] = []
+    for axis in axes:
+        if axis[3] == "CMJ_Z" and not _axis_is_usable(row, "CMJ_Z") and _axis_is_usable(row, RADAR_CMJ_FLIGHT_AXIS[3]):
+            result.append(RADAR_CMJ_FLIGHT_AXIS)
+        else:
+            result.append(axis)
+    return result
 
 
 def _axis_reference_key(row: pd.Series, z_col: str) -> tuple[str, str]:
@@ -1243,7 +1270,53 @@ def radar_axis_values(row: pd.Series | dict[str, object]) -> dict[str, object]:
         info = parse_reference(row_series.get(f"{axis[3]}_reference_source"))
         if info:
             references.append(info)
-    return {"axes": list(axes), "values": values, "mode": mode, "notes": notes, "references": references}
+    return {
+        "axes": list(axes),
+        "values": values,
+        "mode": mode,
+        "notes": notes,
+        "references": references,
+        "drawable": len(axes) >= RADAR_MIN_AXES,
+    }
+
+
+def radar_is_drawable(row: pd.Series | dict[str, object] | None) -> bool:
+    if row is None:
+        return False
+    return bool(radar_axis_values(row)["drawable"])
+
+
+def radar_fallback_rows(row: pd.Series | dict[str, object] | None) -> list[dict[str, str]]:
+    """Tabla de los ejes con referencia cuando son menos de 3 (no hay radar).
+
+    Columnas: Variable, Valor, Comparacion (z con intervalo o percentil) y
+    Referencia (escalon, era, N).
+    """
+    from modules.measurement_eras import era_label
+    from modules.reference_engine import format_z_with_interval, level_label, parse_reference
+
+    if row is None:
+        return []
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    payload = radar_axis_values(row_series)
+    rows: list[dict[str, str]] = []
+    for (label, value_col, unit, z_col), value in zip(payload["axes"], payload["values"]):
+        raw = pd.to_numeric(pd.Series([row_series.get(value_col)]), errors="coerce").iloc[0]
+        digits = 2 if unit in {"m/s", ""} else 1
+        value_text = "-" if pd.isna(raw) else f"{float(raw):.{digits}f} {unit}".strip()
+        info = parse_reference(row_series.get(f"{z_col}_reference_source")) or {}
+        n = info.get("size") or row_series.get(f"{z_col}_cohort_n")
+        if payload["mode"] == RADAR_MODE_PERCENTILE:
+            comparison = f"percentil {float(value):.0f}, n={n}"
+        else:
+            comparison = format_z_with_interval(value, n)
+        reference = (
+            f"{level_label(info.get('level'))}, era {era_label(info.get('era'))}, {info.get('size')} atletas"
+            if info
+            else "-"
+        )
+        rows.append({"Variable": label, "Valor": value_text, "Comparación": comparison, "Referencia": reference})
+    return rows
 
 
 def radar_reference_caption(row: pd.Series | dict[str, object]) -> str:
@@ -1391,6 +1464,13 @@ def _composite_metric_display_spec(
     display_unit = unit
     display_z_col = z_col
     display_digits = digits
+    display_label: str | None = None
+    if value_col == "CMJ_cm" and not _axis_is_usable(row_series, "CMJ_Z") and _axis_is_usable(
+        row_series, RADAR_CMJ_FLIGHT_AXIS[3]
+    ):
+        # Mismo criterio que el radar: sin referencia por impulso (era), el
+        # CMJ se lee por tiempo de vuelo, rotulado como tal.
+        display_label, display_value_col, display_unit, display_z_col = RADAR_CMJ_FLIGHT_AXIS
     if value_col == "IMTP_relPF":
         relpf_value = pd.to_numeric(pd.Series([row_series.get("IMTP_relPF")]), errors="coerce").iloc[0]
         imtp_value = pd.to_numeric(pd.Series([row_series.get("IMTP_N")]), errors="coerce").iloc[0]
@@ -1404,6 +1484,7 @@ def _composite_metric_display_spec(
         "unit": display_unit,
         "z_col": display_z_col,
         "digits": display_digits,
+        "label": display_label,
     }
 
 
@@ -1556,6 +1637,16 @@ def _apply_pattern_claim_guards(
         result["summary_athlete"] = _append_unique_text(result.get("summary_athlete"), caution_prof)
 
 
+IMTP_ERA_FIELD = "IMTP__era"
+
+
+def _row_era(row: pd.Series | dict[str, object]) -> str:
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row or {}, dtype=object)
+    source = row_series.get("Source")
+    kwargs = {} if source is None or (isinstance(source, float) and math.isnan(source)) else {"source": source}
+    return resolve_era(row_series.get("Device"), row_series.get("Date"), **kwargs)
+
+
 def _default_neuromuscular_result() -> dict[str, object]:
     return {
         "profile_code": "UNCLASSIFIED",
@@ -1607,6 +1698,7 @@ def build_neuromuscular_profile_result(
     metrics: dict[str, dict[str, object]] = {}
     for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
         display_spec = _composite_metric_display_spec(row_series, value_col, unit, z_col, digits)
+        label = str(display_spec.get("label") or label)
         display_value_col = str(display_spec["value_col"])
         display_z_col = str(display_spec["z_col"])
         value = _coalesced_numeric_value(row_series, display_value_col)
@@ -1641,6 +1733,10 @@ def build_neuromuscular_profile_result(
         flags.append("missing_imtp")
     if imtp_value is not None and imtp_z is None:
         flags.append("imtp_reference_missing")
+    # Era de la ultima IMTP: decide el texto del foco (protocolo actual o anterior).
+    result["imtp_era"] = (
+        (str(row_series.get(IMTP_ERA_FIELD) or "").strip() or _row_era(row_series)) if imtp_value is not None else None
+    )
 
     dj_required = (
         _coalesced_numeric_value(row_series, "DJ_RSI"),
@@ -2795,6 +2891,7 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
             snapshot["IMTP_N"] = source_row.get("IMTP_N")
             snapshot["IMTP_relPF_net"] = source_row.get("IMTP_relPF_net")
             snapshot[IMTP_QUALITY_FLAG_COLUMN] = source_row.get(IMTP_QUALITY_FLAG_COLUMN)
+            snapshot[IMTP_ERA_FIELD] = _row_era(source_row)
             if source_value_col == "IMTP_relPF":
                 imtp_z = resolve_zscore(source_row, "IMTP_relPF_Z")
                 snapshot["IMTP_relPF_Z"] = imtp_z
@@ -2821,7 +2918,7 @@ def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series |
     # Ejes del radar que no estan en la tabla compuesta (DJ RSI): mismo z,
     # origen y referencia que su ultima toma valida.
     composite_value_cols = {metric[1] for metric in COMPOSITE_PROFILE_METRICS} | {"IMTP_N"}
-    for _, axis_value_col, _, axis_z_col in RADAR_FULL_AXES:
+    for _, axis_value_col, _, axis_z_col in (*RADAR_FULL_AXES, RADAR_CMJ_FLIGHT_AXIS):
         if axis_value_col in composite_value_cols or snapshot.get(f"{axis_z_col}_source"):
             continue
         source_row = _latest_valid_numeric_row(data, axis_value_col)
@@ -2882,6 +2979,7 @@ def build_composite_profile_metric_rows(row: pd.Series | dict[str, object]) -> l
 
     for label, value_col, unit, z_col, digits in COMPOSITE_PROFILE_METRICS:
         display_spec = _composite_metric_display_spec(row_series, value_col, unit, z_col, digits)
+        label = str(display_spec.get("label") or label)
         display_value_col = str(display_spec["value_col"])
         display_unit = str(display_spec["unit"])
         display_z_col = str(display_spec["z_col"])

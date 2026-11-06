@@ -278,3 +278,37 @@ def level_label(level: object) -> str:
 
 def demand_label(group: object) -> str:
     return DEMAND_GROUP_LABELS.get(str(group), str(group))
+
+
+def z_interval(z: object, n: object) -> tuple[float, float] | None:
+    """Intervalo aproximado del z por la incertidumbre del SD de la cohorte.
+
+    SE(SD) ~ SD / sqrt(2(n-1)) (aproximacion normal). Con SD +/- SE(SD) el
+    mismo valor da z / (1 + k) y z / (1 - k), con k = 1 / sqrt(2(n-1)). No
+    incluye la incertidumbre de la media ni el error tipico de la medicion.
+    """
+    try:
+        z_value = float(z)
+        n_value = int(n)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(z_value) or n_value < 3:
+        return None
+    k = 1.0 / np.sqrt(2.0 * (n_value - 1))
+    low, high = z_value / (1.0 + k), z_value / (1.0 - k)
+    return (min(low, high), max(low, high))
+
+
+def format_z_with_interval(z: object, n: object) -> str:
+    """'+1.0 (0.8 a 1.3), n=9'. Un decimal: con n chico mas decimales serian ruido."""
+    try:
+        z_value = float(z)
+    except (TypeError, ValueError):
+        return "—"
+    if np.isnan(z_value):
+        return "—"
+    interval = z_interval(z_value, n)
+    if interval is None:
+        return f"{z_value:+.1f}"
+    low, high = interval
+    return f"{z_value:+.1f} ({low:.1f} a {high:.1f}), n={int(n)}"

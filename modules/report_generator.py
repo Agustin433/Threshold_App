@@ -40,6 +40,8 @@ from modules.evaluation_rules import (
     calc_imtp_relative_force,
     jump_height_consistency_rows,
 )
+from modules.measurement_eras import CURRENT_ERA
+from modules.reference_engine import format_z_with_interval
 from modules.jump_analysis import sanitize_body_weight
 from modules.report_messages import MISSING_GENERIC
 from modules.wellness_scales import WELLNESS_EXPORT_HEADERS, WELLNESS_RESPONSE_SCALE
@@ -60,6 +62,7 @@ from modules.jump_analysis import (
     _format_profile_source_date,
     _prepare_jump_df,
     build_neuromuscular_profile_result,
+    build_composite_profile_metric_rows,
     build_composite_profile_metric_table,
     build_composite_profile_snapshot,
     build_jump_delta_display_table,
@@ -72,6 +75,8 @@ from modules.jump_analysis import (
     compare_flight_time_height,
     compute_evaluation_changes,
     radar_reference_athletes,
+    radar_fallback_rows,
+    radar_is_drawable,
     radar_reference_caption,
     NO_IMPULSE_COMPARISON_SIGNAL,
     UNUSUAL_CHANGE_NOTE,
@@ -7680,6 +7685,18 @@ IMTP_REFERENCE_PRIORITY_DETAILED = (
     "Ya hay una medición de IMTP con el protocolo actual; repetirla en la próxima evaluación da una "
     "referencia propia para comparar la fuerza máxima."
 )
+IMTP_PREVIOUS_PROTOCOL_PRIORITY_DETAILED = (
+    "Tu última medición de IMTP es con el protocolo anterior; en la próxima evaluación tomamos una "
+    "nueva referencia."
+)
+
+
+def _imtp_reference_priority_detailed(profile_payload: dict[str, object]) -> str:
+    """'Protocolo actual' solo si la ultima IMTP es de la era vigente."""
+    era = str(profile_payload.get("imtp_era") or "").strip()
+    if era and era != CURRENT_ERA:
+        return IMTP_PREVIOUS_PROTOCOL_PRIORITY_DETAILED
+    return IMTP_REFERENCE_PRIORITY_DETAILED
 
 
 def _priority_text_flags(profile_payload: dict[str, object]) -> set[str]:
@@ -7720,7 +7737,7 @@ def _neuromuscular_priority_detailed(profile_payload: dict[str, object]) -> str:
     if not detail:
         flags = _priority_text_flags(profile_payload)
         if "imtp_reference_missing" in flags and "missing_dj" not in flags:
-            detail = IMTP_REFERENCE_PRIORITY_DETAILED
+            detail = _imtp_reference_priority_detailed(profile_payload)
         elif {"missing_imtp", "missing_dj"}.issubset(flags):
             detail = "Completar IMTP y Drop Jump antes de mover demasiado la prioridad física del bloque."
         elif "missing_dj" in flags:
@@ -7808,6 +7825,7 @@ def _build_pdf_neuromuscular_profile_payload(
         "summary_client": _professional_visible_metric_text(core_payload.get("summary_client") or ""),
         "summary_professional": _professional_visible_metric_text(core_payload.get("summary_professional") or ""),
         "metrics": metrics,
+        "imtp_era": core_payload.get("imtp_era"),
         "flags": [str(flag).strip() for flag in core_payload.get("flags", []) if str(flag).strip()],
         "evidence": [
             _professional_visible_metric_text(item)
@@ -8052,6 +8070,61 @@ def _professional_change_pattern_lines(delta_df: pd.DataFrame, assessment_interv
     return lines
 
 
+def _professional_z_interval_column(snapshot_row: pd.Series, z_texts: pd.Series) -> pd.Series:
+    """Cada z del PDF profe con su intervalo por la incertidumbre del SD: '+1.0 (0.8 a 1.3), n=9'."""
+    rows = build_composite_profile_metric_rows(snapshot_row)
+    out: list[str] = []
+    for position, text in enumerate(z_texts.tolist()):
+        if position >= len(rows) or str(text).strip() in {"", "-", "\u2014"}:
+            out.append(text)
+            continue
+        z_col = str(rows[position].get("z_col") or "")
+        z_value = resolve_zscore(snapshot_row, z_col)
+        n = pd.to_numeric(pd.Series([snapshot_row.get(f"{z_col}_cohort_n")]), errors="coerce").iloc[0]
+        if z_value is None or pd.isna(z_value) or pd.isna(n):
+            # Sin N de referencia no hay intervalo: queda el z como estaba.
+            out.append(text)
+            continue
+        out.append(format_z_with_interval(z_value, int(n)))
+    return pd.Series(out, index=z_texts.index)
+
+
+def _professional_text_with_z_intervals(text: object, composite_payload: dict[str, object] | None) -> str:
+    """'SJ (+1.63), DJ (+1.25)' -> 'SJ +1.6 (1.3 a 2.1), n=10, DJ +1.3 (1.0 a 1.7), n=10'.
+
+    Solo para el PDF profe: el texto base (con el z entre parentesis) lo sigue
+    leyendo el reporte de atleta.
+    """
+    raw = str(text or "")
+    payload = composite_payload or {}
+    row = payload.get("profile_row")
+    profile = payload.get("neuromuscular_profile") if isinstance(payload.get("neuromuscular_profile"), dict) else {}
+    metrics = profile.get("metrics") if isinstance(profile.get("metrics"), dict) else {}
+    if row is None or not metrics or "(" not in raw:
+        return raw
+    row_series = row if isinstance(row, pd.Series) else pd.Series(row, dtype=object)
+    n_by_label: dict[str, object] = {}
+    for metric in metrics.values():
+        if not isinstance(metric, dict):
+            continue
+        label = _professional_visible_metric_text(metric.get("label") or "").strip()
+        z_col = str(metric.get("z_col") or "")
+        n = pd.to_numeric(pd.Series([row_series.get(f"{z_col}_cohort_n")]), errors="coerce").iloc[0]
+        if label and pd.notna(n):
+            n_by_label[label] = int(n)
+    result = raw
+    for label in sorted(n_by_label, key=len, reverse=True):
+        # "Rotulo (+z)" o "Rotulo <aclaracion sin comas> (+z)".
+        pattern = re.compile(rf"(?<![\w]){re.escape(label)}([^,()]*?) \(([+-]?\d+(?:\.\d+)?)\)")
+        result = pattern.sub(
+            lambda match, label=label: (
+                f"{label}{match.group(1)} {format_z_with_interval(float(match.group(2)), n_by_label[label])}"
+            ),
+            result,
+        )
+    return result
+
+
 def _professional_composite_metric_count(metric_table: pd.DataFrame) -> int:
     if metric_table is None or metric_table.empty or "Valor" not in metric_table.columns:
         return 0
@@ -8202,6 +8275,7 @@ def _build_professional_composite_profile_payload(
                 in {"", "-", "\u2014", PDF_MISSING_TEXT, "Sin dato"}
                 else value
             )
+            metric_table["Z-score"] = _professional_z_interval_column(snapshot_row, metric_table["Z-score"])
     neuromuscular_profile = _build_pdf_neuromuscular_profile_payload(
         snapshot_row,
         reference_df=history,
@@ -11155,7 +11229,14 @@ def _generate_professional_profile_pdf_reportlab(
             from charts.dashboard_charts import chart_composite_profile_radar
         except Exception:
             return None
-        figure = chart_composite_profile_radar(payload["profile_row"], report_athlete, theme=_build_report_chart_theme())
+        profile_row = payload["profile_row"]
+        fallback_rows = radar_fallback_rows(profile_row)
+        if fallback_rows and not radar_is_drawable(profile_row):
+            # 1-2 ejes: tabla con z (intervalo) y referencia, sin radar.
+            frame = pd.DataFrame(fallback_rows)[["Variable", "Valor", "Comparación", "Referencia"]]
+            scale = width_mm / 174.0
+            return _dataframe_table(frame, col_widths_mm=[w * scale for w in (34, 30, 52, 58)])
+        figure = chart_composite_profile_radar(profile_row, report_athlete, theme=_build_report_chart_theme())
         return _plotly_chart_image(figure, width_mm=width_mm, height_mm=height_mm, width_px=1100, height_px=760)
 
     def _exposure_chart_image(*, width_mm: float = 174, height_mm: float = 68) -> Image | None:
@@ -11911,7 +11992,7 @@ def _generate_professional_profile_pdf_reportlab(
         profile_summary_flow: list[object] = [
             _decision_box(
                 "Lectura principal del perfil",
-                composite_profile.get("summary_line", PDF_MISSING_TEXT),
+                _professional_text_with_z_intervals(composite_profile.get("summary_line", PDF_MISSING_TEXT), composite_profile),
                 width_mm=68,
                 inverted=False,
                 note=f"Última evaluación incluida: {safe_value(composite_profile.get('latest_profile_date'), fallback=PDF_MISSING_TEXT)}",
@@ -11929,7 +12010,11 @@ def _generate_professional_profile_pdf_reportlab(
         radar_panel = (
             _chart_panel(
                 radar_image,
-                title="Radar del perfil compuesto",
+                title=(
+                    "Radar del perfil compuesto"
+                    if radar_is_drawable(composite_profile.get("profile_row"))
+                    else "Perfil compuesto (menos de 3 ejes: tabla)"
+                ),
                 note=radar_reference_caption(composite_profile.get("profile_row"))
                 if composite_profile.get("profile_row") is not None
                 else "Referencia: todavía no hay grupo de comparación.",
@@ -11980,8 +12065,8 @@ def _generate_professional_profile_pdf_reportlab(
                 _bullet_box(
                     "Decisión para el próximo bloque",
                     [
-                        f"Variable dominante: {feedback.get('high', PDF_MISSING_TEXT)}",
-                        f"Variable rezagada: {feedback.get('low', PDF_MISSING_TEXT)}",
+                        f"Variable dominante: {_professional_text_with_z_intervals(feedback.get('high', PDF_MISSING_TEXT), composite_profile)}",
+                        f"Variable rezagada: {_professional_text_with_z_intervals(feedback.get('low', PDF_MISSING_TEXT), composite_profile)}",
                         f"Implicancia para próximo bloque: {feedback.get('next_block', PDF_MISSING_TEXT)}",
                     ],
                     width_mm=86,
@@ -12885,6 +12970,31 @@ def _generate_visual_report_pdf_reportlab(
             bottom_padding=5,
         )
 
+    def _paired_key_value_table(rows: list[tuple[str, str]]) -> Table:
+        """Dos pares etiqueta/valor por fila: la mitad de alto que la tabla simple."""
+        data = []
+        for start in range(0, len(rows), 2):
+            line: list[object] = []
+            for label, value in rows[start : start + 2]:
+                line.extend([_p(str(label), "CardLabel"), _p(safe_value(value, fallback=PDF_MISSING_TEXT), "ReportMuted")])
+            while len(line) < 4:
+                line.append("")
+            data.append(line)
+        return _build_threshold_table(
+            data,
+            TableClass=Table,
+            TableStyleClass=TableStyle,
+            mm_unit=mm,
+            palette=palette,
+            col_widths_mm=[42, 45, 42, 45],
+            border_width=0.7,
+            inner_grid_width=0.35,
+            left_padding=7,
+            right_padding=7,
+            top_padding=4,
+            bottom_padding=4,
+        )
+
     def _chart_image(chart_payload: dict[str, object] | None, *, width_mm: float = 174, height_mm: float = 88) -> Image | None:
         if not chart_payload:
             return None
@@ -12911,12 +13021,17 @@ def _generate_visual_report_pdf_reportlab(
     story: list[object] = []
     wordmark = _resolve_brand_asset_path("wordmark")
     icon = _resolve_brand_asset_path("icon")
-    wordmark_logo = _fit_image(wordmark, 150, 28) if wordmark is not None else None
-    icon_logo = _fit_image(icon, 18, 18) if icon is not None else None
+    # Reporte atleta/cliente: encabezado mas bajo para que entre en 2 paginas.
+    compact_brand = audience in {"atleta", "cliente"} and effective_athlete != "Todos"
+    wordmark_logo = (
+        _fit_image(wordmark, 110 if compact_brand else 150, 18 if compact_brand else 28) if wordmark is not None else None
+    )
+    icon_logo = _fit_image(icon, 12 if compact_brand else 18, 12 if compact_brand else 18) if icon is not None else None
+    brand_gap_mm = 4 if compact_brand else 8
     if icon_logo is not None and wordmark_logo is not None:
         brand_table = Table(
             [[icon_logo, wordmark_logo]],
-            colWidths=[22 * mm, 128 * mm],
+            colWidths=[(16 if compact_brand else 22) * mm, 128 * mm],
             style=TableStyle(
                 [
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -12928,13 +13043,13 @@ def _generate_visual_report_pdf_reportlab(
             ),
         )
         story.append(brand_table)
-        story.append(Spacer(1, 8 * mm))
+        story.append(Spacer(1, brand_gap_mm * mm))
     elif wordmark_logo is not None:
         story.append(wordmark_logo)
-        story.append(Spacer(1, 8 * mm))
+        story.append(Spacer(1, brand_gap_mm * mm))
     elif icon_logo is not None:
         story.append(icon_logo)
-        story.append(Spacer(1, 8 * mm))
+        story.append(Spacer(1, brand_gap_mm * mm))
 
     if audience in {"atleta", "cliente"} and effective_athlete != "Todos":
         # Reporte de atleta y cliente: muestra lo que hay. Una seccion sin
@@ -12990,18 +13105,45 @@ def _generate_visual_report_pdf_reportlab(
                 accent_color=palette[accent],
             )
 
-        def _rows_table(rows: list[tuple[str, str]]) -> object:
+        def _rows_table(rows: list[tuple[str, str]], *, paired: bool = False) -> object:
             for label, value in rows:
                 visible_text.extend([str(label), str(value)])
             # Una tabla de seccion nunca se parte entre paginas.
-            return KeepTogether([_compact_key_value_table(rows)])
+            table = _paired_key_value_table(rows) if paired else _compact_key_value_table(rows)
+            return KeepTogether([table])
 
         def _chart(payload_item: dict[str, object] | None, *, height_mm: float = 60) -> Image | None:
             try:
+                if payload_item and payload_item.get("print") and payload_item.get("figure") is not None:
+                    # Figura de impresion: el alto pedido manda (el reporte
+                    # individual usa graficos mas bajos que el profe).
+                    import plotly.graph_objects as go
+
+                    from charts.report_charts import print_height_px
+
+                    figure = go.Figure(payload_item["figure"])
+                    figure.update_layout(height=print_height_px(height_mm))
+                    _single_row_legend(figure)
+                    payload_item = {**payload_item, "figure": figure}
                 return _chart_image(payload_item, height_mm=height_mm)
             except Exception:
                 logger.exception("No se pudo renderizar un grafico del reporte individual")
                 return None
+
+        def _single_row_legend(figure) -> None:
+            """Leyenda de hasta 3 series en un renglon: en graficos bajos dos
+            renglones de leyenda se comen el area del grafico."""
+            from charts.report_charts import PRINT_FONT_PX
+
+            names = [str(t.name) for t in figure.data if t.name and t.showlegend is not False]
+            # Ancho por texto (entrywidth=0): entra en un renglon si la suma de
+            # rotulos es corta; si no, se deja la leyenda como estaba.
+            if not 2 < len(names) <= 3 or sum(len(name) for name in names) > 72:
+                return
+            bottom = figure.layout.margin.b if figure.layout.margin and figure.layout.margin.b is not None else None
+            figure.update_layout(legend=dict(entrywidth=0, entrywidthmode="pixels"))
+            if bottom is not None:
+                figure.update_layout(margin=dict(b=max(0, int(bottom) - int(PRINT_FONT_PX * 1.6))))
 
         def _individual_chrome(canvas_obj, doc_obj) -> None:
             _draw_threshold_header(canvas_obj, doc_obj, palette=palette, mm_unit=mm, label="")
@@ -13101,11 +13243,18 @@ def _generate_visual_report_pdf_reportlab(
         strength_figure = None
         try:
             strength_figure = chart_estimated_strength(
-                payload.get("strength_df"), theme=_build_report_chart_theme(), mode="print"
+                payload.get("strength_df"),
+                theme=_build_report_chart_theme(),
+                mode="print",
+                print_height_mm=INDIVIDUAL_STRENGTH_CHART_MM,
             )
         except Exception:
             logger.exception("No se pudo armar el grafico de fuerza estimada")
-        strength_image = _chart({"figure": strength_figure, "print": True}) if strength_figure is not None else None
+        strength_image = (
+            _chart({"figure": strength_figure, "print": True}, height_mm=INDIVIDUAL_STRENGTH_CHART_MM)
+            if strength_figure is not None
+            else None
+        )
         # Sin grafico de fuerza estimada la seccion no aparece: el IMTP ya esta
         # en la portada y repetirlo no agrega nada.
         if strength_image is not None:
@@ -13122,7 +13271,7 @@ def _generate_visual_report_pdf_reportlab(
                 block.append(Spacer(1, 3 * mm))
             load_image = _chart(
                 chart_payloads.get("sessions_per_week" if is_client else "load"),
-                height_mm=56,
+                height_mm=INDIVIDUAL_LOAD_CHART_MM,
             )
             if load_image is not None:
                 block.append(load_image)
@@ -13135,11 +13284,11 @@ def _generate_visual_report_pdf_reportlab(
         # ── Bienestar ───────────────────────────────────────────────────
         if wellness:
             block = [_section_title("Bienestar"), Spacer(1, 3 * mm), _note("", wellness["sentence"]), Spacer(1, 3 * mm)]
-            wellness_image = _chart(chart_payloads.get("wellness"), height_mm=52)
+            wellness_image = _chart(chart_payloads.get("wellness"), height_mm=INDIVIDUAL_WELLNESS_CHART_MM)
             if wellness_image is not None:
                 block.append(wellness_image)
                 block.append(Spacer(1, 3 * mm))
-            block.append(_rows_table(list(wellness["rows"])))
+            block.append(_rows_table(list(wellness["rows"]), paired=True))
             _append_section(block)
             story.append(Spacer(1, 4 * mm))
 
@@ -13151,11 +13300,24 @@ def _generate_visual_report_pdf_reportlab(
         # queda solo en una pagina.
         closing: list[object] = []
         if closing_lines:
-            closing.extend([_section_title("Próximos pasos"), Spacer(1, 3 * mm), _note("", closing_lines), Spacer(1, 3 * mm)])
+            closing.extend([_section_title("Próximos pasos"), Spacer(1, 2 * mm), _note("", closing_lines), Spacer(1, 2 * mm)])
         dictionary = dictionary_lines(" ".join(visible_text + closing_lines))
         if dictionary:
-            closing.append(_note("Diccionario", dictionary, accent="steel", background="panel"))
-            closing.append(Spacer(1, 3 * mm))
+            # Un solo parrafo (renglon por termino): sin el aire entre parrafos
+            # el cierre ocupa la mitad y el reporte entra en 2 paginas.
+            closing.append(
+                _build_note_box(
+                    "Diccionario",
+                    "\n".join(dictionary),
+                    **box_kwargs,
+                    title_style="BlockTitle",
+                    body_style="ReportMuted",
+                    background=palette["panel"],
+                    border_color=palette["line_dark"],
+                    accent_color=palette["steel"],
+                )
+            )
+            closing.append(Spacer(1, 2 * mm))
         closing.append(
             _tp(
                 "Este informe no promete rendimiento ni reemplaza el criterio del entrenador: muestra qué lograste "
@@ -13327,6 +13489,13 @@ def _build_pdf_document(page_contents: list[str]) -> bytes:
         output.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
     output.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF".encode("ascii"))
     return bytes(output)
+
+
+# Altos (mm) de los graficos del PDF atleta/cliente: con estos el reporte
+# tipico (fuerza + carga + bienestar) entra en 2 paginas.
+INDIVIDUAL_STRENGTH_CHART_MM = 54.0
+INDIVIDUAL_LOAD_CHART_MM = 42.0
+INDIVIDUAL_WELLNESS_CHART_MM = 40.0
 
 
 def generate_visual_report_pdf(
