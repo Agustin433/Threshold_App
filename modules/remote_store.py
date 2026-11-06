@@ -743,3 +743,42 @@ def check_remote_schema() -> dict:
         )
     ok = role != "anon" and all(item["ok"] for item in tables)
     return {"enabled": True, "ok": ok, "key_role": role, "tables": tables}
+
+
+# ── Metas del cuadrante Fuerza vs Explosividad (PR F) ──────────────────────
+# Viven en dataset_rows con dataset_key propio: no son filas de atleta, asi
+# que no pasan por DATASET_SPECS. Cada cambio es una fila nueva (historial con
+# fecha); la meta vigente es la ultima por (Sexo, Metrica).
+QUADRANT_GOALS_DATASET_KEY = "quadrant_goals"
+
+
+def save_remote_quadrant_goal(row: dict[str, object], *, row_key: str) -> dict[str, int | bool]:
+    if not supabase_dataset_store_enabled():
+        return {"enabled": False, "upserted": 0}
+    payload = {key: _json_safe_value(value) for key, value in row.items()}
+    record = {
+        "dataset_key": QUADRANT_GOALS_DATASET_KEY,
+        "row_key": row_key,
+        "payload": payload,
+        "event_date": _dataset_event_date(payload.get("Fecha_cambio")),
+    }
+    _, _, table = _supabase_dataset_store_config()
+    return {"enabled": True, "upserted": _upsert_dataset_records(table, [record])}
+
+
+def load_remote_quadrant_goals() -> pd.DataFrame:
+    if not supabase_dataset_store_enabled():
+        return pd.DataFrame()
+    _, _, table = _supabase_dataset_store_config()
+    rows = _supabase_request(
+        "GET",
+        table,
+        query={
+            "select": "payload",
+            "dataset_key": f"eq.{QUADRANT_GOALS_DATASET_KEY}",
+            "order": "event_date.asc.nullslast,row_key.asc",
+            "limit": 1000,
+        },
+    ) or []
+    payloads = [row.get("payload") for row in rows if isinstance(row.get("payload"), dict)]
+    return pd.DataFrame(payloads) if payloads else pd.DataFrame()

@@ -26,6 +26,7 @@ import re
 from io import BytesIO
 from pathlib import Path
 import warnings
+from charts.quadrant_charts import chart_strength_quadrant as shared_chart_strength_quadrant
 from charts.athlete_charts import (
     chart_athlete_evolution as shared_chart_athlete_evolution,
     chart_group_position as shared_chart_group_position,
@@ -248,6 +249,7 @@ from modules.persistence_guard import (
 )
 from modules.report_generator import (
     EVOLUTION_BAND_CAPTION,
+    QUADRANT_LIGHT_POINT_NOTE,
     TOLERANCE_BAND_CAPTION,
     TOLERANCE_FEW_RECORDS_CAPTION,
     build_individual_report_payload,
@@ -2817,6 +2819,7 @@ chart_estimated_strength = _bind_chart(shared_chart_estimated_strength)
 chart_athlete_evolution = _bind_chart(shared_chart_athlete_evolution)
 chart_group_position = _bind_chart(shared_chart_group_position)
 chart_tolerance = _bind_chart(shared_chart_tolerance)
+chart_strength_quadrant = _bind_chart(shared_chart_strength_quadrant)
 chart_cmj_trend = _bind_chart(shared_chart_cmj_trend)
 chart_jump_metric_trend = _bind_chart(shared_chart_jump_metric_trend)
 make_force_time_points_chart = _bind_chart(shared_make_force_time_points_chart)
@@ -3001,6 +3004,100 @@ def _format_debug_seconds(value: object) -> str:
         return f"{float(value):.3f}s"
     except Exception:
         return str(value)
+
+
+def _render_strength_quadrant_section(jump_df: pd.DataFrame | None, profile_df: pd.DataFrame | None, source: object) -> None:
+    """Mapa del gimnasio Fuerza vs Explosividad (todos con nombre) y metas editables."""
+    from modules.strength_quadrant import (
+        GOAL_SOURCE_CONFIGURED,
+        METRIC_CMJ,
+        METRIC_IMTP,
+        METRIC_LABELS,
+        METRIC_UNITS,
+        SEX_SHORT,
+        SEXES,
+        WHAT_TO_WORK,
+        build_quadrant_map,
+        load_goal_history,
+        save_goal,
+    )
+
+    st.markdown("#### 🗺️ Mapa del gimnasio: Fuerza vs Explosividad")
+    st.caption(
+        "IMTP relativo (última toma) y CMJ por vuelo (última válida) en % de la meta del gimnasio por sexo. "
+        "Todos apuntan a Completo. No es una norma de literatura."
+    )
+    try:
+        goal_history = load_goal_history()
+    except Exception as exc:
+        st.caption(f"No se pudieron leer las metas guardadas: {exc}")
+        goal_history = None
+    prepared = ensure_prepared_jump_df(jump_df, profile_df=profile_df, source=source)
+    quadrant_map = build_quadrant_map(prepared, profile_df, today=app_today(), goal_history=goal_history)
+    figure = chart_strength_quadrant(quadrant_map)
+    if figure is not None:
+        st.plotly_chart(figure, use_container_width=True, key="strength_quadrant_team")
+        st.caption(QUADRANT_LIGHT_POINT_NOTE)
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Atleta": p.athlete,
+                        "IMTP (N/kg)": round(p.imtp, 1),
+                        "IMTP % meta": round(p.pct_imtp),
+                        "CMJ vuelo (cm)": round(p.cmj, 1),
+                        "CMJ % meta": round(p.pct_cmj),
+                        "Cuadrante": p.quadrant,
+                        "Qué trabajar": WHAT_TO_WORK[p.quadrant],
+                        "Edad": p.age_group,
+                        "Aviso": p.note(professional=True) or "",
+                    }
+                    for p in sorted(quadrant_map.placements, key=lambda item: item.athlete)
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+    else:
+        st.info("Todavía no hay atletas con sexo, meta, IMTP y CMJ por vuelo para ubicar.")
+    if quadrant_map.unplaced:
+        with st.expander(f"Sin ubicar ({len(quadrant_map.unplaced)})", expanded=False):
+            for name, reason in quadrant_map.unplaced:
+                st.caption(f"{name}: {reason}")
+
+    with st.expander("⚙️ Metas del mapa (solo profe)", expanded=False):
+        st.caption("Cada cambio queda guardado con su fecha (local y Supabase). Vale la última meta de cada sexo y métrica.")
+        for sexo in SEXES:
+            columns = st.columns(2)
+            for column, metric in zip(columns, (METRIC_CMJ, METRIC_IMTP)):
+                goal = quadrant_map.goals[(sexo, metric)]
+                label = f"{METRIC_LABELS[metric]} {SEX_SHORT[sexo]} ({METRIC_UNITS[metric]})"
+                current = float(goal.value) if goal.defined else 0.0
+                column.number_input(
+                    label, min_value=0.0, max_value=200.0, value=round(current, 1), step=0.5,
+                    key=f"quadrant_goal_{sexo}_{metric}",
+                    help=f"Hoy: {goal.source}" + (f" desde {goal.changed_at:%d/%m/%Y}" if goal.source == GOAL_SOURCE_CONFIGURED and goal.changed_at is not None else ""),
+                )
+        if st.button("Guardar metas", key="quadrant_goals_save"):
+            saved = []
+            for sexo in SEXES:
+                for metric in (METRIC_CMJ, METRIC_IMTP):
+                    new_value = float(st.session_state.get(f"quadrant_goal_{sexo}_{metric}") or 0.0)
+                    goal = quadrant_map.goals[(sexo, metric)]
+                    # Solo un valor nuevo genera fila (la provisoria sin tocar sigue provisoria).
+                    if new_value <= 0 or (goal.defined and abs(new_value - float(goal.value)) < 0.05):
+                        continue
+                    try:
+                        save_goal(sexo, metric, new_value)
+                        saved.append(f"{METRIC_LABELS[metric]} {SEX_SHORT[sexo]}: {new_value:g} {METRIC_UNITS[metric]}")
+                    except Exception as exc:
+                        st.error(f"No se pudo guardar {METRIC_LABELS[metric]} {SEX_SHORT[sexo]}: {exc}")
+            if saved:
+                st.success("Metas guardadas: " + "; ".join(saved))
+            else:
+                st.info("No hubo cambios en las metas.")
+        if goal_history is not None and not goal_history.empty:
+            st.dataframe(goal_history.sort_values("Fecha_cambio", ascending=False), width="stretch", hide_index=True)
 
 
 def _render_athlete_visual_blocks(payload: dict[str, object]) -> None:
@@ -7257,6 +7354,8 @@ elif active_main_view == "Team":
                 "atleta, la última válida de 12 meses, sin mezclar sexos ni eras de medición."
             )
             st.dataframe(pd.DataFrame(team_cohort_rows), width='stretch', hide_index=True)
+
+        _render_strength_quadrant_section(jdf, profile_df_for_team_cohort, team_eval_source)
 
         def _render_exclusions(x_col: str, y_col: str, key: str) -> None:
             """Conteo en el pie del grafico, nombres agrupados por motivo aparte.

@@ -2,6 +2,37 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-06 - PR F: mapa Fuerza vs Explosividad del gimnasio (IMTP vs CMJ)
+
+Un mapa del gimnasio con meta: todos apuntan a "Completo". No es una norma
+de literatura.
+
+1. Ejes en % de la meta por sexo: X = IMTP relativo bruto (ultima toma), Y =
+   CMJ por tiempo de vuelo (ultima valida). Metas por defecto: CMJ varones
+   40 cm, mujeres 30 cm; IMTP provisoria = mediana de la ultima toma por
+   atleta en la era vigente, por sexo (con los datos reales: varones 48.1
+   N/kg con 3 atletas; mujeres sin datos en Involution -> sin definir).
+2. Metas editables en Team > "Metas del mapa (solo profe)": cada cambio es
+   una fila con fecha (CSV local + Supabase, dataset_rows con dataset_key
+   "quadrant_goals"); vale la ultima. Metas vigentes en la leyenda.
+3. Cuadrantes con lineas al 100%: Completo / Fuerte - falta explosividad /
+   Explosivo - falta fuerza / Base, cada uno con "que trabajar".
+4. Color por grupo de edad (<18, 18-29, 30-44, 45+) desde la fecha de
+   nacimiento; sin fecha, gris "edad sin cargar".
+5. Todos los atletas con sexo, meta, IMTP y CMJ se ubican. Protocolo anterior
+   o evaluacion de mas de 12 semanas: relleno claro y "Evaluacion DD/MM/AAAA
+   · protocolo anterior"; en dashboard y PDF profe se agrega "con el
+   protocolo anterior el IMTP suele dar mas bajo (~30%); posicion
+   orientativa". Sin sexo o sin meta: listados aparte.
+6. Dashboard (Team) y PDF profe: todos con nombre (rotulo corto + tabla con
+   nombre completo). PDF atleta y cliente: "Tu lugar en el mapa del
+   gimnasio" con el atleta resaltado y el resto anonimo, su cuadrante y su
+   "que trabajar" en una frase.
+7. Recorrido: flecha de la ubicacion anterior a la actual; punteada si cruza
+   protocolos.
+
+Tests: `tests/test_strength_quadrant.py`.
+
 ## 2026-11-06 - PR G: "Como venis aguantando" (bienestar y carga en atleta/cliente)
 
 Problema real: Ignacio De La Vega tiene 42 registros de bienestar y su PDF no

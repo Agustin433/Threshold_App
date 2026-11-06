@@ -12114,6 +12114,52 @@ def _generate_professional_profile_pdf_reportlab(
                 )
             )
 
+    try:
+        gym_map = _strength_quadrant_map(state)
+    except Exception:
+        logger.exception("No se pudo armar el mapa Fuerza vs Explosividad")
+        gym_map = None
+
+    def _append_gym_map_page(target: list[object]) -> None:
+        from charts.quadrant_charts import chart_strength_quadrant
+        from modules.strength_quadrant import WHAT_TO_WORK
+
+        target.append(
+            _page_header(
+                "Mapa del gimnasio: Fuerza vs Explosividad",
+                "IMTP relativo y CMJ por vuelo en % de la meta del gimnasio (por sexo). La meta es llegar a Completo; no es una norma de literatura.",
+                eyebrow="Metas del gimnasio",
+            )
+        )
+        target.append(Spacer(1, 3 * mm))
+        figure = chart_strength_quadrant(gym_map, theme=_build_report_chart_theme(), mode="print", highlight=report_athlete)
+        image = render_print_chart_image(figure, ImageClass=Image, mm_unit=mm) if figure is not None else None
+        if image is not None:
+            target.append(image)
+        target.append(_p(QUADRANT_LIGHT_POINT_NOTE, "ProfMuted"))
+        target.append(Spacer(1, 3 * mm))
+        rows = []
+        for placement in sorted(gym_map.placements, key=lambda p: p.athlete):
+            rows.append(
+                {
+                    "Atleta": placement.athlete,
+                    "IMTP": f"{placement.imtp:.1f} N/kg ({placement.pct_imtp:.0f}%)",
+                    "CMJ vuelo": f"{placement.cmj:.1f} cm ({placement.pct_cmj:.0f}%)",
+                    "Cuadrante / qué trabajar": f"{placement.quadrant}: {WHAT_TO_WORK[placement.quadrant]}",
+                    "Aviso": placement.note(professional=True) or "-",
+                }
+            )
+        target.append(_dataframe_table(pd.DataFrame(rows), col_widths_mm=[28, 26, 24, 50, 46]))
+        if gym_map.unplaced:
+            target.append(Spacer(1, 3 * mm))
+            target.append(
+                _box(
+                    [_p("Sin ubicar", "ProfCardTitle")]
+                    + [_p(f"{name}: {reason}", "ProfMuted") for name, reason in gym_map.unplaced],
+                    padding=6,
+                )
+            )
+
     def _append_full_quadrants_page(target: list[object]) -> None:
         target.append(
             _page_header(
@@ -12542,6 +12588,9 @@ def _generate_professional_profile_pdf_reportlab(
     if _professional_any_quadrant_ready(quadrant_sections):
         story.append(PageBreak())
         _append_full_quadrants_page(story)
+    if gym_map is not None and gym_map.placements:
+        story.append(PageBreak())
+        _append_gym_map_page(story)
     if isometric_payload.get("state") != "missing":
         story.append(PageBreak())
         _append_full_isometrics_page(story)
@@ -12575,6 +12624,40 @@ def _individual_raw_history(state: dict[str, object]) -> pd.DataFrame | None:
         if isinstance(frame, pd.DataFrame) and not frame.empty:
             return frame
     return None
+
+
+def _strength_quadrant_map(state: dict[str, object]):
+    """Mapa Fuerza vs Explosividad del gimnasio con el historial completo del equipo."""
+    from modules.strength_quadrant import GOALS_COLUMNS, build_quadrant_map, load_goal_history
+
+    history = state.get("quadrant_goal_history_df")
+    if not isinstance(history, pd.DataFrame):
+        try:
+            history = load_goal_history()
+        except Exception:
+            history = pd.DataFrame(columns=GOALS_COLUMNS)
+    team = _professional_jump_history(state, "Todos")
+    return build_quadrant_map(team, _state_profile_df(state), today=_professional_report_today(), goal_history=history)
+
+
+def _strength_map_payload(state: dict[str, object], athlete: str, has_evaluation: bool) -> dict[str, object]:
+    """Mapa del gimnasio para el reporte individual: el mapa y el resumen del atleta."""
+    if not has_evaluation:
+        return {"strength_map": None, "strength_summary": None}
+    from modules.strength_quadrant import athlete_summary
+
+    try:
+        quadrant_map = _strength_quadrant_map(state)
+    except Exception:
+        logger.exception("No se pudo armar el mapa Fuerza vs Explosividad de %s", athlete)
+        return {"strength_map": None, "strength_summary": None}
+    return {"strength_map": quadrant_map, "strength_summary": athlete_summary(quadrant_map, athlete)}
+
+
+QUADRANT_LIGHT_POINT_NOTE = (
+    "Punto claro: evaluación con protocolo anterior o de más de 12 semanas — con el protocolo anterior "
+    "el IMTP suele dar más bajo (~30%); posición orientativa."
+)
 
 
 def _individual_history_frame(state: dict[str, object], *keys: str) -> pd.DataFrame | None:
@@ -12738,6 +12821,7 @@ def build_individual_report_payload(
         "evolution": ar.evolution_series(history, audience) if has_evaluation else [],
         "position": ar.group_position(composite.get("profile_row"), audience) if has_evaluation else None,
         "tiles": ar.today_tiles(history, audience) if has_evaluation else [],
+        **_strength_map_payload(state, athlete, has_evaluation),
         "strength_df": strength_df,
         "load": load,
         "wellness": wellness,
@@ -13282,6 +13366,37 @@ def _generate_visual_report_pdf_reportlab(
             )
             story.append(Spacer(1, 4 * mm))
 
+        # ── Tu lugar en el mapa del gimnasio ───────────────────────────
+        # Solo si el atleta esta ubicado (tiene sexo, meta, IMTP y CMJ). El
+        # resto de los puntos va anonimo.
+        strength_summary = payload.get("strength_summary")
+        if strength_summary:
+            from charts.quadrant_charts import chart_strength_quadrant
+
+            try:
+                map_figure = chart_strength_quadrant(
+                    payload.get("strength_map"), theme=theme, mode="print", highlight=effective_athlete,
+                    anonymous=True, print_height_mm=INDIVIDUAL_STRENGTH_MAP_MM,
+                )
+            except Exception:
+                logger.exception("No se pudo armar el mapa del gimnasio")
+                map_figure = None
+            map_image = (
+                _chart({"figure": map_figure, "print": True}, height_mm=INDIVIDUAL_STRENGTH_MAP_MM)
+                if map_figure is not None
+                else None
+            )
+            if map_image is not None:
+                map_block = [
+                    _section_title("Tu lugar en el mapa del gimnasio"),
+                    Spacer(1, 2 * mm),
+                    _tp(STRENGTH_MAP_SUBTITLE, "ReportMuted"),
+                    map_image,
+                    _note("", [strength_summary["sentence"]] + ([strength_summary["note"]] if strength_summary.get("note") else [])),
+                ]
+                story.append(KeepTogether(map_block))
+                story.append(Spacer(1, 4 * mm))
+
         focus = str(payload.get("focus") or "").strip()
         if focus:
             story.append(_note("Foco del próximo bloque", focus, accent="steel", background="panel"))
@@ -13673,6 +13788,11 @@ def _build_individual_pdf_with_layout(story, scalable_images, *, on_page, doc_cl
 INDIVIDUAL_STRENGTH_CHART_MM = 54.0
 INDIVIDUAL_EVOLUTION_CHART_MM = 58.0
 INDIVIDUAL_TOLERANCE_CHART_MM = 52.0
+INDIVIDUAL_STRENGTH_MAP_MM = 92.0
+STRENGTH_MAP_SUBTITLE = (
+    "Fuerza máxima y salto en % de la meta del gimnasio para tu sexo. La meta es llegar a Completo "
+    "(arriba a la derecha). Los demás puntos son tus compañeros, sin nombre."
+)
 TOLERANCE_BAND_CAPTION = (
     "Línea: tu bienestar de cada día (0-30). Franja verde: tu rango habitual (media ± 1 DE de tus 28 días previos). "
     "Barras: tu carga semanal (sRPE)."
