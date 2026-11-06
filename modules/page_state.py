@@ -674,21 +674,30 @@ REPORT_HISTORY_EXTRAS_VERSION_KEY = "report_history_extras_version"
 
 
 def ensure_report_history_extras() -> dict[str, object]:
-    """Historial completo de Raw Workouts y maxes para "Lo que lograste".
+    """Historial completo de Raw Workouts, maxes, bienestar y sRPE para el reporte individual.
 
     Las mejores marcas y la fuerza estimada comparan contra todo el historial,
     no contra la ventana reciente. Raw sale del mismo cache que los modelos de
     carga; maxes se lee una vez por version del store.
     """
     _ensure_session_defaults()
-    version = current_local_store_version(keys=["raw_df", "maxes_df"])
+    version = current_local_store_version(keys=["raw_df", "maxes_df", "wellness_df", "rpe_df"])
     cached = st.session_state.get(REPORT_HISTORY_EXTRAS_KEY)
     if isinstance(cached, dict) and st.session_state.get(REPORT_HISTORY_EXTRAS_VERSION_KEY) == version:
         return cached
-    extras: dict[str, object] = {"raw_history_df": None, "maxes_history_df": None}
+    extras: dict[str, object] = {
+        "raw_history_df": None,
+        "maxes_history_df": None,
+        "wellness_history_df": None,
+        "rpe_history_df": None,
+    }
     try:
         full_state = ensure_full_history_state(keys=LOAD_DATASET_KEYS)
         extras["raw_history_df"] = full_state.get("raw_df")
+        # "Como venis aguantando": la banda personal usa los 28 dias previos
+        # a cada registro, asi que necesita historia antes de la ventana.
+        extras["wellness_history_df"] = full_state.get("wellness_df")
+        extras["rpe_history_df"] = full_state.get("rpe_df")
     except Exception:
         pass
     try:

@@ -842,3 +842,179 @@ def today_tiles(history: pd.DataFrame | None, audience: str = ATHLETE) -> list[d
             note += f" · {PREVIOUS_PROTOCOL_LABEL}" if era != CURRENT_ERA else f" · {era_label(era)}"
         tiles.append({"variable": column, "label": client_label if client else label, "value": value_text, "note": note})
     return tiles
+
+
+# ── "Como venis aguantando" (PR G): bienestar y carga en 6 semanas ─────────
+# Ventana = la del reporte (6 semanas). Antes solo se miraba la ultima
+# semana completa con >= 3 dias: un atleta con 42 registros (Ignacio) que
+# carga 1-2 por semana nunca veia su bienestar.
+TOLERANCE_FULL_MIN_RECORDS = 6
+TOLERANCE_POINTS_MIN_RECORDS = 3
+# Banda personal: media +/- 1 DE de los 28 dias previos a cada registro. Con
+# menos de 5 registros previos la DE no se calcula (sin banda en ese punto).
+TOLERANCE_BAND_MIN_PRIOR = 5
+# Desvio medio (en DE de la banda) para decir "por debajo" o "mejor".
+TOLERANCE_SIGNAL_SD = 0.5
+TOLERANCE_MODE_FULL = "completo"
+TOLERANCE_MODE_POINTS = "puntos"
+FEW_RECORDS_LABEL = "pocos registros"
+
+TOLERANCE_SENTENCES = {
+    "within": "Venís dentro de tu rango habitual.",
+    "below": "Las últimas semanas venís por debajo de tu rango: cuidemos sueño y recuperación.",
+    "above": "Venís mejor que tu promedio.",
+    "unknown": "Con pocos registros todavía no podemos decir si venís dentro de tu rango habitual.",
+}
+LOW_WELLNESS_CLASSES = ("Atención", "Crítico")
+TOLERANCE_WITHIN_LOW_SENTENCE = (
+    "Venís dentro de tu rango habitual, pero ese rango está bajo en la escala: cuidemos sueño, estrés y dolor."
+)
+# (columna, rotulo, unidad, mayor_es_mejor)
+TOLERANCE_COMPONENTS = (
+    ("Sueno_hs", "el sueño", " h", True),
+    ("Estres", "el estrés", "/10", False),
+    ("Dolor", "el dolor", "/10", False),
+)
+
+
+def _athlete_rows(frame: pd.DataFrame | None, athlete: str) -> pd.DataFrame:
+    if frame is None or frame.empty or "Athlete" not in frame.columns or "Date" not in frame.columns:
+        return pd.DataFrame()
+    key = str(athlete).strip().casefold()
+    rows = frame[frame["Athlete"].astype(str).str.strip().str.casefold() == key].copy()
+    rows["Date"] = pd.to_datetime(rows["Date"], errors="coerce").dt.normalize()
+    return rows.dropna(subset=["Date"])
+
+
+def _wellness_scores(rows: pd.DataFrame) -> pd.Series:
+    if "Wellness_Score" in rows.columns and pd.to_numeric(rows["Wellness_Score"], errors="coerce").notna().any():
+        return pd.to_numeric(rows["Wellness_Score"], errors="coerce")
+    from modules.report_generator import _report_wellness_score_series
+
+    return _report_wellness_score_series(rows)
+
+
+def _component_highlight(rows: pd.DataFrame, start: pd.Timestamp) -> str | None:
+    """El componente (sueno, estres, dolor) que mas se movio vs su historia previa."""
+    best: tuple[float, str] | None = None
+    for column, name, unit, higher_is_better in TOLERANCE_COMPONENTS:
+        if column not in rows.columns:
+            continue
+        values = pd.to_numeric(rows[column], errors="coerce")
+        window = values[rows["Date"] > start].dropna()
+        prior = values[rows["Date"] <= start].dropna()
+        if len(window) < TOLERANCE_POINTS_MIN_RECORDS or len(prior) < TOLERANCE_POINTS_MIN_RECORDS:
+            continue
+        sd = float(prior.std(ddof=1))
+        if not sd or math.isnan(sd):
+            continue
+        change = (float(window.mean()) - float(prior.mean())) / sd
+        if abs(change) < TOLERANCE_SIGNAL_SD:
+            continue
+        better = (change > 0) == higher_is_better
+        direction = "mejor" if better else "peor"
+        text = (
+            f"Lo que más se movió fue {name}: {float(window.mean()):.1f}{unit} en estas semanas "
+            f"vs {float(prior.mean()):.1f}{unit} antes ({direction} que lo habitual)."
+        )
+        if best is None or abs(change) > best[0]:
+            best = (abs(change), text)
+    return best[1] if best else None
+
+
+def tolerance_reading(
+    wellness_df: pd.DataFrame | None,
+    rpe_df: pd.DataFrame | None,
+    athlete: str,
+    *,
+    today: object,
+    window_days: int = ACHIEVEMENT_WINDOW_DAYS,
+) -> dict[str, object] | None:
+    """"Como venis aguantando": bienestar diario de las 6 semanas y carga semanal.
+
+    - >= 6 registros en la ventana: grafico completo (banda personal).
+    - 3-5: puntos sin banda, rotulado "pocos registros".
+    - < 3: None (queda solo como proximo paso).
+    La banda se calcula con todo el historial (los 28 dias previos a cada
+    registro), aunque se muestren solo las 6 semanas.
+    """
+    from charts.report_charts import wellness_band
+
+    end = pd.Timestamp(today).normalize()
+    start = end - pd.Timedelta(days=int(window_days))
+    rows = _athlete_rows(wellness_df, athlete)
+    if rows.empty:
+        return None
+    rows = rows[rows["Date"] <= end]
+    rows["score"] = _wellness_scores(rows)
+    scored = rows.dropna(subset=["score"])
+    in_window = scored[scored["Date"] > start]
+    n_records = int(in_window["Date"].nunique())
+    if n_records < TOLERANCE_POINTS_MIN_RECORDS:
+        return None
+    mode = TOLERANCE_MODE_FULL if n_records >= TOLERANCE_FULL_MIN_RECORDS else TOLERANCE_MODE_POINTS
+
+    band = wellness_band(scored["Date"], scored["score"], min_records=TOLERANCE_BAND_MIN_PRIOR)
+    band = band[band["Date"] > start].reset_index(drop=True)
+    if mode != TOLERANCE_MODE_FULL:
+        band[["band_mean", "band_sd", "band_low", "band_high"]] = float("nan")
+
+    # Frase: desvio medio de la ventana respecto de la banda personal. Sin
+    # banda (pocos registros) se compara contra toda la historia previa.
+    signal = "unknown"
+    with_band = band.dropna(subset=["band_mean", "band_sd"])
+    with_band = with_band[with_band["band_sd"] > 0]
+    deviation: float | None = None
+    if not with_band.empty:
+        deviation = float(((with_band["score"] - with_band["band_mean"]) / with_band["band_sd"]).mean())
+    else:
+        prior = scored[scored["Date"] <= start]["score"]
+        if len(prior) >= TOLERANCE_BAND_MIN_PRIOR and float(prior.std(ddof=1) or 0) > 0:
+            deviation = (float(in_window["score"].mean()) - float(prior.mean())) / float(prior.std(ddof=1))
+    if deviation is not None:
+        signal = "below" if deviation <= -TOLERANCE_SIGNAL_SD else "above" if deviation >= TOLERANCE_SIGNAL_SD else "within"
+
+    sentences = [TOLERANCE_SENTENCES[signal]]
+    window_class = wellness_score_class(float(in_window["score"].mean()))
+    if signal == "unknown":
+        # Sin referencia propia queda el dato absoluto, con su escala.
+        sentences.append(f"Promedio de estas semanas: {float(in_window['score'].mean()):.1f}/30 ({window_class}).")
+    if signal == "within" and window_class in LOW_WELLNESS_CLASSES:
+        # Relativo y absoluto no se contradicen: su rango habitual es bajo.
+        sentences = [TOLERANCE_WITHIN_LOW_SENTENCE]
+    highlight = _component_highlight(rows, start)
+    if highlight:
+        sentences.append(highlight)
+
+    weekly_load = pd.DataFrame(columns=["week_start", "load"])
+    rpe_rows = _athlete_rows(rpe_df, athlete)
+    if not rpe_rows.empty:
+        rpe_rows = rpe_rows[(rpe_rows["Date"] > start) & (rpe_rows["Date"] <= end)]
+        load = pd.to_numeric(rpe_rows.get("sRPE"), errors="coerce") if "sRPE" in rpe_rows.columns else None
+        if load is None or load.isna().all():
+            rpe = pd.to_numeric(rpe_rows.get("RPE"), errors="coerce")
+            minutes = pd.to_numeric(rpe_rows.get("Duration_min"), errors="coerce")
+            load = rpe * minutes if rpe is not None and minutes is not None else None
+        if load is not None:
+            rpe_rows = rpe_rows.assign(load=load).dropna(subset=["load"])
+            if not rpe_rows.empty:
+                rpe_rows["week_start"] = rpe_rows["Date"] - pd.to_timedelta(rpe_rows["Date"].dt.dayofweek, unit="D")
+                weekly_load = rpe_rows.groupby("week_start", as_index=False)["load"].sum()
+                # Una semana que empieza antes de la ventana esta incompleta: su
+                # barra quedaria baja sin que la carga haya bajado.
+                weekly_load = weekly_load[weekly_load["week_start"] >= start].reset_index(drop=True)
+
+    return {
+        "mode": mode,
+        "n_records": n_records,
+        "window_start": start,
+        "window_end": end,
+        "points": band[["Date", "score", "band_mean", "band_low", "band_high"]],
+        "weekly_load": weekly_load,
+        "signal": signal,
+        "deviation": deviation,
+        "sentences": sentences,
+        "window_mean": round(float(in_window["score"].mean()), 1),
+        "window_class": window_class,
+        "few_records": mode == TOLERANCE_MODE_POINTS,
+    }

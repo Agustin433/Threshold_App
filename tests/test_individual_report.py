@@ -454,9 +454,12 @@ class IndividualPdfTests(unittest.TestCase):
     def test_single_wellness_value_in_cover_and_section(self):
         pages = self._pdf(_pdf_state(TOMAS, with_wellness=True), "Tomas De La Vega")
         joined = " ".join(pages)
-        self.assertEqual(len(set(re.findall(r"(\d+\.\d) /30", joined))), 1)
+        self.assertEqual(len(set(re.findall(r"(\d+\.\d) ?/30", joined))), 1)
         self.assertIn("(19/10/2026-25/10/2026)", joined)
-        self.assertIn("pide atencion", joined)
+        # PR G: 3 registros en 6 semanas -> "pocos registros"; la frase da el
+        # mismo valor y la misma clase que la tabla.
+        self.assertIn("promedio de estas semanas: 13.0/30 (atencion)", joined)
+        self.assertIn("13.0 /30 (atencion)", joined)
 
     def test_client_pdf_keeps_plain_language(self):
         joined = " ".join(self._pdf(_pdf_state(TOMAS), "Tomas De La Vega", "cliente"))

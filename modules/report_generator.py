@@ -12577,6 +12577,15 @@ def _individual_raw_history(state: dict[str, object]) -> pd.DataFrame | None:
     return None
 
 
+def _individual_history_frame(state: dict[str, object], *keys: str) -> pd.DataFrame | None:
+    """Primer DataFrame no vacio entre las claves (historial completo antes que ventana)."""
+    for key in keys:
+        frame = state.get(key)
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            return frame
+    return None
+
+
 def _individual_maxes_history(state: dict[str, object]) -> pd.DataFrame | None:
     for key in ("maxes_history_df", "maxes_df"):
         frame = state.get(key)
@@ -12653,6 +12662,14 @@ def build_individual_report_payload(
         audience=audience,
     )
     wellness = ar.wellness_reading(_professional_wellness_context(state, athlete))
+    # "Como venis aguantando": 6 semanas de bienestar (banda con el historial
+    # completo) y carga semanal. Reemplaza la regla de 3 dias en la ultima semana.
+    tolerance = ar.tolerance_reading(
+        _individual_history_frame(state, "wellness_history_df", "wellness_df"),
+        _individual_history_frame(state, "rpe_history_df", "rpe_df"),
+        athlete,
+        today=today,
+    )
 
     imtp_value = None
     imtp_date = None
@@ -12691,7 +12708,9 @@ def build_individual_report_payload(
         has_comparison=has_comparison,
         evaluation_stale=bool(staleness),
         load_available=load is not None,
-        wellness_available=wellness is not None,
+        # Con grafico completo (>= 6 registros en 6 semanas) no hace falta
+        # pedir mas registros; con 3-5 se muestran puntos y se sigue pidiendo.
+        wellness_available=tolerance is not None and tolerance["mode"] == ar.TOLERANCE_MODE_FULL,
         audience=audience,
     )
     next_evaluation = ar.next_evaluation_line(evaluation_dates[-1], today) if evaluation_dates else None
@@ -12722,6 +12741,7 @@ def build_individual_report_payload(
         "strength_df": strength_df,
         "load": load,
         "wellness": wellness,
+        "tolerance": tolerance,
         "next_steps": steps,
         "next_evaluation": next_evaluation,
         "has_evaluation": has_evaluation,
@@ -13063,7 +13083,7 @@ def _generate_visual_report_pdf_reportlab(
         # payload que usa el dashboard.
         from reportlab.platypus import KeepTogether
 
-        from charts.athlete_charts import chart_athlete_evolution, chart_group_position
+        from charts.athlete_charts import chart_athlete_evolution, chart_group_position, chart_tolerance
         from charts.load_charts import chart_estimated_strength
         from charts.report_charts import PRINT_CANVAS_WIDTH_PX, PRINT_WIDTH_MM
         from modules.athlete_report import dictionary_lines
@@ -13320,33 +13340,52 @@ def _generate_visual_report_pdf_reportlab(
             )
             story.append(Spacer(1, 4 * mm))
 
-        # ── Carga ───────────────────────────────────────────────────────
-        if load:
-            block = [_section_title("Carga reciente"), Spacer(1, 3 * mm)]
-            if load.get("sentences"):
-                block.append(_note("", list(load["sentences"])))
+        # ── Como venis aguantando: bienestar (6 semanas) y carga ────────
+        # Reemplaza las secciones "Carga reciente" y "Bienestar": un solo
+        # grafico con el bienestar y su banda personal y la carga semanal.
+        tolerance = payload.get("tolerance")
+        if tolerance or load or wellness:
+            block = [_section_title("Cómo venís aguantando"), Spacer(1, 3 * mm)]
+            sentences = list(tolerance["sentences"]) if tolerance else []
+            if load and load.get("sentences"):
+                sentences.extend(list(load["sentences"]))
+            if not tolerance and wellness:
+                sentences.append(str(wellness["sentence"]))
+            if sentences:
+                block.append(_note("", sentences))
                 block.append(Spacer(1, 3 * mm))
-            load_image = _chart(
-                chart_payloads.get("sessions_per_week" if is_client else "load"),
-                height_mm=INDIVIDUAL_LOAD_CHART_MM,
-            )
-            if load_image is not None:
-                block.append(load_image)
-                block.append(Spacer(1, 3 * mm))
-            if load.get("rows"):
-                block.append(_rows_table(list(load["rows"])))
-            _append_section(block)
-            story.append(Spacer(1, 4 * mm))
-
-        # ── Bienestar ───────────────────────────────────────────────────
-        if wellness:
-            block = [_section_title("Bienestar"), Spacer(1, 3 * mm), _note("", wellness["sentence"]), Spacer(1, 3 * mm)]
-            wellness_image = _chart(chart_payloads.get("wellness"), height_mm=INDIVIDUAL_WELLNESS_CHART_MM)
-            if wellness_image is not None:
-                block.append(wellness_image)
-                block.append(Spacer(1, 3 * mm))
-            block.append(_rows_table(list(wellness["rows"]), paired=True))
-            _append_section(block)
+            tolerance_image = None
+            if tolerance:
+                try:
+                    tolerance_figure = chart_tolerance(
+                        tolerance, theme=theme, mode="print", print_height_mm=INDIVIDUAL_TOLERANCE_CHART_MM
+                    )
+                except Exception:
+                    logger.exception("No se pudo armar el grafico de bienestar y carga")
+                    tolerance_figure = None
+                if tolerance_figure is not None:
+                    tolerance_image = _chart(
+                        {"figure": tolerance_figure, "print": True}, height_mm=INDIVIDUAL_TOLERANCE_CHART_MM
+                    )
+            elif load:
+                tolerance_image = _chart(
+                    chart_payloads.get("sessions_per_week" if is_client else "load"),
+                    height_mm=INDIVIDUAL_LOAD_CHART_MM,
+                )
+            if tolerance_image is not None:
+                block.append(tolerance_image)
+                if tolerance and tolerance.get("few_records"):
+                    block.append(_tp(TOLERANCE_FEW_RECORDS_CAPTION, "ReportMuted"))
+                elif tolerance:
+                    block.append(_tp(TOLERANCE_BAND_CAPTION, "ReportMuted"))
+            # Titulo, frase, grafico y leyenda juntos: la frase describe el grafico.
+            story.append(KeepTogether(block))
+            table_rows = list(load.get("rows") or []) if load else []
+            if wellness:
+                table_rows.extend(list(wellness["rows"]))
+            if table_rows:
+                story.append(Spacer(1, 3 * mm))
+                story.append(_rows_table(table_rows, paired=True))
             story.append(Spacer(1, 4 * mm))
 
         # ── Proximos pasos ──────────────────────────────────────────────
@@ -13633,6 +13672,14 @@ def _build_individual_pdf_with_layout(story, scalable_images, *, on_page, doc_cl
 # tipico (fuerza + carga + bienestar) entra en 2 paginas.
 INDIVIDUAL_STRENGTH_CHART_MM = 54.0
 INDIVIDUAL_EVOLUTION_CHART_MM = 58.0
+INDIVIDUAL_TOLERANCE_CHART_MM = 52.0
+TOLERANCE_BAND_CAPTION = (
+    "Línea: tu bienestar de cada día (0-30). Franja verde: tu rango habitual (media ± 1 DE de tus 28 días previos). "
+    "Barras: tu carga semanal (sRPE)."
+)
+TOLERANCE_FEW_RECORDS_CAPTION = (
+    "Pocos registros en estas 6 semanas: se muestran los puntos sin tu rango habitual."
+)
 EVOLUTION_BAND_CAPTION = (
     "Banda gris: cambio menor al error de medición (max(TE, SWC)) desde tu primera toma. "
     "Un punto por evaluación."
