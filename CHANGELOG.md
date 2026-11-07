@@ -2,6 +2,29 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-07 - PR H: coherencia del reporte atleta/cliente (PDFs reales del 06/11)
+
+1. "Foco del proximo bloque" sale del cuadrante del mapa del gimnasio cuando
+   el atleta esta ubicado: Base -> fuerza primero; Explosivo - falta fuerza
+   -> fuerza maxima; Fuerte - falta explosividad -> potencia, pliometria y
+   balistica; Completo -> mantener y transferir. (Anadon, Reinoso y Cornet
+   decian "Mantener el bloque actual" estando en Base; Ignacio decia
+   "repetir IMTP" estando en "falta fuerza".) Los avisos de IMTP (repetir /
+   protocolo anterior) pasan a Proximos pasos. Sin ubicacion en el mapa, la
+   logica de siempre. Debajo del mapa queda solo el cuadrante (el "que
+   trabajar" es el foco, sin repetirlo).
+2. Sin "Tu referencia actual" en "Lo que lograste" (PDF y dashboard):
+   duplicaba "Tus numeros hoy" con otro metodo y otra fecha.
+3. PDF atleta/cliente con una sola ventana (6 semanas): sin las tablas ni las
+   frases de la "ultima semana completa" de carga y bienestar (Florencia
+   sueno 6.6 vs 8.0 h; Giffon estres 5.1 vs 6.3). Siguen en el PDF profe.
+4. "Tu evolucion": si la ultima toma baja mas que max(TE, SWC) respecto de
+   la anterior, frase neutra: "Tu <metrica> bajo entre el <fecha> y el
+   <fecha>; la proxima evaluacion nos dice como estas hoy." (Anadon: CMJ por
+   vuelo 36.6 -> 32.6 cm).
+
+Tests: `tests/test_report_coherence.py`.
+
 ## 2026-11-06 - PR F: mapa Fuerza vs Explosividad del gimnasio (IMTP vs CMJ)
 
 Un mapa del gimnasio con meta: todos apuntan a "Completo". No es una norma

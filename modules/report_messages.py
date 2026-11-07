@@ -22,6 +22,9 @@ NEXT_STEP_RPE = "rpe"
 NEXT_STEP_WELLNESS = "wellness"
 NEXT_STEP_FIRST_COMPARISON = "first_comparison"
 NEXT_STEP_REEVALUATE = "reevaluate"
+# Avisos de IMTP que antes ocupaban el "Foco del proximo bloque" (PR H).
+NEXT_STEP_IMTP_REPEAT = "imtp_repeat"
+NEXT_STEP_IMTP_PREVIOUS_PROTOCOL = "imtp_previous_protocol"
 
 NEXT_STEPS_MAX = 2
 
@@ -33,6 +36,14 @@ NEXT_STEP_TEXT: dict[str, dict[str, str]] = {
     NEXT_STEP_REEVALUATE: {
         "atleta": "Coordiná una nueva evaluación: con tu medición actual vamos a ver cuánto cambiaste desde la última.",
         "cliente": "Coordiná una nueva evaluación: con tu medición actual vamos a ver tu progreso desde la última.",
+    },
+    NEXT_STEP_IMTP_REPEAT: {
+        "atleta": "Repetí el IMTP en la próxima evaluación: así tenés una referencia propia de fuerza máxima con el protocolo actual.",
+        "cliente": "Repetí la medición de fuerza máxima en la próxima evaluación: así tenés una referencia propia para comparar.",
+    },
+    NEXT_STEP_IMTP_PREVIOUS_PROTOCOL: {
+        "atleta": "Tu última medición de IMTP es con el protocolo anterior: en la próxima evaluación tomamos una nueva referencia.",
+        "cliente": "Tu última medición de fuerza máxima es con el protocolo anterior: en la próxima evaluación tomamos una nueva referencia.",
     },
     NEXT_STEP_RPE: {
         "atleta": "Registrá tu RPE al terminar cada sesión: con 3 por semana ya podemos leer tu carga.",
@@ -49,6 +60,8 @@ NEXT_STEP_TEXT: dict[str, dict[str, str]] = {
 NEXT_STEP_PRIORITY = (
     NEXT_STEP_FIRST_COMPARISON,
     NEXT_STEP_REEVALUATE,
+    NEXT_STEP_IMTP_PREVIOUS_PROTOCOL,
+    NEXT_STEP_IMTP_REPEAT,
     NEXT_STEP_RPE,
     NEXT_STEP_WELLNESS,
 )

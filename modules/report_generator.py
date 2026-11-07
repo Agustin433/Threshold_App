@@ -12786,6 +12786,15 @@ def build_individual_report_payload(
             radar_axes = _count_renderable_radar_axes(build_profile_radar_row(history))
         except Exception:
             radar_axes = 0
+    strength_payload = _strength_map_payload(state, athlete, has_evaluation)
+    # PR H: si el atleta esta ubicado en el mapa del gimnasio, el foco sale de
+    # su cuadrante; los avisos de IMTP (repetir / protocolo anterior) pasan a
+    # Proximos pasos. Sin ubicacion, la logica de siempre.
+    focus = ar.focus_text(profile, history, audience) if has_evaluation else ""
+    imtp_step = None
+    if strength_payload.get("strength_summary"):
+        focus = ar.quadrant_focus_text(strength_payload["strength_summary"]["quadrant"])
+        imtp_step = ar.imtp_next_step(profile)
     steps = ar.next_steps(
         has_evaluation=has_evaluation,
         has_comparison=has_comparison,
@@ -12795,6 +12804,7 @@ def build_individual_report_payload(
         # pedir mas registros; con 3-5 se muestran puntos y se sigue pidiendo.
         wellness_available=tolerance is not None and tolerance["mode"] == ar.TOLERANCE_MODE_FULL,
         audience=audience,
+        imtp_step=imtp_step,
     )
     next_evaluation = ar.next_evaluation_line(evaluation_dates[-1], today) if evaluation_dates else None
     if next_evaluation and next_evaluation.startswith("Ya corresponde") and has_evaluation and (not has_comparison or staleness):
@@ -12815,13 +12825,13 @@ def build_individual_report_payload(
         "unusual_changes": ar.unusual_changes_for_professional(changes),
         "changes": changes,
         "profile": ar.profile_reading(profile, composite, audience) if has_evaluation else {"label": None, "summary": None, "strengths": None},
-        "focus": ar.focus_text(profile, history, audience) if has_evaluation else "",
+        "focus": focus,
         "imtp": {"value": imtp_value, "date": imtp_date} if imtp_value is not None else None,
         # PR E: contenido visual (mismas funciones para PDF y dashboard).
         "evolution": ar.evolution_series(history, audience) if has_evaluation else [],
         "position": ar.group_position(composite.get("profile_row"), audience) if has_evaluation else None,
         "tiles": ar.today_tiles(history, audience) if has_evaluation else [],
-        **_strength_map_payload(state, athlete, has_evaluation),
+        **strength_payload,
         "strength_df": strength_df,
         "load": load,
         "wellness": wellness,
@@ -13079,31 +13089,6 @@ def _generate_visual_report_pdf_reportlab(
             bottom_padding=5,
         )
 
-    def _paired_key_value_table(rows: list[tuple[str, str]]) -> Table:
-        """Dos pares etiqueta/valor por fila: la mitad de alto que la tabla simple."""
-        data = []
-        for start in range(0, len(rows), 2):
-            line: list[object] = []
-            for label, value in rows[start : start + 2]:
-                line.extend([_p(str(label), "CardLabel"), _p(safe_value(value, fallback=PDF_MISSING_TEXT), "ReportMuted")])
-            while len(line) < 4:
-                line.append("")
-            data.append(line)
-        return _build_threshold_table(
-            data,
-            TableClass=Table,
-            TableStyleClass=TableStyle,
-            mm_unit=mm,
-            palette=palette,
-            col_widths_mm=[42, 45, 42, 45],
-            border_width=0.7,
-            inner_grid_width=0.35,
-            left_padding=7,
-            right_padding=7,
-            top_padding=4,
-            bottom_padding=4,
-        )
-
     def _chart_image(chart_payload: dict[str, object] | None, *, width_mm: float = 174, height_mm: float = 88) -> Image | None:
         if not chart_payload:
             return None
@@ -13170,7 +13155,7 @@ def _generate_visual_report_pdf_reportlab(
         from charts.athlete_charts import chart_athlete_evolution, chart_group_position, chart_tolerance
         from charts.load_charts import chart_estimated_strength
         from charts.report_charts import PRINT_CANVAS_WIDTH_PX, PRINT_WIDTH_MM
-        from modules.athlete_report import dictionary_lines
+        from modules.athlete_report import dictionary_lines, evolution_drop_sentences
         from modules.strength_estimates import ESTIMATED_STRENGTH_LABEL
 
         is_client = audience == "cliente"
@@ -13215,13 +13200,6 @@ def _generate_visual_report_pdf_reportlab(
                 border_color=palette["line_dark"],
                 accent_color=palette[accent],
             )
-
-        def _rows_table(rows: list[tuple[str, str]], *, paired: bool = False) -> object:
-            for label, value in rows:
-                visible_text.extend([str(label), str(value)])
-            # Una tabla de seccion nunca se parte entre paginas.
-            table = _paired_key_value_table(rows) if paired else _compact_key_value_table(rows)
-            return KeepTogether([table])
 
         scalable_images: list[tuple[object, float, float]] = []
 
@@ -13286,9 +13264,8 @@ def _generate_visual_report_pdf_reportlab(
             ]
         )
         achievement_lines = [f"• {item['text']}" for item in payload.get("achievements", [])]
-        references = list(payload.get("references") or [])
-        if references:
-            achievement_lines.append("Tu referencia actual: " + " · ".join(references) + ".")
+        # PR H: sin "Tu referencia actual": duplicaba "Tus numeros hoy" con
+        # otro metodo y otra fecha (Anadon 32.4 vs 32.6 cm).
         if achievement_lines:
             story.append(
                 _build_decision_box(
@@ -13327,6 +13304,7 @@ def _generate_visual_report_pdf_reportlab(
                         evolution_image,
                         _tp(EVOLUTION_BAND_CAPTION, "ReportMuted"),
                     ]
+                    + [_tp(sentence, "ReportBody") for sentence in evolution_drop_sentences(payload.get("evolution"))]
                 )
             )
             story.append(Spacer(1, 4 * mm))
@@ -13392,7 +13370,13 @@ def _generate_visual_report_pdf_reportlab(
                     Spacer(1, 2 * mm),
                     _tp(STRENGTH_MAP_SUBTITLE, "ReportMuted"),
                     map_image,
-                    _note("", [strength_summary["sentence"]] + ([strength_summary["note"]] if strength_summary.get("note") else [])),
+                    # El "que trabajar" ya es el Foco del proximo bloque (PR H): aca
+                    # solo el cuadrante, sin repetir la frase.
+                    _note(
+                        "",
+                        [f"Hoy estás en {strength_summary['quadrant']}."]
+                        + ([strength_summary["note"]] if strength_summary.get("note") else []),
+                    ),
                 ]
                 story.append(KeepTogether(map_block))
                 story.append(Spacer(1, 4 * mm))
@@ -13462,7 +13446,9 @@ def _generate_visual_report_pdf_reportlab(
         if tolerance or load or wellness:
             block = [_section_title("Cómo venís aguantando"), Spacer(1, 3 * mm)]
             sentences = list(tolerance["sentences"]) if tolerance else []
-            if load and load.get("sentences"):
+            # Una sola ventana (6 semanas): con lectura de bienestar no se suman
+            # las frases de la ultima semana completa de carga.
+            if load and load.get("sentences") and not tolerance:
                 sentences.extend(list(load["sentences"]))
             if not tolerance and wellness:
                 sentences.append(str(wellness["sentence"]))
@@ -13495,12 +13481,9 @@ def _generate_visual_report_pdf_reportlab(
                     block.append(_tp(TOLERANCE_BAND_CAPTION, "ReportMuted"))
             # Titulo, frase, grafico y leyenda juntos: la frase describe el grafico.
             story.append(KeepTogether(block))
-            table_rows = list(load.get("rows") or []) if load else []
-            if wellness:
-                table_rows.extend(list(wellness["rows"]))
-            if table_rows:
-                story.append(Spacer(1, 3 * mm))
-                story.append(_rows_table(table_rows, paired=True))
+            # PR H: sin tablas de "ultima semana completa" (carga y bienestar):
+            # contradecian la ventana de 6 semanas (Florencia sueno 6.6 vs 8.0 h;
+            # Giffon estres 5.1 vs 6.3). Siguen en el PDF profe.
             story.append(Spacer(1, 4 * mm))
 
         # ── Proximos pasos ──────────────────────────────────────────────
