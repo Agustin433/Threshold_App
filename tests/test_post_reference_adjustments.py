@@ -324,7 +324,7 @@ class StrengthChartAndLayoutTests(unittest.TestCase):
         # (PR G: juntas en "Como venis aguantando") y cierre.
         self.assertIn("Tu fuerza", joined)
         self.assertIn("Cómo venís aguantando", joined)
-        self.assertIn("Bienestar", joined)
+        self.assertIn("bienestar", joined)
         self.assertIn("Diccionario", joined)
         self.assertGreaterEqual(len(pages), 1)
         self.assertLessEqual(len(pages), 3)

@@ -27,6 +27,7 @@ from io import BytesIO
 from pathlib import Path
 import warnings
 from charts.quadrant_charts import chart_strength_quadrant as shared_chart_strength_quadrant
+from modules.athlete_report import evolution_drop_sentences
 from charts.athlete_charts import (
     chart_athlete_evolution as shared_chart_athlete_evolution,
     chart_group_position as shared_chart_group_position,
@@ -3107,6 +3108,8 @@ def _render_athlete_visual_blocks(payload: dict[str, object]) -> None:
         st.markdown("#### 📈 Tu evolución")
         st.plotly_chart(evolution_figure, use_container_width=True)
         st.caption(EVOLUTION_BAND_CAPTION)
+        for sentence in evolution_drop_sentences(payload.get("evolution")):
+            st.markdown(sentence)
     tiles = list(payload.get("tiles") or [])
     if tiles:
         st.markdown("#### 🔢 Tus números hoy")
@@ -3146,8 +3149,6 @@ def _render_athlete_achievements(athlete: str, jump_df: pd.DataFrame | None) -> 
     if data_until is not None:
         st.caption(f"Datos hasta {pd.Timestamp(data_until):%d/%m/%Y}")
     lines = [str(item["text"]) for item in payload.get("achievements", [])]
-    if payload.get("references"):
-        lines.append("Tu referencia actual: " + " · ".join(payload["references"]) + ".")
     for line in lines:
         st.markdown(f"- {line}")
     _render_athlete_visual_blocks(payload)

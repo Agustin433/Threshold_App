@@ -455,11 +455,12 @@ class IndividualPdfTests(unittest.TestCase):
         pages = self._pdf(_pdf_state(TOMAS, with_wellness=True), "Tomas De La Vega")
         joined = " ".join(pages)
         self.assertEqual(len(set(re.findall(r"(\d+\.\d) ?/30", joined))), 1)
-        self.assertIn("(19/10/2026-25/10/2026)", joined)
-        # PR G: 3 registros en 6 semanas -> "pocos registros"; la frase da el
-        # mismo valor y la misma clase que la tabla.
+        # PR H: sin la tabla de la ultima semana completa (una sola ventana).
+        self.assertNotIn("(19/10/2026-25/10/2026)", joined)
+        # PR G: 3 registros en 6 semanas -> "pocos registros"; un solo valor,
+        # el de la ventana de 6 semanas (PR H: la tabla ya no esta).
         self.assertIn("promedio de estas semanas: 13.0/30 (atencion)", joined)
-        self.assertIn("13.0 /30 (atencion)", joined)
+        self.assertNotIn("13.0 /30 (atencion)", joined)
 
     def test_client_pdf_keeps_plain_language(self):
         joined = " ".join(self._pdf(_pdf_state(TOMAS), "Tomas De La Vega", "cliente"))

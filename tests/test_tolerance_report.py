@@ -209,14 +209,15 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(any("cuestionario de bienestar" in step for step in payload["next_steps"]))
         self.assertNotIn("Cómo venís aguantando", _pdf_text(state, "Tomas De La Vega"))
 
-    def test_giffon_keeps_last_week_table(self):
+    def test_giffon_single_window_without_last_week_table(self):
         wellness, rpe = _giffon_frames()
-        # Ultima semana completa con >= 3 dias: la tabla de bienestar se conserva.
+        # PR H: aunque la ultima semana completa tenga >= 3 dias, la tabla de
+        # esa semana ya no va en el PDF atleta (una sola ventana de 6 semanas).
         extra = _wellness("Agustin Giffon", ["2026-10-20", "2026-10-22", "2026-10-23"], [13.0, 14.0, 14.0])
         state = _state("Agustin Giffon", pd.concat([wellness, extra], ignore_index=True), rpe)
         text = _pdf_text(state, "Agustin Giffon")
         self.assertIn("Cómo venís aguantando", text)
-        self.assertIn("Días con registro", text)
+        self.assertNotIn("Días con registro", text)
         self.assertNotIn("Carga reciente", text)
 
     def test_client_pdf_gets_the_section(self):

@@ -80,8 +80,10 @@ class ClientPlainLanguageTest(unittest.TestCase):
         text = pdf_text(pdf)
         self.assertNotIn("acwr", text)
         self.assertNotIn("zona", text)
-        # Tendencia contra el promedio de las semanas previas, sin zonas.
-        self.assertIn("en linea con tu promedio", text)
+        # PR H: una sola ventana (6 semanas): la carga va en las barras de
+        # "Como venis aguantando", sin frases de la ultima semana ni zonas.
+        self.assertIn("como venis aguantando", text)
+        self.assertNotIn("ultima semana completa", text)
 
 
 class CompletionCapTest(unittest.TestCase):

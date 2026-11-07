@@ -24,6 +24,8 @@ import pandas as pd
 
 from modules.report_messages import (
     NEXT_STEP_FIRST_COMPARISON,
+    NEXT_STEP_IMTP_PREVIOUS_PROTOCOL,
+    NEXT_STEP_IMTP_REPEAT,
     NEXT_STEP_REEVALUATE,
     NEXT_STEP_RPE,
     NEXT_STEP_WELLNESS,
@@ -403,6 +405,31 @@ def focus_text(profile: dict[str, object] | None, history: pd.DataFrame | None, 
     return base
 
 
+def quadrant_focus_text(quadrant: str) -> str:
+    """Foco del proximo bloque desde el cuadrante del mapa del gimnasio (PR H)."""
+    from modules.strength_quadrant import WHAT_TO_WORK
+
+    return WHAT_TO_WORK.get(quadrant, "")
+
+
+def imtp_next_step(profile: dict[str, object] | None) -> str | None:
+    """El aviso de IMTP que antes iba en el foco, como proximo paso.
+
+    Solo si el perfil lo pedia (IMTP medido sin referencia comparable): con
+    la ultima IMTP de otra era, "protocolo anterior"; si no, "repetir IMTP".
+    """
+    from modules.measurement_eras import CURRENT_ERA
+
+    profile = profile or {}
+    flags = set(profile.get("flags") or [])
+    if "imtp_reference_missing" not in flags:
+        return None
+    era = str(profile.get("imtp_era") or "").strip()
+    if era and era != CURRENT_ERA:
+        return NEXT_STEP_IMTP_PREVIOUS_PROTOCOL
+    return NEXT_STEP_IMTP_REPEAT
+
+
 def profile_reading(profile: dict[str, object] | None, composite: dict[str, object] | None, audience: str) -> dict[str, str | None]:
     """Etiqueta (solo si hay un patron real) y lectura en positivo."""
     profile = profile or {}
@@ -573,12 +600,15 @@ def next_steps(
     load_available: bool,
     wellness_available: bool,
     audience: str,
+    imtp_step: str | None = None,
 ) -> list[str]:
     keys: list[str] = []
     if has_evaluation and not has_comparison:
         keys.append(NEXT_STEP_FIRST_COMPARISON)
     elif evaluation_stale:
         keys.append(NEXT_STEP_REEVALUATE)
+    if imtp_step:
+        keys.append(imtp_step)
     if not load_available:
         keys.append(NEXT_STEP_RPE)
     if not wellness_available:
@@ -694,6 +724,13 @@ def _dated_values(history: pd.DataFrame, column: str) -> pd.DataFrame:
     return frame.groupby("Date", as_index=False).last()[["Date", "value", "era"]]
 
 
+EVOLUTION_DROP_SENTENCE = "Tu {metric} bajó entre el {start} y el {end}; la próxima evaluación nos dice cómo estás hoy."
+
+
+def evolution_drop_sentences(series: list[dict[str, object]] | None) -> list[str]:
+    return [str(item["drop_sentence"]) for item in series or [] if item.get("drop_sentence")]
+
+
 def evolution_series(history: pd.DataFrame | None, audience: str = ATHLETE) -> list[dict[str, object]]:
     """Series de "Tu evolucion": una por prueba con 2+ tomas comparables.
 
@@ -735,9 +772,25 @@ def evolution_series(history: pd.DataFrame | None, audience: str = ATHLETE) -> l
             if threshold_abs is not None and not math.isnan(float(threshold_abs))
             else None
         )
+        # Bajada entre las dos ultimas tomas mayor que el umbral: frase neutra.
+        drop_sentence = None
+        if len(kept) >= 2:
+            previous_date, previous_value = kept[-2]
+            last_date, last_value = kept[-1]
+            drop_threshold = resolve_change_threshold(
+                column, previous_value, [value for _, value in kept], swc_pct=float(meta.get("fallback_pct", 2.0))
+            ).get("threshold_abs")
+            if drop_threshold is not None and not math.isnan(float(drop_threshold)) and last_value < previous_value - float(drop_threshold):
+                name = (client_label if client else label)
+                drop_sentence = EVOLUTION_DROP_SENTENCE.format(
+                    metric=name[:1].lower() + name[1:],
+                    start=f"{previous_date:%d/%m/%Y}",
+                    end=f"{last_date:%d/%m/%Y}",
+                )
         series.append(
             {
                 "variable": column,
+                "drop_sentence": drop_sentence,
                 "label": client_label if client else label,
                 "unit": unit,
                 "digits": digits,
