@@ -4,12 +4,12 @@
 #   1. editar este archivo
 #   2. uv pip compile requirements.in --universal --python-version 3.11 -o requirements.txt
 #   3. probar en Python 3.14 (lo que corre Streamlit Cloud) y commitear ambos
-streamlit>=1.35.0
-pandas>=2.2.0
+streamlit>=1.67.0
+pandas>=3.1.1
 numpy>=1.26.0
-plotly==6.6.0
+plotly==7.1.0
 openpyxl>=3.1.2
 Pillow>=10.0.0
 reportlab>=4.0.0,<6.0.0
-pypdf>=4.0.0,<7.0.0
-kaleido==1.2.0
+pypdf>=7.0.0,<8.0.0
+kaleido==1.5.0
