@@ -957,9 +957,13 @@ def _wellness_scores(rows: pd.DataFrame) -> pd.Series:
     return _report_wellness_score_series(rows)
 
 
-def _component_highlight(rows: pd.DataFrame, start: pd.Timestamp) -> str | None:
-    """El componente (sueno, estres, dolor) que mas se movio vs su historia previa."""
-    best: tuple[float, str] | None = None
+def wellness_component_shift(rows: pd.DataFrame, start: pd.Timestamp) -> dict[str, object] | None:
+    """El componente (sueno, estres, dolor) que mas se movio vs su historia previa, en DE.
+
+    Ventana: registros despues de `start`; historia: los de antes. Cada lado
+    necesita >= 3 registros. None si ningun componente se puede comparar.
+    """
+    best: dict[str, object] | None = None
     for column, name, unit, higher_is_better in TOLERANCE_COMPONENTS:
         if column not in rows.columns:
             continue
@@ -972,17 +976,58 @@ def _component_highlight(rows: pd.DataFrame, start: pd.Timestamp) -> str | None:
         if not sd or math.isnan(sd):
             continue
         change = (float(window.mean()) - float(prior.mean())) / sd
-        if abs(change) < TOLERANCE_SIGNAL_SD:
-            continue
         better = (change > 0) == higher_is_better
-        direction = "mejor" if better else "peor"
-        text = (
-            f"Lo que más se movió fue {name}: {float(window.mean()):.1f}{unit} en estas semanas "
-            f"vs {float(prior.mean()):.1f}{unit} antes ({direction} que lo habitual)."
-        )
-        if best is None or abs(change) > best[0]:
-            best = (abs(change), text)
-    return best[1] if best else None
+        candidate = {
+            "column": column,
+            "name": name,
+            "unit": unit,
+            "window_mean": float(window.mean()),
+            "prior_mean": float(prior.mean()),
+            "change_sd": change,
+            "direction": "mejor" if better else "peor",
+        }
+        if best is None or abs(change) > abs(float(best["change_sd"])):
+            best = candidate
+    return best
+
+
+def _component_highlight(rows: pd.DataFrame, start: pd.Timestamp) -> str | None:
+    """Frase del componente que mas se movio, si se movio al menos 0.5 DE."""
+    shift = wellness_component_shift(rows, start)
+    if shift is None or abs(float(shift["change_sd"])) < TOLERANCE_SIGNAL_SD:
+        return None
+    return (
+        f"Lo que más se movió fue {shift['name']}: {shift['window_mean']:.1f}{shift['unit']} en estas semanas "
+        f"vs {shift['prior_mean']:.1f}{shift['unit']} antes ({shift['direction']} que lo habitual)."
+    )
+
+
+def weekly_srpe(rpe_df: pd.DataFrame | None, athlete: str, *, start: object, end: object) -> pd.DataFrame:
+    """Carga semanal (suma de sRPE; RPE x minutos si falta) por lunes, solo semanas completas en la ventana.
+
+    Una semana que empieza antes de `start` esta incompleta: su barra quedaria
+    baja sin que la carga haya bajado, asi que no entra.
+    """
+    start_ts = pd.Timestamp(start).normalize()
+    end_ts = pd.Timestamp(end).normalize()
+    weekly_load = pd.DataFrame(columns=["week_start", "load"])
+    rpe_rows = _athlete_rows(rpe_df, athlete)
+    if rpe_rows.empty:
+        return weekly_load
+    rpe_rows = rpe_rows[(rpe_rows["Date"] > start_ts) & (rpe_rows["Date"] <= end_ts)]
+    load = pd.to_numeric(rpe_rows.get("sRPE"), errors="coerce") if "sRPE" in rpe_rows.columns else None
+    if load is None or load.isna().all():
+        rpe = pd.to_numeric(rpe_rows.get("RPE"), errors="coerce")
+        minutes = pd.to_numeric(rpe_rows.get("Duration_min"), errors="coerce")
+        load = rpe * minutes if rpe is not None and minutes is not None else None
+    if load is None:
+        return weekly_load
+    rpe_rows = rpe_rows.assign(load=load).dropna(subset=["load"])
+    if rpe_rows.empty:
+        return weekly_load
+    rpe_rows["week_start"] = rpe_rows["Date"] - pd.to_timedelta(rpe_rows["Date"].dt.dayofweek, unit="D")
+    weekly_load = rpe_rows.groupby("week_start", as_index=False)["load"].sum()
+    return weekly_load[weekly_load["week_start"] >= start_ts].reset_index(drop=True)
 
 
 def tolerance_reading(
@@ -1049,23 +1094,7 @@ def tolerance_reading(
     if highlight:
         sentences.append(highlight)
 
-    weekly_load = pd.DataFrame(columns=["week_start", "load"])
-    rpe_rows = _athlete_rows(rpe_df, athlete)
-    if not rpe_rows.empty:
-        rpe_rows = rpe_rows[(rpe_rows["Date"] > start) & (rpe_rows["Date"] <= end)]
-        load = pd.to_numeric(rpe_rows.get("sRPE"), errors="coerce") if "sRPE" in rpe_rows.columns else None
-        if load is None or load.isna().all():
-            rpe = pd.to_numeric(rpe_rows.get("RPE"), errors="coerce")
-            minutes = pd.to_numeric(rpe_rows.get("Duration_min"), errors="coerce")
-            load = rpe * minutes if rpe is not None and minutes is not None else None
-        if load is not None:
-            rpe_rows = rpe_rows.assign(load=load).dropna(subset=["load"])
-            if not rpe_rows.empty:
-                rpe_rows["week_start"] = rpe_rows["Date"] - pd.to_timedelta(rpe_rows["Date"].dt.dayofweek, unit="D")
-                weekly_load = rpe_rows.groupby("week_start", as_index=False)["load"].sum()
-                # Una semana que empieza antes de la ventana esta incompleta: su
-                # barra quedaria baja sin que la carga haya bajado.
-                weekly_load = weekly_load[weekly_load["week_start"] >= start].reset_index(drop=True)
+    weekly_load = weekly_srpe(rpe_df, athlete, start=start, end=end)
 
     return {
         "mode": mode,

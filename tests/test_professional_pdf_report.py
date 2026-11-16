@@ -1108,7 +1108,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         _assert_professional_mother_structure(self, text)
         _assert_legacy_professional_sections_absent(self, text)
         self.assertIn("faltan datos", text)
@@ -1124,7 +1124,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         _assert_professional_mother_structure(self, text)
         _assert_legacy_professional_sections_absent(self, text)
 
@@ -1145,7 +1145,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
         self.assertIsNotNone(pdf)
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         _assert_professional_mother_structure(self, text)
         _assert_legacy_professional_sections_absent(self, text)
 
@@ -1161,7 +1161,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         self.assertIn("cambios vs evaluacion anterior", text)
         self.assertIn("faltan datos", text)
-        self.assertLessEqual(_pdf_page_count(pdf), 9)
+        self.assertLessEqual(_pdf_page_count(pdf), 9 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         _assert_professional_mother_structure(self, text)
         _assert_legacy_professional_sections_absent(self, text)
 
@@ -1210,14 +1210,15 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         pdf = generate_visual_report_pdf(state, "Ana Lopez", "profe")
         pages = _normalized_pdf_pages(pdf)
-        collapsed_pages = [re.sub(r"\s+", " ", page).strip() for page in pages]
+        # PR J: paginas 1-2 resumen y 3 indice; el reporte de siempre es el anexo.
+        collapsed_pages = [re.sub(r"\s+", " ", page).strip() for page in pages][report_generator.PROFESSIONAL_SUMMARY_PAGES:]
         pages_with_change_note = [
             page
             for page in collapsed_pages
             if "cambios vs evaluacion anterior" in page
         ]
 
-        self.assertLessEqual(len(pages), 9)
+        self.assertLessEqual(len(pages), 9 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         self.assertEqual(len(pages_with_change_note), 1)
         self.assertIn("perfil actual compuesto", pages_with_change_note[0])
         self.assertIn("notas metodologicas", pages_with_change_note[0])
@@ -1421,7 +1422,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         self.assertIsNotNone(pdf)
         self.assertEqual(mocked_compact.call_count, 1)
         self.assertEqual(mocked_draw.call_count, 0)
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         self.assertIn("detalle tecnico compacto", text)
         self.assertIn("force@50", text)
         self.assertIn("rfd exportada descriptiva", text)
@@ -1433,7 +1434,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
         _, raw_text = _rendered_pdf_and_raw_story_text(state, "Ana Lopez", "profe")
         fixed_lower = _repair_mojibake_text(raw_text).lower()
 
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         self.assertIn("relaciones de perfil / cuadrantes", text)
         self.assertIn("isometricos y force-time avanzado", text)
         self.assertIn("carga interna y tolerancia", text)
@@ -1540,7 +1541,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         self.assertIn("isometricos y force-time avanzado", text)
         self.assertIn("peak force", text)
         self.assertIn("2450 n", text)
@@ -1680,7 +1681,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         self.assertIn("carga interna y tolerancia", text)
         self.assertIn("faltan datos para valorar la tolerancia de carga", text)
         self.assertIn("sin carga interna reciente conviene usarlo solo como contexto parcial", text)
@@ -1697,7 +1698,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         self.assertIn("wellness, disponibilidad y adherencia", text)
         self.assertIn("faltan datos de wellness/disponibilidad para este periodo", text)
         self.assertIn("falta wellness/disponibilidad reciente; evitar conclusiones fuertes sobre tolerancia del bloque", text)
@@ -2405,7 +2406,7 @@ class ProfessionalPdfReportTest(unittest.TestCase):
 
         pdf, text = _rendered_pdf_and_story_text(state, "Ana Lopez", "profe")
 
-        self.assertLessEqual(_pdf_page_count(pdf), 10)
+        self.assertLessEqual(_pdf_page_count(pdf), 10 + report_generator.PROFESSIONAL_SUMMARY_PAGES)
         self.assertIn("exposicion del bloque / contenido entrenado", text)
         self.assertIn("faltan raw workouts suficientes para resumir la exposicion del bloque", text)
         self.assertIn("no reemplazan la exposicion por estimulos", text)
