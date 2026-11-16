@@ -172,7 +172,7 @@ PROFESSIONAL_NO_CLEAR_LAGGING_MONITOR = (
 PROFESSIONAL_NO_CLEAR_STRENGTH_TEXT = "No aparece una fortaleza clara por encima del umbral actual."
 PROFESSIONAL_NO_CLEAR_STRENGTH_ALT_TEXT = "No se observa una variable dominante segun el umbral actual."
 PROFESSIONAL_TENTATIVE_PRIORITY_TEXT = (
-    "Tomar esta lectura como prioridad operativa tentativa, sin cerrar todavia un perfil global con la bateria disponible."
+    "Tomar esta lectura como prioridad operativa tentativa, sin cerrar todavía un perfil global con la batería disponible."
 )
 MOJIBAKE_MARKERS = tuple(chr(code) for code in (195, 194, 226))
 
@@ -976,6 +976,25 @@ def _current_week_slice(frame: pd.DataFrame | None, athlete: str = "Todos") -> p
     return result.tail(1).copy()
 
 
+# Leyenda del % de adherencia que viene del Completion Report resumido de
+# TeamBuildr: cubre el periodo que eligio quien exporto, no una ventana fija.
+COMPLETION_EXPORT_PERIOD_LABEL = "período del export de TeamBuildr"
+
+
+def _completion_is_windowless(state: dict[str, pd.DataFrame | None], athlete: str) -> bool:
+    """True si la adherencia del atleta sale solo de filas sin fecha (uploaded_period_total)."""
+    cdf = state.get("completion_df")
+    if cdf is None or cdf.empty:
+        return False
+    rows = cdf
+    if athlete != "Todos" and "Athlete" in rows.columns:
+        rows = rows[rows["Athlete"].astype(str).str.strip() == athlete]
+    if rows.empty:
+        return False
+    # Con alguna fila fechada hay ventana; si no, todo es total del export.
+    return "Date" not in rows.columns or pd.to_datetime(rows["Date"], errors="coerce").isna().all()
+
+
 def _completion_snapshot(
     state: dict[str, pd.DataFrame | None],
     athlete: str = "Todos",
@@ -996,15 +1015,18 @@ def _completion_snapshot(
 
     dated_result = result.dropna(subset=["Date"]).copy()
     if dated_result.empty:
+        # Completion Report resumido (completion_scope "uploaded_period_total"):
+        # un solo % del periodo que cubre el export, sin ventana conocida.
         completion_result = calculate_completion_rate(result)
         if completion_result.value is None:
-            return {"value": "Sin dato", "detail": "Periodo cargado (sin fecha)", "numeric": None, "period_label": "Sin dato"}
+            return {"value": "Sin dato", "detail": COMPLETION_EXPORT_PERIOD_LABEL, "numeric": None, "period_label": "Sin dato", "windowless": True}
         completion_mean = round(float(completion_result.value), 1)
         return {
             "value": completion_display_text(completion_mean),
-            "detail": "Periodo cargado (sin fecha)",
+            "detail": COMPLETION_EXPORT_PERIOD_LABEL,
             "numeric": completion_mean,
-            "period_label": "Periodo cargado (sin fecha)",
+            "period_label": COMPLETION_EXPORT_PERIOD_LABEL,
+            "windowless": True,
         }
     result = dated_result
 
@@ -5639,11 +5661,23 @@ def _professional_completion_snapshot(
         return {"value": PDF_MISSING_TEXT, "detail": PDF_MISSING_TEXT, "numeric": None}
     result = cdf.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
-    result = result.dropna(subset=["Date"])
     if "Athlete" in result.columns:
         result = result[_professional_athlete_mask(result["Athlete"], athlete)]
+    undated = result[result["Date"].isna()]
+    result = result.dropna(subset=["Date"])
     if result.empty:
-        return {"value": PDF_MISSING_TEXT, "detail": PDF_MISSING_TEXT, "numeric": None}
+        # Solo el Completion Report resumido: se muestra con su leyenda,
+        # porque el periodo lo define el export y no una ventana del reporte.
+        export_result = calculate_completion_rate(undated) if not undated.empty else None
+        if export_result is None or export_result.value is None:
+            return {"value": PDF_MISSING_TEXT, "detail": PDF_MISSING_TEXT, "numeric": None}
+        export_mean = round(float(export_result.value), 1)
+        return {
+            "value": f"{completion_display_text(export_mean)} ({COMPLETION_EXPORT_PERIOD_LABEL})",
+            "detail": COMPLETION_EXPORT_PERIOD_LABEL,
+            "numeric": export_mean,
+            "windowless": True,
+        }
 
     today_ts = app_now().normalize()
     current_week = today_ts - pd.Timedelta(days=today_ts.weekday())
@@ -7509,7 +7543,7 @@ NEUROMUSCULAR_FLAG_MESSAGES = {
         "missing_dj": "Todavia falta Drop Jump para leer mejor tu reactividad.",
         "cmj_lower_than_sj": "En esta medicion el CMJ no supero al SJ; conviene revisar tecnica, fatiga y calidad del gesto.",
         "insufficient_pattern_evidence": "La foto actual todavia es parcial; conviene sostener calidad tecnica y continuidad mientras sumamos mas datos.",
-        "partial_battery_caution": "La bateria actual es parcial; conviene interpretar el perfil con mas cautela.",
+        "partial_battery_caution": "La batería actual es parcial; conviene interpretar el perfil con más cautela.",
         "composite_profile_caution": "El perfil combina datos de fechas distintas; conviene confirmarlo con una evaluacion mas alineada.",
         "near_threshold_evidence": "La senal cae cerca del umbral actual; conviene sostener el bloque actual y volver a medir para confirmar.",
     },
@@ -7529,7 +7563,7 @@ NEUROMUSCULAR_FLAG_MESSAGES = {
         "missing_dj": "Falta Drop Jump para cerrar mejor la lectura reactiva.",
         "cmj_lower_than_sj": "CMJ < SJ: revisar tecnica, fatiga y coherencia del test antes de cambiar prioridades.",
         "insufficient_pattern_evidence": "La evidencia todavia es parcial para cerrar un patron dominante.",
-        "partial_battery_caution": "La bateria actual es parcial; la lectura queda limitada a las variables disponibles.",
+        "partial_battery_caution": "La batería actual es parcial; la lectura queda limitada a las variables disponibles.",
         "composite_profile_caution": "El perfil combina metricas de fechas distintas; no conviene tratarlo igual que una evaluacion unica robusta.",
         "near_threshold_evidence": "La evidencia cae cerca del umbral actual; conviene confirmarla antes de cerrar una prioridad fuerte.",
     },
@@ -7976,7 +8010,7 @@ def _professional_sanitize_profile_feedback(
         if not cleaned.get("physiological"):
             cleaned["physiological"] = "La lectura disponible no muestra un rezago dominante claro, pero tampoco alcanza por si sola para cerrar un perfil estable."
         if not cleaned.get("biomechanical"):
-            cleaned["biomechanical"] = "No aparece un deficit biomecanico unico con los datos visibles; conviene leerlo junto con la bateria y el contexto del test."
+            cleaned["biomechanical"] = "No aparece un déficit biomecánico único con los datos visibles; conviene leerlo junto con la batería y el contexto del test."
     elif "variable mas rezagada" in next_block_normalized:
         cleaned["next_block"] = "Sostener la cualidad dominante y ajustar el limitante principal en el próximo bloque."
     if snapshot_row is not None:
@@ -8318,7 +8352,7 @@ def _build_professional_composite_profile_payload(
         summary_line = f"{PROFESSIONAL_NO_CLEAR_STRENGTH_ALT_TEXT} El principal rezago aparece en {lagging_text}."
     elif available_metric_count and profile_code in {"", "UNCLASSIFIED", "NONE"}:
         summary_line = (
-            "Con la bateria disponible, la lectura sigue siendo tentativa: no se observa una variable dominante segun el umbral actual."
+            "Con la batería disponible, la lectura sigue siendo tentativa: no se observa una variable dominante según el umbral actual."
         )
     else:
         summary_line = "No hay suficientes variables válidas para describir el perfil compuesto."
@@ -9335,7 +9369,7 @@ def _build_professional_integrated_decision_payload(
         if not has_clear_strength:
             if open_profile:
                 good_confidence.append(
-                    "El perfil no muestra una fortaleza dominante; la prioridad operativa debe salir de las variables rezagadas y del contexto de carga/disponibilidad, sin cerrar todavia un perfil global con la bateria disponible."
+                    "El perfil no muestra una fortaleza dominante; la prioridad operativa debe salir de las variables rezagadas y del contexto de carga/disponibilidad, sin cerrar todavía un perfil global con la batería disponible."
                 )
             else:
                 good_confidence.append(
@@ -12811,7 +12845,10 @@ def build_individual_report_payload(
         # Ya lo dice el proximo paso de evaluacion: no se repite.
         next_evaluation = None
 
-    completion_value = _focus_completion_value(state, athlete)
+    # Adherencia sin ventana conocida (Completion Report resumido): no va en
+    # atleta/cliente, porque al lado de "6 semanas" se lee como si fuera de
+    # esas semanas. Queda en el PDF profe con su leyenda.
+    completion_value = None if _completion_is_windowless(state, athlete) else _focus_completion_value(state, athlete)
 
     return {
         "athlete": athlete,
@@ -13386,27 +13423,9 @@ def _generate_visual_report_pdf_reportlab(
             story.append(_note("Foco del próximo bloque", focus, accent="steel", background="panel"))
             story.append(Spacer(1, 4 * mm))
 
-        # ── Perfil ──────────────────────────────────────────────────────
-        profile = payload.get("profile") or {}
-        profile_lines: list[str] = []
-        if profile.get("label"):
-            profile_lines.append(f"Perfil actual: {profile['label']}.")
-        if profile.get("summary"):
-            profile_lines.append(str(profile["summary"]))
-        # "Lo que mas se destaca" pasa a "Tu posicion en el grupo" (grafico).
-        # El radar no va en el PDF de atleta/cliente: a ancho de pagina sus
-        # rotulos no son legibles al imprimir. Queda en el PDF profe y en el
-        # dashboard.
-        radar_image = None
-        if profile_lines or radar_image is not None:
-            block: list[object] = [_section_title("Tu perfil"), Spacer(1, 3 * mm)]
-            if profile_lines:
-                block.append(_note("", profile_lines))
-                block.append(Spacer(1, 3 * mm))
-            if radar_image is not None:
-                block.append(radar_image)
-            _append_section(block)
-            story.append(Spacer(1, 4 * mm))
+        # "Tu perfil" (patron A/B/C/D) queda solo en el PDF profe: la etiqueta
+        # ("Deficit neuromuscular global", "bateria parcial") es jerga de
+        # evaluador y el foco ya sale del cuadrante del mapa.
 
         # ── Fuerza ──────────────────────────────────────────────────────
         strength_figure = None

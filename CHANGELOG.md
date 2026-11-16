@@ -2,6 +2,25 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-16 - PR I: ajustes con reportes reales del 16/11 (Habib, Ignacio)
+
+1. "Tu posicion en el grupo": con cohorte de 5-7 el percentil es el rango
+   medio (rango - 0.5)/N x 100, con empates promediados. Percentil y banda se
+   acotan a 1-99: nunca 0 ni 100. (Ignacio, ultimo de 6 varones Involution en
+   IMTP, decia 0 -> 8.3.)
+2. "Tu perfil" (Patron A/B/C/D, "Deficit neuromuscular global", "bateria
+   parcial") sale del PDF atleta y cliente; queda solo en el PDF profe (caso
+   Habib). Tildes corregidas en las etiquetas de patron y en los textos de
+   bateria/interpretacion del profe.
+3. Adherencia del Completion Report resumido de TeamBuildr
+   (completion_scope "uploaded_period_total", sin fecha): no va como tile en
+   atleta/cliente (no tiene ventana conocida; Ignacio 27.9% = 17/61 con 11
+   sesiones en 6 semanas; Habib 39.4%). En el PDF profe aparece como
+   "Adherencia formal: 27.9% (periodo del export de TeamBuildr)"; antes no
+   aparecia.
+
+Tests: `tests/test_real_report_adjustments.py`.
+
 ## 2026-11-07 - PR H: coherencia del reporte atleta/cliente (PDFs reales del 06/11)
 
 1. "Foco del proximo bloque" sale del cuadrante del mapa del gimnasio cuando

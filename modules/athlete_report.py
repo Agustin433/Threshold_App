@@ -804,8 +804,17 @@ def evolution_series(history: pd.DataFrame | None, audience: str = ATHLETE) -> l
     return series
 
 
+POSITION_PCT_MIN = 1.0
+POSITION_PCT_MAX = 99.0
+
+
 def _normal_cdf_pct(z: float) -> float:
     return 50.0 * (1.0 + math.erf(float(z) / math.sqrt(2.0)))
+
+
+def _clamp_pct(value: float) -> float:
+    """El percentil mostrado nunca es 0 ni 100: un grupo finito no sabe de extremos."""
+    return min(POSITION_PCT_MAX, max(POSITION_PCT_MIN, float(value)))
 
 
 def group_position(row: pd.Series | dict[str, object] | None, audience: str = ATHLETE) -> dict[str, object] | None:
@@ -813,7 +822,8 @@ def group_position(row: pd.Series | dict[str, object] | None, audience: str = AT
 
     Con z (cohorte >= 8 o literatura): percentil = Phi(z) y la banda sale del
     mismo intervalo del PDF profe (incertidumbre del SD) pasado a percentil.
-    Con cohorte de 5-7 el percentil es la posicion entre pares (sin banda).
+    Con cohorte de 5-7 el percentil es el rango medio entre pares (sin banda).
+    Percentil y banda se acotan a 1-99: nunca 0 ni 100.
     Nunca se muestra el z. Sin ninguna prueba con referencia: None.
     """
     from modules.jump_analysis import has_plottable_percentile, has_plottable_z, resolve_zscore
@@ -844,8 +854,8 @@ def group_position(row: pd.Series | dict[str, object] | None, audience: str = AT
             {
                 "test": z_col,
                 "label": client_label if client else label,
-                "percentile": round(percentile, 1),
-                "band": (round(band[0], 1), round(band[1], 1)) if band else None,
+                "percentile": round(_clamp_pct(percentile), 1),
+                "band": (round(_clamp_pct(band[0]), 1), round(_clamp_pct(band[1]), 1)) if band else None,
                 "n": n,
             }
         )

@@ -263,13 +263,25 @@ class ReferenceEngine:
                 n = len(others) + 1
                 below = sum(1 for v in others if v < float(value))
                 above = sum(1 for v in others if v > float(value))
-                pct = 100.0 * below / (n - 1) if n > 1 else 50.0
+                ties = len(others) - below - above
+                pct = mid_rank_percentile(below, ties, n)
                 out.at[idx, "percentile"] = round(100.0 - pct if invert else pct, 1)
                 out.at[idx, "rank"] = (below + 1) if invert else (above + 1)
                 out.at[idx, "origin"] = str(ZSource.COHORT_RANK)
                 out.at[idx, "cohort_n"] = n
                 out.at[idx, "reference"] = broad.describe()
         return out
+
+
+def mid_rank_percentile(below: int, ties: int, n: int) -> float:
+    """Percentil por rango medio: (rango - 0.5) / N x 100, con empates promediados.
+
+    El ultimo de 6 queda en ~8 y el primero en ~92: nunca 0 ni 100, porque
+    con un grupo chico no sabemos si es el minimo o el maximo de la poblacion.
+    """
+    if n <= 0:
+        return 50.0
+    return 100.0 * (below + 0.5 * (ties + 1)) / n
 
 
 def level_label(level: object) -> str:

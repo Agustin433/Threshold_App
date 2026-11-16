@@ -364,7 +364,8 @@ class AthletePdfReportTest(unittest.TestCase):
         joined = _collapsed_normalized_pdf_text(pdf)
         self.assertIn("contramovimiento", joined)
 
-    def test_athlete_pdf_uses_structured_summary_even_if_wording_changes(self):
+    def test_athlete_pdf_has_no_profile_section_even_with_structured_summary(self):
+        # PR I: "Tu perfil" (patron y su resumen) queda solo en el PDF profe.
         custom_summary = "Lectura atleta custom que cambia sin romper la estructura."
         with patch.object(
             report_generator,
@@ -376,7 +377,9 @@ class AthletePdfReportTest(unittest.TestCase):
 
         self.assertIsNotNone(pdf)
         assert pdf is not None
-        self.assertIn(_normalized_story_text(custom_summary), _collapsed_normalized_pdf_text(pdf))
+        text = _collapsed_normalized_pdf_text(pdf)
+        self.assertNotIn(_normalized_story_text(custom_summary), text)
+        self.assertNotIn("tu perfil", text)
 
     def test_force_time_payload_for_athlete_stays_descriptive(self):
         payload = build_force_time_report_payload(

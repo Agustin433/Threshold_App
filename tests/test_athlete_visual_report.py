@@ -116,10 +116,14 @@ class GroupPositionTests(unittest.TestCase):
         self.assertIn("CMJ (vuelo)", bars)
         cmj = bars["CMJ (vuelo)"]
         z = float(row["CMJ_ft_Z"])
-        self.assertAlmostEqual(cmj["percentile"], round(50 * (1 + math.erf(z / math.sqrt(2))), 1))
+        def pct(value: float) -> float:
+            # Percentil y banda acotados a 1-99 (PR I).
+            return round(min(99.0, max(1.0, 50 * (1 + math.erf(value / math.sqrt(2))))), 1)
+
+        self.assertAlmostEqual(cmj["percentile"], pct(z))
         low, high = z_interval(z, cmj["n"])
-        self.assertAlmostEqual(cmj["band"][0], round(50 * (1 + math.erf(low / math.sqrt(2))), 1))
-        self.assertAlmostEqual(cmj["band"][1], round(50 * (1 + math.erf(high / math.sqrt(2))), 1))
+        self.assertAlmostEqual(cmj["band"][0], pct(low))
+        self.assertAlmostEqual(cmj["band"][1], pct(high))
         self.assertLessEqual(cmj["band"][0], cmj["percentile"])
         self.assertGreaterEqual(cmj["band"][1], cmj["percentile"])
 
