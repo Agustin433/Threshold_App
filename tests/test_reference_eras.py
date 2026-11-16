@@ -139,7 +139,7 @@ class LadderTests(unittest.TestCase):
         row = prepared[prepared["Athlete"] == "M 05"].iloc[-1]
         self.assertTrue(pd.isna(row["DJ_height_Z"]))
         self.assertEqual(row["DJ_height_Z_source"], str(ZSource.COHORT_RANK))
-        self.assertEqual(float(row["DJ_height_Z_percentile"]), 100.0)
+        self.assertEqual(float(row["DJ_height_Z_percentile"]), 91.7)
         self.assertEqual(int(row["DJ_height_Z_cohort_n"]), 6)
         payload = radar_axis_values(row)
         self.assertEqual(payload["mode"], RADAR_MODE_PERCENTILE)

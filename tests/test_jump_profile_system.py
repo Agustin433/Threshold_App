@@ -1548,7 +1548,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(dashboard_payload["confidence"], pdf_payload["confidence"])
         self.assertEqual(dashboard_payload["profile_source"], pdf_payload["profile_source"])
         self.assertEqual(set(dashboard_payload["flags"]), set(pdf_payload["flags"]))
-        self.assertIn("Patron A", dashboard_payload["profile_metric_value"])
+        self.assertIn("Patrón A", dashboard_payload["profile_metric_value"])
 
     def test_dashboard_payload_handles_missing_imtp_without_keyerror(self):
         row = _synthetic_profile_row(IMTP_relPF=None, IMTP_N=None, IMTP_relPF_Z=None)
@@ -1590,7 +1590,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertEqual(_normalized_label(dashboard_payload["profile_label"]), _normalized_label(pdf_payload["profile_label"]))
         self.assertIn("cmj_lower_than_sj", dashboard_payload["flags"])
         self.assertTrue(any("CMJ < SJ" in item["text"] for item in dashboard_payload["flag_rows"]))
-        self.assertTrue(any("Patron E" in line for line in dashboard_payload["feedback_lines"]))
+        self.assertTrue(any("Patrón E" in line for line in dashboard_payload["feedback_lines"]))
 
     def test_dashboard_and_pdf_payloads_resolve_same_canonical_zscores(self):
         row = pd.Series(
@@ -1939,7 +1939,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         result = build_neuromuscular_profile_result(row)
 
         self.assertEqual(result["profile_code"], "A")
-        self.assertIn("Fuerza/propulsion", result["profile_label"])
+        self.assertIn("Fuerza/propulsión", result["profile_label"])
         self.assertEqual(result["eur_profile"], "Reactivo")
         self.assertEqual(result["nm_profile_legacy"], "Reactivo")
 
@@ -1955,7 +1955,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         payload = build_dashboard_neuromuscular_payload(row)
 
         self.assertEqual(payload["profile_code"], "A")
-        self.assertEqual(payload["profile_metric_value"], "Patron A")
+        self.assertEqual(payload["profile_metric_value"], "Patrón A")
         self.assertEqual(payload["eur_profile"], "Reactivo")
         self.assertEqual(payload["nm_profile_legacy"], "Reactivo")
         self.assertNotEqual(payload["profile_metric_value"], payload["nm_profile_legacy"])

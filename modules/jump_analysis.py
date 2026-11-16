@@ -276,9 +276,9 @@ SEMAPHORE_LABELS = (
 
 PATTERN_LIBRARY = {
     "A": {
-        "label": "Patron A - Fuerza/propulsion con SSC rapido limitado",
+        "label": "Patrón A - Fuerza/propulsión con SSC rápido limitado",
         "phys": "Mejor capacidad concentrica/propulsiva relativa, con menor expresion en SSC rapido.",
-        "bio": "El SJ disponible supera la expresion reactiva rapida; conviene leerlo junto con el resto de la bateria.",
+        "bio": "El SJ disponible supera la expresión reactiva rápida; conviene leerlo junto con el resto de la batería.",
         "train": "Fast SSC, stiffness util, pogos, drop jumps dosificados, sprints cortos, fuerza con intencion alta y bajo lastre.",
         "summary_short": "Buen perfil concentrico con rezago reactivo rapido.",
         "summary_athlete": "Tenes una base concentrica util, pero hoy la reaccion rapida en contactos breves aparece mas limitada.",
@@ -287,7 +287,7 @@ PATTERN_LIBRARY = {
         "kpi_to_track": ["DJ_RSI", "DJ_tc_ms", "DRI"],
     },
     "B": {
-        "label": "Patron B - Reactivo relativo con base concentrica limitada",
+        "label": "Patrón B - Reactivo relativo con base concéntrica limitada",
         "phys": "DJ RSI relativamente mejor que SJ en esta foto, con base concentrica menos destacada.",
         "bio": "La respuesta rapida disponible conviene validarla junto con altura de DJ, tiempo de contacto y DRI antes de cerrarla como fortaleza global.",
         "train": "Trabajo de fuerza maxima y potencia concentrica, sentadilla pesada, hip thrust, saltos con carga.",
@@ -298,7 +298,7 @@ PATTERN_LIBRARY = {
         "kpi_to_track": ["SJ_cm", "CMJ_cm", "IMTP_relPF"],
     },
     "C": {
-        "label": "Patron C - Salida vertical con deficit isometrico relativo",
+        "label": "Patrón C - Salida vertical con déficit isométrico relativo",
         "phys": "Buena expresion vertical relativa con IMTP relPF por debajo de la referencia disponible.",
         "bio": "La salida vertical se sostiene mejor que la referencia de fuerza base disponible.",
         "train": "Fuerza maxima, IMTP-specific, isometricos en angulo de trabajo funcional.",
@@ -309,18 +309,18 @@ PATTERN_LIBRARY = {
         "kpi_to_track": ["IMTP_relPF", "IMTP_N", "DSI"],
     },
     "D": {
-        "label": "Patron D - Deficit neuromuscular global",
+        "label": "Patrón D - Déficit neuromuscular global",
         "phys": "Las variables disponibles muestran un rezago amplio del perfil actual.",
-        "bio": "Las variables disponibles sugieren limitaciones compartidas en fuerza y expresion del salto, con interpretacion mas firme si la bateria esta completa.",
-        "train": "Priorizar base general y progresion conservadora antes de complejizar el bloque, especialmente si la bateria actual es parcial.",
+        "bio": "Las variables disponibles sugieren limitaciones compartidas en fuerza y expresión del salto, con interpretación más firme si la batería está completa.",
+        "train": "Priorizar base general y progresión conservadora antes de complejizar el bloque, especialmente si la batería actual es parcial.",
         "summary_short": "Varias variables disponibles quedan por debajo de la referencia.",
         "summary_athlete": "Hoy varias cualidades disponibles aparecen por debajo de la referencia, por lo que conviene reconstruir base antes de pedir mas complejidad.",
         "summary_client": "El perfil actual muestra varias senales por debajo de la referencia y pide consolidar bases antes de sumar mas exigencia.",
-        "summary_professional": "Las variables disponibles del radar quedan deprimidas en conjunto; conviene priorizar acumulacion general y progresion reactiva conservadora, con mas cautela si la bateria es parcial.",
+        "summary_professional": "Las variables disponibles del radar quedan deprimidas en conjunto; conviene priorizar acumulación general y progresión reactiva conservadora, con más cautela si la batería es parcial.",
         "kpi_to_track": ["CMJ_cm", "SJ_cm", "DJ_RSI", "IMTP_relPF"],
     },
     "E": {
-        "label": "Patron E - CMJ menor que SJ",
+        "label": "Patrón E - CMJ menor que SJ",
         "phys": "El CMJ no supera al SJ, lo que sugiere menor aprovechamiento del contramovimiento en este test.",
         "bio": "El SSC lento no esta agregando impulso util; conviene revisar tecnica, fatiga y estrategia de contramovimiento.",
         "train": "Revisar tecnica de CMJ, control de fatiga y progresion de SSC lento antes de escalar el trabajo reactivo.",
@@ -1623,7 +1623,7 @@ def _apply_pattern_claim_guards(
             result[field] = _replace_text_tokens(result.get(field), replacements)
 
     if "D" in patterns and partial_battery:
-        caution_common = "La bateria actual es parcial y la interpretacion queda limitada a las variables disponibles."
+        caution_common = "La batería actual es parcial y la interpretación queda limitada a las variables disponibles."
         caution_client = "Como faltan partes de la evaluacion, esta lectura queda limitada a los datos disponibles."
         for field in ("phys", "bio", "summary_short", "summary_athlete", "summary_professional", "train"):
             result[field] = _append_unique_text(result.get(field), caution_common)
@@ -1661,7 +1661,7 @@ def _default_neuromuscular_result() -> dict[str, object]:
         "profile_source_is_composite": PROFILE_SOURCE_CONFIG["unknown"]["is_composite"],
         "phys": "La informacion disponible no alcanza para clasificar un perfil neuromuscular estable.",
         "bio": "No aparece un patron biomecanico dominante suficiente con los datos disponibles; conviene leerlo junto con tecnica y contexto del test.",
-        "train": "Conviene repetir o completar la bateria antes de sacar conclusiones fuertes; sostener el plan solo si carga y contexto lo respaldan.",
+        "train": "Conviene repetir o completar la batería antes de sacar conclusiones fuertes; sostener el plan solo si carga y contexto lo respaldan.",
         "summary_short": "La informacion disponible no alcanza para clasificar un patron estable.",
         "summary_athlete": "Hoy la foto neuromuscular no alcanza para cerrar un patron estable; conviene completar o repetir mediciones antes de cambiar demasiado el foco.",
         "summary_client": "Con la informacion disponible no conviene sacar conclusiones fuertes; hace falta completar o repetir mediciones clave.",
@@ -1783,7 +1783,7 @@ def build_neuromuscular_profile_result(
         payloads = [PATTERN_LIBRARY[code] for code in patterns if code in PATTERN_LIBRARY]
         result["profile_code"] = "+".join(patterns)
         result["profile_label"] = " + ".join(
-            dict.fromkeys(str(payload.get("label", f"Patron {code}")).strip() for code, payload in zip(patterns, payloads))
+            dict.fromkeys(str(payload.get("label", f"Patrón {code}")).strip() for code, payload in zip(patterns, payloads))
         )
         result["phys"] = _merge_unique_texts([str(payload.get("phys", "")).strip() for payload in payloads])
         result["bio"] = _merge_unique_texts([_pattern_text(row_series, code, "bio") for code in patterns])
@@ -1864,7 +1864,7 @@ def _dashboard_profile_metric_value(profile_payload: dict[str, object]) -> str:
     profile_code = str(profile_payload.get("profile_code") or "").strip()
     if not profile_code or profile_code == "UNCLASSIFIED":
         return "Sin patron"
-    return f"Patron {profile_code}"
+    return f"Patrón {profile_code}"
 
 
 def _dashboard_signal_summary(row_series: pd.Series) -> tuple[list[str], list[str]]:
@@ -2011,7 +2011,7 @@ def build_jump_feedback_lines(row: pd.Series | dict[str, object]) -> list[str]:
                 "Revisar tecnica, fatiga acumulada o limitacion especifica del SSC lento."
             )
         else:
-            biomecanico = "No aparece un patron biomecanico dominante con los datos disponibles; conviene completar bateria y contexto."
+            biomecanico = "No aparece un patrón biomecánico dominante con los datos disponibles; conviene completar batería y contexto."
 
         lines = [
             "Alto: sin variables > 0.5.",
