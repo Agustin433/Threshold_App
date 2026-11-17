@@ -48,6 +48,7 @@ NO_CHANGE_SIGNAL = "sin cambio relevante"
 NO_COMPARABLE_ERA_TEXT = "no comparable (cruza era)"
 NO_CHANGE_TEXT = "dentro del umbral"
 UNUSUAL_TEXT = " · verificar"
+CROSS_ERA_TEXT = " · ⚠ cruza era"
 
 
 def _number(value: object) -> float | None:
@@ -70,9 +71,10 @@ def _fmt_date(value: object) -> str:
 def summary_change_rows(delta_df: pd.DataFrame | None) -> list[dict[str, str]]:
     """Filas de "Cambios vs evaluacion anterior" del resumen.
 
-    Solo variables comparables (con valor anterior en la misma era) y las que
-    cruzan de era, rotuladas "no comparable (cruza era)". Sin dato anterior o
-    sin comparacion por impulso no entran (la segunda va a las alertas).
+    Variables con valor anterior. PR L: las que cruzan de era se comparan
+    igual y llevan "⚠ cruza era" (el cartel bajo la tabla dice que se
+    compara). Sin dato anterior o sin comparacion por impulso no entran (la
+    segunda va a las alertas).
     """
     if delta_df is None or delta_df.empty:
         return []
@@ -88,6 +90,7 @@ def summary_change_rows(delta_df: pd.DataFrame | None) -> list[dict[str, str]]:
         if current is None:
             continue
         label = str(row.get("Label") or variable)
+        cross_era = str(row.get("Cross_era")) == "True"
         if signal == ERA_CHANGE_SIGNAL:
             rows.append(
                 {
@@ -108,6 +111,8 @@ def summary_change_rows(delta_df: pd.DataFrame | None) -> list[dict[str, str]]:
         reading = RELEVANT_SIGNALS.get(signal, NO_CHANGE_TEXT if signal == NO_CHANGE_SIGNAL else signal)
         if bool(row.get("Unusual")):
             reading += UNUSUAL_TEXT
+        if cross_era:
+            reading += CROSS_ERA_TEXT
         delta_text = "-" if delta is None else f"{delta:+.{2 if variable in {'DJ_RSI', 'EUR', 'DSI'} else 1}f}"
         if delta_pct is not None:
             delta_text += f" ({delta_pct:+.0f}%)"
@@ -169,7 +174,7 @@ def data_quality_alerts(
             if device and device != CURRENT_ERA:
                 alerts.append(
                     f"IMTP con protocolo anterior ({era_label(device)}, {_fmt_date(last_imtp['_date'])}): "
-                    f"no comparable con {era_label(CURRENT_ERA)}."
+                    f"se compara con {era_label(CURRENT_ERA)} con aviso; suele dar ~30% menos."
                 )
             if str(last_imtp.get(IMTP_QUALITY_FLAG_COLUMN) or "") == IMTP_NO_RISE_FLAG:
                 alerts.append(
@@ -320,3 +325,17 @@ def no_wellness_line(wellness_df: pd.DataFrame | None, athlete: str, *, today: o
     if last is None:
         return "Sin registros de bienestar cargados."
     return f"Menos de 3 registros de bienestar en las últimas {weeks} semanas (último: {last:%d/%m/%Y})."
+
+
+def cross_era_banner(delta_df: pd.DataFrame | None) -> str | None:
+    """Cartel bajo la tabla de cambios: que eras se estan comparando."""
+    from modules.jump_analysis import cross_era_rows
+
+    rows = cross_era_rows(delta_df)
+    if rows.empty:
+        return None
+    labels = ", ".join(dict.fromkeys(str(label) for label in rows["Label"].tolist()))
+    # La nota del IMTP es la mas completa (trae el ~30% del protocolo anterior).
+    imtp_rows = rows[rows["Variable"].astype(str).str.startswith("IMTP")]
+    note = str((imtp_rows if not imtp_rows.empty else rows)["Comparison_note"].iloc[0])
+    return f"⚠ {labels}: {note}."

@@ -1431,7 +1431,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertAlmostEqual(float(cmj_fourth["Baseline_value"]), 31.0, places=2)
         self.assertAlmostEqual(float(cmj_fourth["Delta_abs"]), 3.0, places=2)
         self.assertAlmostEqual(float(cmj_fourth["Delta_pct"]), 9.68, places=2)
-        self.assertEqual(cmj_fourth["Baseline_method"], "Promedio de las primeras 3 tomas validas previas (misma era)")
+        self.assertEqual(cmj_fourth["Baseline_method"], "Promedio de las primeras 3 tomas validas previas")
         self.assertEqual(cmj_fourth["Signal"], "mejora vs baseline")
 
     def test_compute_baseline_delta_inverts_signal_for_lower_is_better_variables(self):

@@ -202,7 +202,7 @@ class EraTests(unittest.TestCase):
         self.assertEqual(dj_info["era"], "todas")
         self.assertTrue(pd.notna(row["DJ_height_Z"]))
 
-    def test_ignacio_imtp_not_comparable_but_flight_cmj_is(self):
+    def test_ignacio_imtp_compared_across_eras_with_warning(self):
         # Ignacio De La Vega: 20/05/2026 (Valkyria con straps) -> 08/10/2026 (Involution).
         history = _prepare_jump_df(pd.DataFrame([
             _take("Ignacio De La Vega", "2026-05-20", device=ERA_VALKYRIA_STRAPS, BW_kg=87.0,
@@ -211,18 +211,28 @@ class EraTests(unittest.TestCase):
                   CMJ_cm=46.04, CMJ_flight_ms=614, IMTP_N=3491.17),
         ]))
         changes = compute_evaluation_changes(history).set_index("Variable")
-        self.assertEqual(changes.loc["IMTP_N", "Signal"], ERA_CHANGE_SIGNAL)
-        self.assertEqual(changes.loc["IMTP_relPF", "Signal"], ERA_CHANGE_SIGNAL)
-        self.assertEqual(changes.loc["CMJ_cm", "Signal"], ERA_CHANGE_SIGNAL)
+        # PR L: se compara entre eras con aviso (antes: no comparable).
+        self.assertAlmostEqual(float(changes.loc["IMTP_N", "Valor_anterior"]), 3235.0)
+        self.assertEqual(changes.loc["IMTP_N", "Signal"], "mejora relevante")
+        for variable in ("IMTP_N", "IMTP_relPF", "CMJ_cm"):
+            self.assertTrue(bool(changes.loc[variable, "Cross_era"]), variable)
+            self.assertIn("Valkyria con straps → Involution con straps", changes.loc[variable, "Comparison_note"])
         flight = changes.loc["CMJ_ft_cm"]
+        self.assertFalse(bool(flight["Cross_era"]))
         self.assertAlmostEqual(float(flight["Valor_anterior"]), 39.8, places=1)
         self.assertAlmostEqual(float(flight["Valor_actual"]), 46.2, places=1)
         self.assertEqual(flight["Signal"], "mejora relevante")
         texts = [item["text"] for item in ar.evaluation_achievements(changes.reset_index(), "atleta")]
-        self.assertFalse(any("IMTP" in text for text in texts))
+        imtp_texts = [text for text in texts if "IMTP" in text]
+        self.assertEqual(len(imtp_texts), 1)
+        self.assertIn("comparado con una medición hecha con el equipo anterior", imtp_texts[0])
         self.assertTrue(any(text.startswith("Salto CMJ (por tiempo de vuelo): 39.8 cm → 46.2 cm") for text in texts))
+        # El mismo salto no se celebra dos veces (impulso y vuelo).
+        self.assertFalse(any(text.startswith("Salto CMJ:") for text in texts))
+        client = [item["text"] for item in ar.evaluation_achievements(changes.reset_index(), "cliente")]
+        self.assertTrue(any("comparado con una medición hecha con otro equipo" in text for text in client))
 
-    def test_profe_change_table_says_software_protocol(self):
+    def test_profe_change_table_warns_what_it_compares(self):
         from modules.jump_analysis import build_jump_delta_display_table
 
         history = _prepare_jump_df(pd.DataFrame([
@@ -230,7 +240,8 @@ class EraTests(unittest.TestCase):
             _take("A", "2026-10-08", device=ERA_INVOLUTION_STRAPS, IMTP_N=3491.0),
         ]))
         table = build_jump_delta_display_table(compute_evaluation_changes(history)).set_index("Variable")
-        self.assertIn("no comparable: cambio de software/protocolo", table.loc["IMTP", "Senal"])
+        self.assertIn("⚠ compara Valkyria con straps → Involution con straps", table.loc["IMTP", "Senal"])
+        self.assertIn("leer como orientativo", table.loc["IMTP", "Senal"])
 
 
 class DemandGroupTests(unittest.TestCase):

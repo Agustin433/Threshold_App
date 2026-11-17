@@ -2,6 +2,40 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-17 - PR L: comparar entre eras de plataforma, con aviso
+
+Decision: las evaluaciones de distinta era de plataforma (Valkyria sin
+straps / Valkyria con straps / Involution) SI se comparan, en la app y en
+todos los PDF, con un cartel que dice que se compara. Plataforma vs
+alfombra sigue sin mezclarse; la altura por impulso descartada sigue sin
+compararse.
+
+1. `compute_swc_delta` / `compute_evaluation_changes`: IMTP y lo que sale
+   de la velocidad integrada se comparan contra la toma anterior aunque sea
+   de otra era. Columnas nuevas `Cross_era` y `Comparison_note` ("compara
+   Valkyria con straps → Involution con straps: cambió el equipo/protocolo,
+   leer como orientativo"; en IMTP agrega "con el protocolo anterior el
+   IMTP suele dar ~30% menos"). El umbral max(TE, SWC) sale de la serie de
+   la era actual. La fila por tiempo de vuelo acompaña a la altura por
+   impulso cuando esta cruza era. Ignacio: IMTP 3235 -> 3491 N (+7.9%),
+   mejora relevante con aviso.
+2. `compute_baseline_delta`: baseline con las 3 primeras tomas previas
+   aunque sean de otra era, con el mismo aviso.
+3. Dashboard: cartel (st.warning) arriba de las tablas de cambios y de
+   baseline cuando alguna fila cruza era; la senal lleva "⚠ compara ...".
+4. PDF profe: tabla del resumen con "(!) cruza era" y cartel bajo la tabla;
+   la sintesis de cambios del anexo suma el cartel. Alerta "IMTP con
+   protocolo anterior" ahora dice que se compara con aviso.
+5. PDF atleta/cliente: "Lo que lograste" celebra la mejora con "(comparado
+   con una medición hecha con el equipo anterior / con otro equipo: tomalo
+   como orientativo)"; un mismo salto no se celebra dos veces (si hay fila
+   por vuelo, no va la de impulso). "Tu evolucion" grafica la IMTP de todas
+   las eras con los puntos del equipo anterior huecos y una leyenda.
+   La regla de plausibilidad (+25% IMTP, +20% salto) sigue: un salto de
+   protocolo grande no se celebra.
+
+Tests: actualizados los que esperaban "no comparable por era".
+
 ## 2026-11-17 - PR K: vistas viejas del dashboard sincronizadas con los PDF
 
 1. "Cambio vs baseline" (`compute_baseline_delta`): baseline = primeras 3

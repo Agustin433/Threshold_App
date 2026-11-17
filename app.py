@@ -27,7 +27,8 @@ from io import BytesIO
 from pathlib import Path
 import warnings
 from charts.quadrant_charts import chart_strength_quadrant as shared_chart_strength_quadrant
-from modules.athlete_report import evolution_drop_sentences
+from modules.athlete_report import evolution_cross_era_caption, evolution_drop_sentences
+from modules.professional_summary import cross_era_banner
 from charts.athlete_charts import (
     chart_athlete_evolution as shared_chart_athlete_evolution,
     chart_group_position as shared_chart_group_position,
@@ -3112,6 +3113,9 @@ def _render_athlete_visual_blocks(payload: dict[str, object]) -> None:
         st.markdown("#### 📈 Tu evolución")
         st.plotly_chart(evolution_figure, use_container_width=True)
         st.caption(EVOLUTION_BAND_CAPTION)
+        cross_era_caption = evolution_cross_era_caption(payload.get("evolution"), str(payload.get("audience") or "atleta"))
+        if cross_era_caption:
+            st.caption(cross_era_caption)
         for sentence in evolution_drop_sentences(payload.get("evolution")):
             st.markdown(sentence)
     tiles = list(payload.get("tiles") or [])
@@ -6938,6 +6942,9 @@ elif active_main_view in EVALUATION_VIEW_SOURCES:
             "lectura de cambio relevante por variable",
             kicker="Temporal",
         )
+        cross_era_banner_text = cross_era_banner(delta_df)
+        if cross_era_banner_text:
+            st.warning(cross_era_banner_text)
         render_jump_temporal_delta_table(delta_df)
         st.caption(CHANGE_THRESHOLD_CAPTION)
         if not delta_df.empty and delta_df["Signal"].eq("sin dato anterior").all():
@@ -6947,13 +6954,16 @@ elif active_main_view in EVALUATION_VIEW_SOURCES:
 
         render_subsection_header(
             "Cambio vs baseline",
-            "promedio de las primeras 3 tomas previas de la misma era; umbral max(TE, SWC)",
+            "promedio de las primeras 3 tomas previas; umbral max(TE, SWC); aviso si cruza era",
             kicker="Baseline",
         )
+        baseline_banner_text = cross_era_banner(baseline_df)
+        if baseline_banner_text:
+            st.warning(baseline_banner_text)
         render_jump_baseline_delta_table(baseline_df)
         if not baseline_df.empty and baseline_df["Signal"].eq("baseline insuficiente").all():
             st.caption(
-                "Baseline insuficiente: se necesitan 3 tomas validas previas a la actual y de la misma era por variable."
+                "Baseline insuficiente: se necesitan 3 tomas validas previas a la actual por variable."
             )
 
         render_jump_flag_chips(selected_flag_rows)
