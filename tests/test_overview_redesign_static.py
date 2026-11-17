@@ -36,7 +36,8 @@ class OverviewRedesignStaticTest(unittest.TestCase):
         self.assertIn("build_alert_feed(", overview)
         self.assertIn("select_executive_alerts(", overview)
         self.assertIn("build_weekly_summaries(", overview)
-        self.assertIn("_overview_completion_snapshot(cdf)", overview)
+        self.assertIn("_overview_completion_snapshot(", overview)
+        self.assertIn("raw_df=_overview_raw_history(raw_df_state)", overview)
 
     def test_overview_drops_legacy_duplicate_blocks(self):
         overview = _overview_block()

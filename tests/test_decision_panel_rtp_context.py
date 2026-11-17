@@ -141,7 +141,9 @@ class DecisionPanelContextoFilterTest(unittest.TestCase):
 
 
 class DecisionPanelRtpZoneThresholdTest(unittest.TestCase):
-    def test_rtp_athlete_gets_more_conservative_zone_for_same_acwr(self):
+    def test_acwr_is_context_without_zones_and_rtp_is_still_marked(self):
+        # PR K: sin semaforo de ACWR (ni el umbral mas conservador de RTP):
+        # el valor es contexto (Impellizzeri 2020). El chip RTP se mantiene.
         with isolated_store() as store_dir:
             _seed_decision_fixture(store_dir)
             at = _run_decision_panel()
@@ -153,21 +155,15 @@ class DecisionPanelRtpZoneThresholdTest(unittest.TestCase):
 
             ana = rows_by_athlete["Ana Rtp"]
             bruno = rows_by_athlete["Bruno Nortp"]
+            self.assertEqual(ana["ACWR EWMA (contexto)"], bruno["ACWR EWMA (contexto)"])
+            self.assertNotIn("Zona", risk_df.columns)
 
-            # Same underlying ACWR (both athletes share the exact same sRPE history).
-            self.assertEqual(ana["ACWR EWMA"], bruno["ACWR EWMA"])
-
-            # RTP threshold is more conservative: 1.17 lands in "Precaucion" for
-            # RTP (0.8-1.1 Optima, 1.1-1.3 Precaucion) but "Optima" for a
-            # standard athlete (0.8-1.3 Optima).
-            self.assertEqual(ana["Zona"], "Precaucion")
-            self.assertEqual(bruno["Zona"], "Optima")
-
-            # RTP chip only on the RTP athlete's row.
             ana_row = risk_df.loc[risk_df["Atleta"].str.startswith("Ana Rtp")].iloc[0]
             bruno_row = risk_df.loc[risk_df["Atleta"] == "Bruno Nortp"].iloc[0]
             self.assertIn("RTP", ana_row["Atleta"])
             self.assertNotIn("RTP", bruno_row["Atleta"])
+            text = " ".join(str(item.value) for item in [*at.markdown, *at.caption])
+            self.assertNotIn("zona de riesgo", text.lower().replace("sin zonas de riesgo", ""))
 
 
 class DecisionPanelRtpDevelopmentColumnTest(unittest.TestCase):

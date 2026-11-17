@@ -16,8 +16,6 @@ ALERT_CATEGORIES = ("data_quality", "load_risk", "adherence", "evaluations")
 ALERT_SEVERITIES = ("danger", "warning", "info")
 SEVERITY_WEIGHT = {"danger": 3, "warning": 2, "info": 1}
 
-ACWR_WARNING = 1.30
-ACWR_DANGER = 1.50
 MONOTONY_WARNING = 2.00
 ADHERENCE_WARNING = 90.0
 ADHERENCE_DANGER = 70.0
@@ -268,15 +266,8 @@ def _load_risk_alerts(
         severity = "info"
         priority = 0
 
-        if acwr is not None and acwr > ACWR_DANGER:
-            severity = "danger"
-            priority = max(priority, 96)
-            triggers.append(f"ACWR EWMA {acwr:.2f}")
-        elif acwr is not None and acwr > ACWR_WARNING:
-            severity = "warning"
-            priority = max(priority, 84)
-            triggers.append(f"ACWR EWMA {acwr:.2f}")
-
+        # El ACWR no dispara alertas: es contexto y no predice lesion
+        # (Impellizzeri et al. 2020). Quedan monotonia y datos faltantes.
         if monotony_status == "zero_variability":
             severity = "danger" if severity == "danger" else "warning"
             priority = max(priority, 88)
@@ -294,11 +285,11 @@ def _load_risk_alerts(
                 category="load_risk",
                 severity=severity,
                 priority=priority,
-                title="Riesgo de carga semanal",
+                title="Monotonía de carga semanal",
                 message=f"{', '.join(triggers)} en {label}.",
                 athlete=athlete_name,
                 source="weekly_summaries",
-                action="Revisar Load Monitoring y ajustar carga aguda si corresponde.",
+                action="Revisar Load Monitoring y variar la carga del microciclo.",
                 scope=scope,
                 surface=surface,
                 key=f"load_risk:{athlete_name or 'team'}:{selected_week}:{','.join(triggers)}",

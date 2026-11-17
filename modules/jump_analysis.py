@@ -257,7 +257,7 @@ def _variable_direction(meta: dict[str, object]) -> str:
     return "higher_is_better" if bool(meta.get("higher_is_better")) else "lower_is_better"
 
 BASELINE_MIN_VALID = 3
-BASELINE_METHOD = "Promedio primeras 3 mediciones validas"
+BASELINE_METHOD = "Promedio de las primeras 3 tomas validas previas (misma era)"
 BASELINE_SIGNAL_BADGES = {
     "mejora vs baseline": "+ mejora vs baseline",
     "caida vs baseline": "- caida vs baseline",
@@ -265,7 +265,9 @@ BASELINE_SIGNAL_BADGES = {
     "cambio vs baseline sin direccion": "± cambio vs baseline — leer numerador y denominador",
     "baseline insuficiente": "baseline insuficiente",
     "sin dato actual": "sin dato actual",
+    ERA_CHANGE_SIGNAL: "✕ no comparable (cruza era)",
 }
+BASELINE_DISPLAY_COLUMNS = ["Variable", "Actual", "Baseline", "Delta abs", "Delta %", "Threshold", "Metodo", "Senal"]
 
 SEMAPHORE_LABELS = (
     (1.0, "Verde"),
@@ -2567,6 +2569,17 @@ def compute_baseline_delta(
     variables: list[str] | None = None,
     source: str | None = None,
 ) -> pd.DataFrame:
+    """Cambio de la toma actual contra el baseline del atleta.
+
+    Baseline = promedio de las primeras 3 tomas validas ANTERIORES a la
+    actual (nunca la incluye) y de la MISMA era de medicion para las
+    variables que dependen de la era (IMTP y lo que sale de la velocidad
+    integrada); las alturas por tiempo de vuelo cruzan eras. Una altura por
+    impulso marcada como inconsistente no entra. La senal usa el mismo
+    umbral max(TE, SWC) que la tabla de cambios vs evaluacion anterior.
+    Sin 3 tomas previas de la misma era: "baseline insuficiente", o "no
+    comparable por era" si las que faltan son de otra era.
+    """
     columns = [
         "Variable",
         "Label",
@@ -2577,6 +2590,8 @@ def compute_baseline_delta(
         "Baseline_end_date",
         "Delta_abs",
         "Delta_pct",
+        "Threshold_abs",
+        "Threshold_label",
         "Baseline_method",
         "N_valid",
         "Signal",
@@ -2592,87 +2607,102 @@ def compute_baseline_delta(
     if working_df.empty:
         return pd.DataFrame(columns=columns)
 
-    # El baseline son las primeras 3 mediciones validas. Si esas 3 fueran de
-    # plataforma y la actual de alfombra, todo delta posterior seria sesgo de
-    # dispositivo etiquetado como cambio de rendimiento.
+    # Si las 3 primeras fueran de plataforma y la actual de alfombra, todo
+    # delta posterior seria sesgo de dispositivo etiquetado como cambio.
     working_df = _restrict_history_to_current_source(working_df, current_ts, source)
     if working_df.empty:
         return pd.DataFrame(columns=columns)
+    if any(column not in working_df.columns for column in FLIGHT_TIME_HEIGHT_COLUMNS.values()):
+        working_df = add_flight_time_heights(working_df)
 
     current_rows = working_df[working_df["Date"] == current_ts].sort_values("Date")
     current_row = current_rows.iloc[-1] if not current_rows.empty else working_df.iloc[-1]
     current_row_date = pd.Timestamp(current_row["Date"]).normalize()
-    selected_variables = _default_temporal_variables(working_df, variables=variables)
+    working_eras = era_series(working_df)
+    current_era = working_eras.get(current_row.name, era_from_date(current_row_date))
+
+    selected_variables = list(_default_temporal_variables(working_df, variables=variables))
+    if variables is None:
+        # Fila por tiempo de vuelo despues de su altura por impulso.
+        expanded: list[str] = []
+        for variable in selected_variables:
+            expanded.append(variable)
+            for test, flight_column in FLIGHT_TIME_HEIGHT_COLUMNS.items():
+                if variable == f"{test}_cm" and flight_column in working_df.columns:
+                    expanded.append(flight_column)
+        selected_variables = expanded
 
     rows: list[dict[str, object]] = []
     for variable in selected_variables:
-        if variable not in VARIABLE_META or variable not in working_df.columns:
+        meta = VARIABLE_META.get(variable) or FLIGHT_TIME_VARIABLE_META.get(variable)
+        if meta is None or variable not in working_df.columns:
             continue
 
-        meta = VARIABLE_META[variable]
         series = pd.to_numeric(working_df[variable], errors="coerce")
-        valid_rows = working_df.loc[series.notna(), ["Date"]].copy()
-        valid_rows[variable] = series.loc[series.notna()].values
-        valid_rows = valid_rows[valid_rows["Date"] <= current_row_date].sort_values("Date")
-        if valid_rows.empty:
+        valid = working_df[series.notna()].copy()
+        valid[variable] = series[series.notna()]
+        flagged_tests = set(jump_height_tests_for_variable(variable))
+        if flagged_tests:
+            keep = [not (flagged_tests & set(jump_height_flagged_tests(row))) for _, row in valid.iterrows()]
+            valid = valid[keep]
+        if valid.empty:
             continue
+        prior = valid[valid["Date"] < current_row_date].sort_values("Date")
+        same_era = prior
+        era_dependent = is_era_dependent(variable)
+        if era_dependent:
+            same_era = prior[working_eras.reindex(prior.index) == current_era]
 
         current_value = pd.to_numeric(pd.Series([current_row.get(variable)]), errors="coerce").iloc[0]
-        n_valid = int(len(valid_rows))
+        if pd.isna(current_value) and prior.empty:
+            continue
+        n_valid = int(len(same_era))
         baseline_value = np.nan
         baseline_start_date = pd.NaT
         baseline_end_date = pd.NaT
         delta_abs = np.nan
         delta_pct = np.nan
+        threshold_abs = np.nan
+        threshold_label = pd.NA
         baseline_method = pd.NA
-        signal = "baseline insuficiente"
-
-        if n_valid >= BASELINE_MIN_VALID:
-            baseline_rows = valid_rows.head(BASELINE_MIN_VALID)
-            baseline_value = pd.to_numeric(baseline_rows[variable], errors="coerce").mean()
+        if n_valid < BASELINE_MIN_VALID:
+            crosses_era = era_dependent and len(prior) > n_valid
+            signal = ERA_CHANGE_SIGNAL if crosses_era else "baseline insuficiente"
+        else:
+            baseline_rows = same_era.head(BASELINE_MIN_VALID)
+            baseline_value = float(pd.to_numeric(baseline_rows[variable], errors="coerce").mean())
             baseline_start_date = baseline_rows["Date"].iloc[0]
             baseline_end_date = baseline_rows["Date"].iloc[-1]
             baseline_method = BASELINE_METHOD
-            if pd.notna(current_value) and pd.notna(baseline_value):
-                delta_abs = float(current_value) - float(baseline_value)
-                if float(baseline_value) > 0:
-                    delta_pct = (delta_abs / float(baseline_value)) * 100
-
-                direction = _variable_direction(meta)
-                if direction == "context_dependent":
-                    signal = (
-                        "cambio vs baseline sin direccion"
-                        if delta_abs != 0
-                        else "sin cambio vs baseline"
-                    )
-                elif direction == "higher_is_better":
-                    if delta_abs > 0:
-                        signal = "mejora vs baseline"
-                    elif delta_abs < 0:
-                        signal = "caida vs baseline"
-                    else:
-                        signal = "sin cambio vs baseline"
-                else:
-                    if delta_abs < 0:
-                        signal = "mejora vs baseline"
-                    elif delta_abs > 0:
-                        signal = "caida vs baseline"
-                    else:
-                        signal = "sin cambio vs baseline"
-            else:
-                signal = "sin dato actual"
+            signal = "sin dato actual"
+            if pd.notna(current_value):
+                delta_abs = float(current_value) - baseline_value
+                if baseline_value > 0:
+                    delta_pct = (delta_abs / baseline_value) * 100
+                # Mismo umbral que "Cambios vs evaluacion anterior": la serie
+                # de la misma era hasta la toma actual.
+                series_values = pd.to_numeric(same_era[variable], errors="coerce").tolist() + [float(current_value)]
+                threshold = resolve_change_threshold(
+                    variable, baseline_value, series_values, swc_pct=float(meta["fallback_pct"])
+                )
+                if pd.notna(threshold["threshold_abs"]):
+                    threshold_abs = float(threshold["threshold_abs"])
+                    threshold_label = threshold["label"]
+                signal = _baseline_signal(_variable_direction(meta), delta_abs, threshold_abs)
 
         rows.append(
             {
                 "Variable": variable,
                 "Label": str(meta["label"]),
                 "Valor_actual": float(current_value) if pd.notna(current_value) else np.nan,
-                "Baseline_value": float(baseline_value) if pd.notna(baseline_value) else np.nan,
+                "Baseline_value": baseline_value,
                 "Fecha_actual": current_row_date,
                 "Baseline_start_date": pd.Timestamp(baseline_start_date).normalize() if pd.notna(baseline_start_date) else pd.NaT,
                 "Baseline_end_date": pd.Timestamp(baseline_end_date).normalize() if pd.notna(baseline_end_date) else pd.NaT,
                 "Delta_abs": float(delta_abs) if pd.notna(delta_abs) else np.nan,
                 "Delta_pct": float(delta_pct) if pd.notna(delta_pct) else np.nan,
+                "Threshold_abs": threshold_abs,
+                "Threshold_label": threshold_label,
                 "Baseline_method": baseline_method,
                 "N_valid": n_valid,
                 "Signal": signal,
@@ -2683,13 +2713,28 @@ def compute_baseline_delta(
     return pd.DataFrame(rows, columns=columns)
 
 
+def _baseline_signal(direction: str, delta_abs: float, threshold_abs: float) -> str:
+    """Senal vs baseline con umbral max(TE, SWC); sin umbral no se califica."""
+    if pd.isna(threshold_abs):
+        return "sin cambio vs baseline"
+    if direction == "context_dependent":
+        return "cambio vs baseline sin direccion" if abs(delta_abs) > threshold_abs else "sin cambio vs baseline"
+    improves = delta_abs > threshold_abs if direction == "higher_is_better" else delta_abs < -threshold_abs
+    worsens = delta_abs < -threshold_abs if direction == "higher_is_better" else delta_abs > threshold_abs
+    if improves:
+        return "mejora vs baseline"
+    if worsens:
+        return "caida vs baseline"
+    return "sin cambio vs baseline"
+
+
 def build_jump_baseline_display_table(baseline_df: pd.DataFrame) -> pd.DataFrame:
     if baseline_df is None or baseline_df.empty:
-        return pd.DataFrame(columns=["Variable", "Actual", "Baseline", "Delta abs", "Delta %", "Metodo", "Senal"])
+        return pd.DataFrame(columns=BASELINE_DISPLAY_COLUMNS)
 
     rows: list[dict[str, object]] = []
     for _, row in baseline_df.iterrows():
-        meta = VARIABLE_META.get(str(row["Variable"]), {})
+        meta = VARIABLE_META.get(str(row["Variable"])) or FLIGHT_TIME_VARIABLE_META.get(str(row["Variable"]), {})
         formatter = meta.get("fmt", "{:.2f}")
 
         def _fmt_value(value) -> str:
@@ -2711,9 +2756,15 @@ def build_jump_baseline_display_table(baseline_df: pd.DataFrame) -> pd.DataFrame
             date_range = ""
             if pd.notna(start_date) and pd.notna(end_date):
                 date_range = f" ({start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')})"
-            method_text = f"Primeras 3{date_range}"
+            method_text = f"Primeras 3 previas{date_range}"
+        elif str(row.get("Signal")) == ERA_CHANGE_SIGNAL:
+            method_text = f"Tomas previas de otra era (misma era: {int(row.get('N_valid', 0))}/{BASELINE_MIN_VALID})"
         else:
             method_text = f"Baseline insuficiente (N={int(row.get('N_valid', 0))}/{BASELINE_MIN_VALID})"
+        threshold_value = row.get("Threshold_abs")
+        threshold_text = _fmt_value(threshold_value) if pd.notna(threshold_value) else "-"
+        if pd.notna(threshold_value) and isinstance(row.get("Threshold_label"), str) and row.get("Threshold_label"):
+            threshold_text = f"{threshold_text} ({row.get('Threshold_label')})"
 
         rows.append(
             {
@@ -2722,12 +2773,13 @@ def build_jump_baseline_display_table(baseline_df: pd.DataFrame) -> pd.DataFrame
                 "Baseline": _fmt_value(row.get("Baseline_value")),
                 "Delta abs": delta_abs_text,
                 "Delta %": delta_pct_text,
+                "Threshold": threshold_text,
                 "Metodo": method_text,
                 "Senal": BASELINE_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-"))),
             }
         )
 
-    return pd.DataFrame(rows, columns=["Variable", "Actual", "Baseline", "Delta abs", "Delta %", "Metodo", "Senal"])
+    return pd.DataFrame(rows, columns=BASELINE_DISPLAY_COLUMNS)
 
 
 def _format_profile_source_date(value: object) -> str:

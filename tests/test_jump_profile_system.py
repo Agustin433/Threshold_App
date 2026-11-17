@@ -1418,7 +1418,8 @@ class JumpProfileSystemTest(unittest.TestCase):
         cmj_second = second_baseline[second_baseline["Variable"] == "CMJ_cm"].iloc[0]
 
         self.assertEqual(cmj_second["Signal"], "baseline insuficiente")
-        self.assertEqual(int(cmj_second["N_valid"]), 2)
+        # PR K: cuenta solo tomas previas a la actual.
+        self.assertEqual(int(cmj_second["N_valid"]), 1)
         self.assertTrue(pd.isna(cmj_second["Baseline_value"]))
 
     def test_compute_baseline_delta_uses_first_three_values_per_variable(self):
@@ -1430,7 +1431,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         self.assertAlmostEqual(float(cmj_fourth["Baseline_value"]), 31.0, places=2)
         self.assertAlmostEqual(float(cmj_fourth["Delta_abs"]), 3.0, places=2)
         self.assertAlmostEqual(float(cmj_fourth["Delta_pct"]), 9.68, places=2)
-        self.assertEqual(cmj_fourth["Baseline_method"], "Promedio primeras 3 mediciones validas")
+        self.assertEqual(cmj_fourth["Baseline_method"], "Promedio de las primeras 3 tomas validas previas (misma era)")
         self.assertEqual(cmj_fourth["Signal"], "mejora vs baseline")
 
     def test_compute_baseline_delta_inverts_signal_for_lower_is_better_variables(self):
@@ -1451,7 +1452,7 @@ class JumpProfileSystemTest(unittest.TestCase):
         display_df = build_jump_baseline_display_table(second_baseline)
 
         self.assertIn("baseline insuficiente", display_df["Senal"].tolist())
-        self.assertTrue(any("N=2/3" in str(value) for value in display_df["Metodo"].tolist()))
+        self.assertTrue(any("N=1/3" in str(value) for value in display_df["Metodo"].tolist()))
 
     def test_neuromuscular_profile_result_imports_and_handles_empty_row(self):
         result = build_neuromuscular_profile_result(pd.Series(dtype=object))

@@ -278,10 +278,10 @@ class TemporalPartitionTest(unittest.TestCase):
         baseline = compute_baseline_delta(history, "2026-04-29", variables=["CMJ_cm"])
         row = baseline[baseline["Variable"] == "CMJ_cm"].iloc[0]
 
-        # Solo hay 2 tomas de alfombra, por debajo de las 3 que exige el
-        # baseline. Es correcto declararlo insuficiente en vez de completarlo
-        # con mediciones de plataforma.
-        self.assertEqual(int(row["N_valid"]), 2)
+        # Solo hay 2 tomas de alfombra (1 previa a la actual), por debajo de
+        # las 3 que exige el baseline. Es correcto declararlo insuficiente en
+        # vez de completarlo con mediciones de plataforma.
+        self.assertEqual(int(row["N_valid"]), 1)
         self.assertEqual(row["Signal"], "baseline insuficiente")
 
     def test_explicit_source_argument_overrides_the_current_row(self):
@@ -290,7 +290,9 @@ class TemporalPartitionTest(unittest.TestCase):
             history, "2026-04-29", variables=["CMJ_cm"], source=SOURCE_PLATFORM
         )
         row = baseline[baseline["Variable"] == "CMJ_cm"].iloc[0]
-        self.assertEqual(int(row["N_valid"]), 3)
+        # 3 tomas de plataforma: la ultima es la actual y quedan 2 previas
+        # (PR K: el baseline nunca incluye la toma actual).
+        self.assertEqual(int(row["N_valid"]), 2)
 
 
 class FrameHelpersTest(unittest.TestCase):

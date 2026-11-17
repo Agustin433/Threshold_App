@@ -29,7 +29,7 @@ class ProductAlertsTest(unittest.TestCase):
                         "week_start": pd.Timestamp("2026-04-20"),
                         "is_current_week": True,
                         "ACWR_EWMA_last": 1.62,
-                        "monotony": 1.7,
+                        "monotony": 2.4,
                     }
                 ]
             )
@@ -72,9 +72,29 @@ class ProductAlertsTest(unittest.TestCase):
         priorities = [int(alert["priority"]) for alert in feed]
 
         self.assertEqual(priorities, sorted(priorities, reverse=True))
-        self.assertEqual(feed[0]["category"], "load_risk")
         self.assertEqual(feed[0]["severity"], "danger")
         self.assertGreaterEqual(int(feed[0]["priority"]), 90)
+
+    def test_acwr_alone_does_not_alert(self):
+        # PR K: el ACWR es contexto (Impellizzeri 2020); solo monotonia o datos faltantes alertan.
+        feed = build_alert_feed(
+            quality_report={"alerts": []},
+            weekly_summaries={
+                "weekly_load": pd.DataFrame(
+                    [{"Athlete": "Ana", "week_start": pd.Timestamp("2026-04-20"), "is_current_week": True,
+                      "ACWR_EWMA_last": 1.9, "monotony": 1.2}]
+                )
+            },
+            completion_df=None,
+            jump_df=None,
+            athletes_list=["Ana"],
+            reference_date=pd.Timestamp("2026-04-26"),
+            week_start=pd.Timestamp("2026-04-20"),
+            scope="team",
+            surface="test",
+        )
+        self.assertFalse([alert for alert in feed if alert["category"] == "load_risk"])
+        self.assertNotIn("ACWR", " ".join(str(alert["message"]) for alert in feed))
 
     def test_local_ui_messages_are_not_product_alerts(self):
         feed = self._feed()
