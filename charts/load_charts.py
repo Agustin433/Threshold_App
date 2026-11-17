@@ -30,11 +30,19 @@ def chart_acwr(
     athlete: str,
     *,
     theme: dict,
+    zones: bool = False,
 ) -> go.Figure:
+    """sRPE diario y ACWR EWMA.
+
+    Por defecto el ACWR va como linea de contexto, sin bandas de "riesgo":
+    el cociente acopla carga aguda y cronica y no predice lesion
+    (Impellizzeri et al. 2020, IJSPP 15:907). `zones=True` deja las bandas
+    del anexo del PDF profe tal como estaban.
+    """
     colors, layout, _, grid_soft, legend = _theme_parts(theme)
     fig = go.Figure()
 
-    band_data = [
+    band_data = [] if not zones else [
         (0.0, 0.8, "rgba(112,140,159,0.10)", "Subcarga"),
         (0.8, 1.3, "rgba(111,143,120,0.10)", "Optimo"),
         (1.3, 1.5, "rgba(196,164,100,0.12)", "Precaucion"),
@@ -67,9 +75,9 @@ def chart_acwr(
         go.Scatter(
             x=acwr_df["Date"],
             y=acwr_df["ACWR_EWMA"],
-            name="ACWR EWMA",
+            name="ACWR EWMA" if zones else "ACWR EWMA (contexto)",
             mode="lines",
-            line=dict(color=colors["steel"], width=3),
+            line=dict(color=colors["steel"], width=3) if zones else dict(color=colors.get("gray", "#5A595B"), width=2, dash="dot"),
             hovertemplate="%{x|%d/%m}<br>ACWR EWMA: %{y:.2f}<extra></extra>",
         )
     )

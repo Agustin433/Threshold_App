@@ -2,6 +2,38 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-17 - PR K: vistas viejas del dashboard sincronizadas con los PDF
+
+1. "Cambio vs baseline" (`compute_baseline_delta`): baseline = primeras 3
+   tomas validas ANTERIORES a la actual y de la MISMA era (las alturas por
+   tiempo de vuelo cruzan eras y tienen su fila); una altura por impulso
+   descartada no entra. Senal con max(TE, SWC) como la tabla de cambios
+   (antes DJ +0.15 cm era "mejora"). "no comparable (cruza era)" cuando las
+   tomas previas son de otra era; "baseline insuficiente" con menos de 3.
+   Ignacio: IMTP +13.5% "mejora vs baseline" -> no comparable (cruza era).
+2. "Cambios vs evaluacion anterior" del dashboard usa
+   `compute_evaluation_changes` (el del PDF): fila por tiempo de vuelo
+   (Ignacio CMJ vuelo 39.8 -> 46.2, +6.4) y marca "verificar" > +20%.
+   Tambien las tarjetas de "Perfiles de desarrollo" de Decision.
+3. ACWR sin semaforo en el dashboard (Load, Decision, Team, Profile,
+   scatter de wellness + carga, alertas): sin bandas Optimo/Precaucion/Alto
+   riesgo, sin "Riesgo de carga", "Atletas en zona de riesgo" ni "Zona de
+   alerta". El ACWR queda como linea/valor de contexto (Impellizzeri et al.
+   2020). Se mantienen las alertas de datos faltantes (ACWR no calculable,
+   sesiones sin sRPE) y de monotonia/bienestar. El anexo del PDF profe no
+   cambia (`chart_acwr(..., zones=True)`).
+4. Adherencia: Overview usa sesiones completadas desde raw en la ventana de
+   8 semanas del resumen del PDF profe, sin color de semaforo; el % del
+   Completion Report resumido se rotula "periodo del export de TeamBuildr"
+   (tambien en Team y en la nota del equipo). Team con un atleta elegido
+   muestra sus sesiones por semana (las mismas del resumen del PDF).
+   Arreglado: el completion resumido que vuelve del store sin columna Date
+   ya no se lee como "sin completion" en el PDF profe.
+5. Test de sincronia (AppTest): cambios, baseline, ACWR y adherencia del
+   dashboard coinciden con lo que calcula el PDF profe sobre el mismo estado.
+
+Tests: `tests/test_dashboard_pdf_sync.py`, `tests/test_baseline_delta.py`.
+
 ## 2026-11-16 - PR J: resumen ejecutivo del PDF profe (2 paginas + indice)
 
 El PDF profe (15-18 paginas) arranca con un resumen de lo que el profe mira

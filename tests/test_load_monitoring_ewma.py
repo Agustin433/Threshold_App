@@ -59,7 +59,13 @@ class LoadMonitoringEWMATest(unittest.TestCase):
         figure = chart_acwr(acwr_df, "Atleta Test", theme=_chart_theme())
         trace_names = [trace.name for trace in figure.data]
 
-        self.assertEqual(trace_names, ["sRPE diario", "ACWR EWMA"])
+        # PR K: en el dashboard el ACWR es linea de contexto, sin bandas de riesgo.
+        self.assertEqual(trace_names, ["sRPE diario", "ACWR EWMA (contexto)"])
+        self.assertEqual(len(figure.layout.shapes), 0)
+        # El anexo del PDF profe conserva sus bandas.
+        with_zones = chart_acwr(acwr_df, "Atleta Test", theme=_chart_theme(), zones=True)
+        self.assertEqual([trace.name for trace in with_zones.data], ["sRPE diario", "ACWR EWMA"])
+        self.assertEqual(len(with_zones.layout.shapes), 4)
 
     def test_monotony_strain_has_no_artificial_value_for_zero_variability(self):
         srpe_daily = pd.DataFrame(

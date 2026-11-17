@@ -213,6 +213,7 @@ from modules.jump_analysis import (
     calc_zscores as shared_calc_zscores,
     compute_baseline_delta as shared_compute_baseline_delta,
     compute_swc_delta as shared_compute_swc_delta,
+    compute_evaluation_changes as shared_compute_evaluation_changes,
     resolve_zscore as shared_resolve_zscore,
     select_primary_profile_row as shared_select_primary_profile_row,
 )
@@ -249,6 +250,7 @@ from modules.persistence_guard import (
     render_persistence_banners,
 )
 from modules.report_generator import (
+    COMPLETION_EXPORT_PERIOD_LABEL,
     EVOLUTION_BAND_CAPTION,
     QUADRANT_LIGHT_POINT_NOTE,
     TOLERANCE_BAND_CAPTION,
@@ -2663,7 +2665,7 @@ def render_jump_temporal_delta_table(delta_df: pd.DataFrame):
         return styles
 
     styler = display_df.style.apply(_style_signal, subset=["Senal"])
-    st.dataframe(styler, width='content', hide_index=True)
+    st.dataframe(styler, width='stretch', hide_index=True)
 
 
 def render_jump_baseline_delta_table(baseline_df: pd.DataFrame):
@@ -2678,6 +2680,7 @@ def render_jump_baseline_delta_table(baseline_df: pd.DataFrame):
         "sin cambio vs baseline": ("rgba(112,140,159,0.16)", "#41515E"),
         "baseline insuficiente": ("rgba(196,164,100,0.12)", "#6D5D3C"),
         "sin dato actual": ("rgba(112,140,159,0.12)", "#41515E"),
+        "no comparable por era": ("rgba(196,164,100,0.12)", "#6D5D3C"),
     }
     signal_values = baseline_df["Signal"].reset_index(drop=True)
 
@@ -2689,7 +2692,7 @@ def render_jump_baseline_delta_table(baseline_df: pd.DataFrame):
         return styles
 
     styler = display_df.style.apply(_style_signal, subset=["Senal"])
-    st.dataframe(styler, width='content', hide_index=True)
+    st.dataframe(styler, width='stretch', hide_index=True)
 
 
 def _metric_delta(val, ref, label, fmt=".1f", lower_is_better=False):
@@ -2784,6 +2787,7 @@ build_jump_delta_display_table = shared_build_jump_delta_display_table
 build_jump_temporal_context = shared_build_jump_temporal_context
 compute_baseline_delta = shared_compute_baseline_delta
 compute_swc_delta = shared_compute_swc_delta
+compute_evaluation_changes = shared_compute_evaluation_changes
 select_primary_profile_row = shared_select_primary_profile_row
 get_asymmetry_summary = shared_get_asymmetry_summary
 get_force_time_interpretation_lines = shared_get_force_time_interpretation_lines
@@ -3390,6 +3394,29 @@ def _overview_current_week_slice(df: pd.DataFrame | None, today: pd.Timestamp | 
     return result.loc[result["week_start"].eq(current_week)].copy()
 
 
+# ACWR en todo el dashboard: linea/valor de contexto, sin zonas de riesgo.
+ACWR_CONTEXT_HELP = (
+    "ACWR EWMA como contexto, sin zonas de riesgo: el cociente acopla carga aguda y crónica "
+    "y no predice lesión (Impellizzeri et al. 2020, IJSPP 15:907)."
+)
+
+
+def _overview_missing_srpe_count(weekly_summaries: dict | None, today: pd.Timestamp | None = None) -> int:
+    """Atletas con sesiones entrenadas sin sRPE en la semana actual (alerta de dato faltante)."""
+    weekly_load = (weekly_summaries or {}).get("weekly_load") if isinstance(weekly_summaries, dict) else None
+    if weekly_load is None or weekly_load.empty or "sessions_missing" not in weekly_load.columns:
+        return 0
+    frame = weekly_load.copy()
+    frame["week_start"] = pd.to_datetime(frame["week_start"], errors="coerce").dt.normalize()
+    reference = pd.Timestamp(today or app_today()).normalize()
+    current_week = reference - pd.Timedelta(days=reference.weekday())
+    week = frame[frame["week_start"] == current_week]
+    if week.empty:
+        week = frame[frame["week_start"] == frame["week_start"].max()]
+    missing = pd.to_numeric(week["sessions_missing"], errors="coerce").fillna(0)
+    return int(week.loc[missing > 0, "Athlete"].nunique()) if "Athlete" in week.columns else int((missing > 0).sum())
+
+
 def _overview_number(value: object, digits: int = 0, suffix: str = "") -> str:
     numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
     if pd.isna(numeric):
@@ -3399,8 +3426,92 @@ def _overview_number(value: object, digits: int = 0, suffix: str = "") -> str:
     return f"{numeric:,.{digits}f}{suffix}"
 
 
-def _overview_completion_snapshot(comp_df: pd.DataFrame | None, today: pd.Timestamp | None = None) -> dict[str, object]:
+def _overview_raw_history(raw_df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Raw con historial completo si esta en sesion (como el PDF), si no la ventana activa."""
+    for key in ("raw_history_df", "prepared_raw_df"):
+        frame = st.session_state.get(key)
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            return frame
+    return raw_df
+
+
+def _overview_raw_sessions(raw_df: pd.DataFrame | None, today: pd.Timestamp | None = None) -> dict[str, object] | None:
+    """Sesiones completadas segun raw (TeamBuildr), todo el equipo.
+
+    Misma cuenta y ventana que el resumen del PDF profe (`completed_sessions`:
+    dias con sesion registrada por atleta; 8 semanas con la actual), no el %
+    del Completion Report.
+    """
+    from modules.athlete_report import completed_sessions
+    from modules.professional_summary import SUMMARY_LOAD_WEEKS
+
+    if raw_df is None or raw_df.empty or "Athlete" not in raw_df.columns:
+        return None
+    today_ts = app_today() if today is None else pd.Timestamp(today).normalize()
+    current_week = today_ts - pd.Timedelta(days=int(today_ts.weekday()))
+    window_start = current_week - pd.Timedelta(weeks=SUMMARY_LOAD_WEEKS - 1)
+    athletes = sorted(raw_df["Athlete"].dropna().astype(str).str.strip().unique())
+    window = {a: completed_sessions(raw_df, a, window_start=window_start, window_end=today_ts) for a in athletes}
+    this_week = {a: completed_sessions(raw_df, a, window_start=current_week, window_end=today_ts) for a in athletes}
+    date_col = next((c for c in ("Fecha_sesion", "Completed Date", "Date", "Assigned Date") if c in raw_df.columns), None)
+    dates = pd.to_datetime(raw_df[date_col], errors="coerce").dt.normalize() if date_col else pd.Series(dtype="datetime64[ns]")
+    dates = dates[dates <= today_ts].dropna()
+    return {
+        "window": int(sum(window.values())),
+        "this_week": int(sum(this_week.values())),
+        "athletes": int(sum(1 for value in window.values() if value)),
+        "weeks": SUMMARY_LOAD_WEEKS,
+        "last_session": dates.max() if not dates.empty else None,
+    }
+
+
+def _overview_completion_snapshot(
+    comp_df: pd.DataFrame | None,
+    today: pd.Timestamp | None = None,
+    raw_df: pd.DataFrame | None = None,
+) -> dict[str, object]:
+    """Tarjeta "Adherencia" de Overview.
+
+    Con raw: sesiones completadas por semana (como el resumen del PDF profe),
+    sin semaforo. El % del Completion Report resumido
+    (completion_scope "uploaded_period_total") no tiene ventana conocida: se
+    rotula "periodo del export de TeamBuildr" y va sin color.
+    """
+    export_pct = None
+    if comp_df is not None and not comp_df.empty:
+        undated = comp_df.copy()
+        if "Date" in undated.columns:
+            undated = undated[pd.to_datetime(undated["Date"], errors="coerce").isna()]
+        if not undated.empty:
+            export_result = calculate_completion_rate(undated)
+            export_pct = float(export_result.value) if export_result.value is not None else None
+    sessions = _overview_raw_sessions(raw_df, today)
+    if sessions is not None:
+        last = sessions["last_session"]
+        detail = (
+            f"Sesiones completadas en {sessions['weeks']} semanas (registro de TeamBuildr) · "
+            f"{sessions['athletes']} atleta(s) · esta semana: {sessions['this_week']}"
+            + (f" · última sesión {pd.Timestamp(last):%d/%m}." if last is not None else ".")
+        )
+        if export_pct is not None:
+            detail += f" Export: {export_pct:.0f}% ({COMPLETION_EXPORT_PERIOD_LABEL})."
+        return {
+            "value": f"{sessions['window']} ses.",
+            "detail": detail,
+            "tone": "neutral",
+            "numeric": None,
+            "sessions": sessions,
+            "export_pct": export_pct,
+        }
     if comp_df is None or comp_df.empty or "Date" not in comp_df.columns:
+        if export_pct is not None:
+            return {
+                "value": f"{export_pct:.0f}%",
+                "detail": COMPLETION_EXPORT_PERIOD_LABEL[:1].upper() + COMPLETION_EXPORT_PERIOD_LABEL[1:] + ".",
+                "tone": "neutral",
+                "numeric": export_pct,
+                "export_pct": export_pct,
+            }
         return {
             "value": "Sin dato",
             "detail": "Cargar Completion Report para adherencia oficial.",
@@ -3421,12 +3532,13 @@ def _overview_completion_snapshot(comp_df: pd.DataFrame | None, today: pd.Timest
                 "numeric": None,
             }
         completion_mean = float(summary_result.value)
-        tone = "success" if completion_mean >= 90 else "warning" if completion_mean >= 70 else "danger"
+        # Sin ventana conocida: sin semaforo (no se sabe de que semanas es).
         return {
             "value": f"{completion_mean:.0f}%",
-            "detail": "Periodo cargado (sin fecha).",
-            "tone": tone,
+            "detail": COMPLETION_EXPORT_PERIOD_LABEL[:1].upper() + COMPLETION_EXPORT_PERIOD_LABEL[1:] + ".",
+            "tone": "neutral",
             "numeric": completion_mean,
+            "export_pct": completion_mean,
         }
     source = dated_source
 
@@ -5216,13 +5328,6 @@ with st.sidebar:
 # ════════════════════════════════════════════════════════════════════
 
 def render_decision_panel():
-    zone_palette = {
-        "Baja carga": ("rgba(74,159,212,0.14)", "#2D6D96"),
-        "Optima": ("rgba(79,201,126,0.16)", "#2F6C47"),
-        "Precaucion": ("rgba(232,200,74,0.18)", "#7A6213"),
-        "Alto riesgo": ("rgba(217,79,79,0.16)", "#8A2F2F"),
-        "Sin datos": ("rgba(112,140,159,0.12)", "#41515E"),
-    }
     status_palette = {
         "Regular": ("rgba(79,201,126,0.16)", "#2F6C47"),
         "Bajo": ("rgba(232,200,74,0.18)", "#7A6213"),
@@ -5230,13 +5335,6 @@ def render_decision_panel():
         "Urgente": ("rgba(217,79,79,0.16)", "#8A2F2F"),
         "Pendiente": ("rgba(232,200,74,0.18)", "#7A6213"),
         "Al dia": ("rgba(79,201,126,0.16)", "#2F6C47"),
-    }
-    zone_order = {
-        "Alto riesgo": 3,
-        "Precaucion": 2,
-        "Optima": 1,
-        "Baja carga": 0,
-        "Sin datos": -1,
     }
     external_labels = {
         "strength_kg": "Strength kg",
@@ -5262,42 +5360,8 @@ def render_decision_panel():
         mask = pd.to_datetime(result["week_start"], errors="coerce").dt.normalize() == target
         return result.loc[mask].copy()
 
-    def _zone_from_acwr(value: object) -> str:
-        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-        if pd.isna(numeric):
-            return "Sin datos"
-        if numeric < 0.8:
-            return "Baja carga"
-        if numeric <= 1.3:
-            return "Optima"
-        if numeric <= 1.5:
-            return "Precaucion"
-        return "Alto riesgo"
-
-    def _zone_from_acwr_rtp(value: object) -> str:
-        # Umbral mas conservador para atletas en proceso de RTP (Es_RTP == True).
-        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-        if pd.isna(numeric):
-            return "Sin datos"
-        if numeric < 0.8:
-            return "Baja carga"
-        if numeric <= 1.1:
-            return "Optima"
-        if numeric <= 1.3:
-            return "Precaucion"
-        return "Alto riesgo"
-
     def _is_rtp_flag(value: object) -> bool:
         return bool(value) and str(value).strip().lower() not in {"false", "nan", "none", "0", ""}
-
-    def _zone_color(label: str) -> str:
-        return {
-            "Baja carga": "#4A9FD4",
-            "Optima": "#4FC97E",
-            "Precaucion": "#E8C84A",
-            "Alto riesgo": "#D94F4F",
-            "Sin datos": "#708C9F",
-        }.get(label, "#708C9F")
 
     def _style_palette(series: pd.Series, palette: dict[str, tuple[str, str]]) -> list[str]:
         styles: list[str] = []
@@ -5525,22 +5589,19 @@ def render_decision_panel():
     current_wellness = _week_slice(weekly_wellness, selected_week)
     current_external = _week_slice(weekly_external, selected_week)
 
-    render_subsection_header("Riesgo de carga", "quien esta en zona de riesgo esta semana", kicker="Bloque 1")
+    render_subsection_header(
+        "Carga semanal",
+        "sRPE, sesiones sin sRPE y ACWR como contexto (sin zonas de riesgo)",
+        kicker="Bloque 1",
+    )
     if current_load.empty:
         st.caption("Sin datos de sRPE para la semana seleccionada.")
     else:
         risk_df = compare_weekly_load(current_load, previous_load)
-        risk_df["Zona"] = risk_df.apply(
-            lambda row: _zone_from_acwr_rtp(row["ACWR_EWMA_last"])
-            if row["Athlete"] in rtp_athletes
-            else _zone_from_acwr(row["ACWR_EWMA_last"]),
-            axis=1,
-        )
         risk_df["delta_sRPE_text"] = risk_df["delta_sRPE"].map(
             lambda value: f"{value:+.0f}" if pd.notna(value) else WEEKLY_NOT_COMPARABLE_TEXT
         )
-        risk_df["zone_rank"] = risk_df["Zona"].map(zone_order).fillna(-1)
-        risk_df = risk_df.sort_values(["zone_rank", "ACWR_EWMA_last", "strain"], ascending=[False, False, False])
+        risk_df = risk_df.sort_values(["weekly_sRPE", "strain"], ascending=[False, False])
         risk_display = pd.DataFrame(
             {
                 "Atleta": risk_df["Athlete"].map(
@@ -5548,7 +5609,7 @@ def render_decision_panel():
                 ),
                 "sRPE semana (reportado)": risk_df["weekly_sRPE"].round(0).astype(int),
                 "Sesiones sin sRPE": risk_df.apply(_missing_sessions_text, axis=1),
-                "ACWR EWMA": risk_df["ACWR_EWMA_last"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
+                "ACWR EWMA (contexto)": risk_df["ACWR_EWMA_last"].map(lambda value: f"{value:.2f}" if pd.notna(value) else "-"),
                 "Monotonia": risk_df.apply(
                     lambda row: _format_monotony_display(row.get("monotony"), row.get("monotony_status")),
                     axis=1,
@@ -5557,16 +5618,12 @@ def render_decision_panel():
                     lambda row: _format_strain_display(row.get("strain"), row.get("monotony_status")),
                     axis=1,
                 ),
-                "Zona": risk_df["Zona"],
                 "Delta sRPE": risk_df["delta_sRPE_text"],
             }
         )
-        risk_styler = (
-            risk_display.style
-            .apply(lambda series: _style_palette(series, zone_palette), subset=["Zona"])
-            .apply(_style_signed, subset=["Delta sRPE"])
-        )
+        risk_styler = risk_display.style.apply(_style_signed, subset=["Delta sRPE"])
         st.dataframe(risk_styler, width='stretch', hide_index=True)
+        st.caption(ACWR_CONTEXT_HELP)
         if (~risk_df["comparable"]).any():
             st.caption(
                 f"{WEEKLY_NOT_COMPARABLE_TEXT}: esta semana o la anterior tiene sesiones entrenadas sin sRPE "
@@ -5581,7 +5638,6 @@ def render_decision_panel():
         # estimadas): con la carga reportada sola, una semana con huecos se
         # veia como una baja de carga que no existio.
         variation_df = compare_weekly_load(current_load, previous_load)
-        variation_df["Zona"] = variation_df["ACWR_EWMA_last"].apply(_zone_from_acwr)
         variation_df["Etiqueta"] = np.where(
             variation_df["comparable"], variation_df["Athlete"], variation_df["Athlete"] + " *"
         )
@@ -5603,8 +5659,8 @@ def render_decision_panel():
                 orientation="h",
                 name="Semana actual",
                 marker_color=[
-                    _zone_color(zone) if comparable else "rgba(112,140,159,0.25)"
-                    for zone, comparable in zip(variation_df["Zona"], variation_df["comparable"])
+                    "#0D3C5E" if comparable else "rgba(112,140,159,0.25)"
+                    for comparable in variation_df["comparable"]
                 ],
             )
         )
@@ -5618,7 +5674,7 @@ def render_decision_panel():
         )
         st.plotly_chart(fig_variation, width='stretch', key="decision_variation")
 
-        risk_count = int(variation_df["Zona"].isin(["Precaucion", "Alto riesgo"]).sum())
+        missing_count = int((pd.to_numeric(variation_df["missing_frac"], errors="coerce").fillna(0) > 0).sum())
         avg_current = float(variation_df["weekly_sRPE"].mean()) if not variation_df.empty else 0.0
         comparable_deltas = variation_df["delta_sRPE"].dropna()
         excluded = int((~variation_df["comparable"]).sum())
@@ -5629,7 +5685,7 @@ def render_decision_panel():
             f"{float(comparable_deltas.mean()):+.0f}" if not comparable_deltas.empty else WEEKLY_NOT_COMPARABLE_TEXT,
             help=f"Promedia solo atletas comparables; {excluded} excluido(s) por sesiones sin sRPE." if excluded else None,
         )
-        c_var_3.metric("Atletas en zona de riesgo", f"{risk_count}")
+        c_var_3.metric("Atletas con sesiones sin sRPE", f"{missing_count}")
         if excluded:
             st.caption(
                 "Barras con carga reportada + sesiones sin sRPE estimadas. "
@@ -5663,7 +5719,7 @@ def render_decision_panel():
             imtp_relpf_z = pd.to_numeric(pd.Series([last_row.get("IMTP_relPF_Z")]), errors="coerce").iloc[0]
             sj_z = pd.to_numeric(pd.Series([last_row.get("SJ_Z")]), errors="coerce").iloc[0]
             dj_rsi_z = pd.to_numeric(pd.Series([last_row.get("DJ_RSI_Z")]), errors="coerce").iloc[0]
-            delta_df = compute_swc_delta(athlete_hist, last_date)
+            delta_df = compute_evaluation_changes(athlete_hist, last_date)
             signals = delta_df["Signal"].tolist() if not delta_df.empty and "Signal" in delta_df.columns else []
             has_drop = any(signal == "caida relevante" for signal in signals)
             signal_summary = (
@@ -5881,7 +5937,6 @@ def render_decision_panel():
         if scatter_df.empty:
             st.caption("Sin coincidencias entre wellness y carga en la semana seleccionada.")
         else:
-            scatter_df["Zona"] = scatter_df["ACWR_EWMA_last"].apply(_zone_from_acwr)
             x_median = float(scatter_df["load_model"].median())
             y_median = float(scatter_df["Wellness_mean"].median())
             fig_scatter = go.Figure()
@@ -5895,7 +5950,7 @@ def render_decision_panel():
                     customdata=scatter_df.apply(_missing_sessions_text, axis=1),
                     marker=dict(
                         size=scatter_df["sessions_done"].fillna(0).astype(float) * 6 + 10,
-                        color=[_zone_color(zone) for zone in scatter_df["Zona"]],
+                        color="#0D3C5E",
                         symbol=["circle" if frac <= 0 else "circle-open" for frac in scatter_df["missing_frac"]],
                         line=dict(color="rgba(34,31,32,0.28)", width=1),
                     ),
@@ -5914,10 +5969,12 @@ def render_decision_panel():
             x_max = float(scatter_df["load_model"].max())
             y_min = float(scatter_df["Wellness_mean"].min())
             y_max = float(scatter_df["Wellness_mean"].max())
-            fig_scatter.add_annotation(x=x_max, y=y_min, text="Zona de alerta", showarrow=False, font=dict(color="#8A2F2F"))
-            fig_scatter.add_annotation(x=x_max, y=y_max, text="Carga tolerada", showarrow=False, font=dict(color="#2F6C47"))
-            fig_scatter.add_annotation(x=x_min, y=y_min, text="Recuperacion", showarrow=False, font=dict(color="#7A6213"))
-            fig_scatter.add_annotation(x=x_min, y=y_max, text="Fresco", showarrow=False, font=dict(color="#2D6D96"))
+            # Cuadrantes descriptivos (medianas del grupo), sin semaforo.
+            quadrant_font = dict(color="#41515E")
+            fig_scatter.add_annotation(x=x_max, y=y_min, text="más carga · menos bienestar", showarrow=False, font=quadrant_font)
+            fig_scatter.add_annotation(x=x_max, y=y_max, text="más carga · más bienestar", showarrow=False, font=quadrant_font)
+            fig_scatter.add_annotation(x=x_min, y=y_min, text="menos carga · menos bienestar", showarrow=False, font=quadrant_font)
+            fig_scatter.add_annotation(x=x_min, y=y_max, text="menos carga · más bienestar", showarrow=False, font=quadrant_font)
             fig_scatter.update_layout(
                 height=460,
                 margin=dict(l=24, r=24, t=32, b=24),
@@ -6227,7 +6284,9 @@ if active_main_view == "Overview":
             "como fuente oficial para carga externa."
         )
 
-    completion_signal = _overview_completion_snapshot(cdf)
+    completion_signal = _overview_completion_snapshot(
+        cdf, raw_df=_overview_raw_history(raw_df_state)
+    )
     source_inventory_tone = "success" if loaded_sources >= 5 and not overview_data_quality_alerts else "warning" if loaded_sources >= 3 else "danger"
     source_inventory_detail = (
         "Inventario local suficiente para triage."
@@ -6241,12 +6300,13 @@ if active_main_view == "Overview":
         f"Revisar {len(overview_data_quality_alerts)} alerta(s) en Calidad de datos."
     )
 
-    load_risk_count = len(overview_load_alerts)
+    # Sin semaforo de ACWR: lo que se marca son los huecos de registro.
+    missing_srpe_count = _overview_missing_srpe_count(st.session_state.get("weekly_summaries"))
     active_athletes = _overview_number(current_team.get("athletes_active"))
     weekly_srpe = _overview_number(current_team.get("team_sRPE_sum"), suffix=" UA")
-    load_tone = "danger" if load_risk_count else "success" if weekly_srpe != "Sin dato" else "neutral"
+    load_tone = "warning" if missing_srpe_count else "success" if weekly_srpe != "Sin dato" else "neutral"
     load_detail = (
-        f"Semana actual · {active_athletes} atleta(s) activos · {load_risk_count} en precaucion/riesgo."
+        f"Semana actual · {active_athletes} atleta(s) activos · {missing_srpe_count} con sesiones sin sRPE."
         if weekly_srpe != "Sin dato" else
         "Cargar RPE/sRPE para lectura semanal de carga."
     )
@@ -6314,7 +6374,8 @@ if active_main_view == "Overview":
         summary = (
             f"{overview_note['summary']} "
             f"Estado actual: {loaded_sources}/{len(status_items)} fuentes activas, "
-            f"{len(overview_alert_feed)} alerta(s) P11 y adherencia {completion_signal['value']}."
+            f"{len(overview_alert_feed)} alerta(s) P11 y adherencia {completion_signal['value']}"
+            + ("" if str(completion_signal["value"]).endswith(".") else ".")
         )
         render_report_note(
             "Lectura integrada",
@@ -6593,7 +6654,7 @@ elif active_main_view == "Load":
                       f"{last_sessions['RPE'].iloc[-1]:.1f}" if not last_sessions.empty else "—")
             c3.metric(acwr_label,
                       f"{last_acwr_value:.2f}" if pd.notna(last_acwr_value) else ("No calc." if last_acwr_reason else "—"),
-                      help=f"No calculable: {last_acwr_reason}" if last_acwr_reason else "Óptimo: 0.8–1.3")
+                      help=f"No calculable: {last_acwr_reason}" if last_acwr_reason else ACWR_CONTEXT_HELP)
             c4.metric("Monotonía (sem)",
                       _format_monotony_display(last_mono["Monotonia"].values[0], last_mono_status) if not last_mono.empty else "—",
                       help="Foster 2001 — límite: 2.0")
@@ -6607,16 +6668,7 @@ elif active_main_view == "Load":
                     "refleja los huecos, no la carga. Completar el registro antes de usarlo.",
                     "y",
                 )
-            elif not last_acwr.empty and pd.notna(last_acwr_value):
-                v = last_acwr_value
-                if v > 1.5:
-                    _alert(f"ACWR EWMA = {v:.2f} — alto riesgo. Reducir carga aguda inmediatamente.", "r")
-                elif v > 1.3:
-                    _alert(f"ACWR EWMA = {v:.2f} — precaucion. Monitorear proximas 48 h.", "y")
-                elif v < 0.8:
-                    _alert(f"ACWR EWMA = {v:.2f} — subcarga. Evaluar si es recuperacion planeada o perdida de estimulo.", "b")
-                else:
-                    _alert(f"ACWR EWMA = {v:.2f} — zona optima.", "g")
+            # Sin semaforo de ACWR: es contexto, no predice lesion (Impellizzeri 2020).
 
             # Alerta monotonía
             if not last_mono.empty and last_mono["Alerta"].values[0]:
@@ -6810,7 +6862,9 @@ elif active_main_view in EVALUATION_VIEW_SOURCES:
             latest_row = hist_j.iloc[-1]
             latest_ts = pd.to_datetime(latest_row.get("Date"), errors="coerce")
             latest_date_text = latest_ts.strftime("%d/%m/%Y") if not pd.isna(latest_ts) else "Sin fecha"
-            delta_df = compute_swc_delta(hist_j, selected_date)
+            # Mismo motor que la tabla de cambios del PDF profe: filas por
+            # tiempo de vuelo cuando el impulso no compara y marca "verificar".
+            delta_df = compute_evaluation_changes(hist_j, selected_date)
             baseline_df = compute_baseline_delta(hist_j, selected_date)
             temporal_lines = build_jump_temporal_context(delta_df)
             selected_flag_rows = build_jump_flag_rows(selected_row)
@@ -6893,13 +6947,13 @@ elif active_main_view in EVALUATION_VIEW_SOURCES:
 
         render_subsection_header(
             "Cambio vs baseline",
-            "baseline fijo por variable: promedio de las primeras 3 mediciones validas",
+            "promedio de las primeras 3 tomas previas de la misma era; umbral max(TE, SWC)",
             kicker="Baseline",
         )
         render_jump_baseline_delta_table(baseline_df)
         if not baseline_df.empty and baseline_df["Signal"].eq("baseline insuficiente").all():
             st.caption(
-                "Baseline insuficiente: se necesitan al menos 3 mediciones validas por variable para establecer la referencia inicial."
+                "Baseline insuficiente: se necesitan 3 tomas validas previas a la actual y de la misma era por variable."
             )
 
         render_jump_flag_chips(selected_flag_rows)
@@ -7184,13 +7238,11 @@ elif active_main_view == "Profile":
                 acwr_last = latest_training_day_row(st.session_state.acwr_dict[ath_p])
                 if not acwr_last.empty:
                     v = acwr_last["ACWR_EWMA"].values[0]
-                    zona = acwr_last["Zona"].values[0]
-                    color_map = {"Optimo": "g", "Precaucion": "y", "Alto riesgo": "r", "Subcarga": "b"}
                     if pd.isna(v):
                         reason = acwr_unavailable_reason(acwr_last.iloc[0]) or "sin dato"
                         _alert(f"**ACWR EWMA:** no calculable — {reason}", "y")
                     else:
-                        _alert(f"**ACWR EWMA:** {v:.2f} — {zona}", color_map.get(zona, "b"))
+                        _alert(f"**ACWR EWMA (contexto):** {v:.2f}", "b")
 
             # Wellness
             if wdf is not None and ath_p in wdf["Athlete"].values:
@@ -7283,23 +7335,16 @@ elif active_main_view == "Team":
             team_rows.append({
                 "Atleta": ath,
                 "sRPE últimas sesión": f"{last_logged['sRPE_diario'].values[0]:.0f} UA" if not last_logged.empty else "—",
-                "ACWR EWMA": round(acwr_val, 2) if pd.notna(acwr_val) else None,
-                "Zona": last["Zona"].values[0] if not acwr_reason else f"No calc. ({acwr_reason})",
+                "ACWR EWMA (contexto)": round(acwr_val, 2) if pd.notna(acwr_val) else None,
+                "ACWR": "ok" if not acwr_reason else f"No calc. ({acwr_reason})",
                 "Monotonía": round(mono["Monotonia"].values[0], 2) if not mono.empty else None,
                 "Strain": round(mono["Strain"].values[0], 0) if not mono.empty else None,
             })
         if team_rows:
             team_table = pd.DataFrame(team_rows)
 
-            def color_zona(row):
-                colors = {"Óptimo": "background-color: rgba(111,143,120,0.14)",
-                          "Precaución": "background-color: rgba(196,164,100,0.16)",
-                          "Alto riesgo": "background-color: rgba(181,107,115,0.14)",
-                          "Subcarga": "background-color: rgba(112,140,159,0.14)"}
-                return [colors.get(v, "") if col == "Zona" else "" for col, v in row.items()]
-
-            st.dataframe(team_table.style.apply(color_zona, axis=1),
-                         width='content', hide_index=True)
+            st.dataframe(team_table, width='content', hide_index=True)
+            st.caption(ACWR_CONTEXT_HELP)
 
         team_note = generate_module_insights(dict(st.session_state), "Todos").get("team")
         if team_note:
@@ -7496,10 +7541,33 @@ elif active_main_view == "Team":
                 completion_snapshot = calculate_completion_rate(completion_team_detail)
                 snapshot_value = completion_snapshot.value if completion_snapshot.value is not None else 0.0
                 st.caption("Vista: historial sin fechas. Se muestra como snapshot acumulado del periodo cargado.")
-                st.metric("Completion ponderado", f"{snapshot_value:.1f}%")
+                st.metric(f"Completion ponderado ({COMPLETION_EXPORT_PERIOD_LABEL})", f"{snapshot_value:.1f}%")
                 detail_cols = [column for column in ["Athlete", "Assigned", "Completed", "Pct"] if column in completion_team_detail.columns]
                 st.dataframe(
                     completion_team_detail[detail_cols],
+                    width='content',
+                    hide_index=True,
+                )
+        if completion_sel_team != "Todos":
+            # Mismo dato que el resumen del PDF profe: sesiones completadas por
+            # semana desde raw, con ventana conocida (8 semanas).
+            from modules.professional_summary import weekly_load_summary
+
+            weekly_sessions = weekly_load_summary(
+                None, _overview_raw_history(st.session_state.raw_df), None, completion_sel_team, today=app_today()
+            )
+            if int(weekly_sessions["sessions"].sum()):
+                st.caption("Sesiones completadas por semana (registro de TeamBuildr), últimas 8 semanas · * semana en curso.")
+                st.dataframe(
+                    pd.DataFrame(
+                        {
+                            "Semana": [
+                                f"{week:%d/%m}" + ("*" if current else "")
+                                for week, current in zip(weekly_sessions["week_start"], weekly_sessions["in_progress"])
+                            ],
+                            "Sesiones": weekly_sessions["sessions"].astype(int),
+                        }
+                    ),
                     width='content',
                     hide_index=True,
                 )

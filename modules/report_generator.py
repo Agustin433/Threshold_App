@@ -981,6 +981,15 @@ def _current_week_slice(frame: pd.DataFrame | None, athlete: str = "Todos") -> p
 COMPLETION_EXPORT_PERIOD_LABEL = "período del export de TeamBuildr"
 
 
+def _completion_with_date_column(cdf: pd.DataFrame | None) -> pd.DataFrame | None:
+    """El Completion Report resumido vuelve del store sin columna Date (todo
+    el periodo del export): se agrega vacia para que se lea como sin fecha y
+    no como "sin completion"."""
+    if cdf is None or cdf.empty or "Date" in cdf.columns:
+        return cdf
+    return cdf.assign(Date=pd.NaT)
+
+
 def _completion_is_windowless(state: dict[str, pd.DataFrame | None], athlete: str) -> bool:
     """True si la adherencia del atleta sale solo de filas sin fecha (uploaded_period_total)."""
     cdf = state.get("completion_df")
@@ -1001,8 +1010,8 @@ def _completion_snapshot(
     *,
     today: pd.Timestamp | None = None,
 ) -> dict[str, object]:
-    cdf = state.get("completion_df")
-    if cdf is None or cdf.empty or "Date" not in cdf.columns:
+    cdf = _completion_with_date_column(state.get("completion_df"))
+    if cdf is None or cdf.empty:
         return {"value": "Sin dato", "detail": "Sin completion cargado.", "numeric": None, "period_label": "Sin dato"}
 
     result = cdf.copy()
@@ -4478,13 +4487,17 @@ def generate_module_insights(
 
     completion_mean = _team_completion_mean(state)
     individual_completion = _focus_completion_value(state, effective_athlete) if effective_athlete != "Todos" else None
+    # Completion Report resumido: sin ventana conocida, se rotula el periodo.
+    completion_period = (
+        f" ({COMPLETION_EXPORT_PERIOD_LABEL})" if _completion_is_windowless(state, effective_athlete) else ""
+    )
     insights["team"] = {
         "title": "Adherencia del plan" if effective_athlete != "Todos" else "Adherencia del equipo",
         "summary": (
-            f"Adherencia individual reciente: {individual_completion:.1f}%."
+            f"Adherencia individual{completion_period or ' reciente'}: {individual_completion:.1f}%."
             if effective_athlete != "Todos" and individual_completion is not None else
             (
-                f"Adherencia promedio del equipo: {completion_mean:.1f}%."
+                f"Adherencia promedio del equipo{completion_period}: {completion_mean:.1f}%."
                 if completion_mean is not None else
                 "No hay información de adherencia cargada para evaluar ejecución."
             )
@@ -5236,7 +5249,7 @@ def collect_report_plotly_figures(
             {
                 "slug": "acwr",
                 "title": "Carga reciente",
-                "figure": chart_acwr(acwr_df, effective_athlete, theme=theme),
+                "figure": chart_acwr(acwr_df, effective_athlete, theme=theme, zones=True),
                 }
             )
 
@@ -5656,8 +5669,8 @@ def _professional_completion_snapshot(
     state: dict[str, pd.DataFrame | None],
     athlete: str,
 ) -> dict[str, object]:
-    cdf = state.get("completion_df")
-    if cdf is None or cdf.empty or "Date" not in cdf.columns:
+    cdf = _completion_with_date_column(state.get("completion_df"))
+    if cdf is None or cdf.empty:
         return {"value": PDF_MISSING_TEXT, "detail": PDF_MISSING_TEXT, "numeric": None}
     result = cdf.copy()
     result["Date"] = pd.to_datetime(result["Date"], errors="coerce")
@@ -11781,7 +11794,7 @@ def _generate_professional_profile_pdf_reportlab(
         theme = _build_report_chart_theme()
         try:
             from charts.load_charts import chart_acwr
-            return chart_acwr(acwr_frame, report_athlete, theme=theme)
+            return chart_acwr(acwr_frame, report_athlete, theme=theme, zones=True)
         except Exception:
             try:
                 import plotly.graph_objects as go

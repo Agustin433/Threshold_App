@@ -485,8 +485,14 @@ UNDATED_COMPLETION = pd.DataFrame(
 
 class AdherenceTileTests(unittest.TestCase):
     def test_undated_period_total_has_no_window_value(self):
+        # PR K: sin columna Date se lee igual que con Date vacia (total del
+        # export, 77.5%), pero marcado sin ventana: no va como tile de atleta.
         state = _adherence_state(UNDATED_COMPLETION)
-        self.assertIsNone(rg._focus_completion_value(state, "Ana Lopez"))
+        self.assertEqual(rg._focus_completion_value(state, "Ana Lopez"), 77.5)
+        self.assertTrue(rg._completion_is_windowless(state, "Ana Lopez"))
+        with frozen_app_now(_FixedDate.now()):
+            payload = rg.build_individual_report_payload(state, "Ana Lopez", "atleta")
+        self.assertIsNone(payload["completion_text"])
 
     def test_athlete_pdf_hides_tile_without_dated_completion(self):
         with frozen_app_now(_FixedDate.now()):
