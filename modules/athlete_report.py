@@ -22,6 +22,7 @@ import re
 
 import pandas as pd
 
+from modules.measurement_eras import CROSS_ERA_ATHLETE_NOTE, CROSS_ERA_CLIENT_NOTE
 from modules.report_messages import (
     NEXT_STEP_FIRST_COMPARISON,
     NEXT_STEP_IMTP_PREVIOUS_PROTOCOL,
@@ -164,11 +165,17 @@ def evaluation_achievements(changes: pd.DataFrame | None, audience: str) -> list
         (changes["Variable"].astype(str) == "IMTP_N") & (changes["Signal"].astype(str) == "mejora relevante")
     ).any()
 
+    # Un mismo salto no se celebra dos veces: si hay fila por tiempo de vuelo
+    # (mismo metodo en las dos puntas), la altura por impulso no va.
+    flight_variables = {str(v) for v in changes["Variable"].astype(str) if str(v).endswith("_ft_cm")}
+
     items: list[dict[str, object]] = []
     for _, row in changes.iterrows():
         variable = str(row.get("Variable"))
         spec = ACHIEVEMENT_VARIABLES.get(variable)
         if spec is None or str(row.get("Signal")) != "mejora relevante":
+            continue
+        if variable.endswith("_cm") and variable.replace("_cm", "_ft_cm") in flight_variables:
             continue
         if _is_unusual(row):
             continue
@@ -192,19 +199,28 @@ def evaluation_achievements(changes: pd.DataFrame | None, audience: str) -> list
             rel_before = _number(relative_row.get("Valor_anterior"))
             if rel_now is not None and rel_before is not None:
                 extra = f"; {rel_before:.1f} → {rel_now:.1f} N/kg"
+        # PR L: entre eras se compara igual, con un aviso simple.
+        cross_era = str(row.get("Cross_era")) == "True"
+        era_note = ""
+        if cross_era:
+            era_note = f" ({CROSS_ERA_CLIENT_NOTE if _audience_key(audience) == CLIENT else CROSS_ERA_ATHLETE_NOTE})"
         if higher_is_better:
             text = (
                 f"{label}: {_fmt_value(previous, unit, digits)} → {_fmt_value(current, unit, digits)} "
-                f"({sign}{delta_text}{extra}), {dates}."
+                f"({sign}{delta_text}{extra}), {dates}{era_note}."
             )
         else:
-            text = f"{label} más corto: {_fmt_value(previous, unit, digits)} → {_fmt_value(current, unit, digits)} ({sign}{delta_text}), {dates}."
+            text = (
+                f"{label} más corto: {_fmt_value(previous, unit, digits)} → {_fmt_value(current, unit, digits)} "
+                f"({sign}{delta_text}), {dates}{era_note}."
+            )
         items.append(
             {
                 "kind": "evaluation",
                 "variable": variable,
                 "text": text,
                 "delta_pct": _number(row.get("Delta_pct")) or 0.0,
+                "cross_era": cross_era,
             }
         )
     items.sort(key=lambda item: abs(float(item["delta_pct"])), reverse=True)
@@ -668,15 +684,19 @@ def finite(value: object) -> bool:
 
 
 # ── Contenido visual (PR E): evolucion, posicion en el grupo, numeros de hoy ──
-# Solo metricas comparables entre eras (misma plataforma): CMJ por tiempo de
-# vuelo y DJ RSI. La IMTP cambia de valor con el protocolo (straps, deteccion
-# del pico), asi que solo se grafica dentro de una misma era.
+# CMJ por tiempo de vuelo y DJ RSI se comparan entre eras sin aviso. La IMTP
+# cambia de valor con el protocolo (straps, deteccion del pico): PR L la
+# grafica con todas las eras y marca los puntos del protocolo anterior.
 EVOLUTION_METRICS: tuple[tuple[str, str, str, str, int, bool], ...] = (
-    # (columna, rotulo atleta, rotulo cliente, unidad, decimales, solo_misma_era)
+    # (columna, rotulo atleta, rotulo cliente, unidad, decimales, depende_de_la_era)
     ("CMJ_ft_cm", "Salto CMJ (vuelo)", "Salto vertical", "cm", 1, False),
     ("DJ_RSI", "Reactividad (DJ RSI)", "Reactividad", "", 2, False),
     ("IMTP_relPF", "Fuerza máxima por kg (IMTP)", "Fuerza en relación a tu peso", "N/kg", 1, True),
 )
+EVOLUTION_CROSS_ERA_CAPTION = {
+    ATHLETE: "Puntos huecos: medidos con el equipo anterior. La comparación con esos puntos es orientativa.",
+    CLIENT: "Puntos huecos: medidos con otro equipo. La comparación con esos puntos es orientativa.",
+}
 
 # (columna z, columna valor, rotulo atleta, rotulo cliente)
 POSITION_TESTS: tuple[tuple[str, str, str, str], ...] = (
@@ -745,18 +765,19 @@ def evolution_series(history: pd.DataFrame | None, audience: str = ATHLETE) -> l
         return []
     client = _audience_key(audience) == CLIENT
     series: list[dict[str, object]] = []
-    for column, label, client_label, unit, digits, same_era in EVOLUTION_METRICS:
+    for column, label, client_label, unit, digits, era_dependent in EVOLUTION_METRICS:
         points = _dated_values(history, column)
         if points.empty:
             continue
-        if same_era:
-            points = points[points["era"] == points["era"].iloc[-1]]
+        current_era = str(points["era"].iloc[-1])
         limit = _plausibility_limit_pct(column)
         kept: list[tuple[pd.Timestamp, float]] = []
-        for date, value in zip(points["Date"], points["value"]):
+        kept_eras: list[str] = []
+        for date, value, era in zip(points["Date"], points["value"], points["era"]):
             if limit is not None and kept and kept[-1][1] > 0 and (value - kept[-1][1]) / kept[-1][1] * 100 > limit:
                 continue
             kept.append((pd.Timestamp(date), float(value)))
+            kept_eras.append(str(era))
         if len(kept) < 2:
             continue
         meta = FLIGHT_TIME_VARIABLE_META.get(column) or VARIABLE_META.get(column) or {}
@@ -798,10 +819,19 @@ def evolution_series(history: pd.DataFrame | None, audience: str = ATHLETE) -> l
                 "values": [value for _, value in kept],
                 "band": band,
                 "threshold_label": threshold.get("label"),
-                "era": str(points["era"].iloc[-1]) if same_era else None,
+                "era": current_era if era_dependent else None,
+                # PR L: puntos de otra era (protocolo anterior), se marcan.
+                "previous_protocol": [era_dependent and era != current_era for era in kept_eras],
             }
         )
     return series
+
+
+def evolution_cross_era_caption(series: list[dict[str, object]] | None, audience: str = ATHLETE) -> str | None:
+    """Aviso bajo "Tu evolucion" si alguna serie mezcla eras de medicion."""
+    if not any(any(item.get("previous_protocol") or []) for item in series or []):
+        return None
+    return EVOLUTION_CROSS_ERA_CAPTION[CLIENT if _audience_key(audience) == CLIENT else ATHLETE]
 
 
 POSITION_PCT_MIN = 1.0

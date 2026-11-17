@@ -131,7 +131,9 @@ class SummaryLayoutTests(unittest.TestCase):
     def test_ignacio_page_one_has_changes_map_and_radar(self):
         page = self.rendered["Ignacio De La Vega"][0][0]
         self.assertIn("Involution con straps", page)
-        self.assertIn("no comparable (cruza era)", page)
+        self.assertIn("(!) cruza era", page)
+        self.assertNotIn("■", page)
+        self.assertIn("leer como orientativo", page)
         self.assertIn("supera umbral", page)
         self.assertIn("Cuadrante:", page)
         self.assertIn("z (intervalo), n", page)

@@ -8457,6 +8457,11 @@ def _build_professional_change_payload(
         to_verify.append(f"{note} en {_professional_join_labels(labels)}")
 
     summary_lines = [_professional_visible_metric_text(line) for line in build_jump_temporal_context(delta_df)]
+    from modules.professional_summary import cross_era_banner
+
+    era_banner = cross_era_banner(delta_df)
+    if era_banner:
+        summary_lines.append(era_banner)
     summary_lines.extend(_professional_change_pattern_lines(delta_df, interval_warning))
     if improvements:
         summary_lines.append(f"Mejoras relevantes: {_professional_join_labels(improvements)}.")
@@ -10538,9 +10543,9 @@ ANNEX_GROUP_LABEL = "Anexo: reporte completo"
 INDEX_TITLE = "Índice"
 INDEX_SUBTITLE = "Páginas 1-2: resumen. Desde la página 4: el reporte completo, sin cambios de contenido."
 SUMMARY_CHANGE_NOTE = (
-    "Solo variables comparables. Umbral = max(TE, SWC) de cada variable; \"supera umbral\" = el cambio es mayor "
-    "que el error de la medición. Entre eras de plataforma la variable no se compara (\"cruza era\"); "
-    "las alturas por tiempo de vuelo sí."
+    "Umbral = max(TE, SWC) de cada variable; \"supera umbral\" = el cambio es mayor que el error de la "
+    "medición. \"⚠ cruza era\": compara tomas de distinto equipo/protocolo de plataforma; leer como "
+    "orientativo. Las alturas por tiempo de vuelo no dependen de la era."
 )
 SUMMARY_LOAD_NOTE = (
     "Barras: suma de sRPE por semana (UA). Línea punteada: ACWR EWMA al cierre de cada semana, como contexto "
@@ -10551,6 +10556,9 @@ SUMMARY_HALF_CHART_MM = 74.0
 SUMMARY_HALF_FONT_PX = 22
 SUMMARY_WELLNESS_CHART_MM = 56.0
 LAST_PROFESSIONAL_INDEX: dict[str, int] = {}
+# El aviso de comparacion entre eras usa "⚠" en el dashboard; en el PDF va "(!)".
+PDF_WARNING_GLYPH = "⚠"
+PDF_WARNING_TEXT = "(!)"
 # Paginas que el resumen agrega antes del anexo (2 de resumen + indice).
 PROFESSIONAL_SUMMARY_PAGES = 3
 # Graficos de ancho completo del resumen en el ultimo PDF profe (carga y bienestar).
@@ -10713,7 +10721,8 @@ def _generate_professional_profile_pdf_reportlab(
     )
 
     def _p(text: object, style_name: str = "ProfBody") -> Paragraph:
-        safe = escape(_repair_mojibake_text(safe_value(text, fallback=""))).replace("\n", "<br/>")
+        # Helvetica (fuente del PDF) no tiene el glifo del aviso: "(!)".
+        safe = escape(_repair_mojibake_text(safe_value(text, fallback="")).replace(PDF_WARNING_GLYPH, PDF_WARNING_TEXT)).replace("\n", "<br/>")
         return Paragraph(safe, styles[style_name])
 
     def _pdf_label(text: object, fallback: str = "") -> str:
@@ -12820,6 +12829,17 @@ def _generate_professional_profile_pdf_reportlab(
         change_rows = psum.summary_change_rows(change_payload.get("delta_df"))
         if change_rows:
             flow.append(_dataframe_table(pd.DataFrame(change_rows), col_widths_mm=[42, 26, 18, 30, 18, 40]))
+            banner = psum.cross_era_banner(change_payload.get("delta_df"))
+            if banner:
+                flow.append(
+                    _box(
+                        [_p(banner, "ProfBody")],
+                        background=palette["panel"],
+                        border_color=palette["orange"],
+                        accent_color=palette["orange"],
+                        padding=4,
+                    )
+                )
             flow.append(_p(SUMMARY_CHANGE_NOTE, "ProfMuted"))
         elif summary_latest is not None:
             flow.append(
@@ -13590,7 +13610,7 @@ def _generate_visual_report_pdf_reportlab(
         from charts.athlete_charts import chart_athlete_evolution, chart_group_position, chart_tolerance
         from charts.load_charts import chart_estimated_strength
         from charts.report_charts import PRINT_CANVAS_WIDTH_PX, PRINT_WIDTH_MM
-        from modules.athlete_report import dictionary_lines, evolution_drop_sentences
+        from modules.athlete_report import dictionary_lines, evolution_cross_era_caption, evolution_drop_sentences
         from modules.strength_estimates import ESTIMATED_STRENGTH_LABEL
 
         is_client = audience == "cliente"
@@ -13738,6 +13758,11 @@ def _generate_visual_report_pdf_reportlab(
                         Spacer(1, 2 * mm),
                         evolution_image,
                         _tp(EVOLUTION_BAND_CAPTION, "ReportMuted"),
+                    ]
+                    + [
+                        _tp(caption, "ReportMuted")
+                        for caption in [evolution_cross_era_caption(payload.get("evolution"), audience)]
+                        if caption
                     ]
                     + [_tp(sentence, "ReportBody") for sentence in evolution_drop_sentences(payload.get("evolution"))]
                 )

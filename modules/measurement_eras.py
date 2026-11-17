@@ -54,6 +54,23 @@ ALL_ERAS_LABEL = "todas las eras (misma plataforma)"
 ERA_CHANGE_SIGNAL = "no comparable por era"
 ERA_CHANGE_NOTE = "no comparable: cambio de software/protocolo"
 
+# PR L: entre eras SI se compara, con aviso de que cambio el equipo/protocolo.
+CROSS_ERA_NOTE = "compara {previous} → {current}: cambió el equipo/protocolo, leer como orientativo"
+CROSS_ERA_IMTP_NOTE = "con el protocolo anterior el IMTP suele dar ~30% menos"
+CROSS_ERA_ATHLETE_NOTE = "comparado con una medición hecha con el equipo anterior: tomalo como orientativo"
+CROSS_ERA_CLIENT_NOTE = "comparado con una medición hecha con otro equipo: tomalo como orientativo"
+
+
+def cross_era_note(previous_era: object, current_era: object, metric: object = None) -> str:
+    """Aviso de comparacion entre eras (vacio si son la misma era)."""
+    previous, current = str(previous_era or ""), str(current_era or "")
+    if not previous or not current or previous == current:
+        return ""
+    note = CROSS_ERA_NOTE.format(previous=era_label(previous), current=era_label(current))
+    if str(metric or "").startswith("IMTP"):
+        note += f" ({CROSS_ERA_IMTP_NOTE})"
+    return note
+
 # Lo que sale de la velocidad integrada: las mismas columnas que la regla 6b
 # excluye cuando el peso esta mal, mas lo que deriva de ellas o del IMTP.
 _VELOCITY_DERIVED = frozenset(

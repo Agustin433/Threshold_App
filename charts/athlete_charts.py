@@ -59,7 +59,15 @@ def chart_athlete_evolution(
                 textposition="top center",
                 textfont=dict(size=font_px, color=colors.get("navy", "#0D3C5E")),
                 line=dict(color=colors.get("steel", "#134263"), width=3),
-                marker=dict(size=10, color=colors.get("steel", "#134263")),
+                # Puntos huecos: protocolo anterior (PR L, comparacion orientativa).
+                marker=dict(
+                    size=10,
+                    color=[
+                        "rgba(0,0,0,0)" if previous else colors.get("steel", "#134263")
+                        for previous in (item.get("previous_protocol") or [False] * len(values))
+                    ],
+                    line=dict(color=colors.get("steel", "#134263"), width=2),
+                ),
                 showlegend=False,
                 hovertemplate="%{x|%d/%m/%Y}: %{y}<extra></extra>",
             ),

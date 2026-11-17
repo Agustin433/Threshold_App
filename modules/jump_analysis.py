@@ -51,6 +51,7 @@ from modules.evaluation_rules import (
 from modules.measurement_eras import (
     ERA_CHANGE_NOTE,
     ERA_CHANGE_SIGNAL,
+    cross_era_note,
     era_from_date,
     era_series,
     is_era_dependent,
@@ -257,7 +258,7 @@ def _variable_direction(meta: dict[str, object]) -> str:
     return "higher_is_better" if bool(meta.get("higher_is_better")) else "lower_is_better"
 
 BASELINE_MIN_VALID = 3
-BASELINE_METHOD = "Promedio de las primeras 3 tomas validas previas (misma era)"
+BASELINE_METHOD = "Promedio de las primeras 3 tomas validas previas"
 BASELINE_SIGNAL_BADGES = {
     "mejora vs baseline": "+ mejora vs baseline",
     "caida vs baseline": "- caida vs baseline",
@@ -2154,6 +2155,8 @@ def compute_swc_delta(
         "N_valid",
         "Signal",
         "Higher_is_better",
+        "Cross_era",
+        "Comparison_note",
     ]
     if athlete_df is None or athlete_df.empty or "Date" not in athlete_df.columns:
         return pd.DataFrame(columns=columns)
@@ -2186,17 +2189,6 @@ def compute_swc_delta(
         valid_rows[variable] = series.loc[series.notna()].values
         if valid_rows.empty:
             continue
-        # IMTP y lo que sale de la velocidad integrada: solo dentro de la
-        # misma era de medicion (software/protocolo). Una toma anterior de
-        # otra era no se compara ni entra al umbral.
-        era_blocked = False
-        if is_era_dependent(variable):
-            eras = working_eras.reindex(valid_rows.index)
-            current_era = working_eras.get(current_row.name, era_from_date(current_row_date))
-            earlier_any = valid_rows[valid_rows["Date"] < current_row_date]
-            valid_rows = valid_rows[eras == current_era]
-            earlier_same = valid_rows[valid_rows["Date"] < current_row_date]
-            era_blocked = not earlier_any.empty and earlier_same.empty
 
         current_value = pd.to_numeric(pd.Series([current_row.get(variable)]), errors="coerce").iloc[0]
         previous_rows = valid_rows[valid_rows["Date"] < current_row_date].sort_values("Date")
@@ -2204,6 +2196,20 @@ def compute_swc_delta(
         previous_date = previous_rows["Date"].iloc[-1] if not previous_rows.empty else pd.NaT
         valid_until_current = valid_rows[valid_rows["Date"] <= current_row_date]
         n_valid = int(len(valid_until_current))
+        # PR L: IMTP y lo que sale de la velocidad integrada SI se comparan
+        # entre eras (software/protocolo), con aviso. El umbral sale de la
+        # serie de la era actual: el salto de protocolo no es error tipico.
+        cross_era = False
+        comparison_note = ""
+        threshold_rows = valid_until_current
+        if is_era_dependent(variable):
+            eras = working_eras.reindex(valid_rows.index)
+            current_era = working_eras.get(current_row.name, era_from_date(current_row_date))
+            threshold_rows = valid_until_current[eras.reindex(valid_until_current.index) == current_era]
+            if not previous_rows.empty and pd.notna(current_value):
+                previous_era = eras.get(previous_rows.index[-1])
+                comparison_note = cross_era_note(previous_era, current_era, variable)
+                cross_era = bool(comparison_note)
 
         delta_abs = np.nan
         delta_pct = np.nan
@@ -2225,15 +2231,12 @@ def compute_swc_delta(
                 set(flagged_tests) & set(jump_height_flagged_tests(window_row))
                 for _, window_row in window.iterrows()
             )
-        if era_blocked and pd.isna(previous_value):
-            # La toma anterior es de otra era: ese es el motivo, no la altura.
-            previous_value = np.nan
-            previous_date = pd.NaT
-            signal = ERA_CHANGE_SIGNAL
-        elif impulse_blocked:
+        if impulse_blocked:
             previous_value = np.nan
             previous_date = pd.NaT
             signal = NO_IMPULSE_COMPARISON_SIGNAL
+            cross_era = False
+            comparison_note = ""
 
         if pd.notna(current_value) and pd.notna(previous_value):
             delta_abs = float(current_value) - float(previous_value)
@@ -2243,7 +2246,7 @@ def compute_swc_delta(
             threshold = resolve_change_threshold(
                 variable,
                 previous_value,
-                pd.to_numeric(valid_until_current.sort_values("Date")[variable], errors="coerce").tolist(),
+                pd.to_numeric(threshold_rows.sort_values("Date")[variable], errors="coerce").tolist(),
                 swc_pct=float(meta["fallback_pct"]),
             )
             if pd.notna(threshold["threshold_abs"]):
@@ -2291,6 +2294,8 @@ def compute_swc_delta(
                 "N_valid": n_valid,
                 "Signal": signal,
                 "Higher_is_better": bool(meta["higher_is_better"]),
+                "Cross_era": cross_era,
+                "Comparison_note": comparison_note,
             }
         )
 
@@ -2488,14 +2493,18 @@ def compute_evaluation_changes(
     extra_rows: list[dict[str, object]] = []
     for test in FLIGHT_TIME_HEIGHT_COLUMNS:
         impulse_rows = delta_df[delta_df["Variable"] == f"{test}_cm"]
-        if impulse_rows.empty or str(impulse_rows.iloc[0].get("Signal")) not in {
-            NO_IMPULSE_COMPARISON_SIGNAL,
-            ERA_CHANGE_SIGNAL,
-        }:
+        if impulse_rows.empty:
+            continue
+        impulse_row = impulse_rows.iloc[0]
+        # La fila por vuelo (mismo metodo en las dos puntas) acompana a la
+        # altura por impulso cuando esa no compara o cruza de era.
+        if str(impulse_row.get("Signal")) not in {NO_IMPULSE_COMPARISON_SIGNAL, ERA_CHANGE_SIGNAL} and not bool(
+            impulse_row.get("Cross_era")
+        ):
             continue
         flight_row = compare_flight_time_height(history, test, current_date=current_date)
         if flight_row is not None:
-            extra_rows.append(flight_row)
+            extra_rows.append({**flight_row, "Cross_era": False, "Comparison_note": ""})
     if extra_rows:
         extra = pd.DataFrame(extra_rows)
         ordered: list[pd.DataFrame] = []
@@ -2506,11 +2515,25 @@ def compute_evaluation_changes(
                 ordered.append(match.drop(columns=["Test", "Method"]))
         delta_df = pd.concat(ordered, ignore_index=True)
     delta_df = delta_df.reset_index(drop=True)
+    delta_df["Cross_era"] = delta_df["Cross_era"].fillna(False).astype(bool)
+    delta_df["Comparison_note"] = delta_df["Comparison_note"].fillna("").astype(str)
     delta_df["Unusual"] = [
         is_unusual_jump_change(variable, pct)
         for variable, pct in zip(delta_df["Variable"], delta_df["Delta_pct"])
     ]
     return delta_df
+
+
+def _is_cross_era(row: pd.Series | dict[str, object]) -> bool:
+    value = row.get("Cross_era") if hasattr(row, "get") else None
+    return (value is True or str(value) == "True") and bool(str(row.get("Comparison_note") or "").strip())
+
+
+def cross_era_rows(delta_df: pd.DataFrame | None) -> pd.DataFrame:
+    """Filas que comparan tomas de distinta era (para el cartel de aviso)."""
+    if delta_df is None or delta_df.empty or "Cross_era" not in delta_df.columns:
+        return pd.DataFrame()
+    return delta_df[[_is_cross_era(row) for _, row in delta_df.iterrows()]]
 
 
 def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
@@ -2548,6 +2571,8 @@ def build_jump_delta_display_table(delta_df: pd.DataFrame) -> pd.DataFrame:
         signal_text = TEMPORAL_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-")))
         if row.get("Unusual") is True or str(row.get("Unusual")) == "True":
             signal_text = f"{signal_text} — {unusual_change_note(row['Variable']) or UNUSUAL_CHANGE_NOTE}"
+        if _is_cross_era(row):
+            signal_text = f"{signal_text} — ⚠ {row.get('Comparison_note')}"
         rows.append(
             {
                 "Variable": row["Label"],
@@ -2572,13 +2597,12 @@ def compute_baseline_delta(
     """Cambio de la toma actual contra el baseline del atleta.
 
     Baseline = promedio de las primeras 3 tomas validas ANTERIORES a la
-    actual (nunca la incluye) y de la MISMA era de medicion para las
-    variables que dependen de la era (IMTP y lo que sale de la velocidad
-    integrada); las alturas por tiempo de vuelo cruzan eras. Una altura por
-    impulso marcada como inconsistente no entra. La senal usa el mismo
-    umbral max(TE, SWC) que la tabla de cambios vs evaluacion anterior.
-    Sin 3 tomas previas de la misma era: "baseline insuficiente", o "no
-    comparable por era" si las que faltan son de otra era.
+    actual (nunca la incluye). Una altura por impulso marcada como
+    inconsistente no entra. La senal usa el mismo umbral max(TE, SWC) que la
+    tabla de cambios, con la serie de la era actual. PR L: el baseline puede
+    venir de otra era de medicion (software/protocolo); entonces se compara
+    igual y la fila trae `Cross_era` y el aviso en `Comparison_note`.
+    Con menos de 3 tomas previas: "baseline insuficiente".
     """
     columns = [
         "Variable",
@@ -2596,6 +2620,8 @@ def compute_baseline_delta(
         "N_valid",
         "Signal",
         "Higher_is_better",
+        "Cross_era",
+        "Comparison_note",
     ]
     if athlete_df is None or athlete_df.empty or "Date" not in athlete_df.columns:
         return pd.DataFrame(columns=columns)
@@ -2648,15 +2674,18 @@ def compute_baseline_delta(
         if valid.empty:
             continue
         prior = valid[valid["Date"] < current_row_date].sort_values("Date")
-        same_era = prior
         era_dependent = is_era_dependent(variable)
+        # PR L: el baseline cruza eras con aviso; el umbral usa la serie de la era actual.
+        threshold_source = valid[valid["Date"] <= current_row_date]
         if era_dependent:
-            same_era = prior[working_eras.reindex(prior.index) == current_era]
+            threshold_source = threshold_source[working_eras.reindex(threshold_source.index) == current_era]
 
         current_value = pd.to_numeric(pd.Series([current_row.get(variable)]), errors="coerce").iloc[0]
         if pd.isna(current_value) and prior.empty:
             continue
-        n_valid = int(len(same_era))
+        n_valid = int(len(prior))
+        cross_era = False
+        comparison_note = ""
         baseline_value = np.nan
         baseline_start_date = pd.NaT
         baseline_end_date = pd.NaT
@@ -2666,10 +2695,15 @@ def compute_baseline_delta(
         threshold_label = pd.NA
         baseline_method = pd.NA
         if n_valid < BASELINE_MIN_VALID:
-            crosses_era = era_dependent and len(prior) > n_valid
-            signal = ERA_CHANGE_SIGNAL if crosses_era else "baseline insuficiente"
+            signal = "baseline insuficiente"
         else:
-            baseline_rows = same_era.head(BASELINE_MIN_VALID)
+            baseline_rows = prior.head(BASELINE_MIN_VALID)
+            if era_dependent:
+                baseline_eras = working_eras.reindex(baseline_rows.index)
+                other = baseline_eras[baseline_eras != current_era]
+                if not other.empty:
+                    comparison_note = cross_era_note(other.iloc[0], current_era, variable)
+                    cross_era = bool(comparison_note)
             baseline_value = float(pd.to_numeric(baseline_rows[variable], errors="coerce").mean())
             baseline_start_date = baseline_rows["Date"].iloc[0]
             baseline_end_date = baseline_rows["Date"].iloc[-1]
@@ -2681,7 +2715,7 @@ def compute_baseline_delta(
                     delta_pct = (delta_abs / baseline_value) * 100
                 # Mismo umbral que "Cambios vs evaluacion anterior": la serie
                 # de la misma era hasta la toma actual.
-                series_values = pd.to_numeric(same_era[variable], errors="coerce").tolist() + [float(current_value)]
+                series_values = pd.to_numeric(threshold_source[variable], errors="coerce").tolist()
                 threshold = resolve_change_threshold(
                     variable, baseline_value, series_values, swc_pct=float(meta["fallback_pct"])
                 )
@@ -2707,6 +2741,8 @@ def compute_baseline_delta(
                 "N_valid": n_valid,
                 "Signal": signal,
                 "Higher_is_better": bool(meta["higher_is_better"]),
+                "Cross_era": cross_era,
+                "Comparison_note": comparison_note,
             }
         )
 
@@ -2775,7 +2811,8 @@ def build_jump_baseline_display_table(baseline_df: pd.DataFrame) -> pd.DataFrame
                 "Delta %": delta_pct_text,
                 "Threshold": threshold_text,
                 "Metodo": method_text,
-                "Senal": BASELINE_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-"))),
+                "Senal": BASELINE_SIGNAL_BADGES.get(str(row.get("Signal")), str(row.get("Signal", "-")))
+                + (f" — ⚠ {row.get('Comparison_note')}" if _is_cross_era(row) else ""),
             }
         )
 

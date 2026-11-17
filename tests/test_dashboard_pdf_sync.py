@@ -137,15 +137,20 @@ class DashboardPdfSyncTest(unittest.TestCase):
                                       expected[["Variable", "Actual", "Anterior", "Delta abs"]])
         flight = shown[shown["Variable"] == "CMJ (por tiempo de vuelo)"].iloc[0]
         self.assertEqual((flight["Anterior"], flight["Actual"]), ("39.8", "46.2"))
-        self.assertEqual(shown[shown["Variable"] == "IMTP"].iloc[0]["Anterior"], "-")
+        # PR L: IMTP se compara entre eras con aviso (3235 -> 3491).
+        imtp_change = shown[shown["Variable"] == "IMTP"].iloc[0]
+        self.assertEqual(imtp_change["Anterior"], "3235")
+        self.assertIn("⚠ compara", imtp_change["Senal"])
 
-        # Baseline: tomas previas y de la misma era; IMTP cruza era.
+        # Baseline: tomas previas; IMTP cruza era con aviso.
         last = pd.to_datetime(self.history["Date"]).max()
         expected_baseline = build_jump_baseline_display_table(compute_baseline_delta(self.history, last))
         shown_baseline = _table_with(self.at, "Baseline")
         pd.testing.assert_frame_equal(shown_baseline, expected_baseline)
         imtp = shown_baseline[shown_baseline["Variable"] == "IMTP"].iloc[0]
-        self.assertIn("cruza era", imtp["Senal"])
+        self.assertIn("⚠ compara", imtp["Senal"])
+        warnings = " ".join(str(item.value) for item in self.at.warning)
+        self.assertIn("Valkyria", warnings)
         flight_baseline = shown_baseline[shown_baseline["Variable"] == "CMJ (por tiempo de vuelo)"].iloc[0]
         self.assertNotIn(last.strftime("%d/%m/%Y"), flight_baseline["Metodo"])
         # Tambien coincide con la tabla de cambios del PDF (mismo motor).

@@ -283,12 +283,15 @@ class FocusAndStepsTests(unittest.TestCase):
 
 
 class ImtpAndHighlightsTests(unittest.TestCase):
-    def test_tomas_imtp_across_eras_is_not_comparable(self):
-        # PR C: 13/11/2025 (Valkyria sin straps) -> 21/10/2026 (Involution).
+    def test_tomas_imtp_across_eras_is_compared_with_warning(self):
+        # PR L: 13/11/2025 (Valkyria sin straps) -> 21/10/2026 (Involution) se
+        # compara, con aviso de cambio de equipo/protocolo.
         changes = compute_evaluation_changes(_history(TOMAS)).set_index("Variable")
-        self.assertEqual(changes.loc["IMTP_N", "Signal"], "no comparable por era")
-        self.assertTrue(pd.isna(changes.loc["IMTP_N", "Valor_anterior"]))
-        self.assertFalse(any("IMTP" in item["text"] for item in ar.evaluation_achievements(changes.reset_index(), "atleta")))
+        imtp = changes.loc["IMTP_N"]
+        self.assertTrue(bool(imtp["Cross_era"]))
+        self.assertTrue(pd.notna(imtp["Valor_anterior"]))
+        self.assertIn("Valkyria sin straps → Involution con straps", imtp["Comparison_note"])
+        self.assertIn("~30% menos", imtp["Comparison_note"])
 
     def test_tomas_first_imtp_is_professional_only(self):
         # Misma era declarada: aca se controla la plausibilidad (> +25%).

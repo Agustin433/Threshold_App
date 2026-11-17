@@ -11,7 +11,7 @@ from modules.jump_analysis import (
     build_jump_baseline_display_table,
     compute_baseline_delta,
 )
-from modules.measurement_eras import ERA_CHANGE_SIGNAL, ERA_INVOLUTION_STRAPS, ERA_VALKYRIA_NO_STRAPS, ERA_VALKYRIA_STRAPS
+from modules.measurement_eras import ERA_INVOLUTION_STRAPS, ERA_VALKYRIA_NO_STRAPS, ERA_VALKYRIA_STRAPS
 
 
 def _take(date: str, device: str, *, flight_ms: float = 560.0, dj: float = 40.0, imtp: float = 3000.0) -> dict:
@@ -37,12 +37,14 @@ IGNACIO_LIKE = [
 
 
 class BaselineDeltaTests(unittest.TestCase):
-    def test_imtp_crossing_eras_is_not_comparable(self):
-        baseline = _baseline(IGNACIO_LIKE)
-        self.assertEqual(baseline.loc["IMTP_N", "Signal"], ERA_CHANGE_SIGNAL)
-        self.assertTrue(pd.isna(baseline.loc["IMTP_N", "Baseline_value"]))
-        display = build_jump_baseline_display_table(baseline.reset_index())
-        self.assertIn("no comparable (cruza era)", display.set_index("Variable").loc["IMTP", "Senal"])
+    def test_imtp_baseline_crosses_eras_with_warning(self):
+        # PR L: baseline con las 3 tomas previas aunque sean de otra era.
+        imtp = _baseline(IGNACIO_LIKE).loc["IMTP_N"]
+        self.assertAlmostEqual(float(imtp["Baseline_value"]), (2500 + 2600 + 3235) / 3, places=1)
+        self.assertTrue(bool(imtp["Cross_era"]))
+        self.assertIn("Valkyria sin straps → Involution con straps", imtp["Comparison_note"])
+        display = build_jump_baseline_display_table(_baseline(IGNACIO_LIKE).reset_index())
+        self.assertIn("⚠ compara", display.set_index("Variable").loc["IMTP", "Senal"])
 
     def test_baseline_never_includes_current_take(self):
         baseline = _baseline(IGNACIO_LIKE)
