@@ -2,6 +2,35 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-16 - PR J: resumen ejecutivo del PDF profe (2 paginas + indice)
+
+El PDF profe (15-18 paginas) arranca con un resumen de lo que el profe mira
+primero; el reporte de siempre queda como anexo, sin cambios de contenido.
+
+1. Pagina 1 "Resumen - Evaluacion": atleta, datos hasta, ultima evaluacion
+   (fecha y protocolo/era); cambios vs evaluacion anterior solo con
+   variables comparables (marca "supera umbral" si pasa max(TE, SWC);
+   "no comparable (cruza era)" entre eras); mapa del gimnasio compacto con
+   el atleta resaltado y su cuadrante; radar con la tabla de z (intervalo),
+   N y referencia (escalon, era). Linea "Calidad del dato" solo si hay
+   alguna alerta: IMTP con protocolo anterior, altura por impulso
+   descartada, toma IMTP invalida (curva sin subida), evaluacion de mas de
+   12 semanas.
+2. Pagina 2 "Resumen - Carga y bienestar": sRPE semanal de 8 semanas con el
+   ACWR EWMA como linea de contexto (sin semaforo) y las sesiones
+   completadas por semana desde raw (no el % del export); semanas entrenadas
+   sin RPE marcadas; bienestar diario con banda personal y la variable que
+   mas se movio (en DE); el foco del bloque (el mismo que ve el atleta).
+3. Pagina 3: indice con el numero de pagina de cada seccion (dos pasadas de
+   maquetado; la primera mide, la segunda imprime).
+4. Mismas funciones de datos que atleta/dashboard: `weekly_srpe` y
+   `wellness_component_shift` salen de `tolerance_reading` y las usan los dos.
+5. Patron D con bateria parcial: "La bateria actual es parcial y la
+   interpretacion queda limitada..." una sola vez (lectura fisiologica), no
+   repetida en la biomecanica.
+
+Tests: `tests/test_professional_summary.py`.
+
 ## 2026-11-16 - PR I: ajustes con reportes reales del 16/11 (Habib, Ignacio)
 
 1. "Tu posicion en el grupo": con cohorte de 5-7 el percentil es el rango

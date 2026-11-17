@@ -209,7 +209,11 @@ class ReportsEmbedExpectedChartsTest(unittest.TestCase):
                 widths = [int(image.image.width) for page in PdfReader(BytesIO(pdf)).pages for image in page.images]
                 charts = [width for width in widths if width == rc.PRINT_CANVAS_WIDTH_PX * rc.PRINT_SCALE]
                 figures = report_generator.build_report_chart_figures(state, ATHLETE, current)
-                self.assertEqual(len(charts), report_generator.report_chart_image_count(figures), f"{current}: {widths}")
+                expected_count = report_generator.report_chart_image_count(figures)
+                if current == "profe":
+                    # PR J: el resumen suma sus graficos de carga y bienestar.
+                    expected_count += report_generator.LAST_PROFESSIONAL_SUMMARY_CHARTS
+                self.assertEqual(len(charts), expected_count, f"{current}: {widths}")
                 self.assertTrue(all(width == rc.PRINT_CANVAS_WIDTH_PX for width, _ in requested[current]))
 
 

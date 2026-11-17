@@ -91,12 +91,19 @@ class MadreLayoutTest(unittest.TestCase):
             pdf = report_generator.generate_visual_report_pdf(state, ATHLETE, "profe")
 
         reader = PdfReader(BytesIO(pdf))
-        self.assertIn("Reporte madre profesional", reader.pages[0].extract_text())
+        # PR J: paginas 1-2 resumen y 3 indice; el reporte madre empieza despues.
+        self.assertIn(
+            "Reporte madre profesional",
+            reader.pages[report_generator.PROFESSIONAL_SUMMARY_PAGES].extract_text(),
+        )
         charts = [
             image for page in reader.pages for image in page.images
             if image.image.width == PRINT_CANVAS_WIDTH_PX * PRINT_SCALE
         ]
-        self.assertEqual(len(charts), report_generator.report_chart_image_count(figures))
+        self.assertEqual(
+            len(charts),
+            report_generator.report_chart_image_count(figures) + report_generator.LAST_PROFESSIONAL_SUMMARY_CHARTS,
+        )
         # Ninguna imagen supera el alto maximo (en px a escala de impresion).
         max_px = PRINT_CANVAS_WIDTH_PX * PRINT_SCALE * report_generator.PDF_CHART_MAX_HEIGHT_MM / 168.0
         self.assertTrue(all(image.image.height <= max_px + 2 for image in charts))

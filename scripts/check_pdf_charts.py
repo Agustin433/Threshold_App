@@ -91,6 +91,9 @@ def main() -> int:
             continue
         expected = sorted(figures)
         expected_images = report_generator.report_chart_image_count(figures)
+        if audience == "profe":
+            # PR J: el resumen ejecutivo suma sus graficos de carga y bienestar.
+            expected_images += report_generator.LAST_PROFESSIONAL_SUMMARY_CHARTS
         if not pdf:
             failures.append(f"{case}: no se genero el PDF")
             continue

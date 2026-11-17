@@ -88,6 +88,7 @@ def chart_strength_quadrant(
     highlight: str | None = None,
     anonymous: bool = False,
     print_height_mm: float = 105.0,
+    show_goals: bool = True,
 ) -> go.Figure | None:
     """Mapa del gimnasio. Lineas al 100% de la meta; meta = "Completo".
 
@@ -97,6 +98,8 @@ def chart_strength_quadrant(
     - Relleno claro: protocolo anterior o evaluacion de mas de 12 semanas.
     - Flecha de la ubicacion anterior a la actual (punteada si cruza protocolos):
       del atleta resaltado, o de todos en la vista profe.
+    - `show_goals=False` (resumen profe, media pagina): sin el texto de metas
+      arriba del grafico; quien lo usa lo pone como leyenda.
     """
     if quadrant_map is None or not quadrant_map.placements:
         return None
@@ -204,12 +207,13 @@ def chart_strength_quadrant(
 
     fig.update_xaxes(range=x_range, title_text=X_TITLE, zeroline=False, ticksuffix="%")
     fig.update_yaxes(range=y_range, title_text=Y_TITLE, zeroline=False, ticksuffix="%")
-    fig.add_annotation(
-        text="<b>Metas</b> — " + "<br>".join(quadrant_map.legend_lines), x=0, y=1.0, xref="paper", yref="paper", yanchor="bottom", xanchor="left",
-        showarrow=False, align="left", font=dict(size=font_px - 4 if mode == "print" else 11, color=colors.get("gray", "#5A595B")),
-    )
+    if show_goals:
+        fig.add_annotation(
+            text="<b>Metas</b> — " + "<br>".join(quadrant_map.legend_lines), x=0, y=1.0, xref="paper", yref="paper", yanchor="bottom", xanchor="left",
+            showarrow=False, align="left", font=dict(size=font_px - 4 if mode == "print" else 11, color=colors.get("gray", "#5A595B")),
+        )
     if mode == "print":
         fig = apply_chart_mode(fig, "print", theme=theme, title=None, print_height_mm=print_height_mm)
-        fig.update_layout(margin=dict(t=PRINT_FONT_PX * 3 + 10))
+        fig.update_layout(margin=dict(t=PRINT_FONT_PX * 3 + 10 if show_goals else 16))
         return fig
     return apply_chart_mode(fig, "screen", theme=theme, title=QUADRANT_TITLE, screen_height=560)

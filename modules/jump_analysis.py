@@ -1625,7 +1625,10 @@ def _apply_pattern_claim_guards(
     if "D" in patterns and partial_battery:
         caution_common = "La batería actual es parcial y la interpretación queda limitada a las variables disponibles."
         caution_client = "Como faltan partes de la evaluacion, esta lectura queda limitada a los datos disponibles."
-        for field in ("phys", "bio", "summary_short", "summary_athlete", "summary_professional", "train"):
+        # Una sola vez en las lecturas del profe: fisiologica y biomecanica van
+        # una debajo de la otra (la biomecanica del patron D ya habla de la
+        # bateria completa).
+        for field in ("phys", "summary_short", "summary_athlete", "summary_professional", "train"):
             result[field] = _append_unique_text(result.get(field), caution_common)
         result["summary_client"] = _append_unique_text(result.get("summary_client"), caution_client)
 

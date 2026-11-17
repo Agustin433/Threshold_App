@@ -10516,6 +10516,164 @@ def _resolve_brand_asset_path(kind: str = "wordmark") -> Path | None:
     return None
 
 
+# ── Resumen ejecutivo del PDF profe (PR J) ───────────────────────────────
+SUMMARY_EVALUATION_TITLE = "Resumen - Evaluación"
+SUMMARY_LOAD_TITLE = "Resumen - Carga y bienestar"
+SUMMARY_ALERTS_TITLE = "Calidad del dato"
+SUMMARY_GROUP_LABEL = "Resumen"
+ANNEX_GROUP_LABEL = "Anexo: reporte completo"
+INDEX_TITLE = "Índice"
+INDEX_SUBTITLE = "Páginas 1-2: resumen. Desde la página 4: el reporte completo, sin cambios de contenido."
+SUMMARY_CHANGE_NOTE = (
+    "Solo variables comparables. Umbral = max(TE, SWC) de cada variable; \"supera umbral\" = el cambio es mayor "
+    "que el error de la medición. Entre eras de plataforma la variable no se compara (\"cruza era\"); "
+    "las alturas por tiempo de vuelo sí."
+)
+SUMMARY_LOAD_NOTE = (
+    "Barras: suma de sRPE por semana (UA). Línea punteada: ACWR EWMA al cierre de cada semana, como contexto "
+    "(sin semáforo). Debajo de cada semana: sesiones completadas según el registro de TeamBuildr (raw), no el % "
+    "del export. * = semana en curso."
+)
+SUMMARY_HALF_CHART_MM = 74.0
+SUMMARY_HALF_FONT_PX = 22
+SUMMARY_WELLNESS_CHART_MM = 56.0
+LAST_PROFESSIONAL_INDEX: dict[str, int] = {}
+# Paginas que el resumen agrega antes del anexo (2 de resumen + indice).
+PROFESSIONAL_SUMMARY_PAGES = 3
+# Graficos de ancho completo del resumen en el ultimo PDF profe (carga y bienestar).
+LAST_PROFESSIONAL_SUMMARY_CHARTS = 0
+
+
+class _PdfPageSink:
+    """Pagina de cada seccion del PDF profe. No se copia con deepcopy: la
+    pasada de prueba (sobre una copia del story) y la final escriben aca."""
+
+    def __init__(self) -> None:
+        self.pages: dict[str, int] = {}
+        self.recorded: dict[str, int] = {}
+        self._frozen = False
+
+    def __deepcopy__(self, memo: dict) -> "_PdfPageSink":
+        return self
+
+    def record(self, title: str, page: int) -> None:
+        target = self.recorded if self._frozen else self.pages
+        target.setdefault(title, int(page))
+
+    def freeze(self) -> None:
+        self._frozen = True
+
+
+def _pdf_section_mark(title: str, sink: _PdfPageSink):
+    """Marcador sin tamaño: anota en que pagina empieza la seccion."""
+    from reportlab.platypus import Flowable
+
+    class _SectionMark(Flowable):
+        def __init__(self) -> None:
+            super().__init__()
+            self.title = title
+            self.sink = sink
+            self.width = self.height = 0
+
+        def wrap(self, avail_width, avail_height):
+            return 0, 0
+
+        def draw(self) -> None:
+            self.sink.record(self.title, self.canv.getPageNumber())
+
+    return _SectionMark()
+
+
+def _pdf_page_index(entries: list[tuple[str, str]], sink: _PdfPageSink, *, palette: dict[str, object]):
+    """Indice de una pagina: grupo, titulo y numero de pagina (de la pasada anterior)."""
+    from reportlab.platypus import Flowable
+
+    row_height = 17.0
+    group_gap = 10.0
+
+    class _PageIndex(Flowable):
+        def __init__(self) -> None:
+            super().__init__()
+            self.entries = list(entries)
+            self.sink = sink
+            groups = len(dict.fromkeys(group for group, _ in self.entries))
+            self._height = row_height * (len(self.entries) + groups) + group_gap * max(0, groups - 1)
+
+        def wrap(self, avail_width, avail_height):
+            self.width = avail_width
+            return avail_width, self._height
+
+        def draw(self) -> None:
+            canvas = self.canv
+            y = self._height - row_height + 4
+            current_group = None
+            for group, title in self.entries:
+                if group != current_group:
+                    if current_group is not None:
+                        y -= group_gap
+                    canvas.setFont("Helvetica-Bold", 11)
+                    canvas.setFillColor(palette.get("navy"))
+                    canvas.drawString(0, y, group)
+                    y -= row_height
+                    current_group = group
+                page = self.sink.pages.get(title)
+                page_text = str(page) if page is not None else "–"
+                canvas.setFont("Helvetica", 10.5)
+                canvas.setFillColor(palette.get("ink", palette.get("navy")))
+                canvas.drawString(12, y, title)
+                title_end = 12 + canvas.stringWidth(title, "Helvetica", 10.5) + 6
+                page_start = self.width - canvas.stringWidth(page_text, "Helvetica", 10.5) - 6
+                canvas.setStrokeColor(palette.get("line_dark", palette.get("line")))
+                canvas.setDash(1, 3)
+                if page_start > title_end:
+                    canvas.line(title_end, y + 2, page_start, y + 2)
+                canvas.setDash()
+                canvas.drawRightString(self.width, y, page_text)
+                y -= row_height
+
+    return _PageIndex()
+
+
+def _athlete_data_until(state: dict[str, object], athlete: str) -> pd.Timestamp | None:
+    """Ultima fecha con algun dato del atleta (evaluaciones, RPE, bienestar, raw, maxes)."""
+    from modules import athlete_report as ar
+
+    return ar.latest_data_date(
+        [
+            (state.get("jump_df"), ("Date",)),
+            (state.get("rpe_df"), ("Date",)),
+            (state.get("wellness_df"), ("Date",)),
+            (state.get("raw_df"), ("Fecha_sesion", "Completed Date", "Date")),
+            (state.get("maxes_df"), ("Added Date", "Date")),
+        ],
+        athlete,
+    )
+
+
+def _block_focus(
+    profile: dict[str, object] | None,
+    history: pd.DataFrame | None,
+    strength_summary: dict[str, object] | None,
+    audience: str,
+) -> str:
+    """Foco del proximo bloque: del cuadrante del mapa si el atleta esta ubicado; si no, del perfil."""
+    from modules import athlete_report as ar
+
+    if strength_summary:
+        return ar.quadrant_focus_text(str(strength_summary["quadrant"]))
+    return ar.focus_text(profile, history, audience) if history is not None and not history.empty else ""
+
+
+def _block_focus_text(state: dict[str, object], athlete: str) -> str:
+    """El mismo foco que ve el atleta en su reporte."""
+    history = _professional_jump_history(state, athlete)
+    has_evaluation = not history.empty
+    composite = _build_professional_composite_profile_payload(state, athlete) if has_evaluation else {}
+    profile = composite.get("neuromuscular_profile") if isinstance(composite.get("neuromuscular_profile"), dict) else {}
+    strength = _strength_map_payload(state, athlete, has_evaluation)
+    return _block_focus(profile, history, strength.get("strength_summary"), "atleta")
+
+
 def _generate_professional_profile_pdf_reportlab(
     state: dict[str, pd.DataFrame | None],
     report_athlete: str,
@@ -10527,7 +10685,7 @@ def _generate_professional_profile_pdf_reportlab(
         from reportlab.lib.units import mm
         from reportlab.lib.utils import ImageReader
         from reportlab.graphics.shapes import Circle, Drawing, Line, PolyLine, Rect, String
-        from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        from reportlab.platypus import Image, KeepInFrame, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
         from xml.sax.saxutils import escape
     except Exception as exc:
         logger.exception("No se pudo importar reportlab para el PDF profesional individual")
@@ -12600,6 +12758,241 @@ def _generate_professional_profile_pdf_reportlab(
             )
         )
 
+    # ── Resumen ejecutivo (PR J): 2 paginas + indice; el reporte completo
+    # de siempre queda como anexo, sin cambios de contenido. ──────────────
+    from modules import professional_summary as psum
+
+    summary_today = _professional_report_today()
+    summary_history = _professional_jump_history(state, report_athlete)
+    summary_latest = psum.latest_evaluation(summary_history)
+    summary_alerts = psum.data_quality_alerts(summary_history, change_payload.get("delta_df"), today=summary_today)
+    summary_data_until = _athlete_data_until(state, report_athlete)
+    summary_print_charts: list[str] = []
+
+    def _summary_header(eyebrow: str, meta_lines: list[str]) -> Table:
+        return _box(
+            [_p(eyebrow, "ProfEyebrow"), _p(report_athlete, "ProfHeroTitle")]
+            + [_p(line, "ProfHeroMeta") for line in meta_lines if line],
+            background=palette["navy"],
+            border_color=palette["navy"],
+            padding=7,
+        )
+
+    def _summary_section(title: str) -> Paragraph:
+        return _p(title, "ProfSection")
+
+    def _summary_evaluation_page() -> list[object]:
+        flow: list[object] = []
+        latest_text = (
+            f"Última evaluación: {summary_latest['date']:%d/%m/%Y} · {summary_latest['era_label']}"
+            if summary_latest
+            else "Sin evaluaciones cargadas"
+        )
+        until_text = f"Datos hasta {summary_data_until:%d/%m/%Y}" if summary_data_until is not None else ""
+        flow.append(_summary_header(SUMMARY_EVALUATION_TITLE.upper(), [" · ".join(t for t in (until_text, latest_text) if t)]))
+        flow.append(Spacer(1, 3 * mm))
+        if summary_alerts:
+            flow.append(
+                _box(
+                    [_p(f"{SUMMARY_ALERTS_TITLE}: " + " ".join(summary_alerts), "ProfBody")],
+                    background=palette["panel"],
+                    border_color=palette["orange"],
+                    accent_color=palette["orange"],
+                    padding=5,
+                )
+            )
+            flow.append(Spacer(1, 3 * mm))
+
+        flow.append(_summary_section("Cambios vs evaluación anterior"))
+        change_rows = psum.summary_change_rows(change_payload.get("delta_df"))
+        if change_rows:
+            flow.append(_dataframe_table(pd.DataFrame(change_rows), col_widths_mm=[42, 26, 18, 30, 18, 40]))
+            flow.append(_p(SUMMARY_CHANGE_NOTE, "ProfMuted"))
+        elif summary_latest is not None:
+            flow.append(
+                _collapsed_box(
+                    f"Primera evaluación ({summary_latest['date']:%d/%m/%Y}): sin evaluación anterior comparable."
+                )
+            )
+        else:
+            flow.append(_collapsed_box(PROFESSIONAL_NO_EVOLUTION_TEXT))
+        flow.append(Spacer(1, 3 * mm))
+
+        map_flow: list[object] = []
+        if gym_map is not None and gym_map.placements:
+            from charts.quadrant_charts import chart_strength_quadrant
+            from modules.strength_quadrant import athlete_summary
+
+            map_figure = chart_strength_quadrant(
+                gym_map, theme=_build_report_chart_theme(), mode="print", highlight=report_athlete, anonymous=True,
+                print_height_mm=SUMMARY_HALF_CHART_MM, show_goals=False,
+            )
+            map_image = _half_width_image(map_figure)
+            placement = athlete_summary(gym_map, report_athlete)
+            map_flow.append(_p("Mapa del gimnasio", "ProfCardTitle"))
+            if map_image is not None:
+                map_flow.append(map_image)
+            if placement:
+                map_flow.append(_p(f"Cuadrante: {placement['quadrant']}.", "ProfBody"))
+            else:
+                reason = dict(gym_map.unplaced).get(report_athlete, "sin datos para ubicarlo")
+                map_flow.append(_p(f"Sin ubicar: {reason}.", "ProfMuted"))
+            map_flow.append(_p("Metas — " + " · ".join(gym_map.legend_lines), "ProfMuted"))
+        radar_flow: list[object] = []
+        profile_row = composite_profile.get("profile_row") if composite_profile.get("state") != "missing" else None
+        if profile_row is not None and radar_is_drawable(profile_row):
+            from charts.dashboard_charts import chart_composite_profile_radar
+
+            radar_figure = chart_composite_profile_radar(profile_row, report_athlete, theme=_build_report_chart_theme())
+            if radar_figure is not None:
+                radar_figure.update_layout(
+                    title=None, font=dict(size=SUMMARY_HALF_FONT_PX), showlegend=False,
+                    margin=dict(l=120, r=120, t=40, b=40),
+                )
+                radar_figure.update_polars(
+                    angularaxis=dict(tickfont=dict(size=SUMMARY_HALF_FONT_PX)),
+                    radialaxis=dict(tickfont=dict(size=SUMMARY_HALF_FONT_PX - 4)),
+                )
+            radar_image = _plotly_chart_image(
+                radar_figure, width_mm=84, height_mm=SUMMARY_HALF_CHART_MM, width_px=560, height_px=520
+            )
+            radar_flow.append(_p("Perfil (z vs referencia)", "ProfCardTitle"))
+            if radar_image is not None:
+                radar_flow.append(radar_image)
+        if map_flow or radar_flow:
+            flow.append(_two_column(map_flow or None, radar_flow or None, left_width_mm=85, right_width_mm=89))
+            flow.append(Spacer(1, 2 * mm))
+        z_rows = radar_fallback_rows(profile_row) if profile_row is not None else []
+        if z_rows:
+            flow.append(
+                _dataframe_table(
+                    pd.DataFrame(z_rows)[["Variable", "Valor", "Comparación", "Referencia"]].rename(
+                        columns={"Comparación": "z (intervalo), n"}
+                    ),
+                    col_widths_mm=[32, 24, 44, 74],
+                )
+            )
+            flow.append(_p(radar_reference_caption(profile_row), "ProfMuted"))
+        elif profile_row is None:
+            flow.append(_p("Sin perfil con referencia para esta evaluación.", "ProfMuted"))
+        return flow
+
+    def _summary_load_page() -> list[object]:
+        flow: list[object] = []
+        weekly = psum.weekly_load_summary(
+            _individual_history_frame(state, "rpe_history_df", "rpe_df"),
+            _individual_raw_history(state),
+            (state.get("acwr_dict") or {}).get(report_athlete),
+            report_athlete,
+            today=summary_today,
+        )
+        first_week = pd.Timestamp(weekly["week_start"].iloc[0])
+        flow.append(
+            _summary_header(
+                SUMMARY_LOAD_TITLE.upper(),
+                [f"Últimas {psum.SUMMARY_LOAD_WEEKS} semanas: {first_week:%d/%m/%Y} a {summary_today:%d/%m/%Y}"],
+            )
+        )
+        flow.append(Spacer(1, 3 * mm))
+        flow.append(_summary_section("Carga semanal (sRPE), ACWR y sesiones completadas"))
+        from charts.professional_summary_charts import chart_summary_weekly_load
+
+        load_figure = chart_summary_weekly_load(weekly, theme=_build_report_chart_theme(), mode="print")
+        load_image = render_print_chart_image(load_figure, ImageClass=Image, mm_unit=mm) if load_figure is not None else None
+        if load_image is not None:
+            summary_print_charts.append("carga")
+            flow.append(load_image)
+            flow.append(_p(SUMMARY_LOAD_NOTE, "ProfMuted"))
+        load_lines = psum.weekly_load_lines(
+            weekly, _individual_history_frame(state, "rpe_history_df", "rpe_df"), report_athlete
+        )
+        if load_lines:
+            flow.append(_box([_p(line, "ProfBody") for line in load_lines], padding=5))
+        flow.append(Spacer(1, 3 * mm))
+
+        flow.append(_summary_section("Bienestar diario"))
+        wellness_history = _individual_history_frame(state, "wellness_history_df", "wellness_df")
+        wellness = psum.wellness_summary(wellness_history, report_athlete, today=summary_today)
+        if wellness is not None:
+            from charts.athlete_charts import chart_tolerance
+
+            wellness_figure = chart_tolerance(
+                {**wellness, "weekly_load": pd.DataFrame(columns=["week_start", "load"])},
+                theme=_build_report_chart_theme(),
+                mode="print",
+                print_height_mm=SUMMARY_WELLNESS_CHART_MM,
+            )
+            wellness_image = (
+                render_print_chart_image(wellness_figure, ImageClass=Image, mm_unit=mm) if wellness_figure is not None else None
+            )
+            if wellness_image is not None:
+                summary_print_charts.append("bienestar")
+                flow.append(wellness_image)
+            flow.append(_box([_p(line, "ProfBody") for line in psum.wellness_lines(wellness)], padding=5))
+        else:
+            flow.append(_collapsed_box(psum.no_wellness_line(wellness_history, report_athlete, today=summary_today)))
+        flow.append(Spacer(1, 3 * mm))
+        focus = _block_focus_text(state, report_athlete)
+        if focus:
+            flow.append(
+                _box(
+                    [_p(f"Foco del bloque: {focus}", "ProfBodyWhite")],
+                    background=palette["navy"],
+                    border_color=palette["navy"],
+                    padding=6,
+                )
+            )
+        return flow
+
+    def _half_width_image(figure: object | None) -> Image | None:
+        # Graficos de media pagina: lienzo angosto para que la fuente impresa
+        # no baje de ~10 pt al achicarse a 84 mm.
+        if figure is None:
+            return None
+        figure.update_layout(width=None, height=None)
+        return _plotly_chart_image(figure, width_mm=84, height_mm=SUMMARY_HALF_CHART_MM, width_px=560, height_px=520)
+
+    annex_sections: list[tuple[str, object]] = [
+        (str(executive_payload.get("title") or "Resumen ejecutivo profesional"), _append_full_executive_page),
+        (str(composite_profile.get("title") or "Perfil actual compuesto"), _append_full_composite_profile_page),
+    ]
+    if change_payload.get("state") != "missing":
+        annex_sections.append((str(change_payload.get("title") or "Cambios vs evaluación anterior"), _append_full_change_page))
+    if _professional_any_quadrant_ready(quadrant_sections):
+        annex_sections.append(("Relaciones de perfil / cuadrantes", _append_full_quadrants_page))
+    if gym_map is not None and gym_map.placements:
+        annex_sections.append(("Mapa del gimnasio: Fuerza vs Explosividad", _append_gym_map_page))
+    if isometric_payload.get("state") != "missing":
+        annex_sections.append(
+            (str(isometric_payload.get("title") or "Isométricos y force-time avanzado"), _append_full_isometrics_page)
+        )
+    annex_sections.extend(
+        [
+            (str(load_tolerance_payload.get("title") or "Carga interna y tolerancia"), _append_full_load_page),
+            (
+                str(wellness_availability_payload.get("title") or "Wellness, disponibilidad y adherencia"),
+                _append_full_wellness_page,
+            ),
+            (str(exposure_payload.get("title") or "Exposición del bloque / contenido entrenado"), _append_full_exposure_page),
+            (
+                str(integrated_decision_payload.get("title") or "Interpretación integrada profesional"),
+                _append_full_integrated_page,
+            ),
+            (
+                str(action_plan_payload.get("title") or "Próximos pasos y limitaciones metodológicas"),
+                _append_full_action_plan_page,
+            ),
+        ]
+    )
+    annex_lines = _professional_reference_annex_lines(composite_profile, state, report_athlete)
+    if annex_lines:
+
+        def _append_reference_annex(target: list[object]) -> None:
+            target.append(_p("Anexo: referencia de comparación", "ProfSection"))
+            target.append(_box([_p(line, "ProfBody") for line in annex_lines], padding=6))
+
+        annex_sections.append(("Anexo: referencia de comparación", _append_reference_annex))
+
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -12611,45 +13004,49 @@ def _generate_professional_profile_pdf_reportlab(
     )
     def _draw_professional_footer(canvas_obj, doc_obj) -> None:
         _draw_threshold_footer(canvas_obj, doc_obj, palette=palette, mm_unit=mm)
+
+    sink = _PdfPageSink()
+    # El marco util de SimpleDocTemplate tiene 6 pt de padding por lado.
+    frame_width = doc.width - 12
+    frame_height = doc.height - 12
     story: list[object] = []
-    # The professional report always uses the mother-report structure; missing data is handled inside each section.
-    _append_full_executive_page(story)
-    story.append(PageBreak())
-    _append_full_composite_profile_page(story)
-    if change_payload.get("state") != "missing":
+    for title, builder in ((SUMMARY_EVALUATION_TITLE, _summary_evaluation_page), (SUMMARY_LOAD_TITLE, _summary_load_page)):
+        story.append(_pdf_section_mark(title, sink))
+        # Cada pagina del resumen entra en una sola hoja: si sobra, se achica.
+        story.append(KeepInFrame(frame_width, frame_height, builder(), mode="shrink"))
         story.append(PageBreak())
-        _append_full_change_page(story)
-    if _professional_any_quadrant_ready(quadrant_sections):
+    index_entries = [(SUMMARY_GROUP_LABEL, SUMMARY_EVALUATION_TITLE), (SUMMARY_GROUP_LABEL, SUMMARY_LOAD_TITLE)] + [
+        (ANNEX_GROUP_LABEL, title) for title, _ in annex_sections
+    ]
+    story.append(_page_header(INDEX_TITLE, INDEX_SUBTITLE, eyebrow="Threshold S&C"))
+    story.append(Spacer(1, 4 * mm))
+    story.append(_pdf_page_index(index_entries, sink, palette=palette))
+    for title, builder in annex_sections:
         story.append(PageBreak())
-        _append_full_quadrants_page(story)
-    if gym_map is not None and gym_map.placements:
-        story.append(PageBreak())
-        _append_gym_map_page(story)
-    if isometric_payload.get("state") != "missing":
-        story.append(PageBreak())
-        _append_full_isometrics_page(story)
-    story.append(PageBreak())
-    _append_full_load_page(story)
-    story.append(PageBreak())
-    _append_full_wellness_page(story)
-    story.append(PageBreak())
-    _append_full_exposure_page(story)
-    story.append(PageBreak())
-    _append_full_integrated_page(story)
-    story.append(PageBreak())
-    _append_full_action_plan_page(story)
-    annex_lines = _professional_reference_annex_lines(composite_profile, state, report_athlete)
-    if annex_lines:
-        story.append(PageBreak())
-        story.append(_p("Anexo: referencia de comparación", "ProfSection"))
-        story.append(_box([_p(line, "ProfBody") for line in annex_lines], padding=6))
+        story.append(_pdf_section_mark(title, sink))
+        builder(story)
+
     try:
+        # Dos pasadas: la primera (sobre una copia) anota en que pagina cae
+        # cada seccion; la segunda imprime el indice con esos numeros. El
+        # indice ocupa siempre una pagina, asi que no corre el resto.
+        probe = copy.deepcopy(story)
+        SimpleDocTemplate(
+            BytesIO(), pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=18 * mm, bottomMargin=14 * mm
+        ).build(probe, onFirstPage=_draw_professional_footer, onLaterPages=_draw_professional_footer)
+        first_pass = dict(sink.pages)
+        sink.freeze()
         doc.build(story, onFirstPage=_draw_professional_footer, onLaterPages=_draw_professional_footer)
+        if sink.recorded != first_pass:
+            logger.warning("Indice del PDF profe de %s: paginas distintas entre pasadas", report_athlete)
     except Exception as exc:
         logger.exception("Fallo al construir el PDF profesional individual de %s", report_athlete)
         raise ReportBuildError(
             f"No se pudo armar el PDF profesional de {report_athlete}: {_short_error(exc)}"
         ) from exc
+    global LAST_PROFESSIONAL_INDEX, LAST_PROFESSIONAL_SUMMARY_CHARTS
+    LAST_PROFESSIONAL_INDEX = dict(first_pass)
+    LAST_PROFESSIONAL_SUMMARY_CHARTS = len(summary_print_charts)
     return buffer.getvalue()
 
 def _individual_raw_history(state: dict[str, object]) -> pd.DataFrame | None:
@@ -12803,16 +13200,7 @@ def build_individual_report_payload(
     if not strength_df.empty:
         strength_df = strength_df[strength_df["Date"] >= today - pd.Timedelta(weeks=16)]
 
-    data_until = ar.latest_data_date(
-        [
-            (state.get("jump_df"), ("Date",)),
-            (state.get("rpe_df"), ("Date",)),
-            (state.get("wellness_df"), ("Date",)),
-            (state.get("raw_df"), ("Fecha_sesion", "Completed Date", "Date")),
-            (state.get("maxes_df"), ("Added Date", "Date")),
-        ],
-        athlete,
-    )
+    data_until = _athlete_data_until(state, athlete)
 
     radar_axes = 0
     if has_evaluation:
@@ -12824,11 +13212,8 @@ def build_individual_report_payload(
     # PR H: si el atleta esta ubicado en el mapa del gimnasio, el foco sale de
     # su cuadrante; los avisos de IMTP (repetir / protocolo anterior) pasan a
     # Proximos pasos. Sin ubicacion, la logica de siempre.
-    focus = ar.focus_text(profile, history, audience) if has_evaluation else ""
-    imtp_step = None
-    if strength_payload.get("strength_summary"):
-        focus = ar.quadrant_focus_text(strength_payload["strength_summary"]["quadrant"])
-        imtp_step = ar.imtp_next_step(profile)
+    focus = _block_focus(profile, history, strength_payload.get("strength_summary"), audience) if has_evaluation else ""
+    imtp_step = ar.imtp_next_step(profile) if strength_payload.get("strength_summary") else None
     steps = ar.next_steps(
         has_evaluation=has_evaluation,
         has_comparison=has_comparison,
