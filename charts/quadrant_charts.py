@@ -32,6 +32,7 @@ AGE_COLORS = {
 }
 ANONYMOUS_COLOR = "#B8C2CC"
 FLAGGED_ALPHA = 0.35
+FLAGGED_LEGEND = "Hueco: era anterior o +12 sem."
 ROUTE_LABEL = "tu recorrido"
 
 
@@ -98,8 +99,8 @@ def chart_strength_quadrant(
     - Relleno claro: protocolo anterior o evaluacion de mas de 12 semanas.
     - Flecha de la ubicacion anterior a la actual (punteada si cruza protocolos):
       del atleta resaltado, o de todos en la vista profe.
-    - `show_goals=False` (resumen profe, media pagina): sin el texto de metas
-      arriba del grafico; quien lo usa lo pone como leyenda.
+    - Metas: en pantalla, texto arriba del grafico (`show_goals`); impreso
+      nunca dentro del grafico: el PDF las pone como nota debajo.
     """
     if quadrant_map is None or not quadrant_map.placements:
         return None
@@ -178,15 +179,18 @@ def chart_strength_quadrant(
         if not members:
             continue
         base = AGE_COLORS[group]
-        labels, fills, sizes, borders = [], [], [], []
+        labels, fills, sizes, borders, widths = [], [], [], [], []
         for placement in members:
             is_highlight = placement.athlete.casefold() == key
             show_name = (not anonymous) or is_highlight
             labels.append(label_of[placement.athlete] if show_name else "")
             color = base if (not anonymous or is_highlight) else ANONYMOUS_COLOR
-            fills.append(_rgba(color, FLAGGED_ALPHA) if placement.flagged else color)
+            # Era anterior o evaluacion vieja: hueco con borde grueso (se
+            # distingue impreso en blanco y negro, no solo por el tono).
+            fills.append("#FFFFFF" if placement.flagged else color)
             borders.append("#000000" if is_highlight else color)
             sizes.append(18 if is_highlight else 12)
+            widths.append(3.5 if placement.flagged else 2)
         fig.add_trace(
             go.Scatter(
                 x=[p.pct_imtp for p in members],
@@ -195,7 +199,7 @@ def chart_strength_quadrant(
                 text=labels,
                 textposition=[positions[p.athlete] for p in members],
                 textfont=dict(size=font_px - 2 if mode == "print" else 11, color=colors.get("navy", "#0D3C5E")),
-                marker=dict(size=sizes, color=fills, line=dict(color=borders, width=2)),
+                marker=dict(size=sizes, color=fills, line=dict(color=borders, width=widths)),
                 name=group if group == AGE_UNKNOWN else f"{group} años",
                 customdata=[[p.athlete, p.quadrant, p.note(professional=True) or ""] for p in members],
                 hovertemplate="<b>%{customdata[0]}</b><br>IMTP %{x:.0f}% · CMJ %{y:.0f}%<br>%{customdata[1]}<br>%{customdata[2]}<extra></extra>"
@@ -207,13 +211,24 @@ def chart_strength_quadrant(
 
     fig.update_xaxes(range=x_range, title_text=X_TITLE, zeroline=False, ticksuffix="%")
     fig.update_yaxes(range=y_range, title_text=Y_TITLE, zeroline=False, ticksuffix="%")
-    if show_goals:
+    if any(p.flagged for p in placements):
+        # Leyenda corta del punto hueco (tambien en la version anonima).
+        fig.add_trace(
+            go.Scatter(
+                x=[None], y=[None], mode="markers", name=FLAGGED_LEGEND,
+                marker=dict(size=12, color="#FFFFFF", line=dict(color=colors.get("gray", "#5A595B"), width=3.5)),
+                showlegend=True, hoverinfo="skip",
+            )
+        )
+    # Impreso, las metas van como nota debajo del grafico (no se cortan ni
+    # pisan los rotulos de los cuadrantes).
+    if show_goals and mode != "print":
         fig.add_annotation(
             text="<b>Metas</b> — " + "<br>".join(quadrant_map.legend_lines), x=0, y=1.0, xref="paper", yref="paper", yanchor="bottom", xanchor="left",
             showarrow=False, align="left", font=dict(size=font_px - 4 if mode == "print" else 11, color=colors.get("gray", "#5A595B")),
         )
     if mode == "print":
         fig = apply_chart_mode(fig, "print", theme=theme, title=None, print_height_mm=print_height_mm)
-        fig.update_layout(margin=dict(t=PRINT_FONT_PX * 3 + 10 if show_goals else 16))
+        fig.update_layout(margin=dict(t=16))
         return fig
     return apply_chart_mode(fig, "screen", theme=theme, title=QUADRANT_TITLE, screen_height=560)

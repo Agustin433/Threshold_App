@@ -822,6 +822,8 @@ def evolution_series(history: pd.DataFrame | None, audience: str = ATHLETE) -> l
                 "era": current_era if era_dependent else None,
                 # PR L: puntos de otra era (protocolo anterior), se marcan.
                 "previous_protocol": [era_dependent and era != current_era for era in kept_eras],
+                # PR M (solo grafico): era de cada punto, para punteado y "cambio de equipo".
+                "point_eras": kept_eras if era_dependent else [None] * len(kept_eras),
             }
         )
     return series

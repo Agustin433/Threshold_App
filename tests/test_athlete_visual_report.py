@@ -95,10 +95,14 @@ class EvolutionTests(unittest.TestCase):
     def test_chart_has_value_and_date_per_point_and_band(self):
         series = ar.evolution_series(_history(IGNACIO))
         figure = chart_athlete_evolution(series, theme=THEME, mode="print")
-        trace = figure.data[0]
-        self.assertEqual(list(trace.x), ["04/11/25", "17/12/25", "20/05/26", "08/10/26"])
+        # PR M: un punto por toma (traza de marcadores con su valor); la fecha
+        # va como rotulo del eje en español ("nov 25").
+        trace = next(t for t in figure.data if "markers" in str(t.mode) and t.text)
+        self.assertEqual(list(figure.layout.xaxis.ticktext), ["nov 25", "dic 25", "may 26", "oct 26"])
+        self.assertEqual(len(trace.x), 4)
         self.assertEqual(list(trace.text)[-1], "46.2")
-        self.assertEqual(len(figure.layout.shapes), len(series))  # una banda por prueba
+        bands = [shape for shape in figure.layout.shapes if shape.type == "rect"]
+        self.assertEqual(len(bands), len(series))  # una banda por prueba
 
 
 # ── 2. Tu posicion en el grupo ────────────────────────────────────────────

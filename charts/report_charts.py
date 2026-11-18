@@ -72,6 +72,42 @@ ACWR_ZONES = (
 )
 
 
+# Fechas cortas en español para ejes de los PDF (plotly no localiza meses).
+SPANISH_MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+
+
+def spanish_month_year(value: object) -> str:
+    """'nov 25'."""
+    stamp = pd.Timestamp(value)
+    return f"{SPANISH_MONTHS[stamp.month - 1]} {stamp:%y}"
+
+
+def spanish_day_month(value: object) -> str:
+    """'26 jul'."""
+    stamp = pd.Timestamp(value)
+    return f"{stamp.day} {SPANISH_MONTHS[stamp.month - 1]}"
+
+
+def spanish_date_ticks(dates: pd.Series | list, *, max_labels: int = 6) -> tuple[list[pd.Timestamp], list[str]]:
+    """Ticks repartidos en el rango de fechas, rotulados '26 jul' (y el año si cambia)."""
+    values = pd.to_datetime(pd.Series(list(dates)), errors="coerce").dropna()
+    if values.empty:
+        return [], []
+    start, end = values.min().normalize(), values.max().normalize()
+    span_days = max(int((end - start).days), 1)
+    step = max(7, int(math.ceil(span_days / max(max_labels - 1, 1) / 7.0)) * 7)
+    ticks = list(pd.date_range(start, end, freq=f"{step}D"))
+    texts: list[str] = []
+    last_year = None
+    for tick in ticks:
+        text = spanish_day_month(tick)
+        if tick.year != last_year:
+            text += f"<br>{tick.year}"
+            last_year = tick.year
+        texts.append(text)
+    return ticks, texts
+
+
 def print_height_px(height_mm: float) -> int:
     """Alto del lienzo para que, a PRINT_WIDTH_MM de ancho, la imagen mida `height_mm`."""
     return int(round(PRINT_CANVAS_WIDTH_PX * float(height_mm) / PRINT_WIDTH_MM))
