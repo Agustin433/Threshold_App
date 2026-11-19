@@ -40,7 +40,7 @@ import pandas as pd
 DERIVED_CACHE_KEY = "_derived_cache"
 DERIVED_CACHE_STATS_KEY = "_derived_cache_stats"
 DERIVED_CACHE_MAX_ENTRIES = 256
-DERIVED_CACHE_TTL_S = 300.0
+DERIVED_CACHE_TTL_S = 1800.0
 
 
 class _Unsignable(Exception):

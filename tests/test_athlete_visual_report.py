@@ -259,7 +259,7 @@ class DashboardVisualBlocksTest(unittest.TestCase):
             at.run()
             self.assertFalse(at.exception, at.exception)
             nav = next(bg for bg in at.button_group if bg.label == "Vista principal")
-            nav.set_value("Profile").run()
+            nav.set_value("Atleta").run()  # PR P: Profile -> Atleta > Resumen
             self.assertFalse(at.exception, at.exception)
             markdown = " ".join(str(item.value) for item in at.markdown)
             self.assertIn("Tu evolución", markdown)

@@ -128,7 +128,6 @@ from modules.data_loader import (
     parse_maxes_health as shared_parse_maxes_health,
     parse_questionnaire_raw_csv as shared_parse_questionnaire_raw_csv,
     prepare_raw_workouts_df as shared_prepare_raw_workouts_df,
-    raw_session_date_column,
     parse_raw_workouts as shared_parse_raw_workouts,
     parse_rep_load_report as shared_parse_rep_load_report,
     parse_session_notes_pdf as shared_parse_session_notes_pdf,
@@ -195,7 +194,6 @@ from modules.jump_analysis import (
     UNUSUAL_CHANGE_NOTE,
     build_dashboard_neuromuscular_payload,
     available_sources as jump_available_sources,
-    choose_secondary_quadrant_x_spec,
     filter_by_source as filter_jump_by_source,
     _prepare_jump_df as shared_prepare_jump_df,
     _records_to_jump_df as shared_records_to_jump_df,
@@ -217,6 +215,9 @@ from modules.jump_analysis import (
     compute_swc_delta as shared_compute_swc_delta,
     compute_evaluation_changes as shared_compute_evaluation_changes,
     resolve_zscore as shared_resolve_zscore,
+    PATTERN_LIBRARY,
+    REACTIVITY_PATTERN_CODES,
+    _pattern_matches as shared_pattern_matches,
     select_primary_profile_row as shared_select_primary_profile_row,
 )
 from modules.force_time_analysis import (
@@ -3211,15 +3212,45 @@ def _render_athlete_visual_blocks(payload: dict[str, object]) -> None:
         st.plotly_chart(position_figure, width="stretch")
 
 
+def _athlete_report_payload(athlete: str, jump_df: pd.DataFrame | None) -> dict[str, object]:
+    """Payload del PDF de atleta (memoizado): lo comparten Resumen y Fuerza."""
+    ensure_load_state(ensure_base_state=False)
+    state = _current_report_state_snapshot(include_history_extras=True)
+    state["jump_df"] = jump_df
+    return build_individual_report_payload(state, athlete, "atleta")
+
+
+def _athlete_payload_jump_df() -> pd.DataFrame | None:
+    """Mismas evaluaciones que usa Atleta > Resumen (fuente elegida ahi, plataforma por defecto)."""
+    present = jump_available_sources(st.session_state.jump_df)
+    selected = st.session_state.get("profile_eval_source")
+    if selected not in present:
+        selected = SOURCE_PLATFORM if SOURCE_PLATFORM in present else (present[0] if present else DEFAULT_SOURCE)
+    return filter_jump_by_source(st.session_state.jump_df, selected)
+
+
+def _render_estimated_strength(athlete: str, jump_df: pd.DataFrame | None) -> None:
+    """Fuerza estimada (estaba al final de 'Lo que lograste'): Atleta > Fuerza."""
+    if not athlete or athlete == "Sin atleta":
+        return
+    try:
+        payload = _athlete_report_payload(athlete, jump_df)
+    except Exception as exc:
+        st.caption(f"No se pudo armar la fuerza estimada: {exc}")
+        return
+    strength_df = payload.get("strength_df")
+    figure = chart_estimated_strength(strength_df) if strength_df is not None else None
+    if figure is not None:
+        st.plotly_chart(figure, width="stretch")
+        st.caption(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.")
+
+
 def _render_athlete_achievements(athlete: str, jump_df: pd.DataFrame | None) -> None:
     """"Lo que lograste": mismo payload que el PDF de atleta (una sola fuente)."""
     if not athlete or athlete == "Sin atleta":
         return
     try:
-        ensure_load_state(ensure_base_state=False)
-        state = _current_report_state_snapshot(include_history_extras=True)
-        state["jump_df"] = jump_df
-        payload = build_individual_report_payload(state, athlete, "atleta")
+        payload = _athlete_report_payload(athlete, jump_df)
     except Exception as exc:
         st.caption(f"No se pudo armar 'Lo que lograste': {exc}")
         return
@@ -3237,11 +3268,7 @@ def _render_athlete_achievements(athlete: str, jump_df: pd.DataFrame | None) -> 
         )
     for step in payload.get("next_steps", []):
         st.markdown(f"➡️ {step}")
-    strength_df = payload.get("strength_df")
-    figure = chart_estimated_strength(strength_df) if strength_df is not None else None
-    if figure is not None:
-        st.plotly_chart(figure, width="stretch")
-        st.caption(f"Fuerza estimada: {ESTIMATED_STRENGTH_LABEL}.")
+    # La fuerza estimada se movio a Atleta > Fuerza.
     st.markdown("---")
 
 
@@ -5409,22 +5436,249 @@ with st.sidebar:
 # MAIN — Tabs
 # ════════════════════════════════════════════════════════════════════
 
-def _decision_evaluation_changes(source_jump: pd.DataFrame, reference_date: pd.Timestamp) -> dict[str, pd.DataFrame]:
-    """compute_evaluation_changes de cada atleta, con el mismo recorte que el panel."""
-    changes: dict[str, pd.DataFrame] = {}
-    for athlete in sorted(source_jump["Athlete"].dropna().unique()):
+def _development_profile_counts(
+    prepared: pd.DataFrame,
+    profile_df: pd.DataFrame | None,
+    goal_history: pd.DataFrame | None,
+    allowed_athletes: list[str] | None,
+    reference_date: pd.Timestamp,
+) -> dict[str, list[dict[str, object]]]:
+    """Atletas por cuadrante del mapa del gimnasio y por perfil de reactividad.
+
+    Mismo mapa que Equipo (build_quadrant_map) y mismo patron que el PDF
+    (perfil compuesto -> _pattern_matches, solo A/B/E), a la fecha de la
+    semana elegida.
+    """
+    from modules.strength_quadrant import (
+        QUADRANT_BASE,
+        QUADRANT_COMPLETE,
+        QUADRANT_EXPLOSIVE,
+        QUADRANT_STRONG,
+        build_quadrant_map,
+    )
+
+    frame = prepared.copy()
+    frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce").dt.normalize()
+    frame = frame.dropna(subset=["Athlete", "Date"])
+    frame = frame[frame["Date"] <= reference_date]
+    if allowed_athletes is not None:
+        frame = frame[frame["Athlete"].isin(set(allowed_athletes))]
+
+    quadrant_map = build_quadrant_map(frame, profile_df, today=reference_date, goal_history=goal_history)
+    by_quadrant: dict[str, list[str]] = {
+        QUADRANT_COMPLETE: [],
+        QUADRANT_STRONG: [],
+        QUADRANT_EXPLOSIVE: [],
+        QUADRANT_BASE: [],
+    }
+    for placement in quadrant_map.placements:
+        by_quadrant.setdefault(placement.quadrant, []).append(placement.athlete)
+    quadrant_rows = [
+        {"Cuadrante del mapa": quadrant, "Atletas": len(names), "Quienes": ", ".join(sorted(names))}
+        for quadrant, names in by_quadrant.items()
+    ]
+    quadrant_rows.append(
+        {
+            "Cuadrante del mapa": "Sin ubicar",
+            "Atletas": len(quadrant_map.unplaced),
+            "Quienes": ", ".join(sorted(name for name, _ in quadrant_map.unplaced)),
+        }
+    )
+
+    by_pattern: dict[str, list[str]] = {code: [] for code in REACTIVITY_PATTERN_CODES}
+    without_pattern: list[str] = []
+    for athlete in sorted(frame["Athlete"].unique()):
+        history = frame[frame["Athlete"] == athlete].sort_values("Date")
+        composite_row, _sources = build_composite_profile_snapshot(history)
+        codes = [] if composite_row is None else [
+            code for code in shared_pattern_matches(composite_row) if code in by_pattern
+        ]
+        for code in codes:
+            by_pattern[code].append(athlete)
+        if not codes:
+            without_pattern.append(athlete)
+    pattern_rows = [
+        {
+            "Perfil de reactividad": PATTERN_LIBRARY[code]["label"],
+            "Atletas": len(names),
+            "Quienes": ", ".join(names),
+        }
+        for code, names in by_pattern.items()
+    ]
+    pattern_rows.append(
+        {"Perfil de reactividad": "Sin patron de reactividad", "Atletas": len(without_pattern), "Quienes": ", ".join(without_pattern)}
+    )
+    return {"quadrants": quadrant_rows, "patterns": pattern_rows}
+
+
+def _render_development_profile_counts(
+    source: str,
+    *,
+    allowed_athletes: set[str] | None,
+    reference_date: pd.Timestamp,
+) -> None:
+    """Bloque 3 de Hoy: conteo por cuadrante del mapa + perfil de reactividad."""
+    from modules.strength_quadrant import load_goal_history
+
+    profile_df = st.session_state.athlete_profile_df
+    # _prepare_jump_df directo (memoizado por contenido), no ensure_prepared_jump_df:
+    # ese guarda un unico frame por fuente y Equipo lo usa para la ultima toma.
+    prepared = shared_prepare_jump_df(
+        filter_jump_by_source(st.session_state.jump_df, source),
+        profile_df=profile_df,
+    )
+    if prepared is None or prepared.empty:
+        st.caption("Sin evaluaciones cargadas.")
+        return
+    try:
+        goal_history = load_goal_history()
+    except Exception:
+        goal_history = None
+    counts = cached_derived_call(
+        "development_profile_counts",
+        _development_profile_counts,
+        prepared,
+        profile_df,
+        goal_history,
+        None if allowed_athletes is None else sorted(allowed_athletes),
+        pd.Timestamp(reference_date).normalize(),
+    )
+    col_map, col_pattern = st.columns(2)
+    with col_map:
+        st.dataframe(pd.DataFrame(counts["quadrants"]), width="stretch", hide_index=True)
+    with col_pattern:
+        st.dataframe(pd.DataFrame(counts["patterns"]), width="stretch", hide_index=True)
+    st.caption(
+        "Cuadrante: mapa del gimnasio (Equipo > Mapa y cuadrantes). "
+        "Perfil de reactividad: patrones A, B y E del perfil compuesto."
+    )
+
+
+def _decision_volume_distribution(
+    current_external: pd.DataFrame,
+    weekly_external: pd.DataFrame,
+    external_labels: dict[str, str],
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """Bloque 4 (Distribucion de volumen): mismo calculo, separado del render para memoizarlo."""
+    category_columns = [column for column in external_labels if column in current_external.columns]
+    heatmap_rows: list[dict[str, object]] = []
+    z_rows: list[dict[str, object]] = []
+    for athlete in sorted(current_external["Athlete"].dropna().unique()):
+        athlete_hist = weekly_external[weekly_external["Athlete"] == athlete].sort_values("week_start")
+        athlete_current = current_external[current_external["Athlete"] == athlete].iloc[-1]
+        display_row = {"Atleta": athlete}
+        z_row = {"Atleta": athlete}
+        for column in category_columns:
+            value = pd.to_numeric(pd.Series([athlete_current.get(column)]), errors="coerce").iloc[0]
+            history_values = pd.to_numeric(athlete_hist[column], errors="coerce").dropna()
+            if len(history_values) >= 3 and float(history_values.std(ddof=0)) > 0:
+                z_value = float((value - float(history_values.mean())) / float(history_values.std(ddof=0)))
+                display_row[external_labels[column]] = f"{z_value:+.1f} z"
+                z_row[external_labels[column]] = z_value
+            else:
+                display_row[external_labels[column]] = (
+                    f"{value:.0f} (sin z-score)" if pd.notna(value) else "- (sin z-score)"
+                )
+                z_row[external_labels[column]] = np.nan
+        heatmap_rows.append(display_row)
+        z_rows.append(z_row)
+
+    heatmap_df = pd.DataFrame(heatmap_rows)
+    zscore_df = pd.DataFrame(z_rows)
+    style_frame = pd.DataFrame("", index=heatmap_df.index, columns=heatmap_df.columns)
+    for idx in heatmap_df.index:
+        for label in [external_labels[column] for column in category_columns]:
+            z_value = pd.to_numeric(pd.Series([zscore_df.loc[idx, label]]), errors="coerce").iloc[0]
+            if pd.isna(z_value):
+                style_frame.loc[idx, label] = "background-color: rgba(112,140,159,0.10); color:#41515E;"
+            elif z_value > 1.0:
+                style_frame.loc[idx, label] = "background-color: rgba(79,201,126,0.26); color:#1D4F33; font-weight:700;"
+            elif z_value >= 0:
+                style_frame.loc[idx, label] = "background-color: rgba(79,201,126,0.14); color:#2F6C47; font-weight:700;"
+            elif z_value >= -1.0:
+                style_frame.loc[idx, label] = "background-color: rgba(232,200,74,0.18); color:#7A6213; font-weight:700;"
+            else:
+                style_frame.loc[idx, label] = "background-color: rgba(217,79,79,0.18); color:#8A2F2F; font-weight:700;"
+    volume_captions: list[str] = []
+
+    for column in category_columns:
+        above_count = 0
+        below_count = 0
+        for athlete in sorted(current_external["Athlete"].dropna().unique()):
+            athlete_hist = weekly_external[weekly_external["Athlete"] == athlete].sort_values("week_start")
+            history_values = pd.to_numeric(athlete_hist[column], errors="coerce").dropna()
+            current_value = pd.to_numeric(
+                pd.Series([current_external[current_external["Athlete"] == athlete].iloc[-1].get(column)]),
+                errors="coerce",
+            ).iloc[0]
+            if len(history_values) < 3 or pd.isna(current_value):
+                continue
+            history_mean = float(history_values.mean())
+            if current_value > history_mean:
+                above_count += 1
+            elif current_value < history_mean:
+                below_count += 1
+        volume_captions.append(
+            f"{external_labels[column]}: {above_count} atleta(s) por encima de su media historica y {below_count} por debajo."
+        )
+    return heatmap_df, style_frame, volume_captions
+
+
+def _decision_pending_evaluations(
+    jump_df: pd.DataFrame,
+    athletes_registry: list[str],
+    reference_date: pd.Timestamp,
+) -> pd.DataFrame:
+    """Bloque de evaluaciones pendientes: mismo calculo, separado del render para memoizarlo."""
+    source_jump = jump_df.copy()
+    source_jump["Date"] = pd.to_datetime(source_jump["Date"], errors="coerce").dt.normalize()
+    pending_rows: list[dict[str, object]] = []
+    for athlete in athletes_registry:
         athlete_hist = source_jump[
             (source_jump["Athlete"] == athlete)
             & (source_jump["Date"] <= reference_date)
         ].sort_values("Date")
         if athlete_hist.empty:
+            pending_rows.append(
+                {
+                    "Atleta": athlete,
+                    "Ultima evaluacion": "Sin registro",
+                    # Numero o vacio, nunca texto: una columna con int y
+                    # str rompe la conversion a Arrow de st.dataframe.
+                    "Dias sin test": None,
+                    "Ultimo NM_Profile": "-",
+                    "Prioridad": "Urgente",
+                    "_sort": 9999,
+                }
+            )
             continue
-        last_date = pd.Timestamp(athlete_hist.iloc[-1]["Date"]).normalize()
-        changes[athlete] = compute_evaluation_changes(athlete_hist, last_date)
-    return changes
+        last_row = athlete_hist.iloc[-1]
+        last_date = pd.Timestamp(last_row["Date"]).normalize()
+        days_without = int((reference_date - last_date).days)
+        if days_without > 60:
+            priority = "Urgente"
+        elif days_without >= 30:
+            priority = "Pendiente"
+        else:
+            priority = "Al dia"
+        pending_rows.append(
+            {
+                "Atleta": athlete,
+                "Ultima evaluacion": f"{last_date:%d/%m/%Y}",
+                "Dias sin test": days_without,
+                "Ultimo NM_Profile": str(last_row.get("EUR_Profile") or last_row.get("NM_Profile", "-")),
+                "Prioridad": priority,
+                "_sort": days_without,
+            }
+        )
+    pending_df = pd.DataFrame(pending_rows).sort_values("_sort", ascending=False)
+    pending_df["Dias sin test"] = pd.to_numeric(pending_df["Dias sin test"], errors="coerce").astype("Int64")
+    pending_display = pending_df[["Atleta", "Ultima evaluacion", "Dias sin test", "Ultimo NM_Profile", "Prioridad"]]
+    return pending_display
 
 
-def render_decision_panel():
+def render_decision_panel(decision_eval_source: str):
+    """Bloques semanales de decision; la fuente de evaluacion la elige Hoy (un solo selector)."""
     status_palette = {
         "Regular": ("rgba(79,201,126,0.16)", "#2F6C47"),
         "Bajo": ("rgba(232,200,74,0.18)", "#7A6213"),
@@ -5488,59 +5742,13 @@ def render_decision_panel():
         week_end = pd.Timestamp(week_start) + pd.Timedelta(days=6)
         return f"{week_start:%d/%m/%Y} - {week_end:%d/%m/%Y}"
 
-    def _render_bucket(title: str, rows: list[dict[str, object]], accent: str) -> None:
-        st.markdown(f"**{title}**")
-        if not rows:
-            st.caption("Sin atletas en esta categoria para la semana seleccionada.")
-            return
-
-        accent_palette = {
-            "red": ("rgba(217,79,79,0.10)", "#8A2F2F"),
-            "yellow": ("rgba(232,200,74,0.12)", "#7A6213"),
-            "green": ("rgba(79,201,126,0.12)", "#2F6C47"),
-        }
-        bg, border = accent_palette.get(accent, ("rgba(112,140,159,0.10)", "#41515E"))
-        for row in rows:
-            details_html = "".join(
-                f'<div style="font-size:0.88rem;color:#221F20;margin:0.12rem 0;">{html.escape(str(detail))}</div>'
-                for detail in row.get("details", [])
-            )
-            stale_html = (
-                '<div style="font-size:0.78rem;color:#5A5E63;margin-top:0.35rem;">'
-                "Evaluacion desactualizada (&gt; 30 dias).</div>"
-                if row.get("stale")
-                else ""
-            )
-            st.markdown(
-                (
-                    f'<div style="background:{bg};border:1px solid {border};border-radius:14px;'
-                    'padding:0.8rem 0.9rem;margin:0 0 0.7rem 0;">'
-                    f'<div style="font-weight:700;color:#221F20;">{html.escape(str(row.get("title", "")))}</div>'
-                    f"{details_html}{stale_html}</div>"
-                ),
-                unsafe_allow_html=True,
-            )
-
-    render_module_header(
-        "Panel de Decision",
-        "lectura grupal semanal para decisiones de carga, desarrollo y seguimiento",
-        kicker="Modulo",
-    )
-
     ensure_load_state(ensure_base_state=False)
     weekly_summaries = st.session_state.weekly_summaries or {}
     weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
     weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
     weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))
     weekly_team = _normalize_weekly_frame(weekly_summaries.get("weekly_team", pd.DataFrame()))
-    decision_eval_source = render_evaluation_source_selector(
-        "decision_eval_source", st.session_state.jump_df
-    )
     jump_df = filter_jump_by_source(st.session_state.jump_df, decision_eval_source)
-    raw_df_state = st.session_state.raw_df
-    prepared_raw_df = ensure_prepared_raw_workouts(ensure_base_state=False)
-    if prepared_raw_df is None:
-        prepared_raw_df = pd.DataFrame()
 
     # ── Filtro de Contexto (Club / Gimnasio / Online), aplicado antes de que
     # los bloques procesen los datos. "Todos" no filtra nada. Usa la misma
@@ -5587,43 +5795,10 @@ def render_decision_panel():
     jump_df = _filter_athletes_decision(jump_df)
 
     rtp_athletes: set[str] = set()
-    athlete_objetivo_lookup: dict[str, str] = {}
     if profile_df_decision is not None and not profile_df_decision.empty and "Athlete" in profile_df_decision.columns:
         if "Es_RTP" in profile_df_decision.columns:
             rtp_mask = profile_df_decision["Es_RTP"].apply(_is_rtp_flag)
             rtp_athletes = set(profile_df_decision.loc[rtp_mask, "Athlete"].dropna())
-        if "Objetivo_primario" in profile_df_decision.columns:
-            athlete_objetivo_lookup = dict(
-                zip(profile_df_decision["Athlete"], profile_df_decision["Objetivo_primario"].fillna(""))
-            )
-    INFORMATIVE_DEV_OBJECTIVES = {"Hipertrofia", "Recomposición corporal"}
-
-    def _dev_card_note(athlete: str) -> str | None:
-        if athlete in rtp_athletes:
-            return "🔶 RTP — priorizar criterio clínico sobre perfil neuromuscular"
-        if athlete_objetivo_lookup.get(athlete, "") in INFORMATIVE_DEV_OBJECTIVES:
-            return "Perfil neuromuscular informativo — objetivo no es rendimiento reactivo"
-        if athlete not in athletes_with_profile_row:
-            return "⚠️ Sin perfil — clasificación basada solo en datos neuromusculares"
-        return None
-
-    def _dispatch_dev_card(
-        athlete: str,
-        natural_bucket: str,
-        card: dict[str, object],
-        eur_value_for_tiebreak: object,
-        base_rows: list[dict[str, object]],
-        power_rows: list[dict[str, object]],
-        complete_rows: list[dict[str, object]],
-    ) -> None:
-        target_bucket = natural_bucket
-        if athlete in rtp_athletes and natural_bucket == "power":
-            eur_numeric = pd.to_numeric(pd.Series([eur_value_for_tiebreak]), errors="coerce").iloc[0]
-            target_bucket = "complete" if pd.notna(eur_numeric) and eur_numeric >= 1.0 else "base"
-        note = _dev_card_note(athlete)
-        if note:
-            card = card | {"details": [*card.get("details", []), note]}
-        {"base": base_rows, "power": power_rows, "complete": complete_rows}[target_bucket].append(card)
 
     week_candidates: list[pd.Timestamp] = []
     week_label_flags: dict[pd.Timestamp, bool] = {}
@@ -5793,200 +5968,27 @@ def render_decision_panel():
     if jump_df is None or jump_df.empty:
         st.caption("Sin evaluaciones cargadas.")
     else:
-        source_jump = jump_df.copy()
-        source_jump["Date"] = pd.to_datetime(source_jump["Date"], errors="coerce").dt.normalize()
-        source_jump = source_jump.dropna(subset=["Athlete", "Date"]).sort_values(["Athlete", "Date"])
-        base_rows: list[dict[str, object]] = []
-        power_rows: list[dict[str, object]] = []
-        complete_rows: list[dict[str, object]] = []
-        # Una sola llamada cacheada para los cambios de todos los atletas.
-        evaluation_changes_by_athlete = cached_derived_call(
-            "decision_evaluation_changes",
-            _decision_evaluation_changes,
-            source_jump,
-            reference_date,
+        _render_development_profile_counts(
+            decision_eval_source,
+            allowed_athletes=allowed_athletes_decision,
+            reference_date=reference_date,
         )
-
-        for athlete in sorted(source_jump["Athlete"].dropna().unique()):
-            athlete_hist = source_jump[
-                (source_jump["Athlete"] == athlete)
-                & (source_jump["Date"] <= reference_date)
-            ].sort_values("Date")
-            if athlete_hist.empty:
-                continue
-            last_row = athlete_hist.iloc[-1]
-            last_date = pd.Timestamp(last_row["Date"]).normalize()
-            days_since = int((reference_date - last_date).days)
-            stale = days_since > 30
-            eur_value = pd.to_numeric(pd.Series([last_row.get("EUR")]), errors="coerce").iloc[0]
-            imtp_relpf = pd.to_numeric(pd.Series([last_row.get("IMTP_relPF")]), errors="coerce").iloc[0]
-            imtp_relpf_z = pd.to_numeric(pd.Series([last_row.get("IMTP_relPF_Z")]), errors="coerce").iloc[0]
-            sj_z = pd.to_numeric(pd.Series([last_row.get("SJ_Z")]), errors="coerce").iloc[0]
-            dj_rsi_z = pd.to_numeric(pd.Series([last_row.get("DJ_RSI_Z")]), errors="coerce").iloc[0]
-            delta_df = evaluation_changes_by_athlete[athlete]
-            signals = delta_df["Signal"].tolist() if not delta_df.empty and "Signal" in delta_df.columns else []
-            has_drop = any(signal == "caida relevante" for signal in signals)
-            signal_summary = (
-                "Caida relevante"
-                if has_drop
-                else "Mejora relevante"
-                if any(signal == "mejora relevante" for signal in signals)
-                else "Sin cambio relevante"
-                if any(signal == "sin cambio relevante" for signal in signals)
-                else "Sin dato anterior"
-            )
-            # Legacy EUR-based bucket for operational triage only. The main
-            # neuromuscular profile lives in modules.jump_analysis.
-            nm_profile = str(last_row.get("EUR_Profile") or last_row.get("NM_Profile", "Sin datos"))
-            card_base = {"title": athlete, "stale": stale}
-            if (
-                nm_profile == "Base de Fuerza"
-                or (pd.notna(eur_value) and eur_value < 1.0)
-                or (pd.notna(imtp_relpf_z) and imtp_relpf_z < -0.5)
-            ):
-                _dispatch_dev_card(
-                    athlete,
-                    "base",
-                    card_base | {
-                        "details": [
-                            f"EUR: {eur_value:.3f}" if pd.notna(eur_value) else "EUR: -",
-                            f"IMTP relPF bruta: {imtp_relpf:.2f} N/kg" if pd.notna(imtp_relpf) else "IMTP relPF bruta: -",
-                            f"Dias desde ultima evaluacion: {days_since}",
-                        ]
-                    },
-                    eur_value,
-                    base_rows,
-                    power_rows,
-                    complete_rows,
-                )
-            elif (
-                nm_profile == "Mixto"
-                and pd.notna(sj_z)
-                and -0.5 <= sj_z <= 0.5
-                and pd.notna(dj_rsi_z)
-                and dj_rsi_z < 0
-            ):
-                sj_value = pd.to_numeric(pd.Series([last_row.get("SJ_cm")]), errors="coerce").iloc[0]
-                dj_value = pd.to_numeric(pd.Series([last_row.get("DJ_RSI")]), errors="coerce").iloc[0]
-                _dispatch_dev_card(
-                    athlete,
-                    "power",
-                    card_base | {
-                        "details": [
-                            f"SJ: {sj_value:.1f} cm" if pd.notna(sj_value) else "SJ: -",
-                            f"DJ RSI: {dj_value:.2f} m/s" if pd.notna(dj_value) else "DJ RSI: -",
-                            f"Perfil NM: {nm_profile}",
-                        ]
-                    },
-                    eur_value,
-                    base_rows,
-                    power_rows,
-                    complete_rows,
-                )
-            elif nm_profile == "Reactivo" and pd.notna(eur_value) and eur_value >= 1.10 and not has_drop:
-                _dispatch_dev_card(
-                    athlete,
-                    "complete",
-                    card_base | {
-                        "details": [
-                            f"EUR: {eur_value:.3f}",
-                            f"Ultima senal SWC: {signal_summary}",
-                        ]
-                    },
-                    eur_value,
-                    base_rows,
-                    power_rows,
-                    complete_rows,
-                )
-            else:
-                fallback_card = card_base | {
-                    "details": [
-                        f"Perfil NM: {nm_profile}",
-                        f"EUR: {eur_value:.3f}" if pd.notna(eur_value) else "EUR: -",
-                        f"Ultima senal SWC: {signal_summary}",
-                    ]
-                }
-                if nm_profile == "Base de Fuerza":
-                    _dispatch_dev_card(athlete, "base", fallback_card, eur_value, base_rows, power_rows, complete_rows)
-                elif nm_profile == "Mixto":
-                    _dispatch_dev_card(athlete, "power", fallback_card, eur_value, base_rows, power_rows, complete_rows)
-                elif nm_profile == "Reactivo":
-                    _dispatch_dev_card(athlete, "complete", fallback_card, eur_value, base_rows, power_rows, complete_rows)
-
-        col_dev_1, col_dev_2, col_dev_3 = st.columns(3)
-        with col_dev_1:
-            _render_bucket("Necesitan trabajo de fuerza base", base_rows, "red")
-        with col_dev_2:
-            _render_bucket("Necesitan desarrollo de potencia", power_rows, "yellow")
-        with col_dev_3:
-            _render_bucket("Perfil completo / mantencion", complete_rows, "green")
 
     render_subsection_header("Distribucion de volumen", "quien tiene exceso o deficit por patron", kicker="Bloque 4")
     if current_external.empty:
         st.caption("Sin datos de carga externa para la semana seleccionada.")
     else:
-        category_columns = [column for column in external_labels if column in current_external.columns]
-        heatmap_rows: list[dict[str, object]] = []
-        z_rows: list[dict[str, object]] = []
-        for athlete in sorted(current_external["Athlete"].dropna().unique()):
-            athlete_hist = weekly_external[weekly_external["Athlete"] == athlete].sort_values("week_start")
-            athlete_current = current_external[current_external["Athlete"] == athlete].iloc[-1]
-            display_row = {"Atleta": athlete}
-            z_row = {"Atleta": athlete}
-            for column in category_columns:
-                value = pd.to_numeric(pd.Series([athlete_current.get(column)]), errors="coerce").iloc[0]
-                history_values = pd.to_numeric(athlete_hist[column], errors="coerce").dropna()
-                if len(history_values) >= 3 and float(history_values.std(ddof=0)) > 0:
-                    z_value = float((value - float(history_values.mean())) / float(history_values.std(ddof=0)))
-                    display_row[external_labels[column]] = f"{z_value:+.1f} z"
-                    z_row[external_labels[column]] = z_value
-                else:
-                    display_row[external_labels[column]] = (
-                        f"{value:.0f} (sin z-score)" if pd.notna(value) else "- (sin z-score)"
-                    )
-                    z_row[external_labels[column]] = np.nan
-            heatmap_rows.append(display_row)
-            z_rows.append(z_row)
-
-        heatmap_df = pd.DataFrame(heatmap_rows)
-        zscore_df = pd.DataFrame(z_rows)
-        style_frame = pd.DataFrame("", index=heatmap_df.index, columns=heatmap_df.columns)
-        for idx in heatmap_df.index:
-            for label in [external_labels[column] for column in category_columns]:
-                z_value = pd.to_numeric(pd.Series([zscore_df.loc[idx, label]]), errors="coerce").iloc[0]
-                if pd.isna(z_value):
-                    style_frame.loc[idx, label] = "background-color: rgba(112,140,159,0.10); color:#41515E;"
-                elif z_value > 1.0:
-                    style_frame.loc[idx, label] = "background-color: rgba(79,201,126,0.26); color:#1D4F33; font-weight:700;"
-                elif z_value >= 0:
-                    style_frame.loc[idx, label] = "background-color: rgba(79,201,126,0.14); color:#2F6C47; font-weight:700;"
-                elif z_value >= -1.0:
-                    style_frame.loc[idx, label] = "background-color: rgba(232,200,74,0.18); color:#7A6213; font-weight:700;"
-                else:
-                    style_frame.loc[idx, label] = "background-color: rgba(217,79,79,0.18); color:#8A2F2F; font-weight:700;"
+        heatmap_df, style_frame, volume_captions = cached_derived_call(
+            "decision_volume_distribution",
+            _decision_volume_distribution,
+            current_external,
+            weekly_external,
+            external_labels,
+        )
         heatmap_styler = heatmap_df.style.apply(lambda _frame: style_frame, axis=None)
         st.dataframe(heatmap_styler, width='stretch', hide_index=True)
-
-        for column in category_columns:
-            above_count = 0
-            below_count = 0
-            for athlete in sorted(current_external["Athlete"].dropna().unique()):
-                athlete_hist = weekly_external[weekly_external["Athlete"] == athlete].sort_values("week_start")
-                history_values = pd.to_numeric(athlete_hist[column], errors="coerce").dropna()
-                current_value = pd.to_numeric(
-                    pd.Series([current_external[current_external["Athlete"] == athlete].iloc[-1].get(column)]),
-                    errors="coerce",
-                ).iloc[0]
-                if len(history_values) < 3 or pd.isna(current_value):
-                    continue
-                history_mean = float(history_values.mean())
-                if current_value > history_mean:
-                    above_count += 1
-                elif current_value < history_mean:
-                    below_count += 1
-            st.caption(
-                f"{external_labels[column]}: {above_count} atleta(s) por encima de su media historica y {below_count} por debajo."
-            )
+        for volume_caption in volume_captions:
+            st.caption(volume_caption)
 
     render_subsection_header("Asistencia", "quien falto vs semana anterior", kicker="Bloque 5")
     if current_load.empty:
@@ -6107,152 +6109,18 @@ def render_decision_panel():
             )
             st.dataframe(ratio_display, width='stretch', hide_index=True)
 
-    render_subsection_header("Ranking de ejecucion registrada", "quien sostiene mas trabajo visible en Raw Workouts", kicker="Bloque 7")
-    if current_load.empty:
-        st.caption("Sin datos semanales suficientes para calcular el ranking.")
-    else:
-        raw_execution = pd.DataFrame(columns=["Athlete", "execution_pct"])
-        if prepared_raw_df is not None and not prepared_raw_df.empty:
-            prepared_week = prepared_raw_df.copy()
-            date_col = raw_session_date_column(prepared_week)
-            if date_col is not None:
-                prepared_week[date_col] = pd.to_datetime(prepared_week[date_col], errors="coerce").dt.normalize()
-                week_end = reference_date
-                if selected_week is not None:
-                    prepared_week = prepared_week[prepared_week[date_col].between(selected_week, week_end)]
-                if not prepared_week.empty and "Athlete" in prepared_week.columns:
-                    prepared_week = prepared_week.assign(
-                        _result_numeric=pd.to_numeric(prepared_week.get("Result"), errors="coerce")
-                    )
-                    raw_execution = (
-                        prepared_week.groupby("Athlete", as_index=False)
-                        .agg(
-                            total_rows=("Athlete", "size"),
-                            completed_rows=("_result_numeric", lambda s: int(pd.Series(s).gt(0).sum())),
-                        )
-                    )
-                    raw_execution["execution_pct"] = np.where(
-                        raw_execution["total_rows"].gt(0),
-                        raw_execution["completed_rows"] / raw_execution["total_rows"],
-                        np.nan,
-                    )
-
-        ranking_df = compare_weekly_load(current_load, previous_load)[
-            ["Athlete", "sessions_count", "sessions_done", "sessions_missing", "load_model", "load_model_prev", "comparable", "delta_pct"]
-        ]
-        ranking_df = ranking_df.merge(
-            current_wellness[["Athlete", "wellness_compliance"]],
-            on="Athlete",
-            how="left",
-        )
-        ranking_df = ranking_df.merge(
-            raw_execution[["Athlete", "execution_pct"]] if not raw_execution.empty else pd.DataFrame(columns=["Athlete", "execution_pct"]),
-            on="Athlete",
-            how="left",
-        )
-        # Sesiones = sesiones realizadas (Raw Workouts), no las que tienen
-        # sRPE: el ranking es de trabajo sostenido, no de quien reporta.
-        ranking_df["comparable"] = ranking_df["comparable"].fillna(False).astype(bool)
-        for numeric_col in ["delta_pct", "sessions_done", "sessions_count", "load_model", "load_model_prev", "wellness_compliance", "execution_pct"]:
-            ranking_df[numeric_col] = pd.to_numeric(ranking_df[numeric_col], errors="coerce").astype(float)
-        max_sessions = max(int(ranking_df["sessions_done"].max()) if not ranking_df.empty else 0, 1)
-        ranking_df["wellness_compliance"] = ranking_df["wellness_compliance"].clip(lower=0, upper=1).fillna(0)
-        ranking_df["execution_pct"] = ranking_df["execution_pct"].clip(lower=0, upper=1).fillna(0)
-        ranking_df["delta_pct"] = np.where(
-            ranking_df["comparable"] & ranking_df["load_model_prev"].fillna(0).le(0),
-            np.where(ranking_df["load_model"].fillna(0).gt(0), 100.0, 0.0),
-            ranking_df["delta_pct"],
-        )
-        base_score = (
-            (ranking_df["sessions_done"] / max_sessions) * 30
-            + ranking_df["wellness_compliance"] * 30
-            + ranking_df["execution_pct"] * 20
-        )
-        # Sin comparacion valida de carga el criterio de tendencia (20 pts) no
-        # se puede evaluar: se reescala sobre los 80 restantes en vez de
-        # premiar o castigar un dato que no existe.
-        ranking_df["Score"] = np.where(
-            ranking_df["comparable"],
-            base_score + np.where(ranking_df["delta_pct"] >= -20, 20.0, 0.0),
-            base_score * 100.0 / 80.0,
-        ).round(1)
-        ranking_df["Tendencia carga"] = np.select(
-            [~ranking_df["comparable"], ranking_df["delta_pct"] > 10, ranking_df["delta_pct"] < -10],
-            ["?", "↑", "↓"],
-            default="→",
-        )
-        ranking_df = ranking_df.sort_values(["Score", "sessions_done"], ascending=[False, False]).reset_index(drop=True)
-        ranking_display = pd.DataFrame(
-            {
-                "Posicion": ranking_df.index + 1,
-                "Atleta": ranking_df["Athlete"],
-                "Score": ranking_df["Score"].map(lambda value: f"{value:.1f}"),
-                "Sesiones": ranking_df["sessions_done"].astype(int),
-                "sRPE reportado": ranking_df.apply(
-                    lambda row: f"{int(row['sessions_count'])}/{int(row['sessions_done'])}", axis=1
-                ),
-                "Wellness %": ranking_df["wellness_compliance"].map(lambda value: f"{value * 100:.0f}%"),
-                "Ejecucion registrada %": ranking_df["execution_pct"].map(lambda value: f"{value * 100:.0f}%"),
-                "Tendencia carga": ranking_df["Tendencia carga"],
-            }
-        )
-        ranking_styler = ranking_display.style.apply(_style_signed, subset=["Tendencia carga"])
-        st.dataframe(ranking_styler, width='stretch', hide_index=True)
-        if (~ranking_df["comparable"]).any():
-            st.caption(
-                "Tendencia \"?\": sesiones sin sRPE esta semana o la anterior; el score de ese atleta "
-                "se calcula sin el criterio de tendencia (reescalado sobre 100)."
-            )
-
-    render_subsection_header("Evaluaciones pendientes", "quien lleva mas de 30 dias sin test", kicker="Bloque 8")
+    render_subsection_header("Evaluaciones pendientes", "quien lleva mas de 30 dias sin test", kicker="Bloque 7")
     athletes_registry = athletes_registry_decision
     if jump_df is None or jump_df.empty:
         st.caption("Sin evaluaciones cargadas.")
     else:
-        source_jump = jump_df.copy()
-        source_jump["Date"] = pd.to_datetime(source_jump["Date"], errors="coerce").dt.normalize()
-        pending_rows: list[dict[str, object]] = []
-        for athlete in athletes_registry:
-            athlete_hist = source_jump[
-                (source_jump["Athlete"] == athlete)
-                & (source_jump["Date"] <= reference_date)
-            ].sort_values("Date")
-            if athlete_hist.empty:
-                pending_rows.append(
-                    {
-                        "Atleta": athlete,
-                        "Ultima evaluacion": "Sin registro",
-                        # Numero o vacio, nunca texto: una columna con int y
-                        # str rompe la conversion a Arrow de st.dataframe.
-                        "Dias sin test": None,
-                        "Ultimo NM_Profile": "-",
-                        "Prioridad": "Urgente",
-                        "_sort": 9999,
-                    }
-                )
-                continue
-            last_row = athlete_hist.iloc[-1]
-            last_date = pd.Timestamp(last_row["Date"]).normalize()
-            days_without = int((reference_date - last_date).days)
-            if days_without > 60:
-                priority = "Urgente"
-            elif days_without >= 30:
-                priority = "Pendiente"
-            else:
-                priority = "Al dia"
-            pending_rows.append(
-                {
-                    "Atleta": athlete,
-                    "Ultima evaluacion": f"{last_date:%d/%m/%Y}",
-                    "Dias sin test": days_without,
-                    "Ultimo NM_Profile": str(last_row.get("EUR_Profile") or last_row.get("NM_Profile", "-")),
-                    "Prioridad": priority,
-                    "_sort": days_without,
-                }
-            )
-        pending_df = pd.DataFrame(pending_rows).sort_values("_sort", ascending=False)
-        pending_df["Dias sin test"] = pd.to_numeric(pending_df["Dias sin test"], errors="coerce").astype("Int64")
-        pending_display = pending_df[["Atleta", "Ultima evaluacion", "Dias sin test", "Ultimo NM_Profile", "Prioridad"]]
+        pending_display = cached_derived_call(
+            "decision_pending_evaluations",
+            _decision_pending_evaluations,
+            jump_df,
+            list(athletes_registry),
+            reference_date,
+        )
         pending_styler = pending_display.style.apply(lambda series: _style_palette(series, status_palette), subset=["Prioridad"])
         st.dataframe(pending_styler, width='stretch', hide_index=True)
 
@@ -6267,15 +6135,23 @@ EVALUATION_VIEW_SOURCES = {
     "Análisis No-Plataforma": SOURCE_NONPLATFORM,
 }
 
+# PR P: de 9 vistas a 6. Hoy = Overview + Decision; Atleta = Profile +
+# Analisis Plataforma + lo individual de Load; Equipo = Team + lo grupal de
+# Load. No-Plataforma, Reportes y Datos (Historial) no cambian.
+VIEW_HOY = "Hoy"
+VIEW_ATLETA = "Atleta"
+VIEW_EQUIPO = "Equipo"
+VIEW_NO_PLATAFORMA = "No-Plataforma"
+VIEW_REPORTES = "Reportes"
+VIEW_DATOS = "Datos"
+
 MAIN_SURFACE_OPTIONS = [
-    "Overview",
-    "Decision",
-    "Load",
-    *EVALUATION_VIEW_SOURCES,
-    "Profile",
-    "Team",
-    "Reports",
-    "Historial",
+    VIEW_HOY,
+    VIEW_ATLETA,
+    VIEW_EQUIPO,
+    VIEW_NO_PLATAFORMA,
+    VIEW_REPORTES,
+    VIEW_DATOS,
 ]
 default_main_view = st.session_state.get("main_surface_view", MAIN_SURFACE_OPTIONS[0])
 if default_main_view not in MAIN_SURFACE_OPTIONS:
@@ -6303,12 +6179,579 @@ active_view_render_started_at = time.perf_counter()
 
 # Vistas con selectores de atleta/fecha como fragmentos: un cambio de
 # selector re-ejecuta solo la vista, no el sidebar ni la hidratacion del
-# store. Un cambio de datos (sidebar) sigue siendo un rerun completo.
+# store. Un cambio de datos (sidebar) sigue siendo un rerun completo. Las
+# pestanas de Atleta y Equipo tienen estado: solo se calcula la abierta.
+
+# ─────────────────────────────────────────────────────────────────────
+# TAB: OVERVIEW (Hoy = Overview + Decision)
+# ─────────────────────────────────────────────────────────────────────
+def _render_hoy_signals(overview_eval_source: str) -> dict[str, object]:
+    """Senales ejecutivas, alertas priorizadas y lectura integrada (ex Overview)."""
+    rdf = st.session_state.rpe_df
+    wdf = st.session_state.wellness_df
+    maxes_df = st.session_state.maxes_df
+    jdf = filter_jump_by_source(st.session_state.jump_df, overview_eval_source)
+    cdf = st.session_state.completion_df
+    rldf = st.session_state.rep_load_df
+    raw_df_state = st.session_state.raw_df
+    state_snapshot = _current_state_snapshot()
+    overview_athletes = known_athlete_names()
+
+    prepared_raw_df = ensure_prepared_raw_workouts(ensure_base_state=False) if _overview_loaded(raw_df_state) else None
+    quality_report = compute_data_quality_report(
+        rdf,
+        wdf,
+        cdf,
+        prepared_raw_df,
+        maxes_df,
+        jdf,
+        overview_athletes,
+        window_days=42,
+    )
+
+    # weekly_summaries come from the centralized build_weekly_summaries(...) cache.
+    ensure_load_state(ensure_base_state=False)
+    weekly_summaries = st.session_state.weekly_summaries or {}
+    weekly_load_current = _overview_current_week_slice(weekly_summaries.get("weekly_load"))
+    weekly_wellness_current = _overview_current_week_slice(weekly_summaries.get("weekly_wellness"))
+    weekly_team_current = _overview_current_week_slice(weekly_summaries.get("weekly_team"))
+    current_team = weekly_team_current.tail(1).iloc[0] if not weekly_team_current.empty else pd.Series(dtype=object)
+    overview_alert_feed = build_alert_feed(
+        quality_report=quality_report,
+        weekly_summaries=weekly_summaries,
+        completion_df=cdf,
+        jump_df=jdf,
+        athletes_list=overview_athletes,
+        reference_date=app_today(),
+        scope="team",
+        surface="overview",
+    )
+    overview_executive_alerts = select_executive_alerts(overview_alert_feed, limit=5)
+    overview_data_quality_alerts = [
+        alert for alert in overview_alert_feed if alert.get("category") == "data_quality"
+    ]
+    overview_load_alerts = [
+        alert for alert in overview_alert_feed if alert.get("category") == "load_risk"
+    ]
+
+    status_items = [
+        ("RPE/sRPE", _overview_loaded(rdf)),
+        ("Wellness", _overview_loaded(wdf)),
+        ("Completion", _overview_loaded(cdf)),
+        ("Raw Workouts (oficial carga externa)", _overview_loaded(raw_df_state)),
+        ("Maxes", _overview_loaded(maxes_df)),
+        ("Saltos/Eval", _overview_loaded(jdf)),
+    ]
+    loaded_sources = sum(1 for _, ok in status_items if ok)
+    missing_sources = [label for label, ok in status_items if not ok]
+
+    completion_signal = _overview_completion_snapshot(
+        cdf, raw_df=_overview_raw_history(raw_df_state)
+    )
+    source_inventory_tone = "success" if loaded_sources >= 5 and not overview_data_quality_alerts else "warning" if loaded_sources >= 3 else "danger"
+    source_inventory_detail = (
+        "Inventario local suficiente para triage."
+        if not missing_sources else
+        f"Faltan: {', '.join(missing_sources[:3])}{'...' if len(missing_sources) > 3 else ''}."
+    )
+    quality_tone = "success" if loaded_sources and not overview_data_quality_alerts else "warning" if len(overview_data_quality_alerts) <= 2 else "danger"
+    quality_detail = (
+        "Sin alertas activas en la ventana operativa."
+        if not overview_data_quality_alerts else
+        f"Revisar {len(overview_data_quality_alerts)} alerta(s) en Calidad de datos."
+    )
+
+    # Sin semaforo de ACWR: lo que se marca son los huecos de registro.
+    missing_srpe_count = _overview_missing_srpe_count(st.session_state.get("weekly_summaries"))
+    active_athletes = _overview_number(current_team.get("athletes_active"))
+    weekly_srpe = _overview_number(current_team.get("team_sRPE_sum"), suffix=" UA")
+    load_tone = "warning" if missing_srpe_count else "success" if weekly_srpe != "Sin dato" else "neutral"
+    load_detail = (
+        f"Semana actual · {active_athletes} atleta(s) activos · {missing_srpe_count} con sesiones sin sRPE."
+        if weekly_srpe != "Sin dato" else
+        "Cargar RPE/sRPE para lectura semanal de carga."
+    )
+
+    # La unidad va explicita: el score es 0-30 (tres componentes de 0-10) y sin
+    # el sufijo un "18.9" pelado no dice contra que techo se lee.
+    wellness_value = _overview_number(
+        current_team.get("team_wellness_mean"), digits=1, suffix=f" {WELLNESS_SCORE_UNIT}"
+    )
+    wellness_days = 0
+    if not weekly_wellness_current.empty and "wellness_days" in weekly_wellness_current.columns:
+        wellness_days = int(pd.to_numeric(weekly_wellness_current["wellness_days"], errors="coerce").fillna(0).sum())
+    wellness_numeric = pd.to_numeric(pd.Series([current_team.get("team_wellness_mean")]), errors="coerce").iloc[0]
+    wellness_tone = "success" if pd.notna(wellness_numeric) and wellness_numeric >= 15 else "warning" if pd.notna(wellness_numeric) else "neutral"
+    wellness_detail = (
+        f"Semana actual · {wellness_days} registro(s) de wellness."
+        if wellness_value != "Sin dato" else
+        "Cargar Wellness para lectura de recuperacion."
+    )
+
+    eval_value = "Sin dato"
+    eval_detail = "Cargar evaluaciones para perfil neuromuscular."
+    eval_tone = "neutral"
+    if _overview_loaded(jdf) and "Date" in jdf.columns:
+        eval_dates = pd.to_datetime(jdf["Date"], errors="coerce").dropna()
+        if not eval_dates.empty:
+            latest_eval = eval_dates.max().normalize()
+            days_since_eval = int((app_today() - latest_eval).days)
+            eval_athletes = int(jdf["Athlete"].dropna().nunique()) if "Athlete" in jdf.columns else 0
+            eval_value = f"{latest_eval:%d/%m}"
+            eval_detail = f"Ultima toma · {eval_athletes} atleta(s) · hace {days_since_eval} dia(s)."
+            eval_tone = "success" if days_since_eval <= 30 else "warning" if days_since_eval <= 60 else "danger"
+
+    render_subsection_header("Señales ejecutivas", "4-6 indicadores para decidir que mirar ahora", kicker="Ahora")
+    executive_cards = [
+        ("Fuentes cargadas", f"{loaded_sources}/{len(status_items)}", source_inventory_detail, source_inventory_tone),
+        ("Calidad/readiness", f"{len(overview_data_quality_alerts)} alerta(s)", quality_detail, quality_tone),
+        ("Carga semanal", weekly_srpe, load_detail, load_tone),
+        ("Adherencia", str(completion_signal["value"]), str(completion_signal["detail"]), str(completion_signal["tone"])),
+        ("Wellness", wellness_value, wellness_detail, wellness_tone),
+        ("Evaluaciones", eval_value, eval_detail, eval_tone),
+    ]
+    for chunk in (executive_cards[:3], executive_cards[3:]):
+        cols = st.columns(len(chunk))
+        for col, (title, value, detail, tone) in zip(cols, chunk):
+            with col:
+                render_overview_card(title, value, detail, tone)
+
+    render_subsection_header("Alertas priorizadas", "3-5 senales ejecutivas desde el motor P11", kicker="P11")
+    render_product_alert_feed(
+        overview_executive_alerts,
+        max_items=5,
+        empty_text="Sin alertas ejecutivas activas; profundizar segun la decision del dia.",
+    )
+
+    overview_note = generate_module_insights(state_snapshot, "Todos").get("overview")
+    if overview_note:
+        summary = (
+            f"{overview_note['summary']} "
+            f"Estado actual: {loaded_sources}/{len(status_items)} fuentes activas, "
+            f"{len(overview_alert_feed)} alerta(s) P11 y adherencia {completion_signal['value']}"
+            + ("" if str(completion_signal["value"]).endswith(".") else ".")
+        )
+        # Sin focos: repetian las mismas alertas priorizadas de arriba.
+        render_report_note(
+            "Lectura integrada",
+            summary,
+            None,
+            kicker="Resumen breve",
+        )
+
+    return {"status_items": status_items, "rldf": rldf}
+
+
+def _render_hoy_sources(status_items: list[tuple[str, bool]], rldf: pd.DataFrame | None) -> None:
+    """Fuentes cargadas (antes arriba de Overview): al final de Hoy, colapsado."""
+    render_subsection_header("Fuentes cargadas", "inventario local; la calidad/readiness real viene del reporte P2", kicker="Datos")
+    render_status_badges(status_items)
+    modern_dataset_keys = ["rpe_df", "wellness_df", "completion_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
+    dataset_rows = _active_dataset_rows(keys=modern_dataset_keys)
+    if dataset_rows:
+        st.dataframe(
+            pd.DataFrame(dataset_rows)[["Dataset", "Registros", "Atletas", "Ultima fecha", "Ventana activa"]],
+            width='stretch',
+            hide_index=True,
+        )
+    if _overview_loaded(rldf):
+        st.caption(
+            "Rep/Load (legacy opcional) disponible. Fuente legacy; usar Raw Data Report - Workouts "
+            "como fuente oficial para carga externa."
+        )
+
 
 @st.fragment
-def _render_evaluation_view():
-    """Análisis Plataforma / No-Plataforma: selectores de atleta y fecha."""
-    active_eval_source = EVALUATION_VIEW_SOURCES[active_main_view]
+def _render_hoy_view():
+    """Hoy = Overview + Decision, con un solo selector de fuente de evaluacion."""
+    render_module_header(
+        "Hoy",
+        "senales, alertas y decisiones de la semana",
+        kicker="Triage",
+    )
+    hoy_eval_source = render_evaluation_source_selector(
+        "overview_eval_source", st.session_state.jump_df
+    )
+    hoy_sources = _render_hoy_signals(hoy_eval_source)
+    render_decision_panel(hoy_eval_source)
+    with st.expander("Fuentes cargadas", expanded=False):
+        _render_hoy_sources(**hoy_sources)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TAB: LOAD MONITORING (Atleta > Carga y bienestar / Equipo > Carga del grupo)
+# ─────────────────────────────────────────────────────────────────────
+def _render_athlete_load_tab(athlete_sel: str) -> None:
+    """Atleta > Carga y bienestar: lo individual de Load (ACWR EWMA, monotonia/strain, wellness)."""
+    render_module_header("Monitoreo de Carga", "srpe · acwr · strain · monotonia", kicker="Modulo")
+
+    history_mode = render_history_mode_selector(key="app_load_history_mode")
+    load_state = ensure_history_mode_load_state(history_mode)
+    rdf = load_state.get("rpe_df")
+    wdf = load_state.get("wellness_df")
+    raw_df_state = load_state.get("raw_df")
+    prepared_raw_df = load_state.get("prepared_raw_df")
+    acwr_dict = load_state.get("acwr_dict") or {}
+    mono_dict = load_state.get("mono_dict") or {}
+    weekly_summaries = load_state.get("weekly_summaries") or {}
+    weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
+    weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
+    weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))
+
+    weekly_athlete_options: list[str] = []
+    for weekly_frame in [weekly_load, weekly_wellness, weekly_external]:
+        if not weekly_frame.empty and "Athlete" in weekly_frame.columns:
+            weekly_athlete_options.extend(weekly_frame["Athlete"].dropna().astype(str).str.strip().tolist())
+
+    if (rdf is None or rdf.empty) and not weekly_athlete_options:
+        _alert("Carga el archivo questionnaire-report.xlsx (RPE + Tiempo) y presiona Procesar todo.", "b")
+    else:
+
+        with st.expander("Opciones de visualizacion", expanded=True):
+            vista = st.radio("Vista", ["Diaria", "Semanal"], horizontal=True, key="load_view_mode")
+            acwr_context_window = "16 semanas"
+            if vista == "Semanal":
+                acwr_context_window = st.radio(
+                    "Rango ACWR semanal",
+                    ["8 semanas", "16 semanas", "Temporada completa"],
+                    index=1,
+                    horizontal=True,
+                    key="weekly_acwr_context_window",
+                )
+
+        st.caption(
+            history_mode_caption(
+                weekly_load if vista == "Semanal" and not weekly_load.empty else rdf,
+                mode=history_mode,
+                date_col="Date",
+            )
+        )
+
+        sub_rpe = (
+            rdf[rdf["Athlete"] == athlete_sel]
+            if rdf is not None and "Athlete" in rdf.columns else
+            pd.DataFrame()
+        )
+        acwr_df = acwr_dict.get(athlete_sel)
+        mono_df = mono_dict.get(athlete_sel)
+        if mono_df is None:
+            mono_df = pd.DataFrame(columns=["Semana", "Monotonia", "Strain", "Alerta"])
+        acwr_label = "ACWR EWMA"
+        weekly_load_athlete = (
+            weekly_load[weekly_load["Athlete"] == athlete_sel].copy()
+            if not weekly_load.empty and "Athlete" in weekly_load.columns
+            else pd.DataFrame()
+        )
+        weekly_wellness_athlete = (
+            weekly_wellness[weekly_wellness["Athlete"] == athlete_sel].copy()
+            if not weekly_wellness.empty and "Athlete" in weekly_wellness.columns
+            else pd.DataFrame()
+        )
+        weekly_external_athlete = (
+            weekly_external[weekly_external["Athlete"] == athlete_sel].copy()
+            if not weekly_external.empty and "Athlete" in weekly_external.columns
+            else pd.DataFrame()
+        )
+        acwr_context_weeks = {
+            "8 semanas": 8,
+            "16 semanas": 16,
+            "Temporada completa": None,
+        }.get(acwr_context_window, 16)
+
+        if vista == "Semanal":
+            if weekly_load_athlete.empty and weekly_wellness_athlete.empty and weekly_external_athlete.empty:
+                st.warning("Sin resumen semanal disponible para este atleta.")
+            else:
+                acwr_context_source = _full_history_weekly_load(rdf)
+                if acwr_context_source.empty:
+                    acwr_context_source = weekly_load
+                load_context_athlete = (
+                    acwr_context_source[acwr_context_source["Athlete"] == athlete_sel].copy()
+                    if not acwr_context_source.empty and "Athlete" in acwr_context_source.columns
+                    else weekly_load_athlete
+                )
+                current_week_rows = weekly_load_athlete.loc[
+                    weekly_load_athlete.get("is_current_week", False).fillna(False)
+                ] if "is_current_week" in weekly_load_athlete.columns else pd.DataFrame()
+                if not current_week_rows.empty:
+                    current_week_start = pd.to_datetime(
+                        current_week_rows["week_start"],
+                        errors="coerce",
+                    ).dropna().max()
+                    if pd.notna(current_week_start):
+                        st.caption(
+                            f"Incluye {_format_week_label(current_week_start, is_current_week=True)}."
+                        )
+                render_subsection_header(
+                    "Contexto semanal de carga",
+                    "carga semanal, cronica EWMA y ACWR EWMA (mismo grafico que el PDF profesional)",
+                    kicker="Semanal",
+                )
+                st.plotly_chart(
+                    load_chart(
+                        load_context_athlete,
+                        acwr_df,
+                        athlete_sel,
+                        show_acwr=True,
+                        weeks=acwr_context_weeks,
+                    ),
+                    width='content',
+                    key="weekly_acwr_context_main",
+                )
+
+                c_weekly_strain, c_weekly_well = st.columns(2)
+                with c_weekly_strain:
+                    render_subsection_header(
+                        "Strain semanal",
+                        "tension acumulada del microciclo",
+                        kicker="Semanal",
+                    )
+                    st.plotly_chart(
+                        chart_weekly_strain(weekly_load_athlete, athlete_sel),
+                        width='content',
+                        key="weekly_strain_main",
+                    )
+                with c_weekly_well:
+                    render_subsection_header(
+                        "Wellness semanal",
+                        "promedios semanales de sueno, estres y dolor (cada uno con su escala)",
+                        kicker="Semanal",
+                    )
+                    st.plotly_chart(
+                        wellness_components_chart(
+                            weekly_wellness_athlete,
+                            athlete_sel,
+                            date_col="week_start",
+                            sleep_col="Sueno_mean",
+                            stress_col="Estres_mean",
+                            pain_col="Dolor_mean",
+                            days=None,
+                            title_prefix="Wellness semanal",
+                        ),
+                        width='content',
+                        key="weekly_wellness_main",
+                    )
+
+                has_weekly_external = (
+                    not weekly_external_athlete.empty
+                    and len(weekly_external_athlete.columns) > 2
+                    and weekly_external_athlete.drop(
+                        columns=["Athlete", "week_start", "is_current_week"],
+                        errors="ignore",
+                    ).fillna(0).to_numpy().sum() > 0
+                )
+                if has_weekly_external:
+                    render_subsection_header(
+                        "Carga externa semanal",
+                        "agregado semanal por categoria operativa",
+                        kicker="Semanal",
+                    )
+                    st.plotly_chart(
+                        chart_weekly_external(weekly_external_athlete, athlete_sel),
+                        width='content',
+                        key="weekly_external_main",
+                    )
+
+        elif acwr_df is None:
+            st.warning("Sin datos diarios de ACWR EWMA para este atleta; revisa la vista semanal si hay fuentes parciales.")
+        else:
+            # ── KPIs ──
+            last_sessions = sub_rpe.tail(3)
+            last_acwr = latest_training_day_row(acwr_df)
+            last_acwr_value = last_acwr["ACWR_EWMA"].values[0] if not last_acwr.empty else np.nan
+            last_acwr_reason = acwr_unavailable_reason(last_acwr.iloc[0]) if not last_acwr.empty else ""
+            last_mono = mono_df.tail(1) if mono_df is not None else pd.DataFrame()
+            last_mono_status = (
+                last_mono["Monotony_Status"].values[0]
+                if not last_mono.empty and "Monotony_Status" in last_mono.columns
+                else None
+            )
+            c1,c2,c3,c4,c5 = st.columns(5)
+            c1.metric("sRPE última sesión",
+                      f"{last_sessions['sRPE'].iloc[-1]:.0f} UA" if not last_sessions.empty else "—")
+            c2.metric("RPE última sesión",
+                      f"{last_sessions['RPE'].iloc[-1]:.1f}" if not last_sessions.empty else "—")
+            c3.metric(acwr_label,
+                      f"{last_acwr_value:.2f}" if pd.notna(last_acwr_value) else ("No calc." if last_acwr_reason else "—"),
+                      help=f"No calculable: {last_acwr_reason}" if last_acwr_reason else ACWR_CONTEXT_HELP)
+            c4.metric("Monotonía (sem)",
+                      _format_monotony_display(last_mono["Monotonia"].values[0], last_mono_status) if not last_mono.empty else "—",
+                      help="Foster 2001 — límite: 2.0")
+            c5.metric("Strain (sem)",
+                      _format_strain_display(last_mono["Strain"].values[0], last_mono_status) if not last_mono.empty else "—")
+
+            # Alertas ACWR
+            if last_acwr_reason:
+                _alert(
+                    f"ACWR EWMA no calculable: {last_acwr_reason}. Con sesiones entrenadas sin sRPE el ACWR "
+                    "refleja los huecos, no la carga. Completar el registro antes de usarlo.",
+                    "y",
+                )
+            # Sin semaforo de ACWR: es contexto, no predice lesion (Impellizzeri 2020).
+
+            # Alerta monotonía
+            if not last_mono.empty and last_mono["Alerta"].values[0]:
+                _alert(f"Monotonia = {last_mono['Monotonia'].values[0]:.2f} — por encima del umbral Foster (2.0). "
+                       f"Aumentar variabilidad de carga en el microciclo.", "y")
+
+            load_note = generate_module_insights(dict(st.session_state), athlete_sel).get("load")
+            if load_note:
+                render_report_note(
+                    load_note["title"],
+                    load_note["summary"],
+                    load_note.get("focuses"),
+                    kicker="Lectura de carga",
+                )
+
+            st.markdown("---")
+
+            # Gráfico ACWR
+            render_subsection_header("Tendencia de carga", "acwr ewma diario con contexto de sRPE", kicker="Analisis")
+            st.plotly_chart(chart_acwr(acwr_df, athlete_sel), width='content', key="acwr_main")
+
+            c_mono, c_well = st.columns(2)
+            with c_mono:
+                render_subsection_header("Monotonia y strain", "variabilidad semanal de la carga interna", kicker="Microciclo")
+                st.plotly_chart(chart_monotony_strain(mono_df), width='content', key="monotony_main")
+            with c_well:
+                if wdf is not None:
+                    w_sub = (
+                        wdf[wdf["Athlete"] == athlete_sel].sort_values("Date")
+                        if "Athlete" in wdf.columns else
+                        pd.DataFrame()
+                    )
+                    render_subsection_header("Wellness", "score con banda individual (media ± 1 DE, 28 dias previos)", kicker="Recuperacion")
+                    st.plotly_chart(wellness_score_chart(w_sub, athlete_sel), width='content', key="wellness_main")
+                    st.plotly_chart(wellness_components_chart(w_sub, athlete_sel), width='content', key="wellness_components_main")
+                else:
+                    _alert("Cargá questionnaire-report_wellness.xlsx para ver wellness.", "b")
+
+            # Tabla detalle sRPE
+            with st.expander("Tabla de sesiones detalladas"):
+                display_cols = ["Date", "RPE", "Duration_min", "sRPE"]
+                disp = sub_rpe[[c for c in display_cols if c in sub_rpe.columns]].sort_values("Date", ascending=False)
+                st.dataframe(disp.style.format({"RPE": "{:.1f}", "sRPE": "{:.0f}", "Duration_min": "{:.0f}"}),
+                             width='content', hide_index=True)
+
+            # Volumen por patrón
+            if raw_df_state is not None:
+                st.markdown("---")
+                render_subsection_header(
+                    "Carga externa por tipo de estimulo",
+                    "tonelaje, contactos y exposiciones por categoria",
+                    kicker="Volumen",
+                )
+                st.plotly_chart(chart_volume_by_tag(prepared_raw_df, athlete_sel), width='content', key="volume_tag")
+
+
+def _render_team_load_history() -> None:
+    """Equipo > Carga del grupo: resumen semanal del equipo y calidad de datos (ex Load)."""
+    history_mode = render_history_mode_selector(key="app_load_history_mode")
+    load_state = ensure_history_mode_load_state(history_mode)
+    rdf = load_state.get("rpe_df")
+    wdf = load_state.get("wellness_df")
+    prepared_raw_df = load_state.get("prepared_raw_df")
+    athletes_list = known_athlete_names()
+    quality_report = compute_data_quality_report(
+        rdf,
+        wdf,
+        st.session_state.completion_df,
+        prepared_raw_df,
+        st.session_state.maxes_df,
+        st.session_state.jump_df,
+        athletes_list,
+        window_days=42,
+    )
+    dataset_summary = quality_report["dataset_summary"]
+    raw_category_breakdown = quality_report.get("raw_category_breakdown", pd.DataFrame())
+    raw_classification_summary = quality_report.get("raw_classification_summary", {})
+    athlete_summary = quality_report["athlete_summary"]
+    alerts = quality_report["alerts"]
+
+    weekly_summaries = load_state.get("weekly_summaries") or {}
+    weekly_team = _normalize_weekly_frame(weekly_summaries.get("weekly_team", pd.DataFrame()))
+
+    render_subsection_header(
+        "Resumen semanal del equipo",
+        "lectura grupal de carga y wellness por semana",
+        kicker="Equipo",
+    )
+    if weekly_team.empty:
+        st.caption("Todavia no hay resumen semanal del equipo para mostrar.")
+    else:
+        team_display = weekly_team.copy().sort_values("week_start", ascending=False)
+        if "week_start" in team_display.columns:
+            team_display["Semana"] = team_display.apply(
+                lambda row: _format_week_label(
+                    row["week_start"],
+                    is_current_week=bool(row.get("is_current_week", False)),
+                ),
+                axis=1,
+            )
+        rename_map = {
+            "athletes_active": "Atletas activos",
+            "team_sRPE_mean": "sRPE promedio",
+            "team_monotony_mean": "Monotonia promedio",
+            "team_strain_mean": "Strain promedio",
+            "team_wellness_mean": "Wellness promedio",
+        }
+        display_cols = [
+            "Semana",
+            "Atletas activos",
+            "sRPE promedio",
+            "Monotonia promedio",
+            "Strain promedio",
+            "Wellness promedio",
+        ]
+        team_display = team_display.rename(columns=rename_map)
+        available_cols = [column for column in display_cols if column in team_display.columns]
+        st.dataframe(team_display[available_cols], width='stretch', hide_index=True)
+
+    with st.expander("📋 Calidad de datos", expanded=False):
+        st.markdown("**Bloque A - Cobertura por dataset**")
+        st.dataframe(dataset_summary, width='stretch', hide_index=True)
+        if not raw_category_breakdown.empty:
+            classified_pct = raw_classification_summary.get("classified_pct", 0.0)
+            untagged_pct = raw_classification_summary.get("untagged_pct", 0.0)
+            st.caption(
+                f"Raw workouts: {classified_pct:.1f}% clasificado · {untagged_pct:.1f}% untagged"
+            )
+            st.dataframe(raw_category_breakdown, width='stretch', hide_index=True)
+
+        st.markdown("**Bloque B - Cobertura por atleta**")
+        if athlete_summary.empty:
+            st.caption("Sin datos suficientes para calcular cobertura.")
+        else:
+            st.dataframe(athlete_summary, width='stretch', hide_index=True)
+
+        st.markdown("**Bloque C - Alertas de calidad**")
+        if alerts:
+            for alert in alerts:
+                tone = "danger" if "ultimo test hace" in alert.lower() else "warning"
+                render_quality_alert_chip(alert, tone=tone)
+        else:
+            st.success("✅ Sin alertas de calidad activas.")
+
+        st.markdown("**Bloque D - Perfiles de atleta**")
+        profile_coverage = compute_profile_coverage(st.session_state.athlete_profile_df, athletes_list)
+        profile_total = profile_coverage["total_athletes"]
+        profile_complete = profile_coverage["with_complete_profile"]
+        profile_pct = profile_coverage["coverage_pct"]
+        if not profile_total:
+            st.caption("Sin atletas detectados todavia.")
+        else:
+            st.caption(f"{profile_complete} de {profile_total} atletas con perfil completo ({profile_pct:.1f}%)")
+            if profile_pct >= 100:
+                st.success("✅ Todos los atletas tienen perfil completo.")
+            else:
+                st.dataframe(profile_coverage["missing_or_incomplete"], width='stretch', hide_index=True)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TAB: EVALUACIONES (Atleta > Evaluacion / No-Plataforma)
+# ─────────────────────────────────────────────────────────────────────
+def _render_evaluation_body(active_eval_source: str, athlete: str | None = None) -> None:
+    """Analisis por fuente. Con `athlete` (Atleta > Evaluacion) no dibuja su propio selector."""
     # El recorte por fuente pasa aca y no en cada consumidor: todo lo que sigue
     # ve un frame de un unico metodo de medicion.
     jdf = filter_jump_by_source(st.session_state.jump_df, active_eval_source)
@@ -6360,7 +6803,11 @@ def _render_evaluation_view():
         with st.expander("Opciones de visualizacion", expanded=True):
             col_sel, col_fecha = st.columns([2, 1])
             with col_sel:
-                athlete_sel = st.selectbox("Seleccionar atleta", athletes_eval, key="ev_jugador")
+                if athlete is None:
+                    athlete_sel = st.selectbox("Seleccionar atleta", athletes_eval, key="ev_jugador")
+                else:
+                    # Atleta > Evaluacion: el atleta sale del selector compartido.
+                    athlete_sel = athlete
             hist_j = jdf[jdf["Athlete"] == athlete_sel].sort_values("Date")
             date_options = hist_j["Date"].dropna().drop_duplicates().sort_values(ascending=False).tolist() if not hist_j.empty else []
             with col_fecha:
@@ -6469,9 +6916,6 @@ def _render_evaluation_view():
                 col.metric(label, f"{display_value:{display_fmt}}{suffix}")
             else:
                 col.metric(label, "—")
-        st.caption(
-            "Referencia EUR (ratio): 1.00-1.35. Los benchmarks externos son orientativos para futbol profesional masculino."
-        )
 
         render_subsection_header(
             "Cambios vs evaluacion anterior",
@@ -6668,8 +7112,13 @@ def _render_evaluation_view():
 
 
 @st.fragment
-def _render_profile_view():
-    """Profile: selector de atleta."""
+def _render_no_plataforma_view():
+    """No-Plataforma: sin cambios (MyJump2 / alfombra), con su propio selector."""
+    _render_evaluation_body(SOURCE_NONPLATFORM)
+
+
+def _render_athlete_summary_tab(ath_p: str) -> None:
+    """Atleta > Resumen: lo que Profile mostraba arriba (contexto, Lo que lograste, evolucion...)."""
     render_module_header("Perfil del Atleta", "radar · cuadrantes · kpis individuales", kicker="Modulo")
 
     profile_eval_source = render_evaluation_source_selector(
@@ -6683,17 +7132,6 @@ def _render_profile_view():
     if (jdf is None or jdf.empty) and rdf is None and maxes_df is None:
         _alert("Carga al menos los archivos de evaluaciones o RPE para ver el perfil.", "b")
     else:
-        # Unificar lista de atletas
-        athletes_all = set()
-        if jdf  is not None: athletes_all.update(jdf["Athlete"].dropna().unique())
-        if rdf  is not None: athletes_all.update(rdf["Athlete"].dropna().unique())
-        if wdf  is not None: athletes_all.update(wdf["Athlete"].dropna().unique())
-        if maxes_df is not None and "Athlete" in maxes_df.columns:
-            athletes_all.update(maxes_df["Athlete"].dropna().unique())
-
-        with st.expander("Opciones de visualizacion", expanded=True):
-            ath_p = st.selectbox("Atleta", sorted(athletes_all) or ["Sin atleta"], key="sel_profile")
-
         _render_athlete_achievements(ath_p, jdf)
 
         st.markdown("### 🧾 Perfil")
@@ -6830,20 +7268,6 @@ def _render_profile_view():
                 if pd.notna(eur_based_profile):
                     st.markdown(f"**Perfil NM:** {eur_based_profile}")
 
-            maxes_df_profile = st.session_state.maxes_df
-            if maxes_df_profile is not None and "Athlete" in maxes_df_profile.columns:
-                maxes_ath = maxes_df_profile[maxes_df_profile["Athlete"] == ath_p]
-                if not maxes_ath.empty and "Exercise Name" in maxes_ath.columns:
-                    exercises_ath = sorted(maxes_ath.loc[:, "Exercise Name"].dropna().unique())
-                    if exercises_ath:
-                        render_subsection_header("Maximos del atleta", "progresion historica por ejercicio", kicker="Fuerza")
-                        max_ex = st.selectbox("Ejercicio maximo", exercises_ath, key="sel_profile_max_ex")
-                        st.plotly_chart(
-                            chart_maxes_trend(maxes_ath, max_ex),
-                            width='content',
-                            key="profile_max_trend",
-                        )
-
         # Los cuadrantes grupales vivian tambien aca, duplicados exactamente
         # respecto de Team y sobre el mismo frame. Son una lectura comparativa
         # entre atletas, asi que quedan solo en Team; Profile se queda con la
@@ -6853,85 +7277,89 @@ def _render_profile_view():
         if jdf is not None and len(jdf["Athlete"].unique()) > 1:
             st.markdown("---")
             st.caption(
-                "Los cuadrantes comparativos entre atletas estan en la vista Team."
+                "Los cuadrantes comparativos entre atletas estan en Equipo > Mapa y cuadrantes."
             )
+
+
+def _render_athlete_strength_tab(ath_p: str) -> None:
+    """Atleta > Fuerza: maximos del atleta (ex Profile) y fuerza estimada (ex 'Lo que lograste')."""
+    maxes_df_profile = st.session_state.maxes_df
+    if maxes_df_profile is not None and "Athlete" in maxes_df_profile.columns:
+        maxes_ath = maxes_df_profile[maxes_df_profile["Athlete"] == ath_p]
+        if not maxes_ath.empty and "Exercise Name" in maxes_ath.columns:
+            exercises_ath = sorted(maxes_ath.loc[:, "Exercise Name"].dropna().unique())
+            if exercises_ath:
+                render_subsection_header("Maximos del atleta", "progresion historica por ejercicio", kicker="Fuerza")
+                max_ex = st.selectbox("Ejercicio maximo", exercises_ath, key="sel_profile_max_ex")
+                st.plotly_chart(
+                    chart_maxes_trend(maxes_ath, max_ex),
+                    width='content',
+                    key="profile_max_trend",
+                )
+    _render_estimated_strength(ath_p, _athlete_payload_jump_df())
+
+
+def _athlete_options() -> list[str]:
+    """Union de atletas de evaluaciones, carga, wellness, maximos y registro."""
+    return known_athlete_names() or ["Sin atleta"]
+
+
+ATLETA_TABS = ("Resumen", "Evaluación", "Carga y bienestar", "Fuerza")
 
 
 @st.fragment
-def _render_team_view():
-    """Team: selectores de atleta/ejercicio."""
-    render_module_header("Team Dashboard", "comparacion · clasificacion · ranking grupal", kicker="Modulo")
-
-    team_eval_source = render_evaluation_source_selector(
-        "team_eval_source", st.session_state.jump_df
+def _render_atleta_view():
+    """Atleta = Profile + Analisis Plataforma + lo individual de Load, un solo selector."""
+    athlete = st.selectbox("Atleta", _athlete_options(), key="atleta_sel")
+    tabs = st.tabs(list(ATLETA_TABS), key="atleta_tab", on_change="rerun")
+    renderers = (
+        _render_athlete_summary_tab,
+        lambda name: _render_evaluation_body(SOURCE_PLATFORM, athlete=name),
+        _render_athlete_load_tab,
+        _render_athlete_strength_tab,
     )
-    jdf  = filter_jump_by_source(st.session_state.jump_df, team_eval_source)
-    rdf  = st.session_state.rpe_df
+    for tab, renderer in zip(tabs, renderers):
+        with tab:
+            # Solo la pestana abierta se calcula (pestanas con estado).
+            if tab.open is not False:
+                renderer(athlete)
 
-    # ── Tabla de carga grupal ──────────────────────────────────────
-    if rdf is not None and st.session_state.acwr_dict:
-        render_subsection_header("Estado de carga", "foto actual del equipo a partir de la ultima sesion", kicker="Equipo")
-        team_rows = []
-        for ath, adf in st.session_state.acwr_dict.items():
-            last = latest_training_day_row(adf)
-            mono_src = (st.session_state.mono_dict or {}).get(ath)
-            mono = mono_src.tail(1) if mono_src is not None else pd.DataFrame()
-            if last.empty: continue
-            acwr_val = last["ACWR_EWMA"].values[0]
-            last_logged = adf[pd.to_numeric(adf["sRPE_diario"], errors="coerce") > 0].tail(1)
-            acwr_reason = acwr_unavailable_reason(last.iloc[0])
-            team_rows.append({
-                "Atleta": ath,
-                "sRPE últimas sesión": f"{last_logged['sRPE_diario'].values[0]:.0f} UA" if not last_logged.empty else "—",
-                "ACWR EWMA (contexto)": round(acwr_val, 2) if pd.notna(acwr_val) else None,
-                "ACWR": "ok" if not acwr_reason else f"No calc. ({acwr_reason})",
-                "Monotonía": round(mono["Monotonia"].values[0], 2) if not mono.empty else None,
-                "Strain": round(mono["Strain"].values[0], 0) if not mono.empty else None,
-            })
-        if team_rows:
-            team_table = pd.DataFrame(team_rows)
 
-            st.dataframe(team_table, width='content', hide_index=True)
-            st.caption(ACWR_CONTEXT_HELP)
+# ─────────────────────────────────────────────────────────────────────
+# TAB: TEAM DASHBOARD (Equipo)
+# ─────────────────────────────────────────────────────────────────────
+# Ranking por z de Equipo: solo z de cohorte propia (>= 8 atletas del mismo
+# sexo e instrumento). El z vs literatura y las cohortes chicas no entran.
+COHORT_Z_SOURCE = "cohort_z"
+NO_COHORT_RANKING_TEXT = (
+    "Ninguna métrica tiene cohorte de 8 o más atletas del mismo sexo e instrumento: "
+    "no hay ranking por z."
+)
 
-        team_note = generate_module_insights(dict(st.session_state), "Todos").get("team")
-        if team_note:
-            render_report_note(
-                team_note["title"],
-                team_note["summary"],
-                team_note.get("focuses"),
-                kicker="Lectura del equipo",
-            )
 
-    maxes_df_team = st.session_state.maxes_df
-    if maxes_df_team is not None and "Exercise Name" in maxes_df_team.columns:
-        exercises_team = sorted(maxes_df_team["Exercise Name"].dropna().unique())
-        if exercises_team:
-            st.markdown("---")
-            render_subsection_header("Progresion de maximos", "seguimiento de fuerza maxima del grupo", kicker="Fuerza")
-            ex_team = st.selectbox("Ejercicio", exercises_team, key="sel_team_max_ex")
-            st.plotly_chart(
-                chart_maxes_trend(maxes_df_team, ex_team),
-                width='content',
-                key="team_max_trend"
-            )
+def _team_latest_evaluations(jdf: pd.DataFrame, team_eval_source: str) -> pd.DataFrame:
+    """Ultima evaluacion por atleta, preparada una vez por cambio de datos (ex Team)."""
+    latest = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
+    # Se prepara una vez por cambio de datos y queda marcado como preparado,
+    # asi los cuadrantes lo reutilizan en vez de recalcularlo cada uno. La
+    # cohorte se arma sobre la ultima fila de cada atleta, no sobre el
+    # historial completo, para que nadie pese dos veces en el desvio.
+    return ensure_prepared_jump_df(
+        latest,
+        profile_df=st.session_state.athlete_profile_df,
+        source=team_eval_source,
+    )
 
+
+def _render_team_map_tab(jdf: pd.DataFrame | None, team_eval_source: str) -> None:
+    """Equipo > Mapa y cuadrantes: mapa del gimnasio + cuadrante RSI-SJ."""
     # ── Cuadrantes grupales ────────────────────────────────────────
     if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and len(jdf["Athlete"].unique()) > 1:
         st.markdown("---")
         render_subsection_header("Cuadrantes de rendimiento", "mapas comparativos de fuerza y reactividad", kicker="Comparacion")
 
-        latest = jdf.sort_values("Date").groupby("Athlete").last().reset_index()
         profile_df_for_team_cohort = st.session_state.athlete_profile_df
-        # Se prepara una vez por cambio de datos y queda marcado como preparado,
-        # asi los cuadrantes lo reutilizan en vez de recalcularlo cada uno. La
-        # cohorte se arma sobre la ultima fila de cada atleta, no sobre el
-        # historial completo, para que nadie pese dos veces en el desvio.
-        latest = ensure_prepared_jump_df(
-            latest,
-            profile_df=profile_df_for_team_cohort,
-            source=team_eval_source,
-        )
+        latest = _team_latest_evaluations(jdf, team_eval_source)
 
         # Misma referencia que el radar y el PDF profe: escalon, era, N atletas.
         team_cohort_rows = [
@@ -6972,33 +7400,65 @@ def _render_team_view():
                     st.caption(group["detail"])
                     st.caption(", ".join(group["athletes"]))
 
-        c_q1, c_q2 = st.columns(2)
-        with c_q1:
-            if "CMJ_cm" in latest.columns and "IMTP_N" in latest.columns:
-                secondary_x = choose_secondary_quadrant_x_spec(
-                    latest, profile_df=profile_df_for_team_cohort
-                )
-                st.plotly_chart(
-                    chart_quadrant_cmj_imtp(latest, profile_df=profile_df_for_team_cohort),
-                    width='content',
-                    key="quad_cmj_imtp_team",
-                )
-                # CMJ y Jump Momentum ordenan al mismo plantel al revés, asi que
-                # el eje elegido se declara en vez de quedar implicito.
-                if secondary_x.is_ambiguous:
-                    st.warning(secondary_x.reason)
-                else:
-                    st.caption(secondary_x.reason)
-                _render_exclusions(secondary_x.x_col, "IMTP_relPF_Z", "cmj_imtp")
-        with c_q2:
-            if "DJ_RSI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_rsi_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_rsi_sj_team")
-                _render_exclusions("DJ_RSI_Z", "SJ_Z", "rsi_sj")
-        with st.expander("Cuadrante DRI (experimental) — SJ vs DRI", expanded=False):
-            if "DRI" in latest.columns and "SJ_cm" in latest.columns:
-                st.plotly_chart(chart_quadrant_dri_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_dri_experimental_team")
-                _render_exclusions("DRI_Z", "SJ_Z", "dri_sj")
+        # PR P: el mapa del gimnasio reemplaza al cuadrante CMJ-IMTP secundario
+        # y al DRI-SJ experimental; queda el RSI-SJ.
+        if "DJ_RSI" in latest.columns and "SJ_cm" in latest.columns:
+            st.plotly_chart(chart_quadrant_rsi_sj(latest, profile_df=profile_df_for_team_cohort), width='content', key="quad_rsi_sj_team")
+            _render_exclusions("DJ_RSI_Z", "SJ_Z", "rsi_sj")
 
+    else:
+        if jdf is None:
+            _alert("Cargá datos de evaluaciones para ver el team dashboard de rendimiento.", "b")
+        else:
+            _alert("El team dashboard de cuadrantes requiere datos de múltiples atletas.", "b")
+
+
+def _render_team_load_tab() -> None:
+    """Equipo > Carga del grupo: estado de carga del equipo (ex Team) + tablas grupales de Load."""
+    rdf  = st.session_state.rpe_df
+    # ── Tabla de carga grupal ──────────────────────────────────────
+    if rdf is not None and st.session_state.acwr_dict:
+        render_subsection_header("Estado de carga", "foto actual del equipo a partir de la ultima sesion", kicker="Equipo")
+        team_rows = []
+        for ath, adf in st.session_state.acwr_dict.items():
+            last = latest_training_day_row(adf)
+            mono_src = (st.session_state.mono_dict or {}).get(ath)
+            mono = mono_src.tail(1) if mono_src is not None else pd.DataFrame()
+            if last.empty: continue
+            acwr_val = last["ACWR_EWMA"].values[0]
+            last_logged = adf[pd.to_numeric(adf["sRPE_diario"], errors="coerce") > 0].tail(1)
+            acwr_reason = acwr_unavailable_reason(last.iloc[0])
+            team_rows.append({
+                "Atleta": ath,
+                "sRPE últimas sesión": f"{last_logged['sRPE_diario'].values[0]:.0f} UA" if not last_logged.empty else "—",
+                "ACWR EWMA (contexto)": round(acwr_val, 2) if pd.notna(acwr_val) else None,
+                "ACWR": "ok" if not acwr_reason else f"No calc. ({acwr_reason})",
+                "Monotonía": round(mono["Monotonia"].values[0], 2) if not mono.empty else None,
+                "Strain": round(mono["Strain"].values[0], 0) if not mono.empty else None,
+            })
+        if team_rows:
+            team_table = pd.DataFrame(team_rows)
+
+            st.dataframe(team_table, width='content', hide_index=True)
+            st.caption(ACWR_CONTEXT_HELP)
+
+        team_note = generate_module_insights(dict(st.session_state), "Todos").get("team")
+        if team_note:
+            render_report_note(
+                team_note["title"],
+                team_note["summary"],
+                team_note.get("focuses"),
+                kicker="Lectura del equipo",
+            )
+
+    st.markdown("---")
+    _render_team_load_history()
+
+
+def _render_team_rankings_tab(jdf: pd.DataFrame | None, team_eval_source: str) -> None:
+    """Equipo > Rankings: ultima evaluacion, ranking por z (cohorte >= 8), adherencia y maximos del grupo."""
+    if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and len(jdf["Athlete"].unique()) > 1:
+        latest = _team_latest_evaluations(jdf, team_eval_source)
         # Ultima evaluacion cruda por atleta — el heatmap de abajo normaliza
         # a z y no deja ver el valor real en sus unidades.
         st.markdown("---")
@@ -7014,7 +7474,7 @@ def _render_team_view():
         # Z-scores grupales
         st.markdown("---")
         render_subsection_header("Ranking por Z-scores", "lectura comparativa entre atletas y variables", kicker="Ranking")
-        st.caption("📊 Z-scores por cohorte de Deporte + Nivel — ver detalle en 'Cohortes de comparacion' arriba.")
+        st.caption("📊 Z-scores por cohorte de Deporte + Nivel — ver detalle en 'Referencias de comparacion' (Mapa y cuadrantes).")
         z_specs = [
             ("CMJ", "CMJ_Z"),
             ("SJ", "SJ_Z"),
@@ -7028,6 +7488,10 @@ def _render_team_view():
             z_row = {"Athlete": row.get("Athlete")}
             for label, canonical_field in z_specs:
                 z_value = shared_resolve_zscore(row, canonical_field)
+                # Solo z de cohorte propia (>= 8 atletas del mismo sexo e
+                # instrumento); el z vs literatura no entra al ranking.
+                if str(row.get(f"{canonical_field}_source") or "") != COHORT_Z_SOURCE:
+                    z_value = np.nan
                 z_row[label] = z_value
             z_rows.append(z_row)
         rank_df = pd.DataFrame(z_rows).set_index("Athlete") if z_rows else pd.DataFrame()
@@ -7051,6 +7515,8 @@ def _render_team_view():
                                    title=dict(text="<b>Heatmap Z-scores — Evaluación Grupal</b>",
                                               font=dict(color=C["navy"], size=13)))
             st.plotly_chart(fig_heat, width='content', key="zscores_heatmap")
+        else:
+            st.info(NO_COHORT_RANKING_TEXT)
     else:
         if jdf is None:
             _alert("Cargá datos de evaluaciones para ver el team dashboard de rendimiento.", "b")
@@ -7120,595 +7586,58 @@ def _render_team_view():
                     hide_index=True,
                 )
 
-
-# ─────────────────────────────────────────────────────────────────────
-# TAB: OVERVIEW
-# ─────────────────────────────────────────────────────────────────────
-if active_main_view == "Overview":
-    render_module_header(
-        "Overview Ejecutivo",
-        "landing ejecutiva para readiness, señales semanales y proximo tab",
-        kicker="Triage",
-    )
-
-    rdf = st.session_state.rpe_df
-    wdf = st.session_state.wellness_df
-    maxes_df = st.session_state.maxes_df
-    overview_eval_source = render_evaluation_source_selector(
-        "overview_eval_source", st.session_state.jump_df
-    )
-    jdf = filter_jump_by_source(st.session_state.jump_df, overview_eval_source)
-    cdf = st.session_state.completion_df
-    rldf = st.session_state.rep_load_df
-    raw_df_state = st.session_state.raw_df
-    state_snapshot = _current_state_snapshot()
-    overview_athletes = known_athlete_names()
-
-    prepared_raw_df = ensure_prepared_raw_workouts(ensure_base_state=False) if _overview_loaded(raw_df_state) else None
-    quality_report = compute_data_quality_report(
-        rdf,
-        wdf,
-        cdf,
-        prepared_raw_df,
-        maxes_df,
-        jdf,
-        overview_athletes,
-        window_days=42,
-    )
-
-    # weekly_summaries come from the centralized build_weekly_summaries(...) cache.
-    ensure_load_state(ensure_base_state=False)
-    weekly_summaries = st.session_state.weekly_summaries or {}
-    weekly_load_current = _overview_current_week_slice(weekly_summaries.get("weekly_load"))
-    weekly_wellness_current = _overview_current_week_slice(weekly_summaries.get("weekly_wellness"))
-    weekly_team_current = _overview_current_week_slice(weekly_summaries.get("weekly_team"))
-    current_team = weekly_team_current.tail(1).iloc[0] if not weekly_team_current.empty else pd.Series(dtype=object)
-    overview_alert_feed = build_alert_feed(
-        quality_report=quality_report,
-        weekly_summaries=weekly_summaries,
-        completion_df=cdf,
-        jump_df=jdf,
-        athletes_list=overview_athletes,
-        reference_date=app_today(),
-        scope="team",
-        surface="overview",
-    )
-    overview_executive_alerts = select_executive_alerts(overview_alert_feed, limit=5)
-    overview_data_quality_alerts = [
-        alert for alert in overview_alert_feed if alert.get("category") == "data_quality"
-    ]
-    overview_load_alerts = [
-        alert for alert in overview_alert_feed if alert.get("category") == "load_risk"
-    ]
-
-    status_items = [
-        ("RPE/sRPE", _overview_loaded(rdf)),
-        ("Wellness", _overview_loaded(wdf)),
-        ("Completion", _overview_loaded(cdf)),
-        ("Raw Workouts (oficial carga externa)", _overview_loaded(raw_df_state)),
-        ("Maxes", _overview_loaded(maxes_df)),
-        ("Saltos/Eval", _overview_loaded(jdf)),
-    ]
-    loaded_sources = sum(1 for _, ok in status_items if ok)
-    missing_sources = [label for label, ok in status_items if not ok]
-
-    render_subsection_header("Fuentes cargadas", "inventario local; la calidad/readiness real viene del reporte P2", kicker="Datos")
-    render_status_badges(status_items)
-    modern_dataset_keys = ["rpe_df", "wellness_df", "completion_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
-    dataset_rows = _active_dataset_rows(keys=modern_dataset_keys)
-    if dataset_rows:
-        st.dataframe(
-            pd.DataFrame(dataset_rows)[["Dataset", "Registros", "Atletas", "Ultima fecha", "Ventana activa"]],
-            width='stretch',
-            hide_index=True,
-        )
-    if _overview_loaded(rldf):
-        st.caption(
-            "Rep/Load (legacy opcional) disponible. Fuente legacy; usar Raw Data Report - Workouts "
-            "como fuente oficial para carga externa."
-        )
-
-    completion_signal = _overview_completion_snapshot(
-        cdf, raw_df=_overview_raw_history(raw_df_state)
-    )
-    source_inventory_tone = "success" if loaded_sources >= 5 and not overview_data_quality_alerts else "warning" if loaded_sources >= 3 else "danger"
-    source_inventory_detail = (
-        "Inventario local suficiente para triage."
-        if not missing_sources else
-        f"Faltan: {', '.join(missing_sources[:3])}{'...' if len(missing_sources) > 3 else ''}."
-    )
-    quality_tone = "success" if loaded_sources and not overview_data_quality_alerts else "warning" if len(overview_data_quality_alerts) <= 2 else "danger"
-    quality_detail = (
-        "Sin alertas activas en la ventana operativa."
-        if not overview_data_quality_alerts else
-        f"Revisar {len(overview_data_quality_alerts)} alerta(s) en Calidad de datos."
-    )
-
-    # Sin semaforo de ACWR: lo que se marca son los huecos de registro.
-    missing_srpe_count = _overview_missing_srpe_count(st.session_state.get("weekly_summaries"))
-    active_athletes = _overview_number(current_team.get("athletes_active"))
-    weekly_srpe = _overview_number(current_team.get("team_sRPE_sum"), suffix=" UA")
-    load_tone = "warning" if missing_srpe_count else "success" if weekly_srpe != "Sin dato" else "neutral"
-    load_detail = (
-        f"Semana actual · {active_athletes} atleta(s) activos · {missing_srpe_count} con sesiones sin sRPE."
-        if weekly_srpe != "Sin dato" else
-        "Cargar RPE/sRPE para lectura semanal de carga."
-    )
-
-    # La unidad va explicita: el score es 0-30 (tres componentes de 0-10) y sin
-    # el sufijo un "18.9" pelado no dice contra que techo se lee.
-    wellness_value = _overview_number(
-        current_team.get("team_wellness_mean"), digits=1, suffix=f" {WELLNESS_SCORE_UNIT}"
-    )
-    wellness_days = 0
-    if not weekly_wellness_current.empty and "wellness_days" in weekly_wellness_current.columns:
-        wellness_days = int(pd.to_numeric(weekly_wellness_current["wellness_days"], errors="coerce").fillna(0).sum())
-    wellness_numeric = pd.to_numeric(pd.Series([current_team.get("team_wellness_mean")]), errors="coerce").iloc[0]
-    wellness_tone = "success" if pd.notna(wellness_numeric) and wellness_numeric >= 15 else "warning" if pd.notna(wellness_numeric) else "neutral"
-    wellness_detail = (
-        f"Semana actual · {wellness_days} registro(s) de wellness."
-        if wellness_value != "Sin dato" else
-        "Cargar Wellness para lectura de recuperacion."
-    )
-
-    eval_value = "Sin dato"
-    eval_detail = "Cargar evaluaciones para perfil neuromuscular."
-    eval_tone = "neutral"
-    if _overview_loaded(jdf) and "Date" in jdf.columns:
-        eval_dates = pd.to_datetime(jdf["Date"], errors="coerce").dropna()
-        if not eval_dates.empty:
-            latest_eval = eval_dates.max().normalize()
-            days_since_eval = int((app_today() - latest_eval).days)
-            eval_athletes = int(jdf["Athlete"].dropna().nunique()) if "Athlete" in jdf.columns else 0
-            eval_value = f"{latest_eval:%d/%m}"
-            eval_detail = f"Ultima toma · {eval_athletes} atleta(s) · hace {days_since_eval} dia(s)."
-            eval_tone = "success" if days_since_eval <= 30 else "warning" if days_since_eval <= 60 else "danger"
-
-    render_subsection_header("Señales ejecutivas", "4-6 indicadores para decidir que mirar ahora", kicker="Ahora")
-    executive_cards = [
-        ("Fuentes cargadas", f"{loaded_sources}/{len(status_items)}", source_inventory_detail, source_inventory_tone),
-        ("Calidad/readiness", f"{len(overview_data_quality_alerts)} alerta(s)", quality_detail, quality_tone),
-        ("Carga semanal", weekly_srpe, load_detail, load_tone),
-        ("Adherencia", str(completion_signal["value"]), str(completion_signal["detail"]), str(completion_signal["tone"])),
-        ("Wellness", wellness_value, wellness_detail, wellness_tone),
-        ("Evaluaciones", eval_value, eval_detail, eval_tone),
-    ]
-    for chunk in (executive_cards[:3], executive_cards[3:]):
-        cols = st.columns(len(chunk))
-        for col, (title, value, detail, tone) in zip(cols, chunk):
-            with col:
-                render_overview_card(title, value, detail, tone)
-
-    render_subsection_header("Alertas priorizadas", "3-5 senales ejecutivas desde el motor P11", kicker="P11")
-    render_product_alert_feed(
-        overview_executive_alerts,
-        max_items=5,
-        empty_text="Sin alertas ejecutivas activas; profundizar segun la decision del dia.",
-    )
-
-    attention_items: list[str] = [
-        f"{alert.get('title')}: {alert.get('message')}"
-        for alert in overview_executive_alerts[:4]
-    ]
-    if not attention_items:
-        attention_items.append("Sin bloqueos ejecutivos claros; profundizar segun la decision del dia.")
-
-    overview_note = generate_module_insights(state_snapshot, "Todos").get("overview")
-    if overview_note:
-        summary = (
-            f"{overview_note['summary']} "
-            f"Estado actual: {loaded_sources}/{len(status_items)} fuentes activas, "
-            f"{len(overview_alert_feed)} alerta(s) P11 y adherencia {completion_signal['value']}"
-            + ("" if str(completion_signal["value"]).endswith(".") else ".")
-        )
-        render_report_note(
-            "Lectura integrada",
-            summary,
-            attention_items[:4],
-            kicker="Resumen breve",
-        )
-
-    render_subsection_header("Adonde ir despues", "derivacion clara para profundizar sin duplicar tabs", kicker="Siguiente")
-    route_cards = [
-        ("Panel de Decision", "Priorizar decisiones de la semana con carga, wellness y evaluaciones cruzadas."),
-        ("Load Monitoring", "Profundizar ACWR, strain, monotonia y carga externa semanal."),
-        ("Calidad de datos", "Abrir Load Monitoring > Calidad de datos para auditar fuentes, huecos y alertas."),
-        ("Evaluaciones", "Revisar perfiles, baseline, SWC y ultimas tomas fisicas."),
-    ]
-    route_cols = st.columns(4)
-    for col, (target, detail) in zip(route_cols, route_cards):
-        with col:
-            render_overview_card("Ir a", target, detail, "info")
-
-
-# ─────────────────────────────────────────────────────────────────────
-# TAB: LOAD MONITORING
-# ─────────────────────────────────────────────────────────────────────
-elif active_main_view == "Decision":
-    render_decision_panel()
-
-elif active_main_view == "Load":
-    render_module_header("Monitoreo de Carga", "srpe · acwr · strain · monotonia", kicker="Modulo")
-
-    history_mode = render_history_mode_selector(key="app_load_history_mode")
-    load_state = ensure_history_mode_load_state(history_mode)
-    rdf = load_state.get("rpe_df")
-    wdf = load_state.get("wellness_df")
-    raw_df_state = load_state.get("raw_df")
-    prepared_raw_df = load_state.get("prepared_raw_df")
-    acwr_dict = load_state.get("acwr_dict") or {}
-    mono_dict = load_state.get("mono_dict") or {}
-    athletes_list = known_athlete_names()
-    quality_report = compute_data_quality_report(
-        rdf,
-        wdf,
-        st.session_state.completion_df,
-        prepared_raw_df,
-        st.session_state.maxes_df,
-        st.session_state.jump_df,
-        athletes_list,
-        window_days=42,
-    )
-    dataset_summary = quality_report["dataset_summary"]
-    raw_category_breakdown = quality_report.get("raw_category_breakdown", pd.DataFrame())
-    raw_classification_summary = quality_report.get("raw_classification_summary", {})
-    athlete_summary = quality_report["athlete_summary"]
-    alerts = quality_report["alerts"]
-
-    weekly_summaries = load_state.get("weekly_summaries") or {}
-    weekly_load = _normalize_weekly_frame(weekly_summaries.get("weekly_load", pd.DataFrame()))
-    weekly_wellness = _normalize_weekly_frame(weekly_summaries.get("weekly_wellness", pd.DataFrame()))
-    weekly_external = _normalize_weekly_frame(weekly_summaries.get("weekly_external", pd.DataFrame()))
-    weekly_team = _normalize_weekly_frame(weekly_summaries.get("weekly_team", pd.DataFrame()))
-
-    weekly_athlete_options: list[str] = []
-    for weekly_frame in [weekly_load, weekly_wellness, weekly_external]:
-        if not weekly_frame.empty and "Athlete" in weekly_frame.columns:
-            weekly_athlete_options.extend(weekly_frame["Athlete"].dropna().astype(str).str.strip().tolist())
-    rpe_athlete_options = (
-        sorted(rdf["Athlete"].dropna().astype(str).str.strip().unique().tolist())
-        if rdf is not None and "Athlete" in rdf.columns else
-        []
-    )
-    athletes_load = sorted(set(rpe_athlete_options) | set(weekly_athlete_options)) or ["Sin atleta"]
-
-    if (rdf is None or rdf.empty) and not weekly_athlete_options:
-        _alert("Carga el archivo questionnaire-report.xlsx (RPE + Tiempo) y presiona Procesar todo.", "b")
-    else:
-
-        with st.expander("Opciones de visualizacion", expanded=True):
-            vista = st.radio("Vista", ["Diaria", "Semanal"], horizontal=True, key="load_view_mode")
-            athlete_sel = st.selectbox("Seleccionar atleta", athletes_load, key="sel_load")
-            acwr_context_window = "16 semanas"
-            if vista == "Semanal":
-                acwr_context_window = st.radio(
-                    "Rango ACWR semanal",
-                    ["8 semanas", "16 semanas", "Temporada completa"],
-                    index=1,
-                    horizontal=True,
-                    key="weekly_acwr_context_window",
-                )
-
-        st.caption(
-            history_mode_caption(
-                weekly_load if vista == "Semanal" and not weekly_load.empty else rdf,
-                mode=history_mode,
-                date_col="Date",
-            )
-        )
-
-        sub_rpe = (
-            rdf[rdf["Athlete"] == athlete_sel]
-            if rdf is not None and "Athlete" in rdf.columns else
-            pd.DataFrame()
-        )
-        acwr_df = acwr_dict.get(athlete_sel)
-        mono_df = mono_dict.get(athlete_sel)
-        if mono_df is None:
-            mono_df = pd.DataFrame(columns=["Semana", "Monotonia", "Strain", "Alerta"])
-        acwr_label = "ACWR EWMA"
-        weekly_load_athlete = (
-            weekly_load[weekly_load["Athlete"] == athlete_sel].copy()
-            if not weekly_load.empty and "Athlete" in weekly_load.columns
-            else pd.DataFrame()
-        )
-        weekly_wellness_athlete = (
-            weekly_wellness[weekly_wellness["Athlete"] == athlete_sel].copy()
-            if not weekly_wellness.empty and "Athlete" in weekly_wellness.columns
-            else pd.DataFrame()
-        )
-        weekly_external_athlete = (
-            weekly_external[weekly_external["Athlete"] == athlete_sel].copy()
-            if not weekly_external.empty and "Athlete" in weekly_external.columns
-            else pd.DataFrame()
-        )
-        acwr_context_weeks = {
-            "8 semanas": 8,
-            "16 semanas": 16,
-            "Temporada completa": None,
-        }.get(acwr_context_window, 16)
-
-        if vista == "Semanal":
-            if weekly_load_athlete.empty and weekly_wellness_athlete.empty and weekly_external_athlete.empty:
-                st.warning("Sin resumen semanal disponible para este atleta.")
-            else:
-                acwr_context_source = _full_history_weekly_load(rdf)
-                if acwr_context_source.empty:
-                    acwr_context_source = weekly_load
-                load_context_athlete = (
-                    acwr_context_source[acwr_context_source["Athlete"] == athlete_sel].copy()
-                    if not acwr_context_source.empty and "Athlete" in acwr_context_source.columns
-                    else weekly_load_athlete
-                )
-                current_week_rows = weekly_load_athlete.loc[
-                    weekly_load_athlete.get("is_current_week", False).fillna(False)
-                ] if "is_current_week" in weekly_load_athlete.columns else pd.DataFrame()
-                if not current_week_rows.empty:
-                    current_week_start = pd.to_datetime(
-                        current_week_rows["week_start"],
-                        errors="coerce",
-                    ).dropna().max()
-                    if pd.notna(current_week_start):
-                        st.caption(
-                            f"Incluye {_format_week_label(current_week_start, is_current_week=True)}."
-                        )
-                render_subsection_header(
-                    "Contexto semanal de carga",
-                    "carga semanal, cronica EWMA y ACWR EWMA (mismo grafico que el PDF profesional)",
-                    kicker="Semanal",
-                )
-                st.plotly_chart(
-                    load_chart(
-                        load_context_athlete,
-                        acwr_df,
-                        athlete_sel,
-                        show_acwr=True,
-                        weeks=acwr_context_weeks,
-                    ),
-                    width='content',
-                    key="weekly_acwr_context_main",
-                )
-
-                c_weekly_strain, c_weekly_well = st.columns(2)
-                with c_weekly_strain:
-                    render_subsection_header(
-                        "Strain semanal",
-                        "tension acumulada del microciclo",
-                        kicker="Semanal",
-                    )
-                    st.plotly_chart(
-                        chart_weekly_strain(weekly_load_athlete, athlete_sel),
-                        width='content',
-                        key="weekly_strain_main",
-                    )
-                with c_weekly_well:
-                    render_subsection_header(
-                        "Wellness semanal",
-                        "promedios semanales de sueno, estres y dolor (cada uno con su escala)",
-                        kicker="Semanal",
-                    )
-                    st.plotly_chart(
-                        wellness_components_chart(
-                            weekly_wellness_athlete,
-                            athlete_sel,
-                            date_col="week_start",
-                            sleep_col="Sueno_mean",
-                            stress_col="Estres_mean",
-                            pain_col="Dolor_mean",
-                            days=None,
-                            title_prefix="Wellness semanal",
-                        ),
-                        width='content',
-                        key="weekly_wellness_main",
-                    )
-
-                has_weekly_external = (
-                    not weekly_external_athlete.empty
-                    and len(weekly_external_athlete.columns) > 2
-                    and weekly_external_athlete.drop(
-                        columns=["Athlete", "week_start", "is_current_week"],
-                        errors="ignore",
-                    ).fillna(0).to_numpy().sum() > 0
-                )
-                if has_weekly_external:
-                    render_subsection_header(
-                        "Carga externa semanal",
-                        "agregado semanal por categoria operativa",
-                        kicker="Semanal",
-                    )
-                    st.plotly_chart(
-                        chart_weekly_external(weekly_external_athlete, athlete_sel),
-                        width='content',
-                        key="weekly_external_main",
-                    )
-
-                render_subsection_header(
-                    "Resumen semanal del equipo",
-                    "lectura grupal de carga y wellness por semana",
-                    kicker="Equipo",
-                )
-                if weekly_team.empty:
-                    st.caption("Todavia no hay resumen semanal del equipo para mostrar.")
-                else:
-                    team_display = weekly_team.copy().sort_values("week_start", ascending=False)
-                    if "week_start" in team_display.columns:
-                        team_display["Semana"] = team_display.apply(
-                            lambda row: _format_week_label(
-                                row["week_start"],
-                                is_current_week=bool(row.get("is_current_week", False)),
-                            ),
-                            axis=1,
-                        )
-                    rename_map = {
-                        "athletes_active": "Atletas activos",
-                        "team_sRPE_mean": "sRPE promedio",
-                        "team_monotony_mean": "Monotonia promedio",
-                        "team_strain_mean": "Strain promedio",
-                        "team_wellness_mean": "Wellness promedio",
-                    }
-                    display_cols = [
-                        "Semana",
-                        "Atletas activos",
-                        "sRPE promedio",
-                        "Monotonia promedio",
-                        "Strain promedio",
-                        "Wellness promedio",
-                    ]
-                    team_display = team_display.rename(columns=rename_map)
-                    available_cols = [column for column in display_cols if column in team_display.columns]
-                    st.dataframe(team_display[available_cols], width='stretch', hide_index=True)
-        elif acwr_df is None:
-            st.warning("Sin datos diarios de ACWR EWMA para este atleta; revisa la vista semanal si hay fuentes parciales.")
-        else:
-            # ── KPIs ──
-            last_sessions = sub_rpe.tail(3)
-            last_acwr = latest_training_day_row(acwr_df)
-            last_acwr_value = last_acwr["ACWR_EWMA"].values[0] if not last_acwr.empty else np.nan
-            last_acwr_reason = acwr_unavailable_reason(last_acwr.iloc[0]) if not last_acwr.empty else ""
-            last_mono = mono_df.tail(1) if mono_df is not None else pd.DataFrame()
-            last_mono_status = (
-                last_mono["Monotony_Status"].values[0]
-                if not last_mono.empty and "Monotony_Status" in last_mono.columns
-                else None
-            )
-            c1,c2,c3,c4,c5 = st.columns(5)
-            c1.metric("sRPE última sesión",
-                      f"{last_sessions['sRPE'].iloc[-1]:.0f} UA" if not last_sessions.empty else "—")
-            c2.metric("RPE última sesión",
-                      f"{last_sessions['RPE'].iloc[-1]:.1f}" if not last_sessions.empty else "—")
-            c3.metric(acwr_label,
-                      f"{last_acwr_value:.2f}" if pd.notna(last_acwr_value) else ("No calc." if last_acwr_reason else "—"),
-                      help=f"No calculable: {last_acwr_reason}" if last_acwr_reason else ACWR_CONTEXT_HELP)
-            c4.metric("Monotonía (sem)",
-                      _format_monotony_display(last_mono["Monotonia"].values[0], last_mono_status) if not last_mono.empty else "—",
-                      help="Foster 2001 — límite: 2.0")
-            c5.metric("Strain (sem)",
-                      _format_strain_display(last_mono["Strain"].values[0], last_mono_status) if not last_mono.empty else "—")
-
-            # Alertas ACWR
-            if last_acwr_reason:
-                _alert(
-                    f"ACWR EWMA no calculable: {last_acwr_reason}. Con sesiones entrenadas sin sRPE el ACWR "
-                    "refleja los huecos, no la carga. Completar el registro antes de usarlo.",
-                    "y",
-                )
-            # Sin semaforo de ACWR: es contexto, no predice lesion (Impellizzeri 2020).
-
-            # Alerta monotonía
-            if not last_mono.empty and last_mono["Alerta"].values[0]:
-                _alert(f"Monotonia = {last_mono['Monotonia'].values[0]:.2f} — por encima del umbral Foster (2.0). "
-                       f"Aumentar variabilidad de carga en el microciclo.", "y")
-
-            load_note = generate_module_insights(dict(st.session_state), athlete_sel).get("load")
-            if load_note:
-                render_report_note(
-                    load_note["title"],
-                    load_note["summary"],
-                    load_note.get("focuses"),
-                    kicker="Lectura de carga",
-                )
-
+    maxes_df_team = st.session_state.maxes_df
+    if maxes_df_team is not None and "Exercise Name" in maxes_df_team.columns:
+        exercises_team = sorted(maxes_df_team["Exercise Name"].dropna().unique())
+        if exercises_team:
             st.markdown("---")
-
-            # Gráfico ACWR
-            render_subsection_header("Tendencia de carga", "acwr ewma diario con contexto de sRPE", kicker="Analisis")
-            st.plotly_chart(chart_acwr(acwr_df, athlete_sel), width='content', key="acwr_main")
-
-            c_mono, c_well = st.columns(2)
-            with c_mono:
-                render_subsection_header("Monotonia y strain", "variabilidad semanal de la carga interna", kicker="Microciclo")
-                st.plotly_chart(chart_monotony_strain(mono_df), width='content', key="monotony_main")
-            with c_well:
-                if wdf is not None:
-                    w_sub = (
-                        wdf[wdf["Athlete"] == athlete_sel].sort_values("Date")
-                        if "Athlete" in wdf.columns else
-                        pd.DataFrame()
-                    )
-                    render_subsection_header("Wellness", "score con banda individual (media ± 1 DE, 28 dias previos)", kicker="Recuperacion")
-                    st.plotly_chart(wellness_score_chart(w_sub, athlete_sel), width='content', key="wellness_main")
-                    st.plotly_chart(wellness_components_chart(w_sub, athlete_sel), width='content', key="wellness_components_main")
-                else:
-                    _alert("Cargá questionnaire-report_wellness.xlsx para ver wellness.", "b")
-
-            # Tabla detalle sRPE
-            with st.expander("Tabla de sesiones detalladas"):
-                display_cols = ["Date", "RPE", "Duration_min", "sRPE"]
-                disp = sub_rpe[[c for c in display_cols if c in sub_rpe.columns]].sort_values("Date", ascending=False)
-                st.dataframe(disp.style.format({"RPE": "{:.1f}", "sRPE": "{:.0f}", "Duration_min": "{:.0f}"}),
-                             width='content', hide_index=True)
-
-            # Volumen por patrón
-            if raw_df_state is not None:
-                st.markdown("---")
-                render_subsection_header(
-                    "Carga externa por tipo de estimulo",
-                    "tonelaje, contactos y exposiciones por categoria",
-                    kicker="Volumen",
-                )
-                st.plotly_chart(chart_volume_by_tag(prepared_raw_df, athlete_sel), width='content', key="volume_tag")
-
-    with st.expander("📋 Calidad de datos", expanded=False):
-        st.markdown("**Bloque A - Cobertura por dataset**")
-        st.dataframe(dataset_summary, width='stretch', hide_index=True)
-        if not raw_category_breakdown.empty:
-            classified_pct = raw_classification_summary.get("classified_pct", 0.0)
-            untagged_pct = raw_classification_summary.get("untagged_pct", 0.0)
-            st.caption(
-                f"Raw workouts: {classified_pct:.1f}% clasificado · {untagged_pct:.1f}% untagged"
+            render_subsection_header("Progresion de maximos", "seguimiento de fuerza maxima del grupo", kicker="Fuerza")
+            ex_team = st.selectbox("Ejercicio", exercises_team, key="sel_team_max_ex")
+            st.plotly_chart(
+                chart_maxes_trend(maxes_df_team, ex_team),
+                width='content',
+                key="team_max_trend"
             )
-            st.dataframe(raw_category_breakdown, width='stretch', hide_index=True)
-
-        st.markdown("**Bloque B - Cobertura por atleta**")
-        if athlete_summary.empty:
-            st.caption("Sin datos suficientes para calcular cobertura.")
-        else:
-            st.dataframe(athlete_summary, width='stretch', hide_index=True)
-
-        st.markdown("**Bloque C - Alertas de calidad**")
-        if alerts:
-            for alert in alerts:
-                tone = "danger" if "ultimo test hace" in alert.lower() else "warning"
-                render_quality_alert_chip(alert, tone=tone)
-        else:
-            st.success("✅ Sin alertas de calidad activas.")
-
-        st.markdown("**Bloque D - Perfiles de atleta**")
-        profile_coverage = compute_profile_coverage(st.session_state.athlete_profile_df, athletes_list)
-        profile_total = profile_coverage["total_athletes"]
-        profile_complete = profile_coverage["with_complete_profile"]
-        profile_pct = profile_coverage["coverage_pct"]
-        if not profile_total:
-            st.caption("Sin atletas detectados todavia.")
-        else:
-            st.caption(f"{profile_complete} de {profile_total} atletas con perfil completo ({profile_pct:.1f}%)")
-            if profile_pct >= 100:
-                st.success("✅ Todos los atletas tienen perfil completo.")
-            else:
-                st.dataframe(profile_coverage["missing_or_incomplete"], width='stretch', hide_index=True)
 
 
-# ─────────────────────────────────────────────────────────────────────
-# TAB: EVALUACIONES
-# ─────────────────────────────────────────────────────────────────────
-elif active_main_view in EVALUATION_VIEW_SOURCES:
-    _render_evaluation_view()
-
-elif active_main_view == "Profile":
-    _render_profile_view()
+EQUIPO_TABS = ("Mapa y cuadrantes", "Carga del grupo", "Rankings")
 
 
-# ─────────────────────────────────────────────────────────────────────
-# TAB: TEAM DASHBOARD
-# ─────────────────────────────────────────────────────────────────────
-elif active_main_view == "Team":
-    _render_team_view()
+@st.fragment
+def _render_equipo_view():
+    """Equipo = Team + lo grupal de Load."""
+    render_module_header("Team Dashboard", "comparacion · clasificacion · ranking grupal", kicker="Modulo")
 
+    team_eval_source = render_evaluation_source_selector(
+        "team_eval_source", st.session_state.jump_df
+    )
+    jdf  = filter_jump_by_source(st.session_state.jump_df, team_eval_source)
+
+    tabs = st.tabs(list(EQUIPO_TABS), key="equipo_tab", on_change="rerun")
+    renderers = (
+        lambda: _render_team_map_tab(jdf, team_eval_source),
+        _render_team_load_tab,
+        lambda: _render_team_rankings_tab(jdf, team_eval_source),
+    )
+    for tab, renderer in zip(tabs, renderers):
+        with tab:
+            if tab.open is not False:
+                renderer()
+
+
+if active_main_view == VIEW_HOY:
+    _render_hoy_view()
+elif active_main_view == VIEW_ATLETA:
+    _render_atleta_view()
+elif active_main_view == VIEW_EQUIPO:
+    _render_equipo_view()
+elif active_main_view == VIEW_NO_PLATAFORMA:
+    _render_no_plataforma_view()
 
 # ─────────────────────────────────────────────────────────────────────
 # TAB: REPORTE DESCARGABLE
 # ─────────────────────────────────────────────────────────────────────
-elif active_main_view == "Reports":
+elif active_main_view == VIEW_REPORTES:
     render_module_header("Reporte", "exportar datos para compartir con el cuerpo tecnico", kicker="Modulo")
 
     ensure_load_state(ensure_base_state=False)
@@ -8012,7 +7941,7 @@ elif active_main_view == "Reports":
 # ─────────────────────────────────────────────────────────────────────
 # TAB: HISTORIAL
 # ─────────────────────────────────────────────────────────────────────
-elif active_main_view == "Historial":
+elif active_main_view == VIEW_DATOS:
     render_module_header(
         "Gestion de Historial",
         "revisar, descargar, recortar y sincronizar el historial persistido",

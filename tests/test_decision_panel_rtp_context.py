@@ -107,8 +107,9 @@ def _run_decision_panel() -> AppTest:
     at.run()
     assert not at.exception, f"initial run raised: {at.exception}"
     nav = next(bg for bg in at.button_group if bg.label == "Vista principal")
-    nav.set_value("Decision").run()
-    assert not at.exception, f"navigating to Decision raised: {at.exception}"
+    # PR P: Decision -> Hoy (los bloques semanales viven ahi, debajo de las senales).
+    nav.set_value("Hoy").run()
+    assert not at.exception, f"navigating to Hoy raised: {at.exception}"
     return at
 
 
@@ -166,32 +167,40 @@ class DecisionPanelRtpZoneThresholdTest(unittest.TestCase):
             self.assertNotIn("zona de riesgo", text.lower().replace("sin zonas de riesgo", ""))
 
 
-class DecisionPanelRtpDevelopmentColumnTest(unittest.TestCase):
-    def test_rtp_athlete_is_excluded_from_power_column(self):
+class DecisionPanelDevelopmentProfilesTest(unittest.TestCase):
+    """PR P: "Perfiles de desarrollo" cuenta atletas por cuadrante del mapa y
+    por perfil de reactividad (patrones A, B, E). Las columnas por EUR (y su
+    redireccion de RTP) se sacaron: el mapa del gimnasio cubre fuerza base."""
+
+    def test_counts_by_map_quadrant_and_reactivity_profile(self):
         with isolated_store() as store_dir:
             _seed_decision_fixture(store_dir)
             at = _run_decision_panel()
 
-            markdown_values = [m.value for m in at.markdown]
-            base_idx = next(i for i, v in enumerate(markdown_values) if v == "**Necesitan trabajo de fuerza base**")
-            power_idx = next(i for i, v in enumerate(markdown_values) if v == "**Necesitan desarrollo de potencia**")
-            complete_idx = next(i for i, v in enumerate(markdown_values) if v == "**Perfil completo / mantencion**")
+            frames = [element.value for element in at.dataframe]
+            frames = [frame.data if hasattr(frame, "data") else frame for frame in frames]
+            quadrants = next(frame for frame in frames if "Cuadrante del mapa" in frame.columns)
+            reactivity = next(frame for frame in frames if "Perfil de reactividad" in frame.columns)
 
-            base_block = markdown_values[base_idx:power_idx]
-            power_block = markdown_values[power_idx:complete_idx]
-            complete_block = markdown_values[complete_idx:]
+            self.assertEqual(
+                quadrants["Cuadrante del mapa"].tolist(),
+                ["Completo", "Fuerte - falta explosividad", "Explosivo - falta fuerza", "Base", "Sin ubicar"],
+            )
+            # Mismo criterio que el mapa de Equipo: sin IMTP ni CMJ por vuelo el
+            # atleta no entra al mapa (ni como "sin ubicar").
+            self.assertEqual(int(quadrants["Atletas"].sum()), 0)
 
-            # Bruno has the identical Mixto/EUR profile and is NOT RTP: lands
-            # in the power (B) column via the normal classification rules.
-            self.assertTrue(any("Bruno Nortp" in v for v in power_block))
+            labels = reactivity["Perfil de reactividad"].tolist()
+            self.assertEqual(len(labels), 4)  # A, B, E + sin patron
+            self.assertTrue(labels[0].startswith("Patrón A"))
+            self.assertTrue(labels[1].startswith("Patrón B"))
+            self.assertTrue(labels[2].startswith("Patrón E"))
+            self.assertFalse(any("Patrón C" in label or "Patrón D" in label for label in labels))
+            self.assertEqual(int(reactivity["Atletas"].sum()), 2)
 
-            # Ana has the exact same profile but IS RTP: must never appear in
-            # the power column, must appear elsewhere (A or C) with the note.
-            self.assertFalse(any("Ana Rtp" in v for v in power_block))
-            redirected_block = [v for v in (base_block + complete_block) if "Ana Rtp" in v]
-            self.assertEqual(len(redirected_block), 1)
-            self.assertIn("RTP", redirected_block[0])
-            self.assertIn("priorizar criterio clínico", redirected_block[0])
+            markdown = " ".join(str(item.value) for item in at.markdown)
+            for removed in ("Necesitan trabajo de fuerza base", "Necesitan desarrollo de potencia", "Perfil completo / mantencion"):
+                self.assertNotIn(removed, markdown)
 
 
 if __name__ == "__main__":

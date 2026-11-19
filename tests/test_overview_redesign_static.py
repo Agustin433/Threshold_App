@@ -18,15 +18,17 @@ class OverviewRedesignStaticTest(unittest.TestCase):
     def test_overview_is_executive_triage_landing(self):
         overview = _overview_block()
 
-        self.assertIn("Overview Ejecutivo", overview)
+        # PR P: Overview + Decision = "Hoy". Sin "Adonde ir despues" (apuntaba
+        # a vistas que ya no existen) y con Fuentes cargadas al final, colapsado.
+        self.assertIn('"Hoy"', overview)
         self.assertIn("Fuentes cargadas", overview)
+        self.assertIn('st.expander("Fuentes cargadas", expanded=False)', overview)
         self.assertIn("Calidad/readiness", overview)
         self.assertIn("Señales ejecutivas", overview)
         self.assertIn("Lectura integrada", overview)
-        self.assertIn("Adonde ir despues", overview)
-
-        for target in ["Panel de Decision", "Load Monitoring", "Calidad de datos", "Evaluaciones"]:
-            self.assertIn(target, overview)
+        self.assertIn("render_decision_panel(hoy_eval_source)", overview)
+        self.assertNotIn("Adonde ir despues", overview)
+        self.assertNotIn("Overview Ejecutivo", overview)
 
     def test_overview_uses_modern_summary_layers(self):
         overview = _overview_block()

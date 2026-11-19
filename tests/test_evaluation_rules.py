@@ -350,11 +350,14 @@ def _render_platform_dashboard(athlete: str) -> str:
     at.run()
     assert not at.exception, at.exception
     nav = next(bg for bg in at.button_group if bg.label == "Vista principal")
-    nav.set_value("Análisis Plataforma").run()
+    # PR P: Analisis Plataforma -> Atleta > Evaluacion (selector compartido).
+    nav.set_value("Atleta").run()
     assert not at.exception, at.exception
-    if not any(sb.key == "ev_jugador" for sb in at.selectbox):
+    if not any(sb.key == "atleta_sel" for sb in at.selectbox):
         raise AssertionError("sin selector de atleta: " + _dashboard_text(at)[:800])
-    at.selectbox(key="ev_jugador").set_value(athlete).run()
+    at.selectbox(key="atleta_sel").set_value(athlete).run()
+    at.session_state["atleta_tab"] = "Evaluación"
+    at.run()
     assert not at.exception, at.exception
     return _dashboard_text(at)
 
