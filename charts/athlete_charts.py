@@ -22,6 +22,30 @@ def _value_text(value: float, digits: int, unit: str) -> str:
     return f"{value:.{digits}f}" + (f" {unit}" if unit else "")
 
 
+# Titulo corto del grafico cuando el rotulo no entra a media pagina.
+EVOLUTION_SHORT_TITLES = {
+    "CMJ_ft_cm": "Salto CMJ por vuelo (cm)",
+    "DJ_RSI": "Reactividad (DJ RSI)",
+    "IMTP_relPF": "Fuerza máxima (N/kg)",
+}
+EVOLUTION_TITLE_MAX_CHARS = 26
+EVOLUTION_COLUMNS = 2
+ERA_CHANGE_LABEL = "cambio de equipo"
+
+
+def evolution_rows(series: list[dict[str, object]] | None) -> int:
+    """Filas del grafico de evolucion: 2 por fila, nunca 3."""
+    count = len(series or [])
+    return max(1, -(-count // EVOLUTION_COLUMNS))
+
+
+def _evolution_title(item: dict[str, object]) -> str:
+    title = str(item["label"]) + (f" ({item['unit']})" if item.get("unit") else "")
+    if len(title) > EVOLUTION_TITLE_MAX_CHARS:
+        title = EVOLUTION_SHORT_TITLES.get(str(item.get("variable")), title)
+    return title
+
+
 def chart_athlete_evolution(
     series: list[dict[str, object]] | None,
     *,
@@ -29,68 +53,108 @@ def chart_athlete_evolution(
     mode: ChartMode = "screen",
     print_height_mm: float = 62.0,
 ) -> go.Figure | None:
-    """Una linea por prueba (columnas lado a lado), un punto por toma con fecha y valor.
+    """Una linea por prueba (2 por fila), un punto por toma con fecha y valor.
 
-    El eje X tiene un lugar por evaluacion (no es proporcional al tiempo).
-    Banda sombreada = primera toma +/- max(TE, SWC): lo que queda dentro no es
-    un cambio distinguible del error de medicion. None sin series (1 sola
-    evaluacion): no se dibuja un grafico de un punto.
+    El eje X tiene un lugar por evaluacion (no es proporcional al tiempo) y
+    se rotula con mes y año en español ("nov 25"). Banda sombreada = primera
+    toma +/- max(TE, SWC). En una serie que mezcla eras (IMTP) el tramo entre
+    eras va punteado, con una linea vertical "cambio de equipo", y los puntos
+    de la era anterior van huecos con borde marcado. `print_height_mm` es la
+    altura de cada fila. None sin series (1 sola evaluacion).
     """
+    from charts.report_charts import spanish_month_year
+
     if not series:
         return None
     colors = theme["colors"]
-    titles = [str(item["label"]) + (f" ({item['unit']})" if item.get("unit") else "") for item in series]
-    fig = make_subplots(rows=1, cols=len(series), subplot_titles=titles, horizontal_spacing=0.09)
+    steel = colors.get("steel", "#134263")
+    rows = evolution_rows(series)
+    cols = min(EVOLUTION_COLUMNS, len(series))
+    titles = [_evolution_title(item) for item in series]
+    fig = make_subplots(
+        rows=rows, cols=cols, subplot_titles=titles, horizontal_spacing=0.12, vertical_spacing=0.32 / rows,
+    )
     font_px = PRINT_FONT_PX if mode == "print" else 12
-    for index, item in enumerate(series, start=1):
+    for index, item in enumerate(series):
+        row, col = index // cols + 1, index % cols + 1
         dates = [pd.Timestamp(date) for date in item["dates"]]
         values = [float(value) for value in item["values"]]
         digits = int(item.get("digits", 1))
         band = item.get("band")
-        # Un punto por evaluacion (eje de categorias): tomas cercanas en el
-        # tiempo no se pisan; la fecha va en el rotulo de cada punto.
-        categories = [f"{date:%d/%m/%y}" for date in dates]
+        previous = list(item.get("previous_protocol") or [False] * len(values))
+        eras = list(item.get("point_eras") or [None] * len(values))
+        x = list(range(len(values)))
+        # Tramos: solido dentro de la misma era, punteado si cruza eras.
+        for i in range(len(values) - 1):
+            crosses = eras[i] is not None and eras[i + 1] is not None and eras[i] != eras[i + 1]
+            fig.add_trace(
+                go.Scatter(
+                    x=[x[i], x[i + 1]], y=[values[i], values[i + 1]], mode="lines",
+                    line=dict(color=steel, width=3, dash="dot" if crosses else "solid"),
+                    showlegend=False, hoverinfo="skip",
+                ),
+                row=row, col=col,
+            )
+            if crosses:
+                fig.add_vline(x=i + 0.5, row=row, col=col, line=dict(color="rgba(90,89,91,0.7)", width=1))
+                axis_index = (row - 1) * cols + col
+                suffix = "" if axis_index == 1 else str(axis_index)
+                fig.add_annotation(
+                    x=i + 0.5, y=1, xref=f"x{suffix}", yref=f"y{suffix} domain", yanchor="top",
+                    text=ERA_CHANGE_LABEL.replace(" ", "<br>", 1), showarrow=False, align="center",
+                    font=dict(size=font_px - 6 if mode == "print" else 10, color=colors.get("gray", "#5A595B")),
+                    bgcolor="rgba(255,255,255,0.85)",
+                )
         fig.add_trace(
             go.Scatter(
-                x=categories,
+                x=x,
                 y=values,
-                mode="lines+markers+text",
+                mode="markers+text",
                 text=[_value_text(value, digits, "") for value in values],
                 textposition="top center",
                 textfont=dict(size=font_px, color=colors.get("navy", "#0D3C5E")),
-                line=dict(color=colors.get("steel", "#134263"), width=3),
-                # Puntos huecos: protocolo anterior (PR L, comparacion orientativa).
+                cliponaxis=False,
+                # Era anterior: punto hueco con borde marcado.
                 marker=dict(
-                    size=10,
-                    color=[
-                        "rgba(0,0,0,0)" if previous else colors.get("steel", "#134263")
-                        for previous in (item.get("previous_protocol") or [False] * len(values))
-                    ],
-                    line=dict(color=colors.get("steel", "#134263"), width=2),
+                    size=12,
+                    color=["#FFFFFF" if old else steel for old in previous],
+                    line=dict(color=steel, width=[3 if old else 1 for old in previous]),
                 ),
+                customdata=[f"{date:%d/%m/%Y}" for date in dates],
                 showlegend=False,
-                hovertemplate="%{x|%d/%m/%Y}: %{y}<extra></extra>",
+                hovertemplate="%{customdata}: %{y}<extra></extra>",
             ),
-            row=1,
-            col=index,
+            row=row, col=col,
         )
         if band:
             # Despues de la traza: add_hrect saltea subplots sin datos.
             fig.add_hrect(
-                y0=float(band[0]), y1=float(band[1]), row=1, col=index,
+                y0=float(band[0]), y1=float(band[1]), row=row, col=col,
                 fillcolor="rgba(112,140,159,0.22)", line_width=0, layer="below",
             )
         low = min(values + ([float(band[0])] if band else []))
         high = max(values + ([float(band[1])] if band else []))
         pad = (high - low) * 0.25 or abs(high) * 0.1 or 1.0
-        fig.update_yaxes(range=[low - pad * 0.6, high + pad * 1.4], row=1, col=index, showgrid=True)
-        fig.update_xaxes(type="category", tickangle=0, range=[-0.4, len(categories) - 0.6], row=1, col=index)
+        # Margen arriba para que la etiqueta de valor no pise el borde.
+        # Con "cambio de equipo" arriba, mas aire para que no pise las etiquetas.
+        has_era_change = any(
+            eras[i] is not None and eras[i + 1] is not None and eras[i] != eras[i + 1] for i in range(len(values) - 1)
+        )
+        top_pad = pad * (4.6 if has_era_change else 1.8)
+        fig.update_yaxes(range=[low - pad * 0.6, high + top_pad], row=row, col=col, showgrid=True, nticks=5)
+        fig.update_xaxes(
+            tickmode="array", tickvals=x, ticktext=[spanish_month_year(date) for date in dates],
+            tickangle=0, range=[-0.5, len(values) - 0.5], row=row, col=col, showgrid=False,
+        )
     if mode == "print":
-        fig = apply_chart_mode(fig, "print", theme=theme, title=None, print_height_mm=print_height_mm)
-        fig.update_layout(margin=dict(l=60, r=20, t=PRINT_FONT_PX * 2 + 6, b=PRINT_FONT_PX * 2 + 12))
-        fig.update_annotations(font_size=PRINT_FONT_PX)
+        fig = apply_chart_mode(fig, "print", theme=theme, title=None, print_height_mm=print_height_mm * rows)
+        fig.update_layout(margin=dict(l=60, r=24, t=PRINT_FONT_PX * 2 + 6, b=PRINT_FONT_PX * 2 + 12))
+        fig.update_xaxes(showgrid=False, zeroline=False)
+        for annotation in fig.layout.annotations:
+            if annotation.text in titles:
+                annotation.font.size = PRINT_FONT_PX
         return fig
-    return apply_chart_mode(fig, "screen", theme=theme, title=EVOLUTION_TITLE, screen_height=320)
+    return apply_chart_mode(fig, "screen", theme=theme, title=EVOLUTION_TITLE, screen_height=300 * rows)
 
 
 def chart_group_position(
@@ -143,7 +207,7 @@ def chart_group_position(
     fig.update_xaxes(range=[0, 104], tickvals=[0, 25, 50, 75, 100], title_text="Posición (0-100)")
     fig.update_yaxes(automargin=True)
     if mode == "print":
-        height = print_height_mm if print_height_mm is not None else 18.0 + 11.0 * len(bars)
+        height = print_height_mm if print_height_mm is not None else 15.0 + 9.0 * len(bars)
         fig = apply_chart_mode(fig, "print", theme=theme, title=None, print_height_mm=height)
         fig.update_layout(margin=dict(l=20, r=30, t=10, b=PRINT_FONT_PX * 3 + 10), showlegend=False)
         fig.update_yaxes(automargin=True)

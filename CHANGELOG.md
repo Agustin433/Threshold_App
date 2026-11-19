@@ -2,6 +2,27 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-18 - PR M: correcciones visuales de los PDF
+
+Solo como se ve: mismos datos, secciones, calculos y textos de contenido.
+
+1. "Tu evolucion": 2 graficos por fila (nunca 3), titulos cortos que no se
+   cortan ("Fuerza máxima (N/kg)"), eje X con mes y año en español ("nov
+   25"), etiquetas de valor con margen. En la serie que mezcla eras (IMTP):
+   tramo entre eras punteado, linea vertical "cambio de equipo" y puntos de
+   la era anterior huecos con borde marcado. La serie trae `point_eras`
+   (solo para dibujar).
+2. Mapa del gimnasio (atleta, cliente, profe): impreso, las metas van como
+   nota debajo del grafico (antes se cortaban y pisaban "Explosivo - falta
+   fuerza"). Puntos de era anterior o de mas de 12 semanas: huecos con borde
+   grueso + leyenda corta. La nota del profe dice "Punto hueco".
+3. Fuerza estimada: fechas del eje en español ("27 jul").
+4. Compaginacion atleta/cliente: ninguna pagina intermedia por debajo del
+   60% (antes 40%), se prueban todas las escalas y se elige la de menos
+   paginas; piso de escala 0.82 (letra de graficos >= 9 pt). Altos: evolucion
+   44 mm por fila, mapa 72, fuerza 52, bienestar 48, posicion en el grupo
+   15 + 9 mm por barra. Ignacio atleta: 4 -> 3 paginas.
+
 ## 2026-11-17 - PR L: comparar entre eras de plataforma, con aviso
 
 Decision: las evaluaciones de distinta era de plataforma (Valkyria sin

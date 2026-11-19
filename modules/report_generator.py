@@ -12350,6 +12350,7 @@ def _generate_professional_profile_pdf_reportlab(
         image = render_print_chart_image(figure, ImageClass=Image, mm_unit=mm) if figure is not None else None
         if image is not None:
             target.append(image)
+        target.append(_p("Metas — " + " · ".join(gym_map.legend_lines), "ProfMuted"))
         target.append(_p(QUADRANT_LIGHT_POINT_NOTE, "ProfMuted"))
         target.append(Spacer(1, 3 * mm))
         rows = []
@@ -13119,7 +13120,7 @@ def _strength_map_payload(state: dict[str, object], athlete: str, has_evaluation
 
 
 QUADRANT_LIGHT_POINT_NOTE = (
-    "Punto claro: evaluación con protocolo anterior o de más de 12 semanas — con el protocolo anterior "
+    "Punto hueco: evaluación con protocolo anterior o de más de 12 semanas — con el protocolo anterior "
     "el IMTP suele dar más bajo (~30%); posición orientativa."
 )
 
@@ -13607,7 +13608,7 @@ def _generate_visual_report_pdf_reportlab(
         # payload que usa el dashboard.
         from reportlab.platypus import KeepTogether
 
-        from charts.athlete_charts import chart_athlete_evolution, chart_group_position, chart_tolerance
+        from charts.athlete_charts import chart_athlete_evolution, chart_group_position, chart_tolerance, evolution_rows
         from charts.load_charts import chart_estimated_strength
         from charts.report_charts import PRINT_CANVAS_WIDTH_PX, PRINT_WIDTH_MM
         from modules.athlete_report import dictionary_lines, evolution_cross_era_caption, evolution_drop_sentences
@@ -13745,7 +13746,10 @@ def _generate_visual_report_pdf_reportlab(
         except Exception:
             logger.exception("No se pudo armar el grafico de evolucion")
         evolution_image = (
-            _chart({"figure": evolution_figure, "print": True}, height_mm=INDIVIDUAL_EVOLUTION_CHART_MM)
+            _chart(
+                {"figure": evolution_figure, "print": True},
+                height_mm=INDIVIDUAL_EVOLUTION_CHART_MM * evolution_rows(payload.get("evolution")),
+            )
             if evolution_figure is not None
             else None
         )
@@ -13830,6 +13834,7 @@ def _generate_visual_report_pdf_reportlab(
                     Spacer(1, 2 * mm),
                     _tp(STRENGTH_MAP_SUBTITLE, "ReportMuted"),
                     map_image,
+                    _tp("Metas — " + " · ".join(payload.get("strength_map").legend_lines), "ReportMuted"),
                     # El "que trabajar" ya es el Foco del proximo bloque (PR H): aca
                     # solo el cuadrante, sin repetir la frase.
                     _note(
@@ -14135,10 +14140,11 @@ def _build_pdf_document(page_contents: list[str]) -> bytes:
 # ── Compaginacion del PDF atleta/cliente (PR E) ─────────────────────────────
 # Ninguna pagina (salvo la ultima) con menos de este llenado; si el contenido
 # entra en una pagina, el PDF tiene una pagina.
-INDIVIDUAL_MIN_PAGE_FILL = 0.40
+# PR M: 60% (antes 40%): una pagina a medio llenar se ve como un hueco.
+INDIVIDUAL_MIN_PAGE_FILL = 0.60
 # Escalas de los graficos que se prueban, en orden, hasta cumplir la regla.
-# Piso 0.8: la fuente de impresion (11 pt) no baja de ~9 pt.
-INDIVIDUAL_CHART_SCALES = (1.0, 0.9, 0.8)
+# Piso 0.82: la fuente de impresion (11 pt) no baja de 9 pt.
+INDIVIDUAL_CHART_SCALES = (1.0, 0.9, 0.82)
 # Ultima compaginacion armada (llenado por pagina, escala): la leen los tests
 # para verificar la regla sin depender de fuentes ni del entorno.
 LAST_INDIVIDUAL_LAYOUT: dict[str, object] = {}
@@ -14199,9 +14205,10 @@ def _build_individual_pdf_with_layout(story, scalable_images, *, on_page, doc_cl
         key = (len(page_fill), 0 if acceptable else 1, order)
         if best is None or key < best[:3]:
             best = (*key, pdf, page_fill, scale)
-        # Una pagina, o regla cumplida sin una ultima pagina que se pueda
-        # absorber achicando: no hace falta probar mas.
-        if len(page_fill) == 1 or (acceptable and page_fill[-1] > 1.0 - INDIVIDUAL_MIN_PAGE_FILL):
+        # Una pagina: no hace falta probar mas. Si no, se prueban todas las
+        # escalas (PR M): una ultima pagina a medio llenar puede absorberse
+        # achicando apenas los graficos.
+        if len(page_fill) == 1:
             break
     LAST_INDIVIDUAL_LAYOUT.clear()
     LAST_INDIVIDUAL_LAYOUT.update({"page_fill": best[4], "scale": best[5]})
@@ -14210,10 +14217,11 @@ def _build_individual_pdf_with_layout(story, scalable_images, *, on_page, doc_cl
 
 # Altos (mm) de los graficos del PDF atleta/cliente: con estos el reporte
 # tipico (fuerza + carga + bienestar) entra en 2 paginas.
-INDIVIDUAL_STRENGTH_CHART_MM = 54.0
-INDIVIDUAL_EVOLUTION_CHART_MM = 58.0
-INDIVIDUAL_TOLERANCE_CHART_MM = 52.0
-INDIVIDUAL_STRENGTH_MAP_MM = 92.0
+INDIVIDUAL_STRENGTH_CHART_MM = 52.0
+# Alto de cada fila del grafico de evolucion (2 graficos por fila).
+INDIVIDUAL_EVOLUTION_CHART_MM = 44.0
+INDIVIDUAL_TOLERANCE_CHART_MM = 48.0
+INDIVIDUAL_STRENGTH_MAP_MM = 72.0
 STRENGTH_MAP_SUBTITLE = (
     "Fuerza máxima y salto en % de la meta del gimnasio para tu sexo. La meta es llegar a Completo "
     "(arriba a la derecha). Los demás puntos son tus compañeros, sin nombre."

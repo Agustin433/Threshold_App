@@ -893,9 +893,11 @@ def chart_estimated_strength(
             )
         )
     if mode == "print":
-        from charts.report_charts import apply_chart_mode
+        from charts.report_charts import apply_chart_mode, spanish_date_ticks
 
-        fig.update_xaxes(gridcolor=grid_soft, zeroline=False)
+        # Fechas del eje en español ("26 jul"): plotly rotula los meses en ingles.
+        tickvals, ticktext = spanish_date_ticks(strength_df["Date"], max_labels=6)
+        fig.update_xaxes(gridcolor=grid_soft, zeroline=False, tickmode="array", tickvals=tickvals, ticktext=ticktext)
         # Rotulo corto en el eje: uno largo vertical no entra en un grafico
         # bajo y se monta sobre el titulo. La ventana va en el titulo.
         fig.update_yaxes(title_text="kg", gridcolor=grid_soft, zeroline=False)
