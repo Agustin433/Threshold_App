@@ -128,7 +128,7 @@ def _render_temporal_delta_table(delta_df: pd.DataFrame) -> None:
         return styles
 
     styler = display_df.style.apply(_style_signal, subset=["Senal"])
-    st.dataframe(styler, use_container_width=True, hide_index=True)
+    st.dataframe(styler, width="stretch", hide_index=True)
 
 
 def _render_baseline_delta_table(baseline_df: pd.DataFrame) -> None:
@@ -154,7 +154,7 @@ def _render_baseline_delta_table(baseline_df: pd.DataFrame) -> None:
         return styles
 
     styler = display_df.style.apply(_style_signal, subset=["Senal"])
-    st.dataframe(styler, use_container_width=True, hide_index=True)
+    st.dataframe(styler, width="stretch", hide_index=True)
 
 
 def _format_eval_date(value: object) -> str:
@@ -300,7 +300,7 @@ def _render_force_time_detail_block(
         if left_right_chart is None:
             st.info("Sin datos suficientes para comparar fuerza maxima entre lados.")
         else:
-            st.plotly_chart(left_right_chart, use_container_width=True)
+            st.plotly_chart(left_right_chart, width="stretch")
     with asymmetry_text_col:
         stronger_side = asymmetry_summary.get("stronger_side")
         weaker_side = asymmetry_summary.get("weaker_side")
@@ -324,7 +324,7 @@ def _render_force_time_detail_block(
         if force_time_chart is None:
             st.info("Sin datos suficientes para mostrar el perfil force-time por puntos exportados.")
         else:
-            st.plotly_chart(force_time_chart, use_container_width=True)
+            st.plotly_chart(force_time_chart, width="stretch")
         st.caption(
             "Perfil force-time por puntos exportados: 50, 100, 150, 200, 250 ms y Peak Force."
         )
@@ -333,7 +333,7 @@ def _render_force_time_detail_block(
         if rfd_chart is None:
             st.info("Sin datos suficientes para mostrar RFD por ventanas exportadas.")
         else:
-            st.plotly_chart(rfd_chart, use_container_width=True)
+            st.plotly_chart(rfd_chart, width="stretch")
         st.caption(
             "RFD = tasa de desarrollo de fuerza. Sin un TE o umbral de confiabilidad propio, "
             "conviene leerla con cautela y como apoyo descriptivo."
@@ -362,7 +362,7 @@ def _render_history_chart(
         figure = chart_cmj_trend(athlete_hist, athlete, theme=theme)
     else:
         figure = chart_jump_metric_trend(athlete_hist, athlete, metric_key, theme=theme)
-    st.plotly_chart(figure, use_container_width=True)
+    st.plotly_chart(figure, width="stretch")
 
 
 ensure_page_state(load_models=False)
@@ -475,7 +475,7 @@ else:
     detail_cols = [column for column in primary_detail_rows.columns if not column.endswith("_reps")]
     st.dataframe(
         primary_detail_rows[detail_cols].rename(columns={"EUR": "EUR (ratio)"}),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -560,7 +560,7 @@ else:
             ]
         )
         st.caption(f"Filas del atleta en el dataframe: {len(athlete_hist)}")
-        st.dataframe(detection_rows, use_container_width=True, hide_index=True)
+        st.dataframe(detection_rows, width="stretch", hide_index=True)
         if not imtp_basic_presence.get("has_basic_data") and not imtp_force_time_presence.get("has_valid_force_time"):
             st.caption("No se detectaron datos de IMTP para este atleta.")
         elif imtp_basic_presence.get("has_basic_data") and not imtp_force_time_summary.get("has_valid_force_time"):
@@ -575,7 +575,7 @@ else:
         else:
             st.dataframe(
                 _prepare_force_time_detection_rows(imtp_any_rows),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -585,7 +585,7 @@ else:
         else:
             st.dataframe(
                 _prepare_force_time_detection_rows(imtp_force_rows),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -614,7 +614,7 @@ else:
                         "IMTP_time_pull_s",
                     ],
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -632,7 +632,7 @@ else:
             st.markdown("**Filas con campos ISO Push Hip-Hamstring**")
             st.dataframe(
                 _prepare_force_time_detection_rows(iso_detection_rows),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         iso_columns = iso_ham_force_time_presence.get("available_columns") or []
@@ -656,13 +656,13 @@ else:
         )
         chart_left, chart_right = st.columns([1.05, 0.95])
         with chart_left:
-            st.plotly_chart(chart_composite_profile_radar(current_profile_row, athlete, theme=theme), use_container_width=True)
+            st.plotly_chart(chart_composite_profile_radar(current_profile_row, athlete, theme=theme), width="stretch")
         with chart_right:
             metric_table = build_composite_profile_metric_table(current_profile_row)
             st.markdown("### Lectura por variable actual")
-            st.dataframe(metric_table, use_container_width=True, hide_index=True)
+            st.dataframe(metric_table, width="stretch", hide_index=True)
         with st.expander("Origen por variable", expanded=False):
-            st.dataframe(current_profile_sources, use_container_width=True, hide_index=True)
+            st.dataframe(current_profile_sources, width="stretch", hide_index=True)
         if isinstance(current_profile_payload, dict):
             _render_flag_chips(list(current_profile_payload.get("flag_rows", [])))
             _render_feedback(list(current_profile_payload.get("feedback_lines", [])))
@@ -685,6 +685,6 @@ else:
         history_cols = [column for column in athlete_hist.columns if not column.endswith("_reps")]
         st.dataframe(
             athlete_hist[history_cols].rename(columns={"EUR": "EUR (ratio)"}).sort_values("Date", ascending=False),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
