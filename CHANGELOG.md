@@ -2,6 +2,23 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-19 - PR O: velocidad (sin cambiar logica, textos ni que se muestra)
+
+1. `modules/derived_cache.py`: memo por sesion de calculos derivados puros
+   (insights, alert feed, calidad de datos, payload individual, nombres de
+   atletas, `_prepare_jump_df`, cambios de evaluacion del panel de
+   decision). Firma = hash de contenido de cada argumento + mtime/tamano de
+   cada archivo del store + dia de la app; TTL 5 min por fuentes remotas.
+   Argumento no firmable -> llamada directa. Se invalida tambien
+   explicitamente al hidratar, cargar, reemplazar o borrar datos.
+2. Overview reutiliza los insights del modulo de reportes mientras los
+   datos no cambien (antes ~40-50% de cada rerun).
+3. Profile, Team y Analisis son `st.fragment`: un cambio de selector
+   re-ejecuta solo la vista.
+4. `use_container_width` -> `width` (deprecado).
+5. `scripts/benchmark_views.py`: AppTest con datos sinteticos de tamano
+   real (82.791 series raw, 12.482 maximos). Overview rerun 10,3 s -> ~0,85 s.
+
 ## 2026-11-18 - PR M: correcciones visuales de los PDF
 
 Solo como se ve: mismos datos, secciones, calculos y textos de contenido.

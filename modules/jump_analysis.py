@@ -3316,7 +3316,19 @@ def _merge_duplicate_athlete_date_rows(jump_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _prepare_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Normalize the unified evaluations table and recompute derived metrics."""
+    """Normalize the unified evaluations table and recompute derived metrics.
+
+    Dentro de la app (Streamlit) el resultado se memoiza por contenido de
+    ``jump_df`` y ``profile_df``: el z del plantel no depende del atleta
+    elegido, y un solo payload de Profile lo recalculaba tres veces (~2 s
+    cada vez con 30 atletas). Fuera de Streamlit es una llamada directa.
+    """
+    from modules.derived_cache import cached_call
+
+    return cached_call("jump_analysis._prepare_jump_df", _compute_prepared_jump_df, jump_df, profile_df)
+
+
+def _compute_prepared_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd.DataFrame:
     if jump_df is None or jump_df.empty:
         return pd.DataFrame()
 

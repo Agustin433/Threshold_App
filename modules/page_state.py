@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from modules.data_loader import prepare_raw_workouts_df
+from modules.derived_cache import invalidate_derived_cache
 from modules.jump_analysis import _prepare_jump_df as prepare_jump_df
 from local_store import (
     DATASET_SPECS,
@@ -276,6 +277,7 @@ def clear_report_preview_cache() -> None:
 
 def invalidate_load_state_cache(*, clear_recent: bool = True, clear_full: bool = True) -> None:
     _ensure_session_defaults()
+    invalidate_derived_cache()
     if clear_recent:
         st.session_state[PREPARED_RAW_DF_KEY] = None
         st.session_state[PREPARED_RAW_DF_VERSION_KEY] = None
@@ -300,6 +302,7 @@ def invalidate_local_store_hydration(
     st.session_state[LOCAL_STORE_HYDRATED_KEY] = False
     st.session_state[LOCAL_STORE_VERSION_KEY] = None
     invalidate_prepared_jump_df()
+    invalidate_derived_cache()
     st.session_state[LOCAL_STORE_LAST_HYDRATION_TS_KEY] = None
     clear_report_preview_cache()
     if clear_load_state:
