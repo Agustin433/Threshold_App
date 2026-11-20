@@ -277,6 +277,9 @@ SEMAPHORE_LABELS = (
     (-math.inf, "Rojo"),
 )
 
+# Perfil de reactividad: patrones que `_pattern_matches` puede detectar.
+REACTIVITY_PATTERN_CODES = ("A", "B", "E")
+
 PATTERN_LIBRARY = {
     "A": {
         "label": "Patrón A - Fuerza/propulsión con SSC rápido limitado",
@@ -1413,8 +1416,6 @@ def build_jump_flag_rows(row: pd.Series | dict[str, object]) -> list[dict[str, s
 def _pattern_matches(row: pd.Series) -> list[str]:
     sj_z = resolve_zscore(row, "SJ_Z")
     dj_rsi_z = resolve_zscore(row, "DJ_RSI_Z")
-    cmj_z = resolve_zscore(row, "CMJ_Z")
-    imtp_relpf_z = resolve_zscore(row, "IMTP_relPF_Z")
     eur = pd.to_numeric(pd.Series([row.get("EUR")]), errors="coerce").iloc[0]
 
     patterns: list[str] = []
@@ -1422,17 +1423,9 @@ def _pattern_matches(row: pd.Series) -> list[str]:
         patterns.append("A")
     if pd.notna(sj_z) and pd.notna(dj_rsi_z) and sj_z < -PATTERN_SIGNAL_BAND and dj_rsi_z > PATTERN_SIGNAL_BAND:
         patterns.append("B")
-    if pd.notna(imtp_relpf_z) and pd.notna(cmj_z) and imtp_relpf_z < -PATTERN_SIGNAL_BAND and cmj_z >= -PATTERN_SIGNAL_BAND:
-        patterns.append("C")
-
-    radar_z_cols = [axis[3] for axis in _available_radar_axes(row)[0]]
-    radar_values = [
-        resolve_zscore(row, col)
-        for col in radar_z_cols
-    ]
-    radar_values = [value for value in radar_values if pd.notna(value)]
-    if radar_values and all(value < -PATTERN_SIGNAL_BAND for value in radar_values):
-        patterns.append("D")
+    # C (IMTP bajo con CMJ conservado) y D (todo el radar bajo) ya no se
+    # detectan: los cubre el mapa del gimnasio (C ~ "Explosivo - falta
+    # fuerza", D ~ "Base"). A, B y E son el "Perfil de reactividad".
     if pd.notna(eur) and eur < 1.00:
         patterns.append("E")
     return patterns

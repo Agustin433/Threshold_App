@@ -2,6 +2,33 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-19 - PR P: reestructura de vistas (mover, no reescribir)
+
+De 9 vistas a 6; por defecto "Hoy". Las secciones se mueven sin reescribir
+calculos, textos ni graficos (salvo lo de "Se saca" y referencias a nombres
+de vistas).
+
+1. Hoy = Overview + Decision: senales y alertas priorizadas (un solo
+   selector de fuente; la lectura integrada ya no repite las alertas como
+   focos), bloques semanales 1-6 y evaluaciones pendientes, y "Fuentes
+   cargadas" al final, colapsado. Sin "Adonde ir despues".
+2. Atleta = Profile + Analisis Plataforma + lo individual de Load, con un
+   selector de atleta compartido y pestanas Resumen / Evaluacion / Carga y
+   bienestar / Fuerza (maximos + fuerza estimada).
+3. Equipo = Team + lo grupal de Load: Mapa y cuadrantes (mapa del gimnasio +
+   RSI-SJ) / Carga del grupo (estado de carga, resumen semanal del equipo,
+   calidad de datos) / Rankings (ultima evaluacion, ranking por z solo con
+   cohorte >= 8 del mismo sexo e instrumento, adherencia, maximos del grupo).
+4. No-Plataforma, Reportes y Datos (ex Historial): sin cambios.
+5. Se saca: Bloque 7 "Ranking de ejecucion registrada"; patrones C y D de
+   `_pattern_matches` (los cubre el mapa); cuadrantes CMJ-IMTP secundario y
+   DRI-SJ experimental; caption de benchmarks de EUR. "Perfiles de
+   desarrollo" cuenta atletas por cuadrante del mapa y por perfil de
+   reactividad (A, B, E).
+6. Pestanas con estado (`st.tabs(on_change="rerun")`): solo se calcula la
+   abierta. Hoy, Atleta, Equipo y No-Plataforma son `st.fragment`.
+   `DERIVED_CACHE_TTL_S` 300 -> 1800.
+
 ## 2026-11-19 - PR O: velocidad (sin cambiar logica, textos ni que se muestra)
 
 1. `modules/derived_cache.py`: memo por sesion de calculos derivados puros

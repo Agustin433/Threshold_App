@@ -263,7 +263,7 @@ class DashboardTeamMapTest(unittest.TestCase):
             at.run()
             self.assertFalse(at.exception, at.exception)
             nav = next(bg for bg in at.button_group if bg.label == "Vista principal")
-            nav.set_value("Team").run()
+            nav.set_value("Equipo").run()  # PR P: Team -> Equipo > Mapa y cuadrantes
             self.assertFalse(at.exception, at.exception)
             markdown = " ".join(str(item.value) for item in at.markdown)
             self.assertIn("Mapa del gimnasio: Fuerza vs Explosividad", markdown)

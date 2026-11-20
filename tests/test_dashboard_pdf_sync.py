@@ -125,8 +125,11 @@ class DashboardPdfSyncTest(unittest.TestCase):
         self.assertFalse(self.at.exception, self.at.exception)
 
     def test_changes_and_baseline_match_pdf(self):
-        self._view("Análisis Plataforma")
-        self.at.selectbox(key="ev_jugador").set_value(ATHLETE).run()
+        # PR P: Analisis Plataforma -> Atleta > Evaluacion (selector compartido).
+        self._view("Atleta")
+        self.at.selectbox(key="atleta_sel").set_value(ATHLETE).run()
+        self.at.session_state["atleta_tab"] = "Evaluación"
+        self.at.run()
         self.assertFalse(self.at.exception, self.at.exception)
 
         # Cambios: la misma tabla que el PDF profe (incluida la fila por vuelo).
@@ -157,8 +160,11 @@ class DashboardPdfSyncTest(unittest.TestCase):
         self.assertTrue(compute_evaluation_changes(self.history, last)["Variable"].tolist())
 
     def test_acwr_is_context_and_matches_pdf_summary(self):
-        self._view("Load")
-        self.at.selectbox(key="sel_load").set_value(ATHLETE).run()
+        # PR P: Load (individual) -> Atleta > Carga y bienestar.
+        self._view("Atleta")
+        self.at.selectbox(key="atleta_sel").set_value(ATHLETE).run()
+        self.at.session_state["atleta_tab"] = "Carga y bienestar"
+        self.at.run()
         self.assertFalse(self.at.exception, self.at.exception)
         weekly = psum.weekly_load_summary(
             self.state.get("rpe_df"), self.state.get("raw_df"), self.state["acwr_dict"].get(ATHLETE), ATHLETE,
@@ -173,7 +179,10 @@ class DashboardPdfSyncTest(unittest.TestCase):
             self.assertNotIn(zone_word, text)
 
     def test_adherence_matches_pdf(self):
-        self._view("Team")
+        # PR P: Adherencia y completion -> Equipo > Rankings.
+        self._view("Equipo")
+        self.at.session_state["equipo_tab"] = "Rankings"
+        self.at.run()
         self.at.selectbox(key="completion_sel_team").set_value(ATHLETE).run()
         self.assertFalse(self.at.exception, self.at.exception)
         pdf_value = rg._professional_completion_snapshot(self.state, ATHLETE)["value"]
@@ -187,7 +196,7 @@ class DashboardPdfSyncTest(unittest.TestCase):
         self.assertEqual(shown["Sesiones"].astype(int).tolist(), weekly["sessions"].astype(int).tolist())
 
     def test_overview_adherence_card_has_no_traffic_light(self):
-        self._view("Overview")
+        self._view("Hoy")  # PR P: Overview -> Hoy
         snapshot = self.at.session_state  # la tarjeta se arma con el mismo raw
         html = " ".join(str(item.value) for item in self.at.markdown)
         self.assertIn("período del export de TeamBuildr", html)

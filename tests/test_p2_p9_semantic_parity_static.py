@@ -32,16 +32,11 @@ class P2P9SemanticParityStaticTest(unittest.TestCase):
         self.assertIn("Calidad/readiness", overview)
         self.assertNotIn("Readiness de fuentes", overview)
 
-    def test_decision_panel_does_not_label_raw_execution_as_completion(self):
+    def test_decision_ranking_de_ejecucion_was_removed(self):
+        # PR P: se saco el Bloque 7 "Ranking de ejecucion registrada".
         source = APP_PATH.read_text(encoding="utf-8")
-        start = source.index("Ranking de ejecucion registrada")
-        end = source.index("Evaluaciones pendientes", start)
-        ranking_block = source[start:end]
-
-        self.assertIn("Ejecucion registrada %", ranking_block)
-        self.assertIn("execution_pct", ranking_block)
-        self.assertNotIn("Completion %", ranking_block)
-        self.assertNotIn("completion_pct", ranking_block)
+        self.assertNotIn("Ranking de ejecucion registrada", source)
+        self.assertNotIn("Ejecucion registrada %", source)
 
     def test_team_dashboard_prefers_weekly_summary_model(self):
         source = TEAM_PAGE_PATH.read_text(encoding="utf-8")

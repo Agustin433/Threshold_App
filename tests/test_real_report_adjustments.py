@@ -107,11 +107,12 @@ def _pdf_text(state: dict[str, object], athlete: str, audience: str) -> str:
 
 
 class ProfileSectionTests(unittest.TestCase):
-    def test_habib_has_pattern_d_but_no_profile_section_for_athlete_or_client(self):
+    def test_habib_has_no_pattern_d_and_no_profile_section_for_athlete_or_client(self):
+        # PR P: el patron D ya no se detecta (lo cubre el mapa del gimnasio, "Base").
         state = _habib_state()
         with frozen_app_now(NOW):
             payload = rg.build_individual_report_payload(state, "Fernando Habib", "atleta")
-        self.assertIn("Patrón D", str((payload.get("profile") or {}).get("label")))
+        self.assertNotIn("Patrón D", str((payload.get("profile") or {}).get("label")))
         for audience in ("atleta", "cliente"):
             with self.subTest(audience=audience):
                 text = _pdf_text(state, "Fernando Habib", audience)
