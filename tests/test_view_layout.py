@@ -35,43 +35,43 @@ WHERE = {
         "Señales ejecutivas",            # Overview
         "Alertas priorizadas",           # Overview
         "Carga semanal",                 # Decision Bloque 1
-        "Variacion semanal",             # Decision Bloque 2
+        "Variación semanal",             # Decision Bloque 2
         "Perfiles de desarrollo",        # Decision Bloque 3 (ahora mapa + reactividad)
-        "Distribucion de volumen",       # Decision Bloque 4
+        "Distribución de volumen",       # Decision Bloque 4
         "Asistencia",                    # Decision Bloque 5
         "Wellness + carga",              # Decision Bloque 6
         "Evaluaciones pendientes",       # Decision Bloque 8
         "Fuentes cargadas",              # Overview (al final, colapsado)
     ],
     ("Atleta", "Resumen"): [
-        "Perfil del Atleta",             # Profile
+        "Resumen del atleta",            # Profile
         "🏁 Lo que lograste",            # Profile
         "📈 Tu evolución",               # Profile
         "🔢 Tus números hoy",            # Profile
         "🔋 Cómo venís aguantando",      # Profile
         "📊 Tu posición en el grupo",    # Profile
         "🧾 Perfil",                     # Profile
-        "KPIs de evaluacion",            # Profile
+        "KPIs de evaluación",            # Profile
     ],
     ("Atleta", "Evaluación"): [
         "Análisis Plataforma",           # Analisis Plataforma
-        "Evaluacion seleccionada",
-        "Cambios vs evaluacion anterior",
+        "Evaluación seleccionada",
+        "Cambios vs evaluación anterior",
         "Cambio vs baseline",
-        "Detalle de la evaluacion seleccionada",
+        "Detalle de la evaluación seleccionada",
         "Perfil actual compuesto",
         "Lectura por variable actual",
         "Historial temporal",
     ],
     ("Atleta", "Carga y bienestar"): [
-        "Monitoreo de Carga",            # Load (individual)
+        "Carga y bienestar",             # Load (individual)
         "Tendencia de carga",
-        "Monotonia y strain",
+        "Monotonía y strain",
         "Wellness",
-        "Carga externa por tipo de estimulo",
+        "Carga externa por tipo de estímulo",
     ],
     ("Atleta", "Fuerza"): [
-        "Maximos del atleta",            # Profile
+        "Máximos del atleta",            # Profile
     ],
     ("Equipo", "Mapa y cuadrantes"): [
         "Cuadrantes de rendimiento",     # Team
@@ -82,10 +82,10 @@ WHERE = {
         "Resumen semanal del equipo",    # Load (grupal)
     ],
     ("Equipo", "Rankings"): [
-        "Ultima evaluacion por atleta",  # Team
+        "Última evaluación por atleta",  # Team
         "Ranking por Z-scores",          # Team
         "Adherencia y completion",       # Team
-        "Progresion de maximos",         # Team
+        "Progresión de máximos",         # Team
     ],
 }
 EXPANDERS = {
@@ -102,6 +102,16 @@ REMOVED_TEXT = [
     "Necesitan trabajo de fuerza base",
     "Patrón C",
     "Patrón D",
+    # PR Q: jerga interna fuera de la UI.
+    "motor P11",
+    "reporte P2",
+    "alerta(s) P11",
+    "DANGER",
+    "WARNING",
+    "Calidad/readiness",
+    "Readiness ",
+    "Diseñada para lectura técnica",
+    "radar · cuadrantes · kpis individuales",
 ]
 REMOVED_CHART_TITLES = ["Cuadrante Secundario", "Cuadrante DRI (experimental)"]
 

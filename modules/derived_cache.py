@@ -220,6 +220,30 @@ def cached_call(name: str, fn: Callable[..., Any], *args: Any, **kwargs: Any) ->
     return result
 
 
+def prime(name: str, value: Any, *args: Any, **kwargs: Any) -> None:
+    """Guarda `value` como resultado de `name(*args, **kwargs)` sin calcularlo.
+
+    Solo para resultados que se probaron identicos por otro camino (ver
+    tests/test_shared_profile.py): evita recalcular algo que ya esta.
+    """
+    state = _session_state()
+    if state is None:
+        return
+    try:
+        signature = build_signature(name, args, kwargs)
+    except _Unsignable:
+        return
+    cache = state.get(DERIVED_CACHE_KEY)
+    if not isinstance(cache, OrderedDict):
+        cache = OrderedDict()
+    if signature in cache:
+        return
+    cache[signature] = (time.monotonic(), copy.deepcopy(value))
+    while len(cache) > DERIVED_CACHE_MAX_ENTRIES:
+        cache.popitem(last=False)
+    state[DERIVED_CACHE_KEY] = cache
+
+
 def cached(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
     """Version cacheada de ``fn`` con la misma firma de llamada."""
 

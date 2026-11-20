@@ -2,6 +2,32 @@
 
 Resumen acumulado del trabajo de estabilizacion y consolidacion hecho hasta este checkpoint.
 
+## 2026-11-20 - PR Q: pulido profesional + primera carga
+
+1. Copy de producto (sin cambiar logica): fuera "motor P11", "reporte P2",
+   kicker "P11", severidades en ingles (DANGER/WARNING -> Prioridad
+   alta/media/baja; categorias en castellano), "readiness" en el sentido de
+   calidad de datos (-> "Calidad de datos" / "Estado de los datos"; se deja
+   "readiness semanal" donde habla de la preparacion del atleta), "triage",
+   insignias en ingles. Encabezado: "Monitoreo de carga, evaluaciones y
+   progreso de tus atletas." Subtitulos de las 6 vistas revisados contra su
+   contenido real (lista en el PR).
+2. Mapa del gimnasio: los rotulos no se pisan. 8 posiciones alrededor del
+   punto; los puntos y las lineas del 100% son obstaculos; en zonas densas
+   pasa a iniciales y, si no entra, se desplaza con linea guia. El nombre
+   completo queda en el hover. En el PDF de atleta/cliente el unico rotulo
+   (el propio) nunca se abrevia.
+3. Primera carga (benchmark, store de tamano real): ~17-19 s -> ~13-14 s.
+   Mismos resultados (tests/test_shared_profile.py):
+   - perfil compuesto memoizado por contenido y compartido entre Hoy
+     (Perfiles de desarrollo) y Atleta/PDF (`professional_athlete_history`);
+   - Hoy prepara el plantel completo y filtra la fuente (reusa la
+     preparacion de los insights) y deja el resultado en el memo para Atleta;
+   - `normalize_athlete_name` memoizado (funcion pura de la cadena);
+   - `calc_monotony_strain`: la serie diaria se prepara una vez por atleta;
+   - modelos de carga de los insights: se arman una vez (antes, dos).
+4. Sale `docs/pr_p_capturas/` del repo.
+
 ## 2026-11-19 - PR P: reestructura de vistas (mover, no reescribir)
 
 De 9 vistas a 6; por defecto "Hoy". Las secciones se mueven sin reescribir

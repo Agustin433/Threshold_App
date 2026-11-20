@@ -148,7 +148,7 @@ from modules.evaluation_sources import (
 )
 from modules.history_mode import history_mode_caption, render_history_mode_selector
 from modules.history_view import render_history_manager
-from modules.derived_cache import cached as cached_derived, cached_call as cached_derived_call
+from modules.derived_cache import cached as cached_derived, cached_call as cached_derived_call, prime as prime_derived_cache
 from modules.page_state import (
     build_report_preview_signature,
     ensure_report_history_extras,
@@ -259,6 +259,7 @@ from modules.report_generator import (
     TOLERANCE_BAND_CAPTION,
     TOLERANCE_FEW_RECORDS_CAPTION,
     build_individual_report_payload,
+    professional_athlete_history,
     REPORT_AUDIENCE_OPTIONS,
     REPORT_SHEET_ORDER,
     REPORT_SHEET_EXPORT_NAMES,
@@ -2303,13 +2304,12 @@ def render_brand_cover():
         </div>
       </div>
       <div class="brand-subtitle">
-        Plataforma de reportes de rendimiento para monitoreo de carga, evaluaciones y seguimiento
-        de atletas. Diseñada para lectura técnica, revisión editorial y futura exportación de reportes.
+        Monitoreo de carga, evaluaciones y progreso de tus atletas.
       </div>
       <div class="brand-badges">
-        <span class="brand-badge">TeamBuildr Reports</span>
-        <span class="brand-badge">Involution Evaluations</span>
-        <span class="brand-badge">Ultimas 6 semanas visibles</span>
+        <span class="brand-badge">Reportes TeamBuildr</span>
+        <span class="brand-badge">Evaluaciones Involution</span>
+        <span class="brand-badge">Últimas 6 semanas visibles</span>
       </div>
     </div>
   </div>
@@ -2398,6 +2398,16 @@ def render_evaluation_source_selector(key: str, jump_df: pd.DataFrame | None) ->
     return selected or present[default_index]
 
 
+# Rotulos de producto para el feed de alertas (los codigos internos no se muestran).
+ALERT_CATEGORY_LABELS = {
+    "evaluations": "Evaluaciones",
+    "data_quality": "Calidad de datos",
+    "load_risk": "Carga",
+    "adherence": "Adherencia",
+}
+ALERT_SEVERITY_LABELS = {"danger": "Alta", "warning": "Media", "info": "Baja"}
+
+
 def render_product_alert_feed(alerts: list[dict[str, object]], max_items: int | None = None, empty_text: str = "Sin alertas activas."):
     displayed = list(alerts or [])
     if max_items is not None:
@@ -2414,13 +2424,14 @@ def render_product_alert_feed(alerts: list[dict[str, object]], max_items: int | 
     for alert in displayed:
         severity = str(alert.get("severity", "info"))
         bg, border, text_color = palette.get(severity, palette["info"])
-        category = str(alert.get("category", "alert")).replace("_", " ").title()
+        raw_category = str(alert.get("category", "alert"))
+        category = ALERT_CATEGORY_LABELS.get(raw_category, raw_category.replace("_", " ").capitalize())
         athlete = str(alert.get("athlete") or "Equipo")
-        priority = int(alert.get("priority", 0))
+        severity_label = ALERT_SEVERITY_LABELS.get(severity, "Baja")
         title = html.escape(str(alert.get("title", "")))
         message = html.escape(str(alert.get("message", "")))
         action = html.escape(str(alert.get("action", "")))
-        action_html = f'<div style="margin-top:0.35rem;color:{text_color};font-weight:650;">Accion: {action}</div>' if action else ""
+        action_html = f'<div style="margin-top:0.35rem;color:{text_color};font-weight:650;">Acción: {action}</div>' if action else ""
         st.markdown(
             f"""
 <div style="
@@ -2431,7 +2442,7 @@ def render_product_alert_feed(alerts: list[dict[str, object]], max_items: int | 
   margin:0 0 0.55rem 0;
 ">
   <div style="font-size:0.75rem;letter-spacing:0.10em;text-transform:uppercase;color:{text_color};font-weight:750;">
-    {html.escape(category)} | {html.escape(severity.upper())} | Prioridad {priority} | {html.escape(athlete)}
+    {html.escape(category)} · Prioridad {html.escape(severity_label)} · {html.escape(athlete)}
   </div>
   <div style="font-size:0.98rem;font-weight:760;color:#221F20;margin-top:0.25rem;">{title}</div>
   <div style="font-size:0.9rem;line-height:1.5;color:#3F3D40;margin-top:0.18rem;">{message}</div>
@@ -5463,6 +5474,9 @@ def _development_profile_counts(
     frame = frame[frame["Date"] <= reference_date]
     if allowed_athletes is not None:
         frame = frame[frame["Athlete"].isin(set(allowed_athletes))]
+    # Historial por atleta con el mismo recorte que el PDF (professional_athlete_history),
+    # asi el perfil compuesto se comparte (memo por contenido) con Atleta y el PDF.
+    team_history = professional_athlete_history(prepared, "Todos")
 
     quadrant_map = build_quadrant_map(frame, profile_df, today=reference_date, goal_history=goal_history)
     by_quadrant: dict[str, list[str]] = {
@@ -5488,7 +5502,10 @@ def _development_profile_counts(
     by_pattern: dict[str, list[str]] = {code: [] for code in REACTIVITY_PATTERN_CODES}
     without_pattern: list[str] = []
     for athlete in sorted(frame["Athlete"].unique()):
-        history = frame[frame["Athlete"] == athlete].sort_values("Date")
+        history = professional_athlete_history(team_history, athlete)
+        if not history.empty and (history["Date"] > reference_date).any():
+            # Semana pasada: solo lo evaluado hasta esa fecha.
+            history = history[history["Date"] <= reference_date].reset_index(drop=True)
         composite_row, _sources = build_composite_profile_snapshot(history)
         codes = [] if composite_row is None else [
             code for code in shared_pattern_matches(composite_row) if code in by_pattern
@@ -5523,9 +5540,21 @@ def _render_development_profile_counts(
     profile_df = st.session_state.athlete_profile_df
     # _prepare_jump_df directo (memoizado por contenido), no ensure_prepared_jump_df:
     # ese guarda un unico frame por fuente y Equipo lo usa para la ultima toma.
-    prepared = shared_prepare_jump_df(
+    # Se prepara el plantel completo (el mismo frame que ya preparan los
+    # insights de Hoy: se reutiliza) y despues se filtra la fuente; da lo
+    # mismo que filtrar antes porque las cohortes ya se parten por fuente
+    # (tests/test_shared_profile.py lo verifica).
+    prepared = filter_jump_by_source(
+        shared_prepare_jump_df(st.session_state.jump_df, profile_df=profile_df),
+        source,
+    )
+    # Atleta > Resumen y el PDF preparan las evaluaciones ya filtradas por fuente:
+    # mismo resultado, se deja en el memo para que no lo recalculen.
+    prime_derived_cache(
+        "jump_analysis._prepare_jump_df",
+        prepared.reset_index(drop=True),
         filter_jump_by_source(st.session_state.jump_df, source),
-        profile_df=profile_df,
+        profile_df,
     )
     if prepared is None or prepared.empty:
         st.caption("Sin evaluaciones cargadas.")
@@ -5902,7 +5931,7 @@ def render_decision_panel(decision_eval_source: str):
                 "(más de un tercio), así que la diferencia mediría huecos de reporte, no carga."
             )
 
-    render_subsection_header("Variacion semanal", "como vienen vs semana anterior", kicker="Bloque 2")
+    render_subsection_header("Variación semanal", "carga de cada atleta contra la semana anterior", kicker="Bloque 2")
     if current_load.empty:
         st.caption("Sin datos de sRPE para comparar contra la semana anterior.")
     else:
@@ -5964,7 +5993,7 @@ def render_decision_panel(decision_eval_source: str):
                 f"* {excluded} atleta(s) sin comparación válida (sesiones sin sRPE esta semana o la anterior)."
             )
 
-    render_subsection_header("Perfiles de desarrollo", "quien necesita que tipo de trabajo", kicker="Bloque 3")
+    render_subsection_header("Perfiles de desarrollo", "atletas por cuadrante del mapa y por perfil de reactividad", kicker="Bloque 3")
     if jump_df is None or jump_df.empty:
         st.caption("Sin evaluaciones cargadas.")
     else:
@@ -5974,7 +6003,7 @@ def render_decision_panel(decision_eval_source: str):
             reference_date=reference_date,
         )
 
-    render_subsection_header("Distribucion de volumen", "quien tiene exceso o deficit por patron", kicker="Bloque 4")
+    render_subsection_header("Distribución de volumen", "volumen de la semana contra la historia de cada atleta, por patrón", kicker="Bloque 4")
     if current_external.empty:
         st.caption("Sin datos de carga externa para la semana seleccionada.")
     else:
@@ -5990,7 +6019,7 @@ def render_decision_panel(decision_eval_source: str):
         for volume_caption in volume_captions:
             st.caption(volume_caption)
 
-    render_subsection_header("Asistencia", "quien falto vs semana anterior", kicker="Bloque 5")
+    render_subsection_header("Asistencia", "sesiones de la semana contra la semana anterior", kicker="Bloque 5")
     if current_load.empty:
         st.caption("Sin datos de sesiones para la semana seleccionada.")
     else:
@@ -6027,7 +6056,7 @@ def render_decision_panel(decision_eval_source: str):
         )
         st.dataframe(attendance_styler, width='stretch', hide_index=True)
 
-    render_subsection_header("Wellness + carga", "quien llega mal esta semana", kicker="Bloque 6")
+    render_subsection_header("Wellness + carga", "bienestar medio contra carga de la semana", kicker="Bloque 6")
     if current_load.empty or current_wellness.empty:
         st.caption("Sin datos suficientes de wellness y carga para la semana seleccionada.")
     else:
@@ -6109,7 +6138,7 @@ def render_decision_panel(decision_eval_source: str):
             )
             st.dataframe(ratio_display, width='stretch', hide_index=True)
 
-    render_subsection_header("Evaluaciones pendientes", "quien lleva mas de 30 dias sin test", kicker="Bloque 7")
+    render_subsection_header("Evaluaciones pendientes", "días desde la última evaluación (pendiente desde 30, urgente desde 60)", kicker="Bloque 7")
     athletes_registry = athletes_registry_decision
     if jump_df is None or jump_df.empty:
         st.caption("Sin evaluaciones cargadas.")
@@ -6250,7 +6279,7 @@ def _render_hoy_signals(overview_eval_source: str) -> dict[str, object]:
     )
     source_inventory_tone = "success" if loaded_sources >= 5 and not overview_data_quality_alerts else "warning" if loaded_sources >= 3 else "danger"
     source_inventory_detail = (
-        "Inventario local suficiente para triage."
+        "Fuentes suficientes para la lectura de hoy."
         if not missing_sources else
         f"Faltan: {', '.join(missing_sources[:3])}{'...' if len(missing_sources) > 3 else ''}."
     )
@@ -6298,13 +6327,13 @@ def _render_hoy_signals(overview_eval_source: str) -> dict[str, object]:
             days_since_eval = int((app_today() - latest_eval).days)
             eval_athletes = int(jdf["Athlete"].dropna().nunique()) if "Athlete" in jdf.columns else 0
             eval_value = f"{latest_eval:%d/%m}"
-            eval_detail = f"Ultima toma · {eval_athletes} atleta(s) · hace {days_since_eval} dia(s)."
+            eval_detail = f"Última toma · {eval_athletes} atleta(s) · hace {days_since_eval} día(s)."
             eval_tone = "success" if days_since_eval <= 30 else "warning" if days_since_eval <= 60 else "danger"
 
-    render_subsection_header("Señales ejecutivas", "4-6 indicadores para decidir que mirar ahora", kicker="Ahora")
+    render_subsection_header("Señales ejecutivas", "seis indicadores para decidir qué mirar ahora", kicker="Ahora")
     executive_cards = [
         ("Fuentes cargadas", f"{loaded_sources}/{len(status_items)}", source_inventory_detail, source_inventory_tone),
-        ("Calidad/readiness", f"{len(overview_data_quality_alerts)} alerta(s)", quality_detail, quality_tone),
+        ("Calidad de datos", f"{len(overview_data_quality_alerts)} alerta(s)", quality_detail, quality_tone),
         ("Carga semanal", weekly_srpe, load_detail, load_tone),
         ("Adherencia", str(completion_signal["value"]), str(completion_signal["detail"]), str(completion_signal["tone"])),
         ("Wellness", wellness_value, wellness_detail, wellness_tone),
@@ -6316,7 +6345,7 @@ def _render_hoy_signals(overview_eval_source: str) -> dict[str, object]:
             with col:
                 render_overview_card(title, value, detail, tone)
 
-    render_subsection_header("Alertas priorizadas", "3-5 senales ejecutivas desde el motor P11", kicker="P11")
+    render_subsection_header("Alertas priorizadas", "las cinco alertas más importantes de la semana", kicker="Alertas")
     render_product_alert_feed(
         overview_executive_alerts,
         max_items=5,
@@ -6328,7 +6357,7 @@ def _render_hoy_signals(overview_eval_source: str) -> dict[str, object]:
         summary = (
             f"{overview_note['summary']} "
             f"Estado actual: {loaded_sources}/{len(status_items)} fuentes activas, "
-            f"{len(overview_alert_feed)} alerta(s) P11 y adherencia {completion_signal['value']}"
+            f"{len(overview_alert_feed)} alerta(s) activas y adherencia {completion_signal['value']}"
             + ("" if str(completion_signal["value"]).endswith(".") else ".")
         )
         # Sin focos: repetian las mismas alertas priorizadas de arriba.
@@ -6344,7 +6373,7 @@ def _render_hoy_signals(overview_eval_source: str) -> dict[str, object]:
 
 def _render_hoy_sources(status_items: list[tuple[str, bool]], rldf: pd.DataFrame | None) -> None:
     """Fuentes cargadas (antes arriba de Overview): al final de Hoy, colapsado."""
-    render_subsection_header("Fuentes cargadas", "inventario local; la calidad/readiness real viene del reporte P2", kicker="Datos")
+    render_subsection_header("Fuentes cargadas", "qué datos hay cargados, cuántos registros y hasta qué fecha", kicker="Datos")
     render_status_badges(status_items)
     modern_dataset_keys = ["rpe_df", "wellness_df", "completion_df", "raw_df", "session_notes_df", "maxes_df", "jump_df"]
     dataset_rows = _active_dataset_rows(keys=modern_dataset_keys)
@@ -6366,8 +6395,8 @@ def _render_hoy_view():
     """Hoy = Overview + Decision, con un solo selector de fuente de evaluacion."""
     render_module_header(
         "Hoy",
-        "senales, alertas y decisiones de la semana",
-        kicker="Triage",
+        "señales, alertas y decisiones de la semana",
+        kicker="Panel diario",
     )
     hoy_eval_source = render_evaluation_source_selector(
         "overview_eval_source", st.session_state.jump_df
@@ -6383,7 +6412,7 @@ def _render_hoy_view():
 # ─────────────────────────────────────────────────────────────────────
 def _render_athlete_load_tab(athlete_sel: str) -> None:
     """Atleta > Carga y bienestar: lo individual de Load (ACWR EWMA, monotonia/strain, wellness)."""
-    render_module_header("Monitoreo de Carga", "srpe · acwr · strain · monotonia", kicker="Modulo")
+    render_module_header("Carga y bienestar", "sRPE, ACWR EWMA, monotonía, strain y wellness del atleta", kicker="Atleta")
 
     history_mode = render_history_mode_selector(key="app_load_history_mode")
     load_state = ensure_history_mode_load_state(history_mode)
@@ -6484,7 +6513,7 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
                         )
                 render_subsection_header(
                     "Contexto semanal de carga",
-                    "carga semanal, cronica EWMA y ACWR EWMA (mismo grafico que el PDF profesional)",
+                    "carga semanal, crónica EWMA y ACWR EWMA (mismo gráfico que el PDF profesional)",
                     kicker="Semanal",
                 )
                 st.plotly_chart(
@@ -6503,7 +6532,7 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
                 with c_weekly_strain:
                     render_subsection_header(
                         "Strain semanal",
-                        "tension acumulada del microciclo",
+                        "tensión acumulada del microciclo",
                         kicker="Semanal",
                     )
                     st.plotly_chart(
@@ -6514,7 +6543,7 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
                 with c_weekly_well:
                     render_subsection_header(
                         "Wellness semanal",
-                        "promedios semanales de sueno, estres y dolor (cada uno con su escala)",
+                        "promedios semanales de sueño, estrés y dolor (cada uno con su escala)",
                         kicker="Semanal",
                     )
                     st.plotly_chart(
@@ -6543,7 +6572,7 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
                 if has_weekly_external:
                     render_subsection_header(
                         "Carga externa semanal",
-                        "agregado semanal por categoria operativa",
+                        "agregado semanal por categoría operativa",
                         kicker="Semanal",
                     )
                     st.plotly_chart(
@@ -6606,12 +6635,12 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
             st.markdown("---")
 
             # Gráfico ACWR
-            render_subsection_header("Tendencia de carga", "acwr ewma diario con contexto de sRPE", kicker="Analisis")
+            render_subsection_header("Tendencia de carga", "ACWR EWMA diario con contexto de sRPE", kicker="Análisis")
             st.plotly_chart(chart_acwr(acwr_df, athlete_sel), width='content', key="acwr_main")
 
             c_mono, c_well = st.columns(2)
             with c_mono:
-                render_subsection_header("Monotonia y strain", "variabilidad semanal de la carga interna", kicker="Microciclo")
+                render_subsection_header("Monotonía y strain", "variabilidad semanal de la carga interna", kicker="Microciclo")
                 st.plotly_chart(chart_monotony_strain(mono_df), width='content', key="monotony_main")
             with c_well:
                 if wdf is not None:
@@ -6620,7 +6649,7 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
                         if "Athlete" in wdf.columns else
                         pd.DataFrame()
                     )
-                    render_subsection_header("Wellness", "score con banda individual (media ± 1 DE, 28 dias previos)", kicker="Recuperacion")
+                    render_subsection_header("Wellness", "score con banda individual (media ± 1 DE, 28 días previos)", kicker="Recuperación")
                     st.plotly_chart(wellness_score_chart(w_sub, athlete_sel), width='content', key="wellness_main")
                     st.plotly_chart(wellness_components_chart(w_sub, athlete_sel), width='content', key="wellness_components_main")
                 else:
@@ -6637,8 +6666,8 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
             if raw_df_state is not None:
                 st.markdown("---")
                 render_subsection_header(
-                    "Carga externa por tipo de estimulo",
-                    "tonelaje, contactos y exposiciones por categoria",
+                    "Carga externa por tipo de estímulo",
+                    "tonelaje, contactos y exposiciones por categoría",
                     kicker="Volumen",
                 )
                 st.plotly_chart(chart_volume_by_tag(prepared_raw_df, athlete_sel), width='content', key="volume_tag")
@@ -6758,9 +6787,9 @@ def _render_evaluation_body(active_eval_source: str, athlete: str | None = None)
     eval_view_title = SOURCE_VIEW_LABELS[active_eval_source]
     # IMTP e ISO Push requieren celda de carga: no existen fuera de plataforma.
     eval_view_metrics = (
-        "cmj · sj · dj · eur · dri · imtp"
+        "CMJ, SJ, DJ, EUR, DRI e IMTP"
         if active_eval_source == SOURCE_PLATFORM
-        else "cmj · sj · dj · eur · dri"
+        else "CMJ, SJ, DJ, EUR y DRI"
     )
 
     if jdf is None or jdf.empty:
@@ -6789,7 +6818,7 @@ def _render_evaluation_body(active_eval_source: str, athlete: str | None = None)
 
         render_module_header(
             eval_view_title,
-            f"{n_j} jugadores · {n_r} registros · {fecha_min} → {fecha_max}",
+            f"{n_j} atletas · {n_r} registros · {fecha_min} → {fecha_max}",
             kicker="Modulo",
         )
         st.caption(SOURCE_DESCRIPTIONS[active_eval_source])
@@ -6883,7 +6912,7 @@ def _render_evaluation_body(active_eval_source: str, athlete: str | None = None)
         )
         st.markdown("---")
         render_subsection_header(
-            "Evaluacion seleccionada",
+            "Evaluación seleccionada",
             "detalle puntual para la fecha elegida",
             kicker="Detalle",
         )
@@ -6918,7 +6947,7 @@ def _render_evaluation_body(active_eval_source: str, athlete: str | None = None)
                 col.metric(label, "—")
 
         render_subsection_header(
-            "Cambios vs evaluacion anterior",
+            "Cambios vs evaluación anterior",
             "lectura de cambio relevante por variable",
             kicker="Temporal",
         )
@@ -6950,7 +6979,7 @@ def _render_evaluation_body(active_eval_source: str, athlete: str | None = None)
         render_jump_feedback(selected_feedback_lines, kicker="Lectura de la fecha seleccionada")
 
         render_subsection_header(
-            "Detalle de la evaluacion seleccionada",
+            "Detalle de la evaluación seleccionada",
             "registro consolidado para la fecha elegida",
             kicker="Detalle",
         )
@@ -7018,7 +7047,7 @@ def _render_evaluation_body(active_eval_source: str, athlete: str | None = None)
         st.markdown("---")
         render_subsection_header(
             "Perfil actual compuesto",
-            "ultimo dato valido por variable, aunque provenga de fechas distintas",
+            "último dato válido por variable, aunque provenga de fechas distintas",
             kicker="Actual",
         )
         if current_profile_row is None:
@@ -7057,7 +7086,7 @@ def _render_evaluation_body(active_eval_source: str, athlete: str | None = None)
         st.markdown("---")
         render_subsection_header(
             "Historial temporal",
-            "evolucion por fecha de evaluacion",
+            "evolución por fecha de evaluación",
             kicker="Historia",
         )
         st.caption("Estos graficos dependen del atleta y de la fecha de evaluacion, no de la fecha seleccionada arriba.")
@@ -7119,7 +7148,7 @@ def _render_no_plataforma_view():
 
 def _render_athlete_summary_tab(ath_p: str) -> None:
     """Atleta > Resumen: lo que Profile mostraba arriba (contexto, Lo que lograste, evolucion...)."""
-    render_module_header("Perfil del Atleta", "radar · cuadrantes · kpis individuales", kicker="Modulo")
+    render_module_header("Resumen del atleta", "logros, evolución, posición en el grupo, ficha y última evaluación", kicker="Atleta")
 
     profile_eval_source = render_evaluation_source_selector(
         "profile_eval_source", st.session_state.jump_df
@@ -7214,7 +7243,7 @@ def _render_athlete_summary_tab(ath_p: str) -> None:
                 _alert("Sin datos de evaluaciones para este atleta. El radar requiere datos de saltos.", "b")
 
         with col_info:
-            render_subsection_header(ath_p, "contexto integrado de carga, wellness y evaluacion", kicker="Atleta")
+            render_subsection_header(ath_p, "contexto integrado de carga, wellness y evaluación", kicker="Atleta")
 
             if profile_eval_row is not None:
                 render_jump_flag_chips(build_jump_flag_rows(profile_eval_row))
@@ -7241,7 +7270,7 @@ def _render_athlete_summary_tab(ath_p: str) -> None:
 
             # Jump KPIs
             if last_j is not None:
-                render_subsection_header("KPIs de evaluacion", "ultima referencia consolidada del atleta", kicker="Rendimiento")
+                render_subsection_header("KPIs de evaluación", "valores de la última evaluación del atleta", kicker="Rendimiento")
                 kpi_display = {
                     "CMJ": ("CMJ_cm", "cm"), "SJ": ("SJ_cm", "cm"),
                     "DJ": ("DJ_cm", "cm"), "DJ RSI": ("DJ_RSI", "m/s"),
@@ -7289,7 +7318,7 @@ def _render_athlete_strength_tab(ath_p: str) -> None:
         if not maxes_ath.empty and "Exercise Name" in maxes_ath.columns:
             exercises_ath = sorted(maxes_ath.loc[:, "Exercise Name"].dropna().unique())
             if exercises_ath:
-                render_subsection_header("Maximos del atleta", "progresion historica por ejercicio", kicker="Fuerza")
+                render_subsection_header("Máximos del atleta", "progresión histórica por ejercicio", kicker="Fuerza")
                 max_ex = st.selectbox("Ejercicio maximo", exercises_ath, key="sel_profile_max_ex")
                 st.plotly_chart(
                     chart_maxes_trend(maxes_ath, max_ex),
@@ -7356,7 +7385,7 @@ def _render_team_map_tab(jdf: pd.DataFrame | None, team_eval_source: str) -> Non
     # ── Cuadrantes grupales ────────────────────────────────────────
     if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and len(jdf["Athlete"].unique()) > 1:
         st.markdown("---")
-        render_subsection_header("Cuadrantes de rendimiento", "mapas comparativos de fuerza y reactividad", kicker="Comparacion")
+        render_subsection_header("Cuadrantes de rendimiento", "mapa del gimnasio y cuadrante de reactividad (RSI-SJ)", kicker="Comparación")
 
         profile_df_for_team_cohort = st.session_state.athlete_profile_df
         latest = _team_latest_evaluations(jdf, team_eval_source)
@@ -7408,9 +7437,9 @@ def _render_team_map_tab(jdf: pd.DataFrame | None, team_eval_source: str) -> Non
 
     else:
         if jdf is None:
-            _alert("Cargá datos de evaluaciones para ver el team dashboard de rendimiento.", "b")
+            _alert("Cargá datos de evaluaciones para ver el rendimiento del equipo.", "b")
         else:
-            _alert("El team dashboard de cuadrantes requiere datos de múltiples atletas.", "b")
+            _alert("Los cuadrantes del equipo requieren datos de varios atletas.", "b")
 
 
 def _render_team_load_tab() -> None:
@@ -7418,7 +7447,7 @@ def _render_team_load_tab() -> None:
     rdf  = st.session_state.rpe_df
     # ── Tabla de carga grupal ──────────────────────────────────────
     if rdf is not None and st.session_state.acwr_dict:
-        render_subsection_header("Estado de carga", "foto actual del equipo a partir de la ultima sesion", kicker="Equipo")
+        render_subsection_header("Estado de carga", "foto actual del equipo a partir de la última sesión", kicker="Equipo")
         team_rows = []
         for ath, adf in st.session_state.acwr_dict.items():
             last = latest_training_day_row(adf)
@@ -7462,7 +7491,7 @@ def _render_team_rankings_tab(jdf: pd.DataFrame | None, team_eval_source: str) -
         # Ultima evaluacion cruda por atleta — el heatmap de abajo normaliza
         # a z y no deja ver el valor real en sus unidades.
         st.markdown("---")
-        render_subsection_header("Ultima evaluacion por atleta", "valores crudos, sin normalizar", kicker="Detalle")
+        render_subsection_header("Última evaluación por atleta", "valores crudos, sin normalizar", kicker="Detalle")
         raw_eval_cols = ["Athlete", "CMJ_cm", "SJ_cm", "DJ_cm", "DJ_RSI", "DRI", "IMTP_N", "NM_Profile"]
         raw_eval_cols_present = [col for col in raw_eval_cols if col in latest.columns]
         st.dataframe(
@@ -7473,7 +7502,7 @@ def _render_team_rankings_tab(jdf: pd.DataFrame | None, team_eval_source: str) -
 
         # Z-scores grupales
         st.markdown("---")
-        render_subsection_header("Ranking por Z-scores", "lectura comparativa entre atletas y variables", kicker="Ranking")
+        render_subsection_header("Ranking por Z-scores", "z contra la cohorte propia (8 o más atletas del mismo sexo e instrumento)", kicker="Ranking")
         st.caption("📊 Z-scores por cohorte de Deporte + Nivel — ver detalle en 'Referencias de comparacion' (Mapa y cuadrantes).")
         z_specs = [
             ("CMJ", "CMJ_Z"),
@@ -7519,9 +7548,9 @@ def _render_team_rankings_tab(jdf: pd.DataFrame | None, team_eval_source: str) -
             st.info(NO_COHORT_RANKING_TEXT)
     else:
         if jdf is None:
-            _alert("Cargá datos de evaluaciones para ver el team dashboard de rendimiento.", "b")
+            _alert("Cargá datos de evaluaciones para ver el rendimiento del equipo.", "b")
         else:
-            _alert("El team dashboard de cuadrantes requiere datos de múltiples atletas.", "b")
+            _alert("Los cuadrantes del equipo requieren datos de varios atletas.", "b")
 
     # Completion grupal
     if st.session_state.completion_df is not None:
@@ -7591,7 +7620,7 @@ def _render_team_rankings_tab(jdf: pd.DataFrame | None, team_eval_source: str) -
         exercises_team = sorted(maxes_df_team["Exercise Name"].dropna().unique())
         if exercises_team:
             st.markdown("---")
-            render_subsection_header("Progresion de maximos", "seguimiento de fuerza maxima del grupo", kicker="Fuerza")
+            render_subsection_header("Progresión de máximos", "seguimiento de fuerza máxima del grupo", kicker="Fuerza")
             ex_team = st.selectbox("Ejercicio", exercises_team, key="sel_team_max_ex")
             st.plotly_chart(
                 chart_maxes_trend(maxes_df_team, ex_team),
@@ -7606,7 +7635,7 @@ EQUIPO_TABS = ("Mapa y cuadrantes", "Carga del grupo", "Rankings")
 @st.fragment
 def _render_equipo_view():
     """Equipo = Team + lo grupal de Load."""
-    render_module_header("Team Dashboard", "comparacion · clasificacion · ranking grupal", kicker="Modulo")
+    render_module_header("Equipo", "mapa del gimnasio, carga del grupo y rankings", kicker="Plantel")
 
     team_eval_source = render_evaluation_source_selector(
         "team_eval_source", st.session_state.jump_df
@@ -7638,7 +7667,7 @@ elif active_main_view == VIEW_NO_PLATAFORMA:
 # TAB: REPORTE DESCARGABLE
 # ─────────────────────────────────────────────────────────────────────
 elif active_main_view == VIEW_REPORTES:
-    render_module_header("Reporte", "exportar datos para compartir con el cuerpo tecnico", kicker="Modulo")
+    render_module_header("Reportes", "exportar datos para compartir con el cuerpo técnico", kicker="Exportar")
 
     ensure_load_state(ensure_base_state=False)
     report_state = _current_report_state_snapshot(include_history_extras=True)
@@ -7679,7 +7708,7 @@ elif active_main_view == VIEW_REPORTES:
         st.caption(f"Cobertura temporal visible: {_report_time_window_label(report_state)}")
 
     with col_r2:
-        render_subsection_header("Contenido del reporte", "paquete curado y anexo tecnico opcional", kicker="Exportacion")
+        render_subsection_header("Contenido del reporte", "paquete curado y anexo técnico opcional", kicker="Exportación")
         include_technical_annex = st.checkbox(
             "Agregar anexo tecnico al Excel",
             value=False,
@@ -7742,7 +7771,7 @@ elif active_main_view == VIEW_REPORTES:
     elif not isinstance(cached_export_payload, dict):
         record_performance_debug_artifact("report_exportables", "no disponible")
 
-    render_subsection_header("Vista previa exportable", "bloques listos para excel y salida visual", kicker="Preview")
+    render_subsection_header("Vista previa exportable", "bloques listos para Excel y salida visual", kicker="Vista previa")
     preview_action_col, preview_status_col = st.columns([1, 2])
     with preview_action_col:
         preview_requested = st.button("Actualizar preview", disabled=effective_report_athlete is None)
@@ -7807,7 +7836,7 @@ elif active_main_view == VIEW_REPORTES:
 
     st.markdown("---")
 
-    render_subsection_header("Exportables", "excel curado y PDF visual solo bajo demanda", kicker="Generacion")
+    render_subsection_header("Exportables", "Excel curado y PDF visual solo bajo demanda", kicker="Generación")
     export_action_col, export_status_col = st.columns([1, 2])
     with export_action_col:
         export_requested = st.button("Preparar exportables", disabled=effective_report_athlete is None)
@@ -7918,7 +7947,7 @@ elif active_main_view == VIEW_REPORTES:
 
     # ── Qué falta para el reporte completo ──
     st.markdown("---")
-    render_subsection_header("Checklist de datos para reporte completo", "estado de las fuentes necesarias para una exportacion integral", kicker="Checklist")
+    render_subsection_header("Checklist de datos para reporte completo", "estado de las fuentes necesarias para una exportación integral", kicker="Checklist")
     checklist = [
         ("RPE + Tiempo (sRPE, ACWR EWMA)", st.session_state.rpe_df is not None),
         ("Wellness 3 preguntas", st.session_state.wellness_df is not None),
@@ -7943,9 +7972,9 @@ elif active_main_view == VIEW_REPORTES:
 # ─────────────────────────────────────────────────────────────────────
 elif active_main_view == VIEW_DATOS:
     render_module_header(
-        "Gestion de Historial",
-        "revisar, descargar, recortar y sincronizar el historial persistido",
-        kicker="Modulo",
+        "Datos",
+        "revisar, descargar, recortar y sincronizar el historial guardado",
+        kicker="Historial",
     )
     render_history_manager()
 
