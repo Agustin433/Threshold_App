@@ -28,9 +28,12 @@ class P2P9SemanticParityStaticTest(unittest.TestCase):
         overview = source[source.index("# TAB: OVERVIEW"):source.index("# TAB: LOAD MONITORING")]
 
         self.assertIn("Fuentes cargadas", overview)
-        self.assertIn("inventario local; la calidad/readiness real viene del reporte P2", overview)
-        self.assertIn("Calidad/readiness", overview)
+        # PR Q: copy de producto, sin jerga interna (P2/P11/readiness).
+        self.assertIn("qué datos hay cargados, cuántos registros y hasta qué fecha", overview)
+        self.assertIn("Calidad de datos", overview)
         self.assertNotIn("Readiness de fuentes", overview)
+        for jargon in ("reporte P2", "motor P11", 'kicker="P11"', "Calidad/readiness"):
+            self.assertNotIn(jargon, overview)
 
     def test_decision_ranking_de_ejecucion_was_removed(self):
         # PR P: se saco el Bloque 7 "Ranking de ejecucion registrada".

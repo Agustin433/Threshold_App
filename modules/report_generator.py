@@ -1070,7 +1070,7 @@ def _readiness_payload(quality_report: dict[str, object]) -> dict[str, object]:
     if dataset_summary is None or dataset_summary.empty:
         return {
             "label": "Limitado",
-            "detail": "Sin fuentes validas para evaluar readiness.",
+            "detail": "Sin fuentes válidas para evaluar la calidad de datos.",
             "loaded_count": 0,
             "partial_count": 0,
             "total_count": 0,
@@ -2146,7 +2146,7 @@ def build_report_executive_sheet(
         scope_label,
         f"{report_audience_label(audience)} {'individual' if effective_athlete != 'Todos' else 'equipo'}".strip(),
     )
-    add_row("Readiness", "Estado del sistema", readiness["label"], readiness["detail"])
+    add_row("Calidad de datos", "Estado del sistema", readiness["label"], readiness["detail"])
 
     if effective_athlete == "Todos":
         current_team = _current_week_slice(weekly_summaries.get("weekly_team"))
@@ -2192,7 +2192,7 @@ def build_report_executive_sheet(
         quality_detail = _quality_detail_text(athlete_quality)
         if athlete_quality is not None:
             add_row(
-                "Readiness",
+                "Calidad de datos",
                 "Cobertura del atleta",
                 athlete_quality.get("Semaforo", "Sin dato"),
                 quality_detail or "Sin cobertura reciente para resumir.",
@@ -4317,13 +4317,13 @@ def generate_module_insights(
 
     if effective_athlete == "Todos":
         overview_summary = (
-            f"Readiness {readiness['label'].lower()}: {readiness['detail']} "
+            f"Estado de los datos: {readiness['label'].lower()}. {readiness['detail']} "
             f"Semana actual con {_display_metric(current_team_row.get('athletes_active'), digits=0)} atleta(s) activos."
             if active_datasets else
             "Todavía no hay información suficiente para construir una lectura ejecutiva."
         )
         overview_focuses = [
-            "Priorizar la semana actual, adherencia y readiness antes de compartir el reporte.",
+            "Priorizar la semana actual, adherencia y calidad de datos antes de compartir el reporte.",
             alerts[0] if alerts else "La base actual ya permite una lectura integrada de carga, bienestar y rendimiento.",
         ]
     else:
@@ -4337,14 +4337,14 @@ def generate_module_insights(
             ]
         )
         overview_summary = (
-            f"Readiness {readiness['label'].lower()} para {effective_athlete}. "
+            f"Estado de los datos: {readiness['label'].lower()} para {effective_athlete}. "
             f"{' | '.join(weekly_parts)}."
             if active_datasets else
             f"Todavía no hay información suficiente para construir una lectura ejecutiva de {effective_athlete}."
         )
         overview_focuses = [
             quality_text or "Cuidar continuidad de carga, adherencia y evaluaciones dentro de la misma ventana operativa.",
-            alerts[0] if alerts else "El reporte prioriza semana actual, última evaluación útil y readiness del atleta.",
+            alerts[0] if alerts else "El reporte prioriza semana actual, última evaluación útil y calidad de datos del atleta.",
         ]
 
     insights: dict[str, dict[str, object]] = {
@@ -4518,7 +4518,7 @@ def generate_module_insights(
 
     if audience == "profe":
         target = effective_athlete if effective_athlete != "Todos" else "el equipo"
-        report_summary = f"Versión técnica curada para {target}, priorizando semana actual, última evaluación útil, adherencia y readiness."
+        report_summary = f"Versión técnica curada para {target}, priorizando semana actual, última evaluación útil, adherencia y calidad de datos."
         report_focuses = [
             "El corazón del reporte resume semana actual, evaluación útil, adherencia y calidad del dato.",
             "El anexo técnico queda opt-in para no convertir el export en un dump de tablas.",
@@ -5624,9 +5624,23 @@ def _professional_jump_history(state: dict[str, pd.DataFrame | None], athlete: s
         data = _prepare_jump_df(jdf.copy(), profile_df=_state_profile_df(state))
     except Exception:
         data = jdf.copy()
-    if data.empty or "Date" not in data.columns or "Athlete" not in data.columns:
+    result = professional_athlete_history(data, athlete)
+    if result.empty:
+        return result
+    state[cache_key] = result
+    return result
+
+
+def professional_athlete_history(prepared: pd.DataFrame | None, athlete: str) -> pd.DataFrame:
+    """Historial de un atleta (o "Todos") a partir de evaluaciones ya preparadas.
+
+    Es el recorte que usa el PDF; Hoy (Perfiles de desarrollo) lo reutiliza
+    para que el perfil compuesto de cada atleta se calcule sobre exactamente
+    el mismo frame y se comparta (memo por contenido).
+    """
+    if prepared is None or prepared.empty or "Date" not in prepared.columns or "Athlete" not in prepared.columns:
         return pd.DataFrame()
-    data = data.copy()
+    data = prepared.copy()
     data["Date"] = pd.to_datetime(data["Date"], errors="coerce").dt.normalize()
     data["Athlete"] = data["Athlete"].astype(str).str.strip()
     data = data.dropna(subset=["Date"])
@@ -5634,9 +5648,7 @@ def _professional_jump_history(state: dict[str, pd.DataFrame | None], athlete: s
         data = data[_professional_athlete_mask(data["Athlete"], athlete)]
     if data.empty:
         return pd.DataFrame()
-    result = data.sort_values(["Athlete", "Date"]).reset_index(drop=True)
-    state[cache_key] = result
-    return result
+    return data.sort_values(["Athlete", "Date"]).reset_index(drop=True)
 
 
 def _professional_latest_team_jump_rows(state: dict[str, pd.DataFrame | None]) -> pd.DataFrame:
@@ -13408,7 +13420,7 @@ def _generate_visual_report_pdf_reportlab(
         data = [
             [
                 _p(f"Semana actual\n{week_value}", "ReportMuted"),
-                _p(f"Readiness\n{readiness['label']}", "ReportMuted"),
+                _p(f"Calidad de datos\n{readiness['label']}", "ReportMuted"),
                 *([_p(f"{adherence_label}\n{completion_text}", "ReportMuted")] if completion_value is not None else []),
             ]
         ]

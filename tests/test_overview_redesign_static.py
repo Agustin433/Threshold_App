@@ -23,7 +23,7 @@ class OverviewRedesignStaticTest(unittest.TestCase):
         self.assertIn('"Hoy"', overview)
         self.assertIn("Fuentes cargadas", overview)
         self.assertIn('st.expander("Fuentes cargadas", expanded=False)', overview)
-        self.assertIn("Calidad/readiness", overview)
+        self.assertIn("Calidad de datos", overview)
         self.assertIn("Señales ejecutivas", overview)
         self.assertIn("Lectura integrada", overview)
         self.assertIn("render_decision_panel(hoy_eval_source)", overview)

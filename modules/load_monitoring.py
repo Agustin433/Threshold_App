@@ -354,14 +354,31 @@ def acwr_unavailable_reason(row: pd.Series | None) -> str:
     return "sin carga crónica"
 
 
-def _calendar_week_loads(series: pd.Series, week_end: pd.Timestamp) -> pd.Series:
-    end = pd.Timestamp(week_end).normalize()
-    start = end - pd.Timedelta(days=6)
+def _normalized_daily_loads(series: pd.Series) -> pd.Series:
     loads = series.copy()
     loads.index = pd.to_datetime(loads.index, errors="coerce").normalize()
-    loads = loads.dropna()
-    scoped = loads.loc[(loads.index >= start) & (loads.index <= end)]
-    if not scoped.empty:
+    return loads.dropna()
+
+
+def _calendar_week_loads(series: pd.Series, week_end: pd.Timestamp, *, normalized: bool = False) -> pd.Series:
+    """Cargas diarias de la semana que termina en `week_end` (7 dias, 0 si no hubo).
+
+    `normalized=True`: `series` ya paso por `_normalized_daily_loads` (se
+    prepara una vez por atleta en vez de una vez por semana).
+    """
+    end = pd.Timestamp(week_end).normalize()
+    start = end - pd.Timedelta(days=6)
+    loads = series if normalized else _normalized_daily_loads(series)
+    if normalized and loads.index.is_monotonic_increasing:
+        # Indice ordenado: el recorte por posicion es el mismo que la mascara.
+        left = loads.index.searchsorted(start, side="left")
+        right = loads.index.searchsorted(end, side="right")
+        scoped = loads.iloc[left:right]
+    else:
+        scoped = loads.loc[(loads.index >= start) & (loads.index <= end)]
+    if not scoped.empty and not scoped.index.is_unique:
+        # Con un dia por fila (lo normal: la serie ya viene agregada por dia)
+        # sumar por dia no cambia nada.
         scoped = scoped.groupby(scoped.index).sum()
     return scoped.reindex(pd.date_range(start, end, freq="D"), fill_value=0.0)
 
@@ -390,7 +407,10 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
     series = daily.groupby("Date")["sRPE_diario"].sum().sort_index()
     weekly = series.resample("W").agg(["sum", "mean"]).reset_index()
     weekly.columns = ["Semana", "Carga_Total", "Media"]
-    calendar_loads_by_week = {week: _calendar_week_loads(series, week) for week, _ in series.resample("W")}
+    normalized_loads = _normalized_daily_loads(series)
+    calendar_loads_by_week = {
+        week: _calendar_week_loads(normalized_loads, week, normalized=True) for week, _ in series.resample("W")
+    }
     weekly["Media"] = weekly["Semana"].map(lambda week: float(calendar_loads_by_week[week].mean()))
     weekly["SD"] = weekly["Semana"].map(lambda week: float(calendar_loads_by_week[week].std(ddof=0)))
     monotony_by_week = {week: calculate_monotony(loads) for week, loads in calendar_loads_by_week.items()}

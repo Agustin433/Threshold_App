@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 
 import pandas as pd
 
@@ -59,12 +60,21 @@ def normalize_athlete_name(value: object) -> str:
     """Forma canonica de un nombre de atleta. Vacio ("") si no hay nombre."""
     if value is None:
         return ""
+    if type(value) is str:
+        # Funcion pura de la cadena: se memoiza (un export real repite el mismo
+        # nombre decenas de miles de veces y cada llamada recorre regex).
+        return _normalize_name_text(value)
     try:
         if pd.isna(value):
             return ""
     except (TypeError, ValueError):
         pass
-    text = unicodedata.normalize("NFC", str(value)).translate(_INVISIBLE_CHARS)
+    return _normalize_name_text(str(value))
+
+
+@lru_cache(maxsize=8192)
+def _normalize_name_text(raw: str) -> str:
+    text = unicodedata.normalize("NFC", raw).translate(_INVISIBLE_CHARS)
     words = text.split()
     if not words:
         return ""

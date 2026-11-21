@@ -925,7 +925,12 @@ def _resolve_acwr_models(
     resolved = acwr_dict or {}
     if resolved:
         return {normalize_athlete_name(name): df for name, df in resolved.items()}
-    built_acwr, _ = build_load_models(rpe_df)
+    # build_weekly_summaries llega aca dos veces con el mismo rpe_df (resumen y
+    # semana en curso): dentro de la app se memoiza por contenido y la segunda
+    # vez se reutiliza. Fuera de Streamlit es una llamada directa.
+    from modules.derived_cache import cached_call
+
+    built_acwr, _ = cached_call("local_store.build_load_models", build_load_models, rpe_df)
     return built_acwr
 
 

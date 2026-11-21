@@ -2913,6 +2913,19 @@ def _prepared_or_prepare(jump_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series | None, pd.DataFrame]:
+    """Perfil compuesto: ultimo dato valido por variable (con su fecha de origen).
+
+    Dentro de la app se calcula una vez por contenido del historial y se
+    comparte entre Hoy (Perfiles de desarrollo), Atleta (Evaluacion, Resumen)
+    y el payload del PDF: todos le pasan el mismo frame. Fuera de Streamlit
+    es una llamada directa.
+    """
+    from modules.derived_cache import cached_call
+
+    return cached_call("jump_analysis.build_composite_profile_snapshot", _compute_composite_profile_snapshot, jump_df)
+
+
+def _compute_composite_profile_snapshot(jump_df: pd.DataFrame) -> tuple[pd.Series | None, pd.DataFrame]:
     data = _prepared_or_prepare(jump_df)
     if data.empty:
         return None, pd.DataFrame(columns=["Variable", "Fecha origen"])
