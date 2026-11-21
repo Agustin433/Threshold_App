@@ -691,40 +691,43 @@ def add_flight_time_heights(df: pd.DataFrame) -> pd.DataFrame:
 # El campo "RSI" que exporta Valkyria (CMJ_RSI, 1.15-1.74 en datos reales) NO
 # es el RSI-mod de la literatura (altura / tiempo hasta el despegue, ~0.4-0.6):
 # se rotula "RSI (definicion Valkyria)" y nunca se compara con estudios.
-# El RSI-mod real se calcula aca: altura por tiempo de vuelo (m) / tiempo de
-# contraccion (s, inicio del movimiento -> despegue). Solo en tomas de
-# plataforma validas: sin peso valido la plataforma no detecta bien el inicio
-# del movimiento (la regla 6 ya anula CMJ_contraction_ms) y una altura que no
-# cierra con el vuelo marca una curva mal pesada.
+# El RSI-mod real se calcula aca: altura del CMJ por impulso-momento (CMJ_cm,
+# m) / tiempo de contraccion (s, inicio del movimiento -> despegue). Es el
+# mismo metodo de altura que McMahon, Ripley y Radovic. Solo en tomas de
+# plataforma validas de la era Involution con straps: con Valkyria el pesaje
+# era defectuoso (altura inflada +3/+5 cm y el inicio del movimiento se
+# detecta contra el peso). En Involution impulso - vuelo = -0.19 cm promedio.
+# Una toma sin peso valido o con altura que no cierra con el vuelo ya llega
+# con CMJ_cm/CMJ_contraction_ms en NaN (reglas 6 y 6b) y ademas se excluye
+# por su marca.
 CMJ_MRSI_COLUMN = "CMJ_mRSI"
 CMJ_RSI_VALKYRIA_LABEL = "RSI (definición Valkyria)"
-CMJ_MRSI_LABEL = "RSI-mod CMJ (vuelo / contracción)"
+CMJ_MRSI_LABEL = "RSI-mod CMJ (impulso / contracción)"
 
 
-def cmj_mrsi(flight_ms: object, contraction_ms: object) -> float | None:
-    """RSI-mod = (g * t_vuelo^2 / 8) / t_contraccion, en m/s."""
-    flight_height = _flight_time_height_cm(_number(flight_ms))
+def cmj_mrsi(cmj_cm: object, contraction_ms: object) -> float | None:
+    """RSI-mod = altura por impulso-momento (m) / tiempo de contraccion (s), en m/s."""
+    height = _number(cmj_cm)
     contraction = _number(contraction_ms)
-    if flight_height is None or contraction is None or contraction <= 0:
+    if height is None or height <= 0 or contraction is None or contraction <= 0:
         return None
-    return (flight_height / 100.0) / (contraction / 1000.0)
+    return (height / 100.0) / (contraction / 1000.0)
 
 
 def add_cmj_mrsi(df: pd.DataFrame) -> pd.DataFrame:
-    """CMJ_mRSI por fila; NaN si falta un dato o la toma no es valida."""
+    """CMJ_mRSI por fila; NaN si falta un dato, la toma no es valida o no es Involution."""
     if df is None or df.empty:
         return df
-    if "CMJ_flight_ms" not in df.columns or "CMJ_contraction_ms" not in df.columns:
+    if "CMJ_cm" not in df.columns or "CMJ_contraction_ms" not in df.columns:
         df[CMJ_MRSI_COLUMN] = np.nan
         return df
-    from modules.evaluation_sources import SOURCE_PLATFORM, normalize_source
+    from modules.measurement_eras import ERA_INVOLUTION_STRAPS, era_series
 
-    seconds = pd.to_numeric(df["CMJ_flight_ms"], errors="coerce") / 1000.0
+    height_m = pd.to_numeric(df["CMJ_cm"], errors="coerce") / 100.0
     contraction_s = pd.to_numeric(df["CMJ_contraction_ms"], errors="coerce") / 1000.0
-    height_m = GRAVITY_M_S2 * seconds * seconds / 8.0
-    valid = (seconds > 0) & (contraction_s > 0)
-    if "Source" in df.columns:
-        valid &= df["Source"].map(lambda value: normalize_source(value) == SOURCE_PLATFORM)
+    valid = (height_m > 0) & (contraction_s > 0)
+    # Fuera de plataforma la era es la propia fuente: tambien queda afuera.
+    valid &= era_series(df) == ERA_INVOLUTION_STRAPS
     for flag_column in (PLATFORM_BW_FLAG_COLUMN, JUMP_HEIGHT_FLAG_COLUMN):
         if flag_column in df.columns:
             valid &= ~df[flag_column].map(lambda value: "CMJ" in _parse_test_list(value))

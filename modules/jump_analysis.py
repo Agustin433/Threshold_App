@@ -3389,7 +3389,7 @@ def _compute_prepared_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | 
     result = apply_jump_height_consistency(result)
     # Serie por tiempo de vuelo para toda toma con vuelo (solo vuelo-vs-vuelo).
     result = add_flight_time_heights(result)
-    # RSI-mod real (vuelo / contraccion); el "RSI" de Valkyria no lo es.
+    # RSI-mod real (impulso / contraccion, solo Involution); el "RSI" de Valkyria no lo es.
     result = add_cmj_mrsi(result)
     result = sanitize_body_weight(result)
     result = impute_body_weight(result)

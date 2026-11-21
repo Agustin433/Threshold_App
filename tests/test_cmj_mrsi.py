@@ -2,10 +2,13 @@
 
 El "RSI" que exporta Valkyria (CMJ_RSI, 1.15-1.74 en datos reales) no es el
 RSI-mod de la literatura (altura / tiempo hasta el despegue, ~0.4-0.6).
-CMJ_mRSI = altura por tiempo de vuelo (m) / CMJ_contraction_ms (s).
+CMJ_mRSI = altura por impulso-momento (CMJ_cm, m) / CMJ_contraction_ms (s),
+solo en tomas validas de la era involution_straps (mismo metodo de altura que
+McMahon, Ripley y Radovic).
 
-Los tiempos de vuelo y contraccion de los casos se reconstruyeron para dar el
-RSI-mod informado de cada toma (los crudos no estan en el repo).
+Tomas Involution: valores reales (vuelo, contraccion y CMJ exportados).
+Tomas Valkyria: el RSI exportado es real; altura y contraccion son
+ilustrativas, porque en esa era el RSI-mod no se calcula nunca.
 """
 
 from __future__ import annotations
@@ -33,62 +36,75 @@ from modules.study_references import (
 )
 from modules.zscore_sources import REFERENCE_TABLES, context_references, lookup_reference
 
-# (atleta, fecha, RSI Valkyria exportado o None, vuelo ms, contraccion ms, RSI-mod esperado)
-CASES = (
-    ("Ladetto", "2026-05-18", 1.15, 500.0, 807.0, 0.38),
-    ("Ignacio", "2026-05-20", 1.73, 540.0, 550.0, 0.65),
-    ("Habib", "2026-10-23", None, 520.0, 626.0, 0.53),
-    ("Ignacio", "2026-10-08", None, 560.0, 487.0, 0.79),
-    ("Holgado", "2026-10-22", None, 600.0, 446.0, 0.99),
+# Tomas reales de Involution: (atleta, fecha, vuelo ms, contraccion ms, CMJ cm, RSI-mod)
+INVOLUTION_CASES = (
+    ("Habib", "2026-10-23", 499.0, 578.0, 30.44, 0.53),
+    ("Ignacio", "2026-10-08", 614.0, 583.0, 46.04, 0.79),
+    ("Holgado", "2026-10-22", 648.0, 520.0, 51.32, 0.99),
+)
+# Tomas Valkyria con straps: (atleta, fecha, RSI exportado por Valkyria, contraccion ms, CMJ cm)
+VALKYRIA_CASES = (
+    ("Ignacio", "2026-05-20", 1.73, 550.0, 39.0),
+    ("Ladetto", "2026-05-18", 1.15, 800.0, 33.0),
 )
 FUTBOLISTA = {"Sexo": "Masculino", "Deporte": "Fútbol", "Nivel": "Alto rendimiento"}
 
 
-class CmjMrsiTest(unittest.TestCase):
-    def test_cited_cases(self):
-        for athlete, date, _, flight, contraction, expected in CASES:
-            with self.subTest(athlete=athlete, date=date):
-                self.assertAlmostEqual(cmj_mrsi(flight, contraction), expected, places=2)
+def _row(athlete, date, contraction, cmj, **extra):
+    return {"Athlete": athlete, "Date": date, "Source": "platform", "BW_kg": 75.0,
+            "CMJ_contraction_ms": contraction, "CMJ_cm": cmj, "CMJ_takeoff_velocity_m_s": 2.5, **extra}
 
-    def test_valkyria_rsi_is_not_rsi_mod(self):
-        for athlete, date, valkyria_rsi, flight, contraction, _ in CASES:
-            if valkyria_rsi is None:
-                continue
+
+class CmjMrsiTest(unittest.TestCase):
+    def test_real_involution_cases(self):
+        for athlete, date, _, contraction, cmj, expected in INVOLUTION_CASES:
             with self.subTest(athlete=athlete, date=date):
-                self.assertGreater(valkyria_rsi / cmj_mrsi(flight, contraction), 2.5)
+                self.assertEqual(round(cmj_mrsi(cmj, contraction), 2), expected)
+
+    def test_uses_impulse_height_not_flight_height(self):
+        # Ignacio 08/10: por vuelo serian 46.23 cm; la altura usada es la de
+        # impulso-momento (46.04 cm), el metodo de los estudios.
+        frame = pd.DataFrame([_row("Ignacio", "2026-10-08", 583.0, 46.04, CMJ_flight_ms=614.0)])
+        self.assertAlmostEqual(add_cmj_mrsi(frame)[CMJ_MRSI_COLUMN].iloc[0], 0.4604 / 0.583, places=3)
 
     def test_needs_both_values(self):
         self.assertIsNone(cmj_mrsi(None, 600))
-        self.assertIsNone(cmj_mrsi(500, None))
-        self.assertIsNone(cmj_mrsi(500, 0))
+        self.assertIsNone(cmj_mrsi(30.0, None))
+        self.assertIsNone(cmj_mrsi(30.0, 0))
         self.assertIsNone(cmj_mrsi(0, 600))
 
-    def test_only_valid_platform_takes(self):
+    def test_only_valid_involution_platform_takes(self):
         frame = pd.DataFrame([
-            {"Source": "platform", "CMJ_flight_ms": 520.0, "CMJ_contraction_ms": 626.0},
-            {"Source": "nonplatform", "CMJ_flight_ms": 520.0, "CMJ_contraction_ms": 626.0},
-            {"Source": "platform", "CMJ_flight_ms": 520.0, "CMJ_contraction_ms": 626.0, PLATFORM_BW_FLAG_COLUMN: "CMJ"},
-            {"Source": "platform", "CMJ_flight_ms": 520.0, "CMJ_contraction_ms": None},
+            _row("Habib", "2026-10-23", 578.0, 30.44),
+            {**_row("Habib", "2026-10-23", 578.0, 30.44), "Source": "nonplatform"},
+            _row("Habib", "2026-10-23", 578.0, 30.44, **{PLATFORM_BW_FLAG_COLUMN: "CMJ"}),
+            _row("Habib", "2026-10-23", None, 30.44),
+            _row("Ladetto", "2026-05-18", 800.0, 33.0),
+            _row("Ladetto", "2026-10-23", 800.0, 33.0, Device="valkyria_straps"),
         ])
         values = add_cmj_mrsi(frame)[CMJ_MRSI_COLUMN].tolist()
-        self.assertAlmostEqual(values[0], 0.53, places=2)
+        self.assertEqual(round(values[0], 2), 0.53)
         self.assertTrue(all(pd.isna(value) for value in values[1:]))
 
-    def test_prepared_frame_computes_it_and_drops_it_without_valid_weight(self):
-        rows = []
-        for athlete, date, valkyria_rsi, flight, contraction, _ in CASES:
-            rows.append({"Athlete": athlete, "Date": date, "Source": "platform", "BW_kg": 75.0,
-                         "CMJ_flight_ms": flight, "CMJ_contraction_ms": contraction, "CMJ_RSI": valkyria_rsi,
-                         "CMJ_cm": round(9.81 * (flight / 1000) ** 2 / 8 * 100, 2),
-                         "CMJ_takeoff_velocity_m_s": 2.5})
-        # Toma sin peso valido: la plataforma no detecta bien el inicio del movimiento.
-        rows.append({**rows[2], "Date": "2026-10-30", "BW_kg": 0.0})
+    def test_prepared_frame_real_cases_and_valkyria_dash(self):
+        rows = [_row(a, d, c, h, CMJ_flight_ms=f) for a, d, f, c, h, _ in INVOLUTION_CASES]
+        rows += [_row(a, d, c, h, CMJ_RSI=rsi) for a, d, rsi, c, h in VALKYRIA_CASES]
+        # Toma Involution sin peso valido: fuera.
+        rows.append({**rows[0], "Date": "2026-10-30", "BW_kg": 0.0})
         prepared = _prepare_jump_df(pd.DataFrame(rows))
         by_key = {(r["Athlete"], str(pd.Timestamp(r["Date"]).date())): r for _, r in prepared.iterrows()}
-        for athlete, date, _, _, _, expected in CASES:
+        for athlete, date, _, _, _, expected in INVOLUTION_CASES:
             with self.subTest(athlete=athlete, date=date):
-                self.assertAlmostEqual(by_key[(athlete, date)][CMJ_MRSI_COLUMN], expected, places=2)
+                self.assertEqual(round(float(by_key[(athlete, date)][CMJ_MRSI_COLUMN]), 2), expected)
         self.assertTrue(pd.isna(by_key[("Habib", "2026-10-30")][CMJ_MRSI_COLUMN]))
+        for athlete, date, rsi, _, _ in VALKYRIA_CASES:
+            with self.subTest(athlete=athlete, date=date):
+                row = by_key[(athlete, date)]
+                self.assertTrue(pd.isna(row[CMJ_MRSI_COLUMN]))
+                self.assertAlmostEqual(float(row["CMJ_RSI"]), rsi)
+                comparison = study_comparison("CMJ_mRSI", row[CMJ_MRSI_COLUMN], profile=FUTBOLISTA,
+                                              source="platform", era=ERA_VALKYRIA_STRAPS)
+                self.assertEqual(comparison.text, STUDY_EMPTY)
 
     def test_era_rules_for_studies(self):
         self.assertTrue(is_era_dependent("CMJ_mRSI"))

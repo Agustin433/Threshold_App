@@ -43,7 +43,7 @@ STUDY_NOT_COMPARABLE_NOTE = (
 )
 
 # Metricas de la app con tabla publicada. CMJ_mRSI es el RSI-mod real
-# (altura por vuelo / tiempo de contraccion, m/s). CMJ_RSI es el "RSI" de
+# (altura por impulso-momento / tiempo de contraccion, m/s). CMJ_RSI es el "RSI" de
 # Valkyria (otra definicion, 1.15-1.74): NUNCA se compara con estudios.
 STUDY_METRICS: tuple[str, ...] = ("CMJ_cm", "CMJ_mRSI")
 NEVER_COMPARED_WITH_STUDIES: frozenset[str] = frozenset({"CMJ_RSI"})
@@ -198,7 +198,7 @@ COL_STUDIES = "vs estudios"
 # (etiqueta, columna de valor, campo de z canonico)
 RANKING_METRICS: tuple[tuple[str, str, str], ...] = (
     ("CMJ (cm)", "CMJ_cm", "CMJ_Z"),
-    ("RSI-mod CMJ (vuelo / contracción, m/s)", "CMJ_mRSI", "CMJ_mRSI_Z"),
+    ("RSI-mod CMJ (impulso / contracción, m/s)", "CMJ_mRSI", "CMJ_mRSI_Z"),
     ("SJ (cm)", "SJ_cm", "SJ_Z"),
     ("DJ tiempo de contacto (ms)", "DJ_tc_ms", "TC_inv_Z"),
     ("EUR (CMJ/SJ)", "EUR", "EUR_Z"),
