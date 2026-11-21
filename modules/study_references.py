@@ -42,8 +42,11 @@ STUDY_NOT_COMPARABLE_NOTE = (
     "midieron en plataforma por impulso-momento, con pesaje correcto."
 )
 
-# Metricas de la app con tabla publicada. CMJ_RSI es el RSI-mod (m/s).
-STUDY_METRICS: tuple[str, ...] = ("CMJ_cm", "CMJ_RSI")
+# Metricas de la app con tabla publicada. CMJ_mRSI es el RSI-mod real
+# (altura por vuelo / tiempo de contraccion, m/s). CMJ_RSI es el "RSI" de
+# Valkyria (otra definicion, 1.15-1.74): NUNCA se compara con estudios.
+STUDY_METRICS: tuple[str, ...] = ("CMJ_cm", "CMJ_mRSI")
+NEVER_COMPARED_WITH_STUDIES: frozenset[str] = frozenset({"CMJ_RSI"})
 
 _MCMAHON = "McMahon et al. 2022, Sensors 22(22):8669, doi:10.3390/s22228669"
 _RIPLEY = "Ripley et al. 2025, Biomechanics 5(2):32"
@@ -77,19 +80,19 @@ STUDY_REFERENCES: tuple[dict[str, object], ...] = (
            "McMahon 2022, rugby league pro (forwards)", _MCMAHON),
     _entry("CMJ_cm", "Rugby League", "Alto rendimiento", Sexo.MASCULINO, "backs", 36.4, 4.5, 55,
            "McMahon 2022, rugby league pro (backs)", _MCMAHON),
-    _entry("CMJ_RSI", "Rugby League", "Alto rendimiento", Sexo.MASCULINO, "forwards", 0.44, 0.08, 66,
+    _entry("CMJ_mRSI", "Rugby League", "Alto rendimiento", Sexo.MASCULINO, "forwards", 0.44, 0.08, 66,
            "McMahon 2022, rugby league pro (forwards)", _MCMAHON),
-    _entry("CMJ_RSI", "Rugby League", "Alto rendimiento", Sexo.MASCULINO, "backs", 0.49, 0.08, 55,
+    _entry("CMJ_mRSI", "Rugby League", "Alto rendimiento", Sexo.MASCULINO, "backs", 0.49, 0.08, 55,
            "McMahon 2022, rugby league pro (backs)", _MCMAHON),
     # Ripley 2025: futbol pro/semipro, Hawkin; combinado de la tabla 2.
     _entry("CMJ_cm", "Fútbol", "Alto rendimiento", Sexo.MASCULINO, "pro/semipro", 38.5, 5.5, 76,
            "Ripley 2025, fútbol semi/pro", _RIPLEY),
-    _entry("CMJ_RSI", "Fútbol", "Alto rendimiento", Sexo.MASCULINO, "pro/semipro", 0.58, 0.11, 76,
+    _entry("CMJ_mRSI", "Fútbol", "Alto rendimiento", Sexo.MASCULINO, "pro/semipro", 0.58, 0.11, 76,
            "Ripley 2025, fútbol semi/pro", _RIPLEY),
     # Radovic 2024: handball profesional femenino, VALD.
     _entry("CMJ_cm", "Handball", "Alto rendimiento", Sexo.FEMENINO, "pro", 26.7, 4.0, 42,
            "Radovic 2024, handball pro fem.", _RADOVIC),
-    _entry("CMJ_RSI", "Handball", "Alto rendimiento", Sexo.FEMENINO, "pro", 0.376, 0.091, 42,
+    _entry("CMJ_mRSI", "Handball", "Alto rendimiento", Sexo.FEMENINO, "pro", 0.376, 0.091, 42,
            "Radovic 2024, handball pro fem.", _RADOVIC),
 )
 
@@ -123,7 +126,7 @@ def closest_study(metric: str, *, deporte: object, sexo: object) -> dict[str, ob
     Sin sexo, sin deporte reconocido o fuera de los grupos con tabla: None.
     """
     sexo_key = normalize_sexo(sexo)
-    if sexo_key is Sexo.NO_ESPECIFICADO or metric not in STUDY_METRICS:
+    if sexo_key is Sexo.NO_ESPECIFICADO or metric not in STUDY_METRICS or metric in NEVER_COMPARED_WITH_STUDIES:
         return None
     candidates = [
         entry for entry in STUDY_REFERENCES
@@ -195,7 +198,7 @@ COL_STUDIES = "vs estudios"
 # (etiqueta, columna de valor, campo de z canonico)
 RANKING_METRICS: tuple[tuple[str, str, str], ...] = (
     ("CMJ (cm)", "CMJ_cm", "CMJ_Z"),
-    ("RSI-mod CMJ (m/s)", "CMJ_RSI", "CMJ_RSI_Z"),
+    ("RSI-mod CMJ (vuelo / contracción, m/s)", "CMJ_mRSI", "CMJ_mRSI_Z"),
     ("SJ (cm)", "SJ_cm", "SJ_Z"),
     ("DJ tiempo de contacto (ms)", "DJ_tc_ms", "TC_inv_Z"),
     ("EUR (CMJ/SJ)", "EUR", "EUR_Z"),

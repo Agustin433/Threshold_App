@@ -46,7 +46,7 @@ class StudyComparisonTest(unittest.TestCase):
         result = _cmp("CMJ_cm", 33.5, FUTBOLISTA)
         self.assertEqual(result.text, "87% · Ripley 2025, fútbol semi/pro · z -0.9")
         self.assertAlmostEqual(result.z, (33.5 - 38.5) / 5.5)
-        rsi = _cmp("CMJ_RSI", 0.58, FUTBOLISTA)
+        rsi = _cmp("CMJ_mRSI", 0.58, FUTBOLISTA)
         self.assertEqual(rsi.text, "100% · Ripley 2025, fútbol semi/pro · z +0.0")
 
     def test_futbolista_of_another_level_gets_context_without_z(self):
@@ -57,7 +57,7 @@ class StudyComparisonTest(unittest.TestCase):
     def test_handbolista_against_radovic(self):
         result = _cmp("CMJ_cm", 30.0, HANDBOLISTA)
         self.assertEqual(result.text, "112% · Radovic 2024, handball pro fem. · z +0.8")
-        rsi = _cmp("CMJ_RSI", 0.376, {**HANDBOLISTA, "Nivel": "Recreativo"})
+        rsi = _cmp("CMJ_mRSI", 0.376, {**HANDBOLISTA, "Nivel": "Recreativo"})
         self.assertEqual(rsi.text, "100% · Radovic 2024, handball pro fem.")
 
     def test_athlete_without_table_gets_a_dash(self):
@@ -92,7 +92,7 @@ class StudyComparisonTest(unittest.TestCase):
 
     def test_mcmahon_values_match_the_literature_table(self):
         published = {(e["metric"], e["subgroup"]): (e["mean"], e["sd"], e["n"])
-                     for e in REFERENCE_TABLES if e["metric"] in {"CMJ_cm", "CMJ_RSI"}}
+                     for e in REFERENCE_TABLES if e["metric"] in {"CMJ_cm", "CMJ_mRSI"}}
         for entry in STUDY_REFERENCES:
             if entry["cite"].startswith("McMahon"):
                 with self.subTest(entry=entry["cite"], metric=entry["metric"]):

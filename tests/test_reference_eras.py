@@ -175,7 +175,7 @@ class LadderTests(unittest.TestCase):
 
 class EraTests(unittest.TestCase):
     def test_era_dependent_metrics(self):
-        for metric in ("IMTP_N", "IMTP_relPF", "IMTP_rfd_50_N_s", "CMJ_cm", "SJ_cm", "CMJ_peak_power_W", "CMJ_RSI", "EUR"):
+        for metric in ("IMTP_N", "IMTP_relPF", "IMTP_rfd_50_N_s", "CMJ_cm", "SJ_cm", "CMJ_peak_power_W", "CMJ_RSI", "CMJ_mRSI", "EUR"):
             self.assertTrue(is_era_dependent(metric), metric)
         for metric in ("CMJ_ft_cm", "SJ_ft_cm", "DJ_cm", "DJ_RSI", "DJ_tc_ms", "CMJ_flight_ms", "CMJ_peak_force_N"):
             self.assertFalse(is_era_dependent(metric), metric)
@@ -274,21 +274,21 @@ class LiteratureTests(unittest.TestCase):
         self.assertTrue(any("normalizacion" in error for error in validate_reference_tables(bad)))
 
     def test_mcmahon_mrsi(self):
-        entries = [entry for entry in REFERENCE_TABLES if entry["metric"] == "CMJ_RSI"]
+        entries = [entry for entry in REFERENCE_TABLES if entry["metric"] == "CMJ_mRSI"]
         self.assertEqual({(e["subgroup"], e["mean"], e["sd"], e["n"]) for e in entries},
                          {("forwards", 0.44, 0.08, 66), ("backs", 0.49, 0.08, 55)})
         self.assertTrue(all("10.3390/s22228669" in str(e["source"]) for e in entries))
 
     def test_era_must_be_compatible(self):
         kwargs = dict(deporte="Rugby League", nivel="Alto rendimiento", sexo="Masculino", use="z")
-        self.assertIsNotNone(lookup_reference("CMJ_RSI", era=ERA_INVOLUTION_STRAPS, **kwargs))
-        self.assertIsNone(lookup_reference("CMJ_RSI", era=ERA_VALKYRIA_STRAPS, **kwargs))
+        self.assertIsNotNone(lookup_reference("CMJ_mRSI", era=ERA_INVOLUTION_STRAPS, **kwargs))
+        self.assertIsNone(lookup_reference("CMJ_mRSI", era=ERA_VALKYRIA_STRAPS, **kwargs))
 
     def test_higher_level_is_context_only(self):
         # Burgos (rugby recreativo): McMahon es contexto, nunca z.
-        self.assertIsNone(lookup_reference("CMJ_RSI", deporte="Rugby", nivel="Recreativo", sexo="Masculino",
+        self.assertIsNone(lookup_reference("CMJ_mRSI", deporte="Rugby", nivel="Recreativo", sexo="Masculino",
                                            era=ERA_INVOLUTION_STRAPS, use="z"))
-        self.assertEqual(len(context_references("CMJ_RSI", deporte="Rugby", sexo="Masculino")), 2)
+        self.assertEqual(len(context_references("CMJ_mRSI", deporte="Rugby", sexo="Masculino")), 2)
 
 
 class FormTests(unittest.TestCase):

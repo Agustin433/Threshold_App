@@ -687,6 +687,58 @@ def add_flight_time_heights(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ── RSI-mod del CMJ ───────────────────────────────────────────────────────
+# El campo "RSI" que exporta Valkyria (CMJ_RSI, 1.15-1.74 en datos reales) NO
+# es el RSI-mod de la literatura (altura / tiempo hasta el despegue, ~0.4-0.6):
+# se rotula "RSI (definicion Valkyria)" y nunca se compara con estudios.
+# El RSI-mod real se calcula aca: altura por tiempo de vuelo (m) / tiempo de
+# contraccion (s, inicio del movimiento -> despegue). Solo en tomas de
+# plataforma validas: sin peso valido la plataforma no detecta bien el inicio
+# del movimiento (la regla 6 ya anula CMJ_contraction_ms) y una altura que no
+# cierra con el vuelo marca una curva mal pesada.
+CMJ_MRSI_COLUMN = "CMJ_mRSI"
+CMJ_RSI_VALKYRIA_LABEL = "RSI (definición Valkyria)"
+CMJ_MRSI_LABEL = "RSI-mod CMJ (vuelo / contracción)"
+
+
+def cmj_mrsi(flight_ms: object, contraction_ms: object) -> float | None:
+    """RSI-mod = (g * t_vuelo^2 / 8) / t_contraccion, en m/s."""
+    flight_height = _flight_time_height_cm(_number(flight_ms))
+    contraction = _number(contraction_ms)
+    if flight_height is None or contraction is None or contraction <= 0:
+        return None
+    return (flight_height / 100.0) / (contraction / 1000.0)
+
+
+def add_cmj_mrsi(df: pd.DataFrame) -> pd.DataFrame:
+    """CMJ_mRSI por fila; NaN si falta un dato o la toma no es valida."""
+    if df is None or df.empty:
+        return df
+    if "CMJ_flight_ms" not in df.columns or "CMJ_contraction_ms" not in df.columns:
+        df[CMJ_MRSI_COLUMN] = np.nan
+        return df
+    from modules.evaluation_sources import SOURCE_PLATFORM, normalize_source
+
+    seconds = pd.to_numeric(df["CMJ_flight_ms"], errors="coerce") / 1000.0
+    contraction_s = pd.to_numeric(df["CMJ_contraction_ms"], errors="coerce") / 1000.0
+    height_m = GRAVITY_M_S2 * seconds * seconds / 8.0
+    valid = (seconds > 0) & (contraction_s > 0)
+    if "Source" in df.columns:
+        valid &= df["Source"].map(lambda value: normalize_source(value) == SOURCE_PLATFORM)
+    for flag_column in (PLATFORM_BW_FLAG_COLUMN, JUMP_HEIGHT_FLAG_COLUMN):
+        if flag_column in df.columns:
+            valid &= ~df[flag_column].map(lambda value: "CMJ" in _parse_test_list(value))
+    df[CMJ_MRSI_COLUMN] = (height_m / contraction_s).where(valid).round(3)
+    return df
+
+
+def _parse_test_list(value: object) -> list[str]:
+    text = str(value or "").strip()
+    if not text or text.lower() == "nan":
+        return []
+    return [part.strip().upper() for part in text.split(",")]
+
+
 def jump_height_reported_column(test: str) -> str:
     return f"{test}_cm_reported"
 
