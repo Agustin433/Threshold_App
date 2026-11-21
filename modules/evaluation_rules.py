@@ -687,6 +687,61 @@ def add_flight_time_heights(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ── RSI-mod del CMJ ───────────────────────────────────────────────────────
+# El campo "RSI" que exporta Valkyria (CMJ_RSI, 1.15-1.74 en datos reales) NO
+# es el RSI-mod de la literatura (altura / tiempo hasta el despegue, ~0.4-0.6):
+# se rotula "RSI (definicion Valkyria)" y nunca se compara con estudios.
+# El RSI-mod real se calcula aca: altura del CMJ por impulso-momento (CMJ_cm,
+# m) / tiempo de contraccion (s, inicio del movimiento -> despegue). Es el
+# mismo metodo de altura que McMahon, Ripley y Radovic. Solo en tomas de
+# plataforma validas de la era Involution con straps: con Valkyria el pesaje
+# era defectuoso (altura inflada +3/+5 cm y el inicio del movimiento se
+# detecta contra el peso). En Involution impulso - vuelo = -0.19 cm promedio.
+# Una toma sin peso valido o con altura que no cierra con el vuelo ya llega
+# con CMJ_cm/CMJ_contraction_ms en NaN (reglas 6 y 6b) y ademas se excluye
+# por su marca.
+CMJ_MRSI_COLUMN = "CMJ_mRSI"
+CMJ_RSI_VALKYRIA_LABEL = "RSI (definición Valkyria)"
+CMJ_MRSI_LABEL = "RSI-mod CMJ (impulso / contracción)"
+
+
+def cmj_mrsi(cmj_cm: object, contraction_ms: object) -> float | None:
+    """RSI-mod = altura por impulso-momento (m) / tiempo de contraccion (s), en m/s."""
+    height = _number(cmj_cm)
+    contraction = _number(contraction_ms)
+    if height is None or height <= 0 or contraction is None or contraction <= 0:
+        return None
+    return (height / 100.0) / (contraction / 1000.0)
+
+
+def add_cmj_mrsi(df: pd.DataFrame) -> pd.DataFrame:
+    """CMJ_mRSI por fila; NaN si falta un dato, la toma no es valida o no es Involution."""
+    if df is None or df.empty:
+        return df
+    if "CMJ_cm" not in df.columns or "CMJ_contraction_ms" not in df.columns:
+        df[CMJ_MRSI_COLUMN] = np.nan
+        return df
+    from modules.measurement_eras import ERA_INVOLUTION_STRAPS, era_series
+
+    height_m = pd.to_numeric(df["CMJ_cm"], errors="coerce") / 100.0
+    contraction_s = pd.to_numeric(df["CMJ_contraction_ms"], errors="coerce") / 1000.0
+    valid = (height_m > 0) & (contraction_s > 0)
+    # Fuera de plataforma la era es la propia fuente: tambien queda afuera.
+    valid &= era_series(df) == ERA_INVOLUTION_STRAPS
+    for flag_column in (PLATFORM_BW_FLAG_COLUMN, JUMP_HEIGHT_FLAG_COLUMN):
+        if flag_column in df.columns:
+            valid &= ~df[flag_column].map(lambda value: "CMJ" in _parse_test_list(value))
+    df[CMJ_MRSI_COLUMN] = (height_m / contraction_s).where(valid).round(3)
+    return df
+
+
+def _parse_test_list(value: object) -> list[str]:
+    text = str(value or "").strip()
+    if not text or text.lower() == "nan":
+        return []
+    return [part.strip().upper() for part in text.split(",")]
+
+
 def jump_height_reported_column(test: str) -> str:
     return f"{test}_cm_reported"
 
