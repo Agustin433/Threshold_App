@@ -84,6 +84,7 @@ WHERE = {
     ("Equipo", "Rankings"): [
         "Última evaluación por atleta",  # Team
         "Ranking por Z-scores",          # Team
+        "Ranking por métrica",           # PR R
         "Adherencia y completion",       # Team
         "Progresión de máximos",         # Team
     ],
