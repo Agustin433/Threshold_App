@@ -174,7 +174,7 @@ REFERENCE_TABLES: tuple[dict[str, object], ...] = (
         "nivel_uso": "z",
     },
     {
-        "metric": "CMJ_RSI",
+        "metric": "CMJ_mRSI",
         "deporte": "Rugby League",
         "nivel": "Alto rendimiento",
         "sexo": Sexo.MASCULINO,
@@ -188,7 +188,7 @@ REFERENCE_TABLES: tuple[dict[str, object], ...] = (
         "nivel_uso": "z",
     },
     {
-        "metric": "CMJ_RSI",
+        "metric": "CMJ_mRSI",
         "deporte": "Rugby League",
         "nivel": "Alto rendimiento",
         "sexo": Sexo.MASCULINO,

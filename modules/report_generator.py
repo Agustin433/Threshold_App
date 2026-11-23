@@ -8240,7 +8240,7 @@ def _professional_reference_annex_lines(
         match = profile_df[profile_df["Athlete"].astype(str).str.strip() == str(athlete).strip()]
         if not match.empty:
             profile_row = match.iloc[-1]
-            for metric, label in (("CMJ_RSI", "RSI-mod (CMJ)"), ("CMJ_cm", "CMJ"), ("Jump_Momentum", "Momentum")):
+            for metric, label in (("CMJ_mRSI", "RSI-mod (CMJ)"), ("CMJ_cm", "CMJ"), ("Jump_Momentum", "Momentum")):
                 for entry in context_references(metric, deporte=profile_row.get("Deporte"), sexo=profile_row.get("Sexo")):
                     if str(entry.get("nivel")) == str(profile_row.get("Nivel")):
                         continue

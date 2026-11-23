@@ -28,6 +28,9 @@ from modules.evaluation_rules import (
     PLATFORM_BW_FLAG_COLUMN,
     FLIGHT_TIME_HEIGHT_COLUMNS,
     FLIGHT_TIME_LABEL,
+    CMJ_MRSI_LABEL,
+    CMJ_RSI_VALKYRIA_LABEL,
+    add_cmj_mrsi,
     add_flight_time_heights,
     apply_jump_height_consistency,
     apply_platform_body_weight_quality,
@@ -125,6 +128,8 @@ METRIC_LABELS = {
     "DSI": "DSI",
     "Jump_Momentum": "Jump Momentum",
     "CMJ_rel_impulse": "Impulso Relativo Propulsivo",
+    "CMJ_RSI": CMJ_RSI_VALKYRIA_LABEL,
+    "CMJ_mRSI": CMJ_MRSI_LABEL,
 }
 
 PRIMARY_PROFILE_SOURCE_COLUMNS = ("CMJ_cm", "SJ_cm", "DJ_cm", "DJ_tc_ms", "IMTP_N")
@@ -976,7 +981,9 @@ def calc_zscores(df: pd.DataFrame, profile_df: pd.DataFrame | None = None) -> pd
         ("Jump_Momentum", "Jump_Momentum_Z", False),
         ("EUR", "EUR_Z", False),
         ("DSI", "DSI_Z", False),
+        # "RSI" exportado por Valkyria: solo cohorte propia, nunca literatura.
         ("CMJ_RSI", "CMJ_RSI_Z", False),
+        ("CMJ_mRSI", "CMJ_mRSI_Z", False),
         ("CMJ_rel_impulse", "CMJ_rel_impulse_Z", False),
         # Altura por tiempo de vuelo: misma plataforma en todas las eras, asi
         # que su cohorte no se parte por era (eje del radar cuando el CMJ por
@@ -3382,6 +3389,8 @@ def _compute_prepared_jump_df(jump_df: pd.DataFrame, profile_df: pd.DataFrame | 
     result = apply_jump_height_consistency(result)
     # Serie por tiempo de vuelo para toda toma con vuelo (solo vuelo-vs-vuelo).
     result = add_flight_time_heights(result)
+    # RSI-mod real (impulso / contraccion, solo Involution); el "RSI" de Valkyria no lo es.
+    result = add_cmj_mrsi(result)
     result = sanitize_body_weight(result)
     result = impute_body_weight(result)
     result = apply_imtp_quality(result)

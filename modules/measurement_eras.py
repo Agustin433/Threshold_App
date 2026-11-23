@@ -75,7 +75,7 @@ def cross_era_note(previous_era: object, current_era: object, metric: object = N
 # excluye cuando el peso esta mal, mas lo que deriva de ellas o del IMTP.
 _VELOCITY_DERIVED = frozenset(
     column for columns in JUMP_HEIGHT_DEPENDENT.values() for column in columns
-) | {"DSI", "CMJ_rel_impulse", "SJ_rel_impulse"}
+) | {"DSI", "CMJ_rel_impulse", "SJ_rel_impulse", "CMJ_mRSI"}
 _ERA_INDEPENDENT = frozenset(FLIGHT_TIME_HEIGHT_COLUMNS.values()) | {
     "DJ_cm",
     "DJ_RSI",

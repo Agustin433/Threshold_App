@@ -189,6 +189,14 @@ from modules.evaluation_rules import (
     validate_bw_kg_input,
 )
 from modules.strength_estimates import ESTIMATED_STRENGTH_LABEL
+from modules.study_references import (
+    COL_GYM_Z as STUDY_COL_GYM_Z,
+    COL_VALUE as STUDY_COL_VALUE,
+    RANKING_METRICS,
+    STUDY_LEGEND,
+    STUDY_NOT_COMPARABLE_NOTE,
+    build_ranking_table,
+)
 from modules.jump_analysis import (
     radar_reference_caption,
     UNUSUAL_CHANGE_NOTE,
@@ -7484,6 +7492,57 @@ def _render_team_load_tab() -> None:
     _render_team_load_history()
 
 
+@st.fragment
+def _render_team_study_ranking(latest: pd.DataFrame, team_eval_source: str) -> None:
+    """Ranking por metrica: z gimnasio (ordena) y vs estudios (contexto), nunca mezclados."""
+    st.markdown("---")
+    render_subsection_header(
+        "Ranking por métrica",
+        "ordenado por z gimnasio; vs estudios es contexto publicado",
+        kicker="Ranking",
+    )
+    available = [spec for spec in RANKING_METRICS if spec[1] in latest.columns]
+    if not available:
+        st.info("No hay métricas de evaluación para rankear.")
+        return
+    labels = [label for label, _, _ in available]
+    chosen = st.selectbox("Métrica", labels, key="team_study_ranking_metric")
+    _, value_col, z_field = available[labels.index(chosen)]
+    table, not_comparable = build_ranking_table(
+        latest,
+        value_col,
+        z_field,
+        profile_lookup=_athlete_profile_lookup(st.session_state.athlete_profile_df),
+        default_source=team_eval_source,
+    )
+    st.dataframe(
+        table,
+        width='stretch',
+        hide_index=True,
+        column_config={
+            STUDY_COL_VALUE: st.column_config.NumberColumn(STUDY_COL_VALUE, format="%.2f"),
+            STUDY_COL_GYM_Z: st.column_config.NumberColumn(
+                STUDY_COL_GYM_Z,
+                format="%+.2f",
+                help="z contra la cohorte propia (8 o más atletas del mismo sexo e instrumento). Ordena el ranking.",
+            ),
+        },
+    )
+    st.caption(STUDY_LEGEND)
+    if not_comparable:
+        st.caption(STUDY_NOT_COMPARABLE_NOTE)
+
+
+def _athlete_profile_lookup(profile_df: pd.DataFrame | None) -> dict[str, dict[str, object]]:
+    if profile_df is None or profile_df.empty or "Athlete" not in profile_df.columns:
+        return {}
+    return {
+        str(row.get("Athlete") or "").strip(): row.to_dict()
+        for _, row in profile_df.iterrows()
+        if str(row.get("Athlete") or "").strip()
+    }
+
+
 def _render_team_rankings_tab(jdf: pd.DataFrame | None, team_eval_source: str) -> None:
     """Equipo > Rankings: ultima evaluacion, ranking por z (cohorte >= 8), adherencia y maximos del grupo."""
     if jdf is not None and not jdf.empty and "Athlete" in jdf.columns and len(jdf["Athlete"].unique()) > 1:
@@ -7546,6 +7605,8 @@ def _render_team_rankings_tab(jdf: pd.DataFrame | None, team_eval_source: str) -
             st.plotly_chart(fig_heat, width='content', key="zscores_heatmap")
         else:
             st.info(NO_COHORT_RANKING_TEXT)
+
+        _render_team_study_ranking(latest, team_eval_source)
     else:
         if jdf is None:
             _alert("Cargá datos de evaluaciones para ver el rendimiento del equipo.", "b")
