@@ -384,33 +384,39 @@ def acwr_frame_week_coverage(acwr_df: pd.DataFrame | None) -> pd.DataFrame:
     needed = {"Date", "Sesion_completada", "Sesiones_completadas_28d", "Sesiones_con_RPE_28d", "sRPE_diario"}
     if acwr_df is None or acwr_df.empty or not needed.issubset(acwr_df.columns):
         return pd.DataFrame(columns=WEEK_COVERAGE_COLUMNS)
-    frame = acwr_df[list(needed)].copy()
-    frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce").dt.normalize()
-    frame = frame.dropna(subset=["Date"]).sort_values("Date")
-    frame["done"] = frame["Sesion_completada"].fillna(False).astype(bool)
-    frame["with_rpe"] = frame["done"] & pd.to_numeric(frame["sRPE_diario"], errors="coerce").fillna(0).gt(0)
-    frame["week_start"] = frame["Date"] - pd.to_timedelta(frame["Date"].dt.weekday, unit="D")
-    grouped = frame.groupby("week_start").agg(
-        rpe_sessions_week=("done", "sum"),
-        rpe_logged_week=("with_rpe", "sum"),
-        sessions_28=("Sesiones_completadas_28d", "last"),
-        logged_28=("Sesiones_con_RPE_28d", "last"),
-        last_day=("Date", "last"),
-    )
-    weeks = [
-        WeekCoverage(pd.Timestamp(week), int(row.rpe_sessions_week), int(row.rpe_logged_week))
-        for week, row in grouped.iterrows()
+    # numpy puro: se llama una vez por atleta y por resumen semanal, y el
+    # groupby de pandas costaba ~20 ms por atleta.
+    dates = pd.to_datetime(acwr_df["Date"], errors="coerce").dt.normalize().to_numpy(dtype="datetime64[D]")
+    valid = ~np.isnat(dates)
+    order = np.argsort(dates[valid], kind="stable")
+    dates = dates[valid][order]
+    done = acwr_df["Sesion_completada"].fillna(False).to_numpy(dtype=bool)[valid][order]
+    loads = pd.to_numeric(acwr_df["sRPE_diario"], errors="coerce").fillna(0).to_numpy(dtype=float)[valid][order]
+    with_rpe = done & (loads > 0)
+    sessions_28 = pd.to_numeric(acwr_df["Sesiones_completadas_28d"], errors="coerce").fillna(0).to_numpy()[valid][order]
+    logged_28 = pd.to_numeric(acwr_df["Sesiones_con_RPE_28d"], errors="coerce").fillna(0).to_numpy()[valid][order]
+    if not len(dates):
+        return pd.DataFrame(columns=WEEK_COVERAGE_COLUMNS)
+    weekday = (dates.astype("datetime64[D]").view("int64") - 4) % 7  # 1970-01-01 fue jueves
+    weeks = dates - weekday.astype("timedelta64[D]")
+    starts = np.flatnonzero(np.r_[True, weeks[1:] != weeks[:-1]])
+    ends = np.r_[starts[1:], len(weeks)] - 1
+    week_sessions = np.add.reduceat(done.astype(int), starts)
+    week_logged = np.add.reduceat(with_rpe.astype(int), starts)
+    items = [
+        WeekCoverage(pd.Timestamp(weeks[start]), int(n_sessions), int(n_logged))
+        for start, n_sessions, n_logged in zip(starts, week_sessions, week_logged)
     ]
-    formation = formation_by_week(weeks)
+    formation = formation_by_week(items)
     rows = []
-    for week, row in grouped.iterrows():
-        sessions_28, logged_28 = int(row.sessions_28), int(row.logged_28)
-        coverage = RpeCoverage(pd.Timestamp(row.last_day), sessions_28, logged_28, *streak_at(formation, row.last_day))
+    for item, end in zip(items, ends):
+        last_day = pd.Timestamp(dates[end])
+        coverage = RpeCoverage(last_day, int(sessions_28[end]), int(logged_28[end]), *streak_at(formation, last_day))
         rows.append({
-            "week_start": pd.Timestamp(week),
-            "rpe_sessions_week": int(row.rpe_sessions_week),
-            "rpe_logged_week": int(row.rpe_logged_week),
-            "rpe_coverage_week": (row.rpe_logged_week / row.rpe_sessions_week) if row.rpe_sessions_week else np.nan,
+            "week_start": item.week_start,
+            "rpe_sessions_week": item.sessions,
+            "rpe_logged_week": item.logged,
+            "rpe_coverage_week": item.coverage if item.coverage is not None else np.nan,
             "rpe_coverage_28d": coverage.coverage if coverage.coverage is not None else np.nan,
             "rpe_missing_for_70": coverage.missing,
             "rpe_coverage_forming": coverage.forming,

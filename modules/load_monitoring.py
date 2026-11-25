@@ -323,7 +323,10 @@ def calc_acwr(
         result["Sesiones_completadas_28d"] = coverage_total
         result["Sesiones_con_RPE_28d"] = coverage_logged
         result["Cobertura_RPE_28d"] = coverage_logged / np.where(coverage_total > 0, coverage_total, np.nan)
-        result["RPE_faltan_70"] = [missing_for_target(int(t), int(l)) for t, l in zip(coverage_total, coverage_logged)]
+        # Igual que missing_for_target, vectorizado.
+        result["RPE_faltan_70"] = np.maximum(
+            0, np.ceil(COVERAGE_MIN * coverage_total - 1e-9).astype(int) - coverage_logged
+        )
 
     ratio = result["EWMA_Aguda"] / result["EWMA_Cronica"].where(result["EWMA_Cronica"] > 0)
     acwr_status = pd.Series(ACWR_STATUS_OK, index=result.index, dtype=object)
