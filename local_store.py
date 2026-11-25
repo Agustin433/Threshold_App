@@ -175,11 +175,11 @@ WEEKLY_LOAD_COLUMNS = [
     "weekly_sRPE_model",
     # PR S: cobertura de sRPE (modules.rpe_coverage) y motivo del ACWR oculto.
     "ACWR_reason_last",
+    "ACWR_date_last",
     "rpe_sessions_week",
     "rpe_logged_week",
     "rpe_coverage_week",
     "rpe_coverage_28d",
-    "rpe_missing_for_70",
     "rpe_coverage_forming",
     "rpe_stable_from",
 ]
@@ -1020,6 +1020,7 @@ def _build_weekly_load_summary(
         last_rows = athlete_df.sort_values("Date").groupby("week_start", as_index=False).tail(1)
         last_acwr = last_rows[["week_start", "ACWR_EWMA"]].rename(columns={"ACWR_EWMA": "ACWR_EWMA_last"})
         last_acwr["ACWR_reason_last"] = [acwr_unavailable_reason(row) for _, row in last_rows.iterrows()]
+        last_acwr["ACWR_date_last"] = last_rows["Date"].to_numpy()
         weekly = weekly.merge(last_acwr, on="week_start", how="left")
         weekly = weekly.merge(acwr_frame_week_coverage(acwr_df), on="week_start", how="left")
         monotony_rows = []
@@ -1291,6 +1292,7 @@ def _ensure_current_week_load(
                 "week_start": current_week,
                 "ACWR_EWMA_last": pd.to_numeric(scoped.iloc[-1].get("ACWR_EWMA"), errors="coerce"),
                 "ACWR_reason_last": acwr_unavailable_reason(scoped.iloc[-1]),
+                "ACWR_date_last": scoped.iloc[-1]["Date"],
                 "sessions_done": logged_days + missing_days,
                 "sessions_missing": missing_days,
                 "weekly_sRPE_model": model_load,
@@ -1300,7 +1302,7 @@ def _ensure_current_week_load(
         pd.DataFrame(
             acwr_last_rows,
             columns=[
-                "Athlete", "week_start", "ACWR_EWMA_last", "ACWR_reason_last",
+                "Athlete", "week_start", "ACWR_EWMA_last", "ACWR_reason_last", "ACWR_date_last",
                 "sessions_done", "sessions_missing", "weekly_sRPE_model",
             ],
         ),

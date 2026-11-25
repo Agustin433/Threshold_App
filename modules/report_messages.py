@@ -55,9 +55,6 @@ NEXT_STEP_TEXT: dict[str, dict[str, str]] = {
     },
 }
 
-# PR S: con cobertura de sRPE < 70% en 28 dias, el paso dice cuantas faltan.
-NEXT_STEP_RPE_COVERAGE_TEXT = "Registrá tu RPE al terminar cada sesión: te faltan {n} para ver tu carga."
-
 # Orden de prioridad: primero lo que destraba una comparacion, despues el
 # registro diario.
 NEXT_STEP_PRIORITY = (
@@ -74,20 +71,21 @@ def next_step_lines(
     keys: list[str] | tuple[str, ...],
     audience: str,
     *,
-    rpe_missing: int | None = None,
+    rpe_step: str | None = None,
 ) -> list[str]:
     """Hasta NEXT_STEPS_MAX textos, en orden de prioridad y sin repetir.
 
-    `rpe_missing` (> 0): el paso de RPE dice cuantas sesiones faltan para el
-    70% de cobertura en 28 dias.
+    `rpe_step`: texto del paso de RPE cuando la cobertura de 28 dias es < 70%
+    (el de modules.rpe_coverage, con la proyeccion hacia adelante).
     """
     audience_key = "cliente" if str(audience).strip().lower() == "cliente" else "atleta"
     wanted = set(keys)
     ordered = [key for key in NEXT_STEP_PRIORITY if key in wanted]
 
     def text(key: str) -> str:
-        if key == NEXT_STEP_RPE and rpe_missing:
-            return NEXT_STEP_RPE_COVERAGE_TEXT.format(n=int(rpe_missing))
+        if key == NEXT_STEP_RPE and rpe_step:
+            text = str(rpe_step).strip()
+            return text if text.endswith(".") else f"{text}."
         return NEXT_STEP_TEXT[key][audience_key]
 
     return [text(key) for key in ordered][:NEXT_STEPS_MAX]

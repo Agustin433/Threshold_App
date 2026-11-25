@@ -171,8 +171,11 @@ from modules.alerts import (
     select_executive_alerts,
 )
 from modules.metrics import calculate_completion_rate, summarize_completion_by_group
+from modules.load_monitoring import athlete_match_key
 from modules.rpe_coverage import (
     COVERAGE_MIN,
+    REGISTER_RPE_BASE,
+    coverage_by_athlete,
     acwr_display_text,
     coverage_from_acwr_frame,
     team_registration_table,
@@ -3532,22 +3535,51 @@ RPE_COVERAGE_HELP = (
 )
 
 
-def _weekly_acwr_display(row: pd.Series) -> str:
-    """ACWR de la fila semanal: valor (+ leyenda de cronica en formacion) o motivo."""
-    return acwr_display_text(
-        row.get("ACWR_EWMA_last"),
-        row.get("ACWR_reason_last"),
-        forming=row.get("rpe_coverage_forming"),
-        stable_from=row.get("rpe_stable_from"),
+def _registration_coverages(reference_date: object) -> dict[str, object]:
+    """Cobertura de 28 dias (con la proyeccion hacia adelante) de cada atleta, a la fecha dada."""
+    return cached_derived_call(
+        "coverage_by_athlete",
+        coverage_by_athlete,
+        st.session_state.raw_df,
+        st.session_state.rpe_df,
+        pd.Timestamp(reference_date).normalize(),
     )
 
 
-def _weekly_coverage_gate(row: pd.Series) -> str:
+def _register_text_for(athlete: object, reference_date: object) -> str:
+    """"Registrá tu RPE en cada sesión: con N seguidas ves tu carga (~dd/mm)"; "" si ya cumple."""
+    coverage = _registration_coverages(reference_date).get(athlete_match_key(athlete))
+    if coverage is None:
+        return REGISTER_RPE_BASE
+    return coverage.register_text
+
+
+def _acwr_reason_text(reason: object, athlete: object, reference_date: object) -> str:
+    """El motivo del modelo, con la proyeccion si el motivo es el registro de RPE."""
+    text = str(reason or "").strip()
+    if text == REGISTER_RPE_BASE:
+        return _register_text_for(athlete, reference_date) or REGISTER_RPE_BASE
+    return text
+
+
+def _weekly_acwr_display(row: pd.Series, reference_date: object) -> str:
+    """ACWR de la fila semanal: valor (con su fecha si no es de hoy, + cronica en formacion) o motivo."""
+    return acwr_display_text(
+        row.get("ACWR_EWMA_last"),
+        _acwr_reason_text(row.get("ACWR_reason_last"), row.get("Athlete"), reference_date),
+        forming=row.get("rpe_coverage_forming"),
+        stable_from=row.get("rpe_stable_from"),
+        value_date=row.get("ACWR_date_last"),
+        reference_date=reference_date,
+    )
+
+
+def _weekly_coverage_gate(row: pd.Series, reference_date: object) -> str:
     """Motivo si monotonia/strain de la semana se ocultan por cobertura < 70%; "" si no."""
     coverage = pd.to_numeric(pd.Series([row.get("rpe_coverage_week")]), errors="coerce").iloc[0]
     if pd.isna(coverage) or coverage >= COVERAGE_MIN - 1e-9:
         return ""
-    return week_gate_text(coverage, row.get("rpe_missing_for_70"))
+    return week_gate_text(coverage, _register_text_for(row.get("Athlete"), reference_date))
 
 
 def _render_registration_kpi(reference_date: object, allowed_athletes: set[str] | None = None) -> None:
@@ -3577,8 +3609,13 @@ def _render_registration_kpi(reference_date: object, allowed_athletes: set[str] 
         column_config={
             "RPE %": st.column_config.NumberColumn("RPE %", format="%.0f%%"),
             "Bienestar %": st.column_config.NumberColumn("Bienestar %", format="%.0f%%"),
-            "Te faltan": st.column_config.NumberColumn(
-                "Te faltan", help="Sesiones sin RPE que faltan registrar para llegar al 70% en 28 días."
+            "Para ver su carga": st.column_config.TextColumn(
+                "Para ver su carga",
+                help=(
+                    "Sesiones seguidas con RPE, desde hoy y en sus días habituales de entrenamiento, "
+                    "para llegar al 70% en 28 días, y la fecha estimada. El RPE de sesiones pasadas "
+                    "no se recupera (se toma ~30 min después de la sesión)."
+                ),
             ),
         },
         key="registration_kpi",
@@ -5988,14 +6025,14 @@ def render_decision_panel(decision_eval_source: str):
                 ),
                 "sRPE semana (reportado)": risk_df["weekly_sRPE"].round(0).astype(int),
                 "Sesiones sin sRPE": risk_df.apply(_missing_sessions_text, axis=1),
-                "ACWR EWMA (contexto)": risk_df.apply(_weekly_acwr_display, axis=1),
+                "ACWR EWMA (contexto)": risk_df.apply(lambda row: _weekly_acwr_display(row, reference_date), axis=1),
                 "Monotonia": risk_df.apply(
-                    lambda row: _weekly_coverage_gate(row)
+                    lambda row: _weekly_coverage_gate(row, reference_date)
                     or _format_monotony_display(row.get("monotony"), row.get("monotony_status")),
                     axis=1,
                 ),
                 "Strain": risk_df.apply(
-                    lambda row: _weekly_coverage_gate(row)
+                    lambda row: _weekly_coverage_gate(row, reference_date)
                     or _format_strain_display(row.get("strain"), row.get("monotony_status")),
                     axis=1,
                 ),
@@ -6671,7 +6708,10 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
             last_sessions = sub_rpe.tail(3)
             last_acwr = latest_training_day_row(acwr_df)
             last_acwr_value = last_acwr["ACWR_EWMA"].values[0] if not last_acwr.empty else np.nan
-            last_acwr_reason = acwr_unavailable_reason(last_acwr.iloc[0]) if not last_acwr.empty else ""
+            load_today = app_today()
+            last_acwr_reason = _acwr_reason_text(
+                acwr_unavailable_reason(last_acwr.iloc[0]) if not last_acwr.empty else "", athlete_sel, load_today
+            )
             last_mono = mono_df.tail(1) if mono_df is not None else pd.DataFrame()
             last_mono_status = (
                 last_mono["Monotony_Status"].values[0]
@@ -6686,21 +6726,22 @@ def _render_athlete_load_tab(athlete_sel: str) -> None:
                 last_acwr_reason,
                 forming=last_coverage.forming if last_coverage is not None else False,
                 stable_from=last_coverage.stable_from if last_coverage is not None else None,
+                value_date=last_acwr["Date"].values[0] if not last_acwr.empty else None,
+                reference_date=load_today,
             )
             mono_gate = ""
             if not last_mono.empty and "Cobertura_RPE_semana" in last_mono.columns:
-                mono_gate = _weekly_coverage_gate(pd.Series({
-                    "rpe_coverage_week": last_mono["Cobertura_RPE_semana"].values[0],
-                    "rpe_missing_for_70": last_acwr["RPE_faltan_70"].values[0]
-                    if not last_acwr.empty and "RPE_faltan_70" in last_acwr.columns else None,
-                }))
+                mono_gate = _weekly_coverage_gate(
+                    pd.Series({"rpe_coverage_week": last_mono["Cobertura_RPE_semana"].values[0], "Athlete": athlete_sel}),
+                    load_today,
+                )
             c1,c2,c3,c4,c5 = st.columns(5)
             c1.metric("sRPE última sesión",
                       f"{last_sessions['sRPE'].iloc[-1]:.0f} UA" if not last_sessions.empty else "—")
             c2.metric("RPE última sesión",
                       f"{last_sessions['RPE'].iloc[-1]:.1f}" if not last_sessions.empty else "—")
             c3.metric(acwr_label,
-                      f"{last_acwr_value:.2f}" if pd.notna(last_acwr_value) else ("No calc." if last_acwr_reason else "—"),
+                      last_acwr_text.split(" · ")[0] if pd.notna(last_acwr_value) else ("No calc." if last_acwr_reason else "—"),
                       help=last_acwr_text if last_acwr_reason else ACWR_CONTEXT_HELP)
             c4.metric("Monotonía (sem)",
                       "No calc." if mono_gate else (
@@ -7363,10 +7404,13 @@ def _render_athlete_summary_tab(ath_p: str) -> None:
                 if not acwr_last.empty:
                     v = acwr_last["ACWR_EWMA"].values[0]
                     if pd.isna(v):
-                        reason = acwr_unavailable_reason(acwr_last.iloc[0]) or "sin dato"
+                        reason = _acwr_reason_text(acwr_unavailable_reason(acwr_last.iloc[0]), ath_p, app_today()) or "sin dato"
                         _alert(f"**ACWR EWMA:** {reason}", "y")
                     else:
-                        _alert(f"**ACWR EWMA (contexto):** {v:.2f}", "b")
+                        shown = acwr_display_text(
+                            v, "", value_date=acwr_last["Date"].values[0], reference_date=app_today()
+                        )
+                        _alert(f"**ACWR EWMA (contexto):** {shown}", "b")
 
             # Wellness
             if wdf is not None and ath_p in wdf["Athlete"].values:
@@ -7564,23 +7608,27 @@ def _render_team_load_tab() -> None:
             if last.empty: continue
             acwr_val = last["ACWR_EWMA"].values[0]
             last_logged = adf[pd.to_numeric(adf["sRPE_diario"], errors="coerce") > 0].tail(1)
-            acwr_reason = acwr_unavailable_reason(last.iloc[0])
+            team_today = app_today()
+            acwr_reason = _acwr_reason_text(acwr_unavailable_reason(last.iloc[0]), ath, team_today)
             coverage = coverage_from_acwr_frame(adf, last["Date"].values[0])
+            registration = _registration_coverages(team_today).get(athlete_match_key(ath))
             mono_gate = ""
             if not mono.empty and "Cobertura_RPE_semana" in mono.columns:
-                mono_gate = _weekly_coverage_gate(pd.Series({
-                    "rpe_coverage_week": mono["Cobertura_RPE_semana"].values[0],
-                    "rpe_missing_for_70": last["RPE_faltan_70"].values[0] if "RPE_faltan_70" in last.columns else None,
-                }))
+                mono_gate = _weekly_coverage_gate(
+                    pd.Series({"rpe_coverage_week": mono["Cobertura_RPE_semana"].values[0], "Athlete": ath}),
+                    team_today,
+                )
             team_rows.append({
                 "Atleta": ath,
                 "sRPE últimas sesión": f"{last_logged['sRPE_diario'].values[0]:.0f} UA" if not last_logged.empty else "—",
-                "RPE 28 d": f"{coverage.pct:.0f}%" if coverage is not None and coverage.pct is not None else "—",
+                "RPE 28 d": f"{registration.pct:.0f}%" if registration is not None and registration.pct is not None else "—",
                 "ACWR EWMA (contexto)": acwr_display_text(
                     acwr_val,
                     acwr_reason,
                     forming=coverage.forming if coverage is not None else False,
                     stable_from=coverage.stable_from if coverage is not None else None,
+                    value_date=last["Date"].values[0],
+                    reference_date=team_today,
                 ),
                 "Monotonía": mono_gate or (
                     f"{mono['Monotonia'].values[0]:.2f}" if not mono.empty and pd.notna(mono["Monotonia"].values[0]) else "—"

@@ -617,9 +617,10 @@ def next_steps(
     wellness_available: bool,
     audience: str,
     imtp_step: str | None = None,
-    rpe_missing: int | None = None,
+    rpe_step: str | None = None,
 ) -> list[str]:
-    """Hasta 2 proximos pasos. `rpe_missing` > 0: cobertura de RPE < 70% (PR S)."""
+    """Hasta 2 proximos pasos. `rpe_step`: con cobertura de RPE < 70%, el pedido
+    con la proyeccion ("con N seguidas ves tu carga (~dd/mm)") (PR S)."""
     keys: list[str] = []
     if has_evaluation and not has_comparison:
         keys.append(NEXT_STEP_FIRST_COMPARISON)
@@ -627,11 +628,11 @@ def next_steps(
         keys.append(NEXT_STEP_REEVALUATE)
     if imtp_step:
         keys.append(imtp_step)
-    if not load_available or rpe_missing:
+    if not load_available or rpe_step:
         keys.append(NEXT_STEP_RPE)
     if not wellness_available:
         keys.append(NEXT_STEP_WELLNESS)
-    return next_step_lines(keys, audience, rpe_missing=rpe_missing)
+    return next_step_lines(keys, audience, rpe_step=rpe_step)
 
 
 def next_evaluation_line(last_evaluation: object, today: object = None) -> str | None:

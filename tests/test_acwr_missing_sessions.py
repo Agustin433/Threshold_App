@@ -47,7 +47,8 @@ class AcwrMissingSessionsTest(unittest.TestCase):
         self.assertEqual(last["ACWR_Estado"], ACWR_STATUS_INCOMPLETE)
         self.assertEqual(last["Zona"], "Sin datos")
         # PR S: el motivo es accionable (sesiones que faltan para el 70%).
-        self.assertRegex(acwr_unavailable_reason(last), r"^Registrá tu RPE: te faltan \d+ sesiones$")
+        # PR S: el modelo da el pedido; la proyeccion la agrega cada superficie.
+        self.assertEqual(acwr_unavailable_reason(last), "Registrá tu RPE en cada sesión")
 
     def test_occasional_forgotten_session_is_imputed_close_to_true_value(self):
         full = _acwr(TRAINED).iloc[-1]
@@ -156,7 +157,7 @@ class ProfessionalReportUsesModelGateTest(unittest.TestCase):
 
         self.assertTrue(rows["ACWR EWMA"].startswith("No calculable"))
         # PR S: el motivo dice cuantas sesiones faltan registrar para el 70%.
-        self.assertIn("Registrá tu RPE: te faltan", rows["ACWR EWMA"])
+        self.assertIn("Registrá tu RPE en cada sesión", rows["ACWR EWMA"])
         self.assertEqual(rows["Zona ACWR"], report_generator.PROFESSIONAL_ACWR_GATED_ZONE_TEXT)
         self.assertNotIn("Optimo", " ".join(rows.values()))
         self.assertIn("no calculable", payload["risk_line"].lower())

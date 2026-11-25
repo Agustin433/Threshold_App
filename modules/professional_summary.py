@@ -315,8 +315,8 @@ def weekly_load_lines(
         )
         if not coverage.meets:
             coverage_line += (
-                f" {coverage.register_text}: con menos del 70% ACWR, monotonía y strain describen "
-                "el registro, no la carga, y no se muestran."
+                " Con menos del 70% ACWR, monotonía y strain describen el registro, no la carga, "
+                f"y no se muestran. {coverage.register_text}."
             )
         elif acwr_coverage is not None and acwr_coverage.forming:
             coverage_line += f" ACWR con {acwr_coverage.formation_text}."

@@ -3,7 +3,8 @@
 cobertura = sesiones completadas (Raw Workouts, fecha de sesion) con sRPE /
 sesiones completadas, en 28 dias o por semana calendario. ACWR con >= 70% en
 28 dias; monotonia/strain con >= 70% en la semana y >= 4 sesiones. Debajo:
-"Registra tu RPE: te faltan N sesiones".
+"Registra tu RPE en cada sesion: con N seguidas ves tu carga (~dd/mm)", con N
+proyectado hacia adelante (el RPE pasado no se recupera).
 """
 
 from __future__ import annotations
@@ -28,7 +29,10 @@ from modules.rpe_coverage import (
     acwr_frame_week_coverage,
     coverage_by_athlete,
     coverage_from_acwr_frame,
-    missing_for_target,
+    count_in_window,
+    habitual_weekdays,
+    projection_label,
+    sessions_to_target,
     rolling_coverage_counts,
     rpe_coverage,
     team_registration_table,
@@ -101,24 +105,142 @@ def _acwr(athlete: str) -> pd.DataFrame:
     return calc_acwr(pd.Series(loads), logged, training_dates=SESSIONS)
 
 
+def _oracle(sessions, logged, reference):
+    """Simulacion dia a dia independiente de sessions_to_target (la del enunciado)."""
+    reference = pd.Timestamp(reference).normalize()
+
+    def meets(all_sessions, all_logged, day):
+        total, with_rpe = count_in_window(all_sessions, all_logged, day - pd.Timedelta(days=27), day)
+        return total > 0 and with_rpe / total >= 0.7 - 1e-9
+
+    sessions = [pd.Timestamp(d) for d in sessions if pd.Timestamp(d) <= reference]
+    logged = [pd.Timestamp(d) for d in logged]
+    if meets(sessions, logged, reference):
+        return 0, reference
+    recent = [d for d in sessions if d > reference - pd.Timedelta(days=28)]
+    counts = pd.Series([d.weekday() for d in recent]).value_counts()
+    habitual = {int(w) for w, c in counts.items() if c >= 2} or {int(w) for w in counts.index}
+    if not habitual:
+        return None, None
+    future = []
+    for offset in range(1, 61):
+        day = reference + pd.Timedelta(days=offset)
+        if day.weekday() in habitual:
+            future.append(day)
+        if future and meets(sessions + future, logged + future, day):
+            return len(future), day
+    return None, None
+
+
+def _plan(weekdays, per_window_logged, *, front_loaded, reference=TODAY, weeks=8):
+    """Sesiones en `weekdays` durante `weeks` semanas; en los ultimos 28 dias,
+    `per_window_logged` con RPE, repartidas o todas al principio."""
+    days = [d for d in pd.date_range(reference - pd.Timedelta(weeks=weeks), reference) if d.weekday() in weekdays]
+    window = [d for d in days if d > reference - pd.Timedelta(days=28)]
+    if front_loaded:
+        logged = window[:per_window_logged]
+    else:
+        step = len(window) / per_window_logged
+        logged = [window[int(i * step)] for i in range(per_window_logged)]
+    return days, logged
+
+
+class SessionsToTargetTest(unittest.TestCase):
+    """"Te faltan N" hacia adelante: sesiones futuras seguidas con RPE hasta el 70%."""
+
+    CASES = {
+        # nombre: (dias habituales, con RPE en la ventana, al principio)
+        "3/sem repartido (5/12 = 42%)": ((0, 2, 4), 5, False),
+        "3/sem al principio (5/12 = 42%)": ((0, 2, 4), 5, True),
+        "4/sem repartido (7/16 = 44%)": ((0, 1, 3, 4), 7, False),
+        "4/sem al principio (7/16 = 44%)": ((0, 1, 3, 4), 7, True),
+    }
+
+    def test_four_cases_match_the_day_by_day_simulation(self):
+        results = {}
+        for name, (weekdays, logged_count, front) in self.CASES.items():
+            sessions, logged = _plan(weekdays, logged_count, front_loaded=front)
+            with self.subTest(case=name):
+                coverage = rpe_coverage(sessions, logged, TODAY)
+                self.assertAlmostEqual(coverage.coverage, logged_count / (12 if len(weekdays) == 3 else 16))
+                expected = _oracle(sessions, logged, TODAY)
+                self.assertIsNotNone(expected[0])
+                self.assertEqual(sessions_to_target(sessions, logged, TODAY), expected)
+                n, date = expected
+                self.assertEqual(
+                    coverage.register_text,
+                    f"Registrá tu RPE en cada sesión: con {n} seguidas ves tu carga (~{date:%d/%m})",
+                )
+                self.assertEqual(projection_label(n, date), f"{n} sesiones · ~{date:%d/%m}")
+                results[name] = n
+        # Con el RPE al principio de la ventana, esas sesiones salen antes: hace
+        # falta al menos lo mismo que con el RPE repartido.
+        self.assertGreaterEqual(results["3/sem al principio (5/12 = 42%)"], results["3/sem repartido (5/12 = 42%)"])
+        self.assertGreaterEqual(results["4/sem al principio (7/16 = 44%)"], results["4/sem repartido (7/16 = 44%)"])
+
+    def test_without_habitual_days_there_is_no_projection(self):
+        # Ultima sesion hace 40 dias: nada en los ultimos 28.
+        sessions = [TODAY - pd.Timedelta(days=40), TODAY - pd.Timedelta(days=45)]
+        self.assertEqual(habitual_weekdays(sessions, TODAY), set())
+        self.assertEqual(sessions_to_target(sessions, [], TODAY), (None, None))
+        coverage = rpe_coverage(sessions, [], TODAY)
+        self.assertEqual(coverage.register_text, "Registrá tu RPE en cada sesión")
+        self.assertEqual(projection_label(None, None), "sin proyección")
+
+    def test_single_weekday_falls_back_to_any_session_day(self):
+        sessions = [TODAY - pd.Timedelta(days=d) for d in (2, 10)]  # viernes y jueves, una vez cada uno
+        self.assertEqual(habitual_weekdays(sessions, TODAY), {3, 4})
+
+    def test_already_meets_has_no_message(self):
+        n, date = sessions_to_target(SESSIONS, ATHLETES["Cien Total"], TODAY)
+        self.assertEqual(n, 0)
+        coverage = rpe_coverage(SESSIONS, ATHLETES["Cien Total"], TODAY)
+        self.assertEqual(coverage.register_text, "")
+
+    def test_singular_text(self):
+        from modules.rpe_coverage import register_rpe_text
+
+        self.assertEqual(register_rpe_text(1, "2026-12-08"), "Registrá tu RPE en cada sesión: con 1 más ves tu carga (~08/12)")
+
+
+class AcwrDateAndStreakTest(unittest.TestCase):
+    def test_acwr_from_an_earlier_day_shows_its_date(self):
+        self.assertEqual(acwr_display_text(1.123, "", value_date="2026-11-20", reference_date="2026-11-22"),
+                         "ACWR al 20/11: 1.12")
+        self.assertEqual(acwr_display_text(1.123, "", value_date="2026-11-22", reference_date="2026-11-22"), "1.12")
+
+    def test_monday_of_fourth_week_still_forming(self):
+        monday = pd.Timestamp("2026-11-23")
+        sessions = [d for d in pd.date_range(monday - pd.Timedelta(weeks=3), monday) if d.weekday() in (0, 2, 4)]
+        # 3 semanas completas al 100% y el lunes de la 4.a con 1/1.
+        coverage = rpe_coverage(sessions, sessions, monday)
+        self.assertTrue(coverage.meets)
+        self.assertEqual(coverage.streak_weeks, 3)
+        self.assertTrue(coverage.forming)
+        self.assertEqual(coverage.stable_from, pd.Timestamp("2026-11-30"))
+        # El domingo de esa 4.a semana ya cuenta: deja de estar en formacion.
+        sunday = monday + pd.Timedelta(days=6)
+        full = [d for d in pd.date_range(monday - pd.Timedelta(weeks=3), sunday) if d.weekday() in (0, 2, 4)]
+        self.assertFalse(rpe_coverage(full, full, sunday).forming)
+
+
 class CoverageDefinitionTest(unittest.TestCase):
     def test_four_cases(self):
-        expected = {  # (sesiones, con RPE, cumple, faltan)
-            "Cien Total": (20, 20, True, 0),
-            "Setenta Justo": (20, 14, True, 0),
-            "Cincuenta Media": (20, 10, False, 4),
-            "Cero Registro": (20, 0, False, 14),
+        expected = {  # (sesiones, con RPE, cumple)
+            "Cien Total": (20, 20, True),
+            "Setenta Justo": (20, 14, True),
+            "Cincuenta Media": (20, 10, False),
+            "Cero Registro": (20, 0, False),
         }
-        for athlete, (sessions, logged, meets, missing) in expected.items():
+        for athlete, (sessions, logged, meets) in expected.items():
             with self.subTest(athlete=athlete):
                 coverage = rpe_coverage(SESSIONS, ATHLETES[athlete], TODAY)
                 self.assertEqual((coverage.sessions, coverage.logged), (sessions, logged))
                 self.assertEqual(coverage.meets, meets)
-                self.assertEqual(coverage.missing, missing)
-        self.assertEqual(rpe_coverage(SESSIONS, ATHLETES["Cincuenta Media"], TODAY).register_text,
-                         "Registrá tu RPE: te faltan 4 sesiones")
-        self.assertEqual(missing_for_target(10, 6), 1)
-        self.assertEqual(missing_for_target(0, 0), 0)
+                n, date = _oracle(SESSIONS, ATHLETES[athlete], TODAY)
+                self.assertEqual((coverage.to_target, coverage.target_date), (n, date))
+                if meets:
+                    self.assertEqual(coverage.register_text, "")
 
     def test_rolling_counts_match_the_point_function(self):
         calendar = pd.date_range(TODAY - pd.Timedelta(days=40), TODAY)
@@ -138,12 +260,12 @@ class AcwrGateTest(unittest.TestCase):
                 self.assertEqual(pd.notna(last["ACWR_EWMA"]), shown)
                 if not shown:
                     self.assertEqual(last["ACWR_Estado"], ACWR_STATUS_INCOMPLETE)
-                    self.assertEqual(acwr_unavailable_reason(last), "Registrá tu RPE: te faltan 4 sesiones")
+                    self.assertEqual(acwr_unavailable_reason(last), "Registrá tu RPE en cada sesión")
 
     def test_zero_percent_gets_the_register_message(self):
         last = latest_training_day_row(_acwr("Cero Registro")).iloc[0]
         self.assertTrue(pd.isna(last["ACWR_EWMA"]))
-        self.assertEqual(acwr_unavailable_reason(last), "Registrá tu RPE: te faltan 14 sesiones")
+        self.assertEqual(acwr_unavailable_reason(last), "Registrá tu RPE en cada sesión")
 
     def test_chronic_in_formation_legend(self):
         frame = _acwr("Recien Formada")
@@ -151,7 +273,9 @@ class AcwrGateTest(unittest.TestCase):
         self.assertTrue(pd.notna(last["ACWR_EWMA"]))
         coverage = coverage_from_acwr_frame(frame, last["Date"])
         self.assertTrue(coverage.meets)
-        self.assertEqual(coverage.streak_weeks, 2)
+        # Ultimo dia entrenado: viernes 20/11. La semana del 16/11 no termino:
+        # no suma a la racha (solo la del 09/11).
+        self.assertEqual(coverage.streak_weeks, 1)
         self.assertTrue(coverage.forming)
         # Racha desde el lunes 09/11: 4 semanas despues, 07/12.
         self.assertEqual(coverage.formation_text, "carga crónica en formación (estable desde ~07/12)")
@@ -164,7 +288,7 @@ class AcwrGateTest(unittest.TestCase):
         weeks = acwr_frame_week_coverage(_acwr("Cincuenta Media"))
         last = weeks.iloc[-1]
         self.assertAlmostEqual(last["rpe_coverage_28d"], 0.5)
-        self.assertEqual(last["rpe_missing_for_70"], 4)
+        self.assertNotIn("rpe_missing_for_70", weeks.columns)
 
 
 class MonotonyGateTest(unittest.TestCase):
@@ -232,7 +356,9 @@ class SameCoverageEverywhereTest(unittest.TestCase):
         )
         self.assertEqual(table["RPE %"].tolist(), sorted(table["RPE %"].tolist()))
         self.assertEqual(table.iloc[0]["Atleta"], "Cero Registro")
-        self.assertEqual(table.iloc[0]["Te faltan"], 14)
+        n, date = _oracle(SESSIONS, [], TODAY)
+        self.assertEqual(table.iloc[0]["Para ver su carga"], f"{n} sesiones · ~{date:%d/%m}")
+        self.assertEqual(table[table["Atleta"] == "Cien Total"].iloc[0]["Para ver su carga"], "—")
         cien = table[table["Atleta"] == "Cien Total"].iloc[0]
         self.assertEqual(cien["Bienestar %"], 50)
 
@@ -241,25 +367,28 @@ class SameCoverageEverywhereTest(unittest.TestCase):
 
         with frozen_app_now(TODAY + pd.Timedelta(hours=12)):
             low = dict(rg._build_professional_load_tolerance_payload(self.state, "Cincuenta Media", {})["rows"])
-        self.assertIn("Registrá tu RPE: te faltan 4 sesiones", low["ACWR EWMA"])
+        n, date = _oracle(SESSIONS, ATHLETES["Cincuenta Media"], TODAY)
+        self.assertIn(f"Registrá tu RPE en cada sesión: con {n} seguidas ves tu carga (~{date:%d/%m})", low["ACWR EWMA"])
         self.assertEqual(low["RPE registrado (28 d)"].split(" de ")[0], "50%")
         high = dict(rg._build_professional_load_tolerance_payload(self.state, "Cien Total", {})["rows"])
-        self.assertRegex(high["ACWR EWMA"], r"^\d")
+        # Ultima sesion el viernes 20/11, PDF del domingo 22/11: el valor lleva su fecha.
+        self.assertRegex(high["ACWR EWMA"], r"^ACWR al 20/11: \d\.\d\d$")
 
 
 class AthleteNextStepsTest(unittest.TestCase):
     def test_low_coverage_adds_the_rpe_step_with_count(self):
         steps = ar.next_steps(
             has_evaluation=True, has_comparison=False, evaluation_stale=False,
-            load_available=True, wellness_available=False, audience="atleta", rpe_missing=4,
+            load_available=True, wellness_available=False, audience="atleta",
+            rpe_step="Registrá tu RPE en cada sesión: con 6 seguidas ves tu carga (~08/12)",
         )
         self.assertLessEqual(len(steps), NEXT_STEPS_MAX)
-        self.assertIn("Registrá tu RPE al terminar cada sesión: te faltan 4 para ver tu carga.", steps)
+        self.assertIn("Registrá tu RPE en cada sesión: con 6 seguidas ves tu carga (~08/12).", steps)
 
     def test_high_coverage_keeps_previous_steps(self):
         steps = ar.next_steps(
             has_evaluation=True, has_comparison=True, evaluation_stale=False,
-            load_available=True, wellness_available=True, audience="atleta", rpe_missing=None,
+            load_available=True, wellness_available=True, audience="atleta", rpe_step=None,
         )
         self.assertFalse(any("RPE" in step for step in steps))
 

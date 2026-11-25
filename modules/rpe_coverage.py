@@ -31,8 +31,14 @@ COVERAGE_MIN = 0.70
 # una carga y no un arrastre del periodo sin registro.
 FORMATION_WEEKS = 4
 
-REGISTER_RPE_TEXT = "Registrá tu RPE: te faltan {n} sesiones"
-REGISTER_RPE_TEXT_ONE = "Registrá tu RPE: te falta 1 sesión"
+# "Te faltan N" proyectado hacia adelante: el RPE de una sesion pasada no se
+# recupera (Foster 2001: se toma ~30 min despues de la sesion), asi que N son
+# sesiones FUTURAS seguidas con RPE hasta llegar al 70% en 28 dias.
+REGISTER_RPE_BASE = "Registrá tu RPE en cada sesión"
+REGISTER_RPE_TEXT = REGISTER_RPE_BASE + ": con {n} seguidas ves tu carga (~{date})"
+REGISTER_RPE_TEXT_ONE = REGISTER_RPE_BASE + ": con 1 más ves tu carga (~{date})"
+PROJECTION_HORIZON_DAYS = 60
+HABITUAL_MIN_TIMES = 2
 FORMATION_TEXT = "carga crónica en formación (estable desde ~{date})"
 NO_SESSIONS_TEXT = "sin sesiones registradas en 28 días"
 
@@ -75,8 +81,82 @@ def missing_for_target(sessions: int, logged: int, target: float = COVERAGE_MIN)
     return max(0, needed - logged)
 
 
-def register_rpe_text(missing: int) -> str:
-    return REGISTER_RPE_TEXT_ONE if int(missing) == 1 else REGISTER_RPE_TEXT.format(n=int(missing))
+def register_rpe_text(n_sessions: int | None, target_date: object = None) -> str:
+    """Mensaje de registro con la proyeccion; sin proyeccion, solo el pedido."""
+    stamp = pd.to_datetime(target_date, errors="coerce")
+    if n_sessions is None or pd.isna(stamp) or int(n_sessions) <= 0:
+        return REGISTER_RPE_BASE
+    template = REGISTER_RPE_TEXT_ONE if int(n_sessions) == 1 else REGISTER_RPE_TEXT
+    return template.format(n=int(n_sessions), date=f"{stamp:%d/%m}")
+
+
+def projection_label(n_sessions: int | None, target_date: object = None) -> str:
+    """Celda del KPI: "8 sesiones · ~08/12"."""
+    stamp = pd.to_datetime(target_date, errors="coerce")
+    if n_sessions is None or pd.isna(stamp):
+        return "sin proyección"
+    if int(n_sessions) <= 0:
+        return "—"
+    unit = "sesión" if int(n_sessions) == 1 else "sesiones"
+    return f"{int(n_sessions)} {unit} · ~{stamp:%d/%m}"
+
+
+def habitual_weekdays(session_dates, reference_date: object) -> set[int]:
+    """Dias de la semana (0 = lunes) con sesion en los ultimos 28 dias.
+
+    Los que aparecen >= 2 veces; si no queda ninguno, todos los que tienen
+    alguna sesion. Vacio si no hubo sesiones en la ventana.
+    """
+    sessions = _days(session_dates)
+    end = _day(reference_date)
+    start = end - np.timedelta64(COVERAGE_WINDOW_DAYS - 1, "D")
+    window = sessions[(sessions >= start) & (sessions <= end)]
+    if not len(window):
+        return set()
+    weekdays = (window.view("int64") + 3) % 7
+    counts = np.bincount(weekdays, minlength=7)
+    habitual = {int(day) for day in np.flatnonzero(counts >= HABITUAL_MIN_TIMES)}
+    return habitual or {int(day) for day in np.flatnonzero(counts > 0)}
+
+
+def sessions_to_target(session_dates, logged_dates, reference_date: object) -> tuple[int | None, pd.Timestamp | None]:
+    """Sesiones futuras seguidas con RPE hasta cobertura >= 70% en 28 dias, y la fecha.
+
+    Simula dia a dia desde el dia siguiente a `reference_date`: cada dia
+    habitual (ver `habitual_weekdays`) suma una sesion con RPE y la ventana de
+    28 dias avanza (las sesiones viejas sin RPE salen). Tope: 60 dias.
+    Si ya cumple: (0, reference_date). Sin dias habituales o sin llegar en el
+    tope: (None, None).
+    """
+    reference = _day(reference_date)
+    sessions = _days(session_dates)
+    sessions = sessions[sessions <= reference]
+    logged = sessions[np.isin(sessions, _days(logged_dates))]
+
+    def meets(day: np.datetime64, extra: int) -> bool:
+        start = day - np.timedelta64(COVERAGE_WINDOW_DAYS - 1, "D")
+        total = int(np.searchsorted(sessions, day, side="right") - np.searchsorted(sessions, start, side="left"))
+        with_rpe = int(np.searchsorted(logged, day, side="right") - np.searchsorted(logged, start, side="left"))
+        total += extra
+        with_rpe += extra
+        return total > 0 and with_rpe / total >= COVERAGE_MIN - 1e-9
+
+    if meets(reference, 0):
+        return 0, pd.Timestamp(reference)
+    habitual = habitual_weekdays(sessions, reference)
+    if not habitual:
+        return None, None
+    future: list[np.datetime64] = []
+    for offset in range(1, PROJECTION_HORIZON_DAYS + 1):
+        day = reference + np.timedelta64(offset, "D")
+        if int((day.astype("datetime64[D]").view("int64") + 3) % 7) in habitual:
+            future.append(day)
+        # Sesiones simuladas dentro de la ventana que termina en `day`.
+        start = day - np.timedelta64(COVERAGE_WINDOW_DAYS - 1, "D")
+        in_window = sum(1 for item in future if item >= start)
+        if future and meets(day, in_window):
+            return len(future), pd.Timestamp(day)
+    return None, None
 
 
 def week_start(date: object) -> pd.Timestamp:
@@ -106,6 +186,10 @@ class RpeCoverage:
     logged: int
     streak_weeks: int = 0
     stable_from: pd.Timestamp | None = None
+    # Proyeccion hacia adelante (sessions_to_target): None si no se calculo o
+    # no hay dias habituales.
+    to_target: int | None = None
+    target_date: pd.Timestamp | None = None
 
     @property
     def coverage(self) -> float | None:
@@ -121,19 +205,20 @@ class RpeCoverage:
         return self.coverage is not None and self.coverage >= COVERAGE_MIN - 1e-9
 
     @property
-    def missing(self) -> int:
-        return missing_for_target(self.sessions, self.logged)
-
-    @property
     def forming(self) -> bool:
         """Supero el 70% pero con menos de 4 semanas seguidas >= 70%."""
         return self.meets and self.streak_weeks < FORMATION_WEEKS
 
     @property
     def register_text(self) -> str:
-        if not self.sessions:
-            return NO_SESSIONS_TEXT
-        return register_rpe_text(self.missing)
+        """"" si ya cumple; si no, el pedido con la proyeccion (si la hay)."""
+        if self.meets:
+            return ""
+        return register_rpe_text(self.to_target, self.target_date)
+
+    @property
+    def projection_label(self) -> str:
+        return projection_label(self.to_target, self.target_date)
 
     @property
     def formation_text(self) -> str:
@@ -146,7 +231,8 @@ class RpeCoverage:
             "rpe_sessions_28d": self.sessions,
             "rpe_logged_28d": self.logged,
             "rpe_coverage_28d": self.coverage,
-            "rpe_missing_for_70": self.missing,
+            "rpe_to_target": self.to_target,
+            "rpe_target_date": self.target_date,
             "rpe_coverage_ok": self.meets,
             "rpe_coverage_forming": self.forming,
             "rpe_stable_from": self.stable_from,
@@ -207,13 +293,27 @@ def formation_by_week(weeks: Iterable[WeekCoverage]) -> dict[pd.Timestamp, tuple
 
 def stable_from_date(reference_date: object, streak_start: pd.Timestamp | None) -> pd.Timestamp:
     """Fecha en que la cronica tendria 4 semanas de registro >= 70%."""
-    start = streak_start if streak_start is not None else week_start(reference_date) + pd.Timedelta(days=7)
+    if streak_start is not None:
+        start = streak_start
+    else:
+        # Sin racha: la mas temprana posible arranca en la semana en curso si
+        # todavia no termino, o en la proxima.
+        current = week_start(reference_date)
+        start = current if not week_finished(current, reference_date) else current + pd.Timedelta(days=7)
     return pd.Timestamp(start) + pd.Timedelta(days=FORMATION_WEEKS * 7)
 
 
+def week_finished(week: object, reference_date: object) -> bool:
+    """La semana (lunes) ya termino: su domingo es <= la fecha de referencia."""
+    return week_start(week) + pd.Timedelta(days=6) <= pd.Timestamp(reference_date).normalize()
+
+
 def streak_at(formation: dict[pd.Timestamp, tuple[int, pd.Timestamp | None]], reference_date: object) -> tuple[int, pd.Timestamp]:
+    """Racha a la fecha de referencia. La semana en curso solo cuenta si ya termino:
+    si no termino, no suma ni corta (un lunes con 1/1 no completa una racha)."""
     current = week_start(reference_date)
-    previous = [week for week in formation if week <= current]
+    last_counted = current if week_finished(current, reference_date) else current - pd.Timedelta(days=7)
+    previous = [week for week in formation if week <= last_counted]
     streak, start = formation[max(previous)] if previous else (0, None)
     return streak, stable_from_date(reference_date, start)
 
@@ -225,7 +325,8 @@ def rpe_coverage(session_dates, logged_dates, reference_date: object) -> RpeCove
     sessions, logged = count_in_window(session_dates, logged_dates, start, reference)
     formation = formation_by_week(weekly_coverage(session_dates, logged_dates, until=reference))
     streak, stable_from = streak_at(formation, reference)
-    return RpeCoverage(reference, sessions, logged, streak, stable_from)
+    to_target, target_date = sessions_to_target(session_dates, logged_dates, reference)
+    return RpeCoverage(reference, sessions, logged, streak, stable_from, to_target, target_date)
 
 
 def rolling_coverage_counts(calendar: pd.DatetimeIndex, session_dates, logged_dates) -> tuple[np.ndarray, np.ndarray]:
@@ -338,7 +439,7 @@ def team_registration_table(
     """
     from modules.load_monitoring import athlete_match_key
 
-    columns = ["Atleta", "Sesiones (28 d)", "RPE %", "Bienestar %", "Te faltan"]
+    columns = ["Atleta", "Sesiones (28 d)", "RPE %", "Bienestar %", "Para ver su carga"]
     sessions_by_key = session_dates_by_athlete(raw_df)
     if not sessions_by_key:
         return pd.DataFrame(columns=columns), None
@@ -368,7 +469,7 @@ def team_registration_table(
             "Sesiones (28 d)": coverage.sessions,
             "RPE %": round(100.0 * coverage.coverage, 0),
             "Bienestar %": round(100.0 * wellness_logged / coverage.sessions, 0),
-            "Te faltan": coverage.missing,
+            "Para ver su carga": coverage.projection_label,
         })
     table = pd.DataFrame(rows, columns=columns)
     if not table.empty:
@@ -383,7 +484,6 @@ WEEK_COVERAGE_COLUMNS = [
     "rpe_logged_week",
     "rpe_coverage_week",
     "rpe_coverage_28d",
-    "rpe_missing_for_70",
     "rpe_coverage_forming",
     "rpe_stable_from",
 ]
@@ -393,8 +493,9 @@ def acwr_frame_week_coverage(acwr_df: pd.DataFrame | None) -> pd.DataFrame:
     """Cobertura por semana calendario desde un frame de `calc_acwr`.
 
     Semana (lunes) -> sesiones completadas, con RPE, cobertura de la semana,
-    cobertura de 28 dias al ultimo dia de la semana, sesiones que faltan para
-    el 70% y si la cronica esta "en formacion". Misma definicion que
+    cobertura de 28 dias al ultimo dia de la semana y si la cronica esta "en
+    formacion". La proyeccion ("con N seguidas") no va aca: es hacia adelante
+    desde la fecha de referencia (`sessions_to_target`). Misma definicion que
     `rpe_coverage` (lo verifican los tests).
     """
     needed = {"Date", "Sesion_completada", "Sesiones_completadas_28d", "Sesiones_con_RPE_28d", "sRPE_diario"}
@@ -434,7 +535,6 @@ def acwr_frame_week_coverage(acwr_df: pd.DataFrame | None) -> pd.DataFrame:
             "rpe_logged_week": item.logged,
             "rpe_coverage_week": item.coverage if item.coverage is not None else np.nan,
             "rpe_coverage_28d": coverage.coverage if coverage.coverage is not None else np.nan,
-            "rpe_missing_for_70": coverage.missing,
             "rpe_coverage_forming": coverage.forming,
             "rpe_stable_from": coverage.stable_from if coverage.forming else pd.NaT,
         })
@@ -465,21 +565,42 @@ def formation_text_for(forming: object, stable_from: object) -> str:
     return FORMATION_TEXT.format(date=f"{stamp:%d/%m}")
 
 
-def acwr_display_text(value: object, reason: object = "", *, forming: object = False, stable_from: object = None) -> str:
-    """ACWR visible ("1.12", "1.12 · carga crónica en formación (...)") u oculto (motivo)."""
+def acwr_display_text(
+    value: object,
+    reason: object = "",
+    *,
+    forming: object = False,
+    stable_from: object = None,
+    value_date: object = None,
+    reference_date: object = None,
+) -> str:
+    """ACWR visible u oculto (motivo).
+
+    "1.12", "1.12 · carga crónica en formación (...)", y si el valor es de
+    antes de la fecha de referencia: "ACWR al 20/11: 1.12".
+    """
     number = _number(value)
     if number is not None:
         legend = formation_text_for(forming, stable_from)
-        return f"{number:.2f}" + (f" · {legend}" if legend else "")
+        text = f"{number:.2f}"
+        shown = pd.to_datetime(value_date, errors="coerce")
+        reference = pd.to_datetime(reference_date, errors="coerce")
+        if pd.notna(shown) and pd.notna(reference) and shown.normalize() < reference.normalize():
+            text = f"ACWR al {shown:%d/%m}: {text}"
+        return text + (f" · {legend}" if legend else "")
     text = str(reason or "").strip()
     return text if text and text.lower() != "nan" else "-"
 
 
-def week_gate_text(coverage_week: object, missing_28d: object) -> str:
-    """Motivo de una monotonia/strain ocultos por cobertura semanal < 70%."""
-    missing = _number(missing_28d)
-    if missing is not None and missing > 0:
-        return register_rpe_text(int(missing))
+def week_gate_text(coverage_week: object, register_text: object = "") -> str:
+    """Motivo de una monotonia/strain ocultos por cobertura semanal < 70%.
+
+    `register_text`: el de la proyeccion (`RpeCoverage.register_text`); vacio
+    si la cobertura de 28 dias ya cumple, y entonces se dice la de la semana.
+    """
+    text = str(register_text or "").strip()
+    if text and text.lower() != "nan":
+        return text
     coverage = _number(coverage_week)
     if coverage is not None:
         return f"RPE en {100 * coverage:.0f}% de las sesiones de la semana (mínimo 70%)"

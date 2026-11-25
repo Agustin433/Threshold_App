@@ -131,9 +131,8 @@ MONOTONY_MAX_MISSING_FRAC = 0.34
 
 from modules.rpe_coverage import (  # noqa: E402 - la definicion de cobertura vive alli
     COVERAGE_MIN,
+    REGISTER_RPE_BASE,
     acwr_frame_week_coverage,
-    missing_for_target,
-    register_rpe_text,
     rolling_coverage_counts,
 )
 
@@ -324,10 +323,6 @@ def calc_acwr(
         result["Sesiones_completadas_28d"] = coverage_total
         result["Sesiones_con_RPE_28d"] = coverage_logged
         result["Cobertura_RPE_28d"] = coverage_logged / np.where(coverage_total > 0, coverage_total, np.nan)
-        # Igual que missing_for_target, vectorizado.
-        result["RPE_faltan_70"] = np.maximum(
-            0, np.ceil(COVERAGE_MIN * coverage_total - 1e-9).astype(int) - coverage_logged
-        )
 
     ratio = result["EWMA_Aguda"] / result["EWMA_Cronica"].where(result["EWMA_Cronica"] > 0)
     acwr_status = pd.Series(ACWR_STATUS_OK, index=result.index, dtype=object)
@@ -382,9 +377,10 @@ def acwr_unavailable_reason(row: pd.Series | None) -> str:
     if not status or status == ACWR_STATUS_OK:
         return ""
     if status == ACWR_STATUS_INCOMPLETE:
-        to_70 = pd.to_numeric(pd.Series([row.get("RPE_faltan_70")]), errors="coerce").iloc[0]
-        if pd.notna(to_70):
-            return register_rpe_text(int(to_70))
+        # Con registro de sesiones el motivo es el pedido; cada superficie le
+        # agrega la proyeccion hacia adelante (rpe_coverage.sessions_to_target).
+        if pd.notna(pd.to_numeric(pd.Series([row.get("Cobertura_RPE_28d")]), errors="coerce").iloc[0]):
+            return REGISTER_RPE_BASE
         missing = pd.to_numeric(pd.Series([row.get("Faltantes_28d")]), errors="coerce").iloc[0]
         sessions = pd.to_numeric(pd.Series([row.get("Sesiones_28d")]), errors="coerce").iloc[0]
         if pd.notna(missing) and pd.notna(sessions):
