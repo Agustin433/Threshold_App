@@ -131,6 +131,7 @@ MONOTONY_MAX_MISSING_FRAC = 0.34
 
 from modules.rpe_coverage import (  # noqa: E402 - la definicion de cobertura vive alli
     COVERAGE_MIN,
+    acwr_frame_week_coverage,
     missing_for_target,
     register_rpe_text,
     rolling_coverage_counts,
@@ -482,16 +483,17 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
         if "Sesion_completada" in srpe_daily.columns:
             # PR S: monotonia y strain de una semana solo con cobertura >= 70%
             # de las sesiones completadas de esa semana (Raw Workouts).
-            completed = srpe_daily[["Date", "Sesion_completada", "sRPE_diario"]].copy()
-            completed["Date"] = pd.to_datetime(completed["Date"], errors="coerce").dt.normalize()
-            completed = completed.dropna(subset=["Date"]).set_index("Date")
-            done = completed["Sesion_completada"].fillna(False).astype(bool)
-            with_rpe = done & pd.to_numeric(completed["sRPE_diario"], errors="coerce").fillna(0).gt(0)
-            done_by_week = done.resample("W").sum()
-            rpe_by_week = with_rpe.resample("W").sum()
-            week_coverage = rpe_by_week / done_by_week.where(done_by_week > 0)
-            weekly["Cobertura_RPE_semana"] = weekly["Semana"].map(week_coverage)
-            weekly["Sesiones_completadas_semana"] = weekly["Semana"].map(done_by_week).fillna(0).astype(int)
+            coverage = acwr_frame_week_coverage(srpe_daily)
+            by_week = {
+                pd.Timestamp(row.week_start) + pd.Timedelta(days=6): row
+                for row in coverage.itertuples(index=False)
+            }
+            weekly["Cobertura_RPE_semana"] = weekly["Semana"].map(
+                lambda week: by_week[week].rpe_coverage_week if week in by_week else np.nan
+            ).astype(float)
+            weekly["Sesiones_completadas_semana"] = weekly["Semana"].map(
+                lambda week: by_week[week].rpe_sessions_week if week in by_week else 0
+            ).astype(int)
             low_coverage = weekly["Cobertura_RPE_semana"].notna() & (
                 weekly["Cobertura_RPE_semana"] < COVERAGE_MIN - 1e-9
             )

@@ -37,13 +37,34 @@ FORMATION_TEXT = "carga crónica en formación (estable desde ~{date})"
 NO_SESSIONS_TEXT = "sin sesiones registradas en 28 días"
 
 
-def _dates(values: Iterable[object] | None) -> pd.DatetimeIndex:
+_EMPTY_DAYS = np.array([], dtype="datetime64[D]")
+
+
+def _days(values: Iterable[object] | None) -> np.ndarray:
+    """Dias unicos y ordenados (datetime64[D]). numpy: se llama por atleta."""
     if values is None:
-        return pd.DatetimeIndex([])
-    series = pd.to_datetime(pd.Series(list(values)), errors="coerce").dropna()
-    if series.empty:
-        return pd.DatetimeIndex([])
-    return pd.DatetimeIndex(series.dt.normalize().unique()).sort_values()
+        return _EMPTY_DAYS
+    if isinstance(values, np.ndarray) and values.dtype == "datetime64[D]":
+        return np.unique(values)
+    if isinstance(values, (pd.DatetimeIndex, pd.Series)):
+        array = pd.DatetimeIndex(pd.to_datetime(values, errors="coerce")).to_numpy(dtype="datetime64[D]")
+    else:
+        array = pd.to_datetime(pd.Series(list(values), dtype=object), errors="coerce").to_numpy(dtype="datetime64[D]")
+    array = array[~np.isnat(array)]
+    return np.unique(array)
+
+
+def _dates(values: Iterable[object] | None) -> pd.DatetimeIndex:
+    return pd.DatetimeIndex(_days(values))
+
+
+def _day(value: object) -> np.datetime64:
+    return np.datetime64(pd.Timestamp(value).normalize().date(), "D")
+
+
+def _week_starts(days: np.ndarray) -> np.ndarray:
+    weekday = (days.view("int64") + 3) % 7  # 1970-01-01 fue jueves
+    return days - weekday.astype("timedelta64[D]")
 
 
 def missing_for_target(sessions: int, logged: int, target: float = COVERAGE_MIN) -> int:
@@ -134,26 +155,28 @@ class RpeCoverage:
 
 def count_in_window(session_dates, logged_dates, start, end) -> tuple[int, int]:
     """(sesiones completadas, de esas con RPE) entre start y end inclusive."""
-    sessions = _dates(session_dates)
-    logged = set(_dates(logged_dates))
-    start, end = pd.Timestamp(start).normalize(), pd.Timestamp(end).normalize()
-    in_window = sessions[(sessions >= start) & (sessions <= end)]
-    return int(len(in_window)), int(sum(1 for day in in_window if day in logged))
+    sessions = _days(session_dates)
+    in_window = sessions[(sessions >= _day(start)) & (sessions <= _day(end))]
+    logged = np.isin(in_window, _days(logged_dates))
+    return int(len(in_window)), int(logged.sum())
 
 
 def weekly_coverage(session_dates, logged_dates, *, until: object | None = None) -> list[WeekCoverage]:
     """Cobertura por semana calendario (lunes a domingo), en orden."""
-    sessions = _dates(session_dates)
+    sessions = _days(session_dates)
     if until is not None:
-        sessions = sessions[sessions <= pd.Timestamp(until).normalize()]
+        sessions = sessions[sessions <= _day(until)]
     if not len(sessions):
         return []
-    logged = set(_dates(logged_dates))
-    frame = pd.DataFrame({"day": sessions})
-    frame["week"] = frame["day"].map(week_start)
-    frame["logged"] = frame["day"].map(lambda day: day in logged)
-    grouped = frame.groupby("week")["logged"].agg(["size", "sum"])
-    return [WeekCoverage(pd.Timestamp(week), int(row["size"]), int(row["sum"])) for week, row in grouped.iterrows()]
+    logged = np.isin(sessions, _days(logged_dates)).astype(int)
+    weeks = _week_starts(sessions)
+    starts = np.flatnonzero(np.r_[True, weeks[1:] != weeks[:-1]])
+    sizes = np.diff(np.r_[starts, len(weeks)])
+    counts = np.add.reduceat(logged, starts)
+    return [
+        WeekCoverage(pd.Timestamp(weeks[start]), int(size), int(count))
+        for start, size, count in zip(starts, sizes, counts)
+    ]
 
 
 def coverage_for_week(session_dates, logged_dates, week: object) -> WeekCoverage:
@@ -211,19 +234,12 @@ def rolling_coverage_counts(calendar: pd.DatetimeIndex, session_dates, logged_da
     Vectorizado con la misma definicion que `rpe_coverage` (lo verifican los
     tests): lo usa `calc_acwr` para el gate diario del ACWR.
     """
-    sessions = _dates(session_dates)
-    logged_set = set(_dates(logged_dates))
-    with_rpe = pd.DatetimeIndex([day for day in sessions if day in logged_set])
-    days = pd.DatetimeIndex(calendar).normalize()
-    starts = days - pd.Timedelta(days=COVERAGE_WINDOW_DAYS - 1)
-    session_values = sessions.values
-    rpe_values = with_rpe.values
-    total = np.searchsorted(session_values, days.values, side="right") - np.searchsorted(
-        session_values, starts.values, side="left"
-    )
-    logged = np.searchsorted(rpe_values, days.values, side="right") - np.searchsorted(
-        rpe_values, starts.values, side="left"
-    )
+    sessions = _days(session_dates)
+    with_rpe = sessions[np.isin(sessions, _days(logged_dates))]
+    days = pd.DatetimeIndex(calendar).to_numpy(dtype="datetime64[D]")
+    starts = days - np.timedelta64(COVERAGE_WINDOW_DAYS - 1, "D")
+    total = np.searchsorted(sessions, days, side="right") - np.searchsorted(sessions, starts, side="left")
+    logged = np.searchsorted(with_rpe, days, side="right") - np.searchsorted(with_rpe, starts, side="left")
     return total.astype(int), logged.astype(int)
 
 
