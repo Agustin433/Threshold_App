@@ -187,7 +187,8 @@ class YellowCoverageReportsTest(unittest.TestCase):
                 text = self.texts[audience]
                 self.assertNotIn("no evaluable", text)
                 self.assertNotIn("carga reciente", text)
-                self.assertIn("con 3 por semana ya podemos leer", text)
+                # PR S: con cobertura de RPE < 70% el paso dice cuantas faltan.
+                self.assertRegex(text, r"registra tu rpe al terminar cada sesion: te faltan \d+ para ver tu carga")
 
     def test_weekly_srpe_is_partial(self):
         self.assertRegex(self.texts["profe"], r"\d+ ua \(parcial: 1 de 4 sesiones\)")

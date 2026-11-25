@@ -290,11 +290,37 @@ def _last_record_date(frame: pd.DataFrame | None, athlete: str) -> pd.Timestamp 
     return None if rows.empty else pd.Timestamp(rows["Date"].max())
 
 
-def weekly_load_lines(weekly: pd.DataFrame, rpe_df: pd.DataFrame | None, athlete: str) -> list[str]:
-    """Lo que el grafico no dice solo: semanas entrenadas sin RPE, ventana sin sRPE, ACWR sin dato."""
+def weekly_load_lines(
+    weekly: pd.DataFrame,
+    rpe_df: pd.DataFrame | None,
+    athlete: str,
+    *,
+    coverage=None,
+    acwr_coverage=None,
+) -> list[str]:
+    """Lo que el grafico no dice solo: cobertura de RPE, semanas sin RPE, ACWR sin dato.
+
+    `coverage` (modules.rpe_coverage.RpeCoverage, 28 dias a la fecha del
+    resumen): con < 70% el ACWR, la monotonia y el strain no se muestran y se
+    dice cuantas sesiones faltan registrar (PR S). `acwr_coverage`: la del
+    ultimo dia entrenado, para la leyenda de cronica en formacion.
+    """
     lines: list[str] = []
     if weekly is None or weekly.empty:
         return lines
+    if coverage is not None and coverage.pct is not None:
+        coverage_line = (
+            f"RPE registrado en {coverage.pct:.0f}% de las sesiones de 28 días "
+            f"({coverage.logged} de {coverage.sessions})."
+        )
+        if not coverage.meets:
+            coverage_line += (
+                f" {coverage.register_text}: con menos del 70% ACWR, monotonía y strain describen "
+                "el registro, no la carga, y no se muestran."
+            )
+        elif acwr_coverage is not None and acwr_coverage.forming:
+            coverage_line += f" ACWR con {acwr_coverage.formation_text}."
+        lines.append(coverage_line)
     srpe = pd.to_numeric(weekly["srpe"], errors="coerce")
     sessions = pd.to_numeric(weekly["sessions"], errors="coerce").fillna(0).astype(int)
     total = int(sessions.sum())
@@ -307,7 +333,8 @@ def weekly_load_lines(weekly: pd.DataFrame, rpe_df: pd.DataFrame | None, athlete
         missing = [f"{pd.Timestamp(w):%d/%m}" for w, s, n in zip(weekly["week_start"], srpe, sessions) if pd.isna(s) and n > 0]
         if missing:
             lines.append(f"Semanas con sesiones completadas y sin RPE: {', '.join(missing)} (la barra no refleja esa carga).")
-        if pd.to_numeric(weekly["acwr"], errors="coerce").isna().all():
+        low_coverage = coverage is not None and coverage.pct is not None and not coverage.meets
+        if pd.to_numeric(weekly["acwr"], errors="coerce").isna().all() and not low_coverage:
             lines.append("ACWR sin dato en la ventana: registro de sRPE incompleto.")
     return lines
 

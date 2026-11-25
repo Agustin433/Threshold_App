@@ -35,6 +35,7 @@ WHERE = {
         "Señales ejecutivas",            # Overview
         "Alertas priorizadas",           # Overview
         "Carga semanal",                 # Decision Bloque 1
+        "Registro de RPE y bienestar",   # PR S: KPI de registro
         "Variación semanal",             # Decision Bloque 2
         "Perfiles de desarrollo",        # Decision Bloque 3 (ahora mapa + reactividad)
         "Distribución de volumen",       # Decision Bloque 4

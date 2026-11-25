@@ -46,7 +46,8 @@ class AcwrMissingSessionsTest(unittest.TestCase):
         self.assertTrue(pd.isna(last["ACWR_EWMA"]))
         self.assertEqual(last["ACWR_Estado"], ACWR_STATUS_INCOMPLETE)
         self.assertEqual(last["Zona"], "Sin datos")
-        self.assertIn("sesiones sin sRPE en 28 días", acwr_unavailable_reason(last))
+        # PR S: el motivo es accionable (sesiones que faltan para el 70%).
+        self.assertRegex(acwr_unavailable_reason(last), r"^Registrá tu RPE: te faltan \d+ sesiones$")
 
     def test_occasional_forgotten_session_is_imputed_close_to_true_value(self):
         full = _acwr(TRAINED).iloc[-1]
@@ -154,7 +155,8 @@ class ProfessionalReportUsesModelGateTest(unittest.TestCase):
         rows = dict(payload["rows"])
 
         self.assertTrue(rows["ACWR EWMA"].startswith("No calculable"))
-        self.assertIn("sesiones sin sRPE", rows["ACWR EWMA"])
+        # PR S: el motivo dice cuantas sesiones faltan registrar para el 70%.
+        self.assertIn("Registrá tu RPE: te faltan", rows["ACWR EWMA"])
         self.assertEqual(rows["Zona ACWR"], report_generator.PROFESSIONAL_ACWR_GATED_ZONE_TEXT)
         self.assertNotIn("Optimo", " ".join(rows.values()))
         self.assertIn("no calculable", payload["risk_line"].lower())
