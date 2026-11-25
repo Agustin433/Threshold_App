@@ -173,7 +173,9 @@ class DashboardPdfSyncTest(unittest.TestCase):
         last_acwr = pd.to_numeric(weekly["acwr"], errors="coerce").dropna()
         self.assertFalse(last_acwr.empty)
         acwr_metric = next(m for m in self.at.metric if str(m.label).startswith("ACWR"))
-        self.assertEqual(acwr_metric.value, f"{last_acwr.iloc[-1]:.2f}")
+        # PR S: si el ACWR mostrado es de un dia anterior a hoy, lleva su fecha
+        # ("ACWR al dd/mm: 1.12"); el numero es el mismo que el del PDF.
+        self.assertRegex(acwr_metric.value, rf"^(ACWR al \d\d/\d\d: )?{last_acwr.iloc[-1]:.2f}$")
         text = " ".join(str(item.value) for item in [*self.at.markdown, *self.at.caption, *self.at.info, *self.at.warning])
         for zone_word in ("Alto riesgo", "zona optima", "Precaucion", "precaucion"):
             self.assertNotIn(zone_word, text)

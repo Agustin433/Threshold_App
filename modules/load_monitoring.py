@@ -109,6 +109,9 @@ DAY_STATUS_REST = "descanso"
 
 ACWR_STATUS_OK = "ok"
 ACWR_STATUS_INCOMPLETE = "registro_incompleto"
+# Cobertura de 28 dias >= 70% pero la ultima semana tiene mas de un tercio de
+# sesiones sin sRPE: la carga aguda no es la del atleta.
+ACWR_STATUS_ACUTE_INCOMPLETE = "registro_agudo_incompleto"
 ACWR_STATUS_SHORT_HISTORY = "historial_insuficiente"
 ACWR_STATUS_NO_CHRONIC = "sin_carga_cronica"
 
@@ -124,6 +127,14 @@ ACWR_MAX_MISSING_FRAC_ACUTE = 0.34
 # Monotonia (Foster) de una semana con sesiones sin reportar: la SD semanal
 # queda dominada por los ceros falsos, no por la variabilidad real.
 MONOTONY_MAX_MISSING_FRAC = 0.34
+
+
+from modules.rpe_coverage import (  # noqa: E402 - la definicion de cobertura vive alli
+    COVERAGE_MIN,
+    REGISTER_RPE_BASE,
+    acwr_frame_week_coverage,
+    rolling_coverage_counts,
+)
 
 
 def athlete_match_key(value: object) -> str:
@@ -226,6 +237,11 @@ def calc_acwr(
     raw = raw[raw > 0]
     logged_by_day = raw.groupby(raw.index).sum().sort_index()
     trained = _normalized_training_dates(training_dates)
+    # Registro completo de sesiones (antes de recortar al calendario del
+    # modelo): la cobertura de 28 dias cuenta tambien las sesiones previas al
+    # primer sRPE.
+    trained_full = trained
+    has_ledger = training_dates is not None
 
     if logged_by_day.empty:
         start = trained.min() if len(trained) else None
@@ -298,15 +314,35 @@ def calc_acwr(
     result["Frac_faltante_7d"] = (result["Faltantes_7d"] / trained_7.where(trained_7 > 0)).fillna(0.0)
     result["Frac_faltante_28d"] = (result["Faltantes_28d"] / trained_28.where(trained_28 > 0)).fillna(0.0)
     result["Dias_historial"] = np.arange(1, len(result) + 1)
+    # Cobertura de sRPE (modules.rpe_coverage, la unica definicion de la app).
+    # Sin registro de sesiones no hay denominador: la cobertura queda sin
+    # definir y no condiciona nada (se mantienen los gates de faltantes).
+    if has_ledger:
+        coverage_total, coverage_logged = rolling_coverage_counts(calendar, trained_full, logged_by_day.index)
+        result["Sesion_completada"] = calendar.isin(trained_full)
+        result["Sesiones_completadas_28d"] = coverage_total
+        result["Sesiones_con_RPE_28d"] = coverage_logged
+        result["Cobertura_RPE_28d"] = coverage_logged / np.where(coverage_total > 0, coverage_total, np.nan)
 
     ratio = result["EWMA_Aguda"] / result["EWMA_Cronica"].where(result["EWMA_Cronica"] > 0)
     acwr_status = pd.Series(ACWR_STATUS_OK, index=result.index, dtype=object)
     acwr_status[ratio.isna()] = ACWR_STATUS_NO_CHRONIC
     acwr_status[result["Dias_historial"] < ACWR_MIN_HISTORY_DAYS] = ACWR_STATUS_SHORT_HISTORY
-    incomplete = (result["Frac_faltante_28d"] > ACWR_MAX_MISSING_FRAC_CHRONIC) | (
-        result["Frac_faltante_7d"] > ACWR_MAX_MISSING_FRAC_ACUTE
-    )
-    acwr_status[incomplete & acwr_status.eq(ACWR_STATUS_OK)] = ACWR_STATUS_INCOMPLETE
+    if has_ledger:
+        # PR S: el ACWR se muestra solo con cobertura de 28 dias >= 70%
+        # (sesiones completadas en Raw Workouts con sRPE / completadas).
+        coverage = result["Cobertura_RPE_28d"]
+        chronic_incomplete = coverage.notna() & (coverage < COVERAGE_MIN - 1e-9)
+        chronic_incomplete |= coverage.isna() & (result["Frac_faltante_28d"] > ACWR_MAX_MISSING_FRAC_CHRONIC)
+    else:
+        chronic_incomplete = result["Frac_faltante_28d"] > ACWR_MAX_MISSING_FRAC_CHRONIC
+    acute_incomplete = result["Frac_faltante_7d"] > ACWR_MAX_MISSING_FRAC_ACUTE
+    if has_ledger:
+        # La cobertura baja manda sobre "historial corto" o "sin cronica": es
+        # el motivo accionable (registrar el RPE), y vale tambien sin ningun sRPE.
+        acwr_status[chronic_incomplete & coverage.notna()] = ACWR_STATUS_INCOMPLETE
+    acwr_status[chronic_incomplete & acwr_status.eq(ACWR_STATUS_OK)] = ACWR_STATUS_INCOMPLETE
+    acwr_status[acute_incomplete & acwr_status.eq(ACWR_STATUS_OK)] = ACWR_STATUS_ACUTE_INCOMPLETE
     result["ACWR_EWMA"] = ratio.where(acwr_status.eq(ACWR_STATUS_OK))
     result["ACWR_Estado"] = acwr_status
 
@@ -341,11 +377,21 @@ def acwr_unavailable_reason(row: pd.Series | None) -> str:
     if not status or status == ACWR_STATUS_OK:
         return ""
     if status == ACWR_STATUS_INCOMPLETE:
+        # Con registro de sesiones el motivo es el pedido; cada superficie le
+        # agrega la proyeccion hacia adelante (rpe_coverage.sessions_to_target).
+        if pd.notna(pd.to_numeric(pd.Series([row.get("Cobertura_RPE_28d")]), errors="coerce").iloc[0]):
+            return REGISTER_RPE_BASE
         missing = pd.to_numeric(pd.Series([row.get("Faltantes_28d")]), errors="coerce").iloc[0]
         sessions = pd.to_numeric(pd.Series([row.get("Sesiones_28d")]), errors="coerce").iloc[0]
         if pd.notna(missing) and pd.notna(sessions):
             return f"{int(missing)} de {int(sessions)} sesiones sin sRPE en 28 días"
         return "sesiones entrenadas sin sRPE"
+    if status == ACWR_STATUS_ACUTE_INCOMPLETE:
+        missing = pd.to_numeric(pd.Series([row.get("Faltantes_7d")]), errors="coerce").iloc[0]
+        sessions = pd.to_numeric(pd.Series([row.get("Sesiones_7d")]), errors="coerce").iloc[0]
+        if pd.notna(missing) and pd.notna(sessions):
+            return f"{int(missing)} de {int(sessions)} sesiones de los últimos 7 días sin sRPE"
+        return "sesiones recientes sin sRPE"
     if status == ACWR_STATUS_SHORT_HISTORY:
         days = pd.to_numeric(pd.Series([row.get("Dias_historial")]), errors="coerce").iloc[0]
         if pd.notna(days):
@@ -430,6 +476,24 @@ def calc_monotony_strain(srpe_daily: pd.DataFrame) -> pd.DataFrame:
         missing_frac = (missing_by_week / trained_by_week.where(trained_by_week > 0)).fillna(0.0)
         weekly["Sesiones_sin_registro"] = weekly["Semana"].map(missing_by_week).fillna(0).astype(int)
         incomplete_weeks = weekly["Semana"].map(missing_frac).fillna(0.0) > MONOTONY_MAX_MISSING_FRAC
+        if "Sesion_completada" in srpe_daily.columns:
+            # PR S: monotonia y strain de una semana solo con cobertura >= 70%
+            # de las sesiones completadas de esa semana (Raw Workouts).
+            coverage = acwr_frame_week_coverage(srpe_daily)
+            by_week = {
+                pd.Timestamp(row.week_start) + pd.Timedelta(days=6): row
+                for row in coverage.itertuples(index=False)
+            }
+            weekly["Cobertura_RPE_semana"] = weekly["Semana"].map(
+                lambda week: by_week[week].rpe_coverage_week if week in by_week else np.nan
+            ).astype(float)
+            weekly["Sesiones_completadas_semana"] = weekly["Semana"].map(
+                lambda week: by_week[week].rpe_sessions_week if week in by_week else 0
+            ).astype(int)
+            low_coverage = weekly["Cobertura_RPE_semana"].notna() & (
+                weekly["Cobertura_RPE_semana"] < COVERAGE_MIN - 1e-9
+            )
+            incomplete_weeks = low_coverage | (weekly["Cobertura_RPE_semana"].isna() & incomplete_weeks)
         # .mask() arma columnas nuevas en lugar de escribir in-place con .loc:
         # con pandas 3 (copy-on-write) las columnas creadas con .map pueden
         # quedar respaldadas por arrays de solo lectura y .loc[...] = ... falla

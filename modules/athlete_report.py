@@ -617,7 +617,10 @@ def next_steps(
     wellness_available: bool,
     audience: str,
     imtp_step: str | None = None,
+    rpe_step: str | None = None,
 ) -> list[str]:
+    """Hasta 2 proximos pasos. `rpe_step`: con cobertura de RPE < 70%, el pedido
+    con la proyeccion ("con N seguidas ves tu carga (~dd/mm)") (PR S)."""
     keys: list[str] = []
     if has_evaluation and not has_comparison:
         keys.append(NEXT_STEP_FIRST_COMPARISON)
@@ -625,11 +628,11 @@ def next_steps(
         keys.append(NEXT_STEP_REEVALUATE)
     if imtp_step:
         keys.append(imtp_step)
-    if not load_available:
+    if not load_available or rpe_step:
         keys.append(NEXT_STEP_RPE)
     if not wellness_available:
         keys.append(NEXT_STEP_WELLNESS)
-    return next_step_lines(keys, audience)
+    return next_step_lines(keys, audience, rpe_step=rpe_step)
 
 
 def next_evaluation_line(last_evaluation: object, today: object = None) -> str | None:
@@ -1069,8 +1072,12 @@ def tolerance_reading(
     *,
     today: object,
     window_days: int = ACHIEVEMENT_WINDOW_DAYS,
+    raw_df: pd.DataFrame | None = None,
 ) -> dict[str, object] | None:
     """"Como venis aguantando": bienestar diario de las 6 semanas y carga semanal.
+
+    Con `raw_df` (Raw Workouts) la carga semanal solo incluye semanas con RPE
+    en al menos el 70% de sus sesiones (PR S).
 
     - >= 6 registros en la ventana: grafico completo (banda personal).
     - 3-5: puntos sin banda, rotulado "pocos registros".
@@ -1127,6 +1134,22 @@ def tolerance_reading(
         sentences.append(highlight)
 
     weekly_load = weekly_srpe(rpe_df, athlete, start=start, end=end)
+    hidden_load_weeks = 0
+    if raw_df is not None and not weekly_load.empty:
+        # PR S: una semana con RPE en menos del 70% de sus sesiones describe el
+        # registro, no la carga: su barra no se muestra.
+        from modules.load_monitoring import athlete_match_key
+        from modules.rpe_coverage import coverage_for_week, logged_dates_by_athlete, session_dates_by_athlete
+
+        key = athlete_match_key(athlete)
+        sessions = session_dates_by_athlete(raw_df).get(key)
+        if sessions is not None:
+            logged = logged_dates_by_athlete(rpe_df).get(key)
+            weeks = [coverage_for_week(sessions, logged, week) for week in weekly_load["week_start"]]
+            # Semana sin sesiones en Raw Workouts: no hay denominador, se conserva.
+            keep = [week.sessions == 0 or week.meets for week in weeks]
+            hidden_load_weeks = int(len(keep) - sum(keep))
+            weekly_load = weekly_load[keep].reset_index(drop=True)
 
     return {
         "mode": mode,
@@ -1135,6 +1158,7 @@ def tolerance_reading(
         "window_end": end,
         "points": band[["Date", "score", "band_mean", "band_low", "band_high"]],
         "weekly_load": weekly_load,
+        "hidden_load_weeks": hidden_load_weeks,
         "signal": signal,
         "deviation": deviation,
         "sentences": sentences,

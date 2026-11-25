@@ -47,6 +47,16 @@ from modules.jump_analysis import sanitize_body_weight
 from modules.report_messages import MISSING_GENERIC
 from modules.wellness_scales import WELLNESS_EXPORT_HEADERS, WELLNESS_RESPONSE_SCALE
 from modules.metrics import MONOTONY_MIN_SESSIONS
+from modules.rpe_coverage import (
+    COVERAGE_MIN,
+    REGISTER_RPE_BASE,
+    acwr_display_text,
+    coverage_by_athlete,
+    RpeCoverage,
+    coverage_from_acwr_frame,
+    register_rpe_text,
+    week_gate_text,
+)
 from modules.load_monitoring import (
     training_dates_for_athlete,
     ACWR_MAX_MISSING_FRAC_ACUTE,
@@ -1276,6 +1286,50 @@ def _zone_not_evaluable(zone_text: object) -> bool:
     return _professional_normalized_text(str(zone_text or "")) == _professional_normalized_text(LOAD_ZONE_NOT_EVALUABLE)
 
 
+def athlete_registration_coverage(
+    state: dict[str, pd.DataFrame | None],
+    athlete: str,
+    reference_date: object | None = None,
+) -> RpeCoverage | None:
+    """Cobertura de sRPE de 28 dias del atleta: la misma que el KPI de registro de la app.
+
+    None si el atleta no tiene sesiones en Raw Workouts (sin denominador).
+    """
+    from modules.derived_cache import cached_call
+    from modules.load_monitoring import athlete_match_key
+
+    reference = pd.Timestamp(reference_date if reference_date is not None else app_now()).normalize()
+    coverages = cached_call(
+        "coverage_by_athlete",
+        coverage_by_athlete,
+        _individual_raw_history(state),
+        _individual_history_frame(state, "rpe_history_df", "rpe_df"),
+        reference,
+    )
+    return coverages.get(athlete_match_key(athlete))
+
+
+def _acwr_dated_text(acwr_value: float | None, acwr_row: pd.Series | None) -> str:
+    """"1.12", o "ACWR al 20/11: 1.12" si el valor es anterior a la fecha del reporte."""
+    if acwr_value is None:
+        return _professional_number_text(acwr_value, digits=2)
+    return acwr_display_text(
+        acwr_value,
+        "",
+        value_date=acwr_row.get("Date") if acwr_row is not None else None,
+        reference_date=app_now(),
+    )
+
+
+def _athlete_acwr_coverage(state: dict[str, pd.DataFrame | None], athlete: str) -> RpeCoverage | None:
+    """Cobertura de sRPE del atleta al ultimo dia entrenado (la misma que gatea el ACWR)."""
+    acwr_df = (state.get("acwr_dict") or {}).get(athlete)
+    row = _latest_acwr_row(state, athlete)
+    if acwr_df is None or row is None:
+        return None
+    return coverage_from_acwr_frame(acwr_df, row.get("Date"))
+
+
 def _professional_load_quality_gate(state: dict[str, pd.DataFrame | None], athlete: str) -> tuple[bool, str]:
     """(gated, motivo) leido del propio modelo de ACWR (`calc_acwr`).
 
@@ -1285,6 +1339,11 @@ def _professional_load_quality_gate(state: dict[str, pd.DataFrame | None], athle
     `ACWR_Estado` (armado a mano o de una version vieja) no gatea.
     """
     reason = acwr_unavailable_reason(_latest_acwr_row(state, athlete))
+    if reason == REGISTER_RPE_BASE:
+        # PR S: el pedido de registro con la proyeccion hacia adelante.
+        registration = athlete_registration_coverage(state, athlete)
+        if registration is not None and registration.register_text:
+            reason = registration.register_text
     return bool(reason), reason
 
 
@@ -2202,7 +2261,9 @@ def build_report_executive_sheet(
         weekly_detail = " | ".join(
             part for part in [
                 f"{_display_metric(load_row.get('sessions_count'), digits=0)} sesión(es)" if _coerce_float(load_row.get("sessions_count")) is not None else None,
-                f"ACWR EWMA {_display_metric(load_row.get('ACWR_EWMA_last'), digits=2)}" if _coerce_float(load_row.get("ACWR_EWMA_last")) is not None else None,
+                f"ACWR EWMA {acwr_display_text(load_row.get('ACWR_EWMA_last'), _professional_load_quality_gate(state, effective_athlete)[1] or load_row.get('ACWR_reason_last'), forming=load_row.get('rpe_coverage_forming'), stable_from=load_row.get('rpe_stable_from'), value_date=load_row.get('ACWR_date_last'), reference_date=app_now())}"
+                if _coerce_float(load_row.get("ACWR_EWMA_last")) is not None or str(load_row.get("ACWR_reason_last") or "").startswith("Registrá")
+                else None,
                 f"Monotonía {_display_metric(load_row.get('monotony'), digits=2)}" if _coerce_float(load_row.get("monotony")) is not None else None,
             ]
             if part
@@ -4332,7 +4393,9 @@ def generate_module_insights(
         weekly_parts = _compact_lines(
             [
                 f"sRPE semanal {_display_metric(current_load_row.get('weekly_sRPE'), digits=0)}" if _coerce_float(current_load_row.get("weekly_sRPE")) is not None else None,
-                f"ACWR EWMA {_display_metric(current_load_row.get('ACWR_EWMA_last'), digits=2)}" if _coerce_float(current_load_row.get("ACWR_EWMA_last")) is not None else None,
+                f"ACWR EWMA {acwr_display_text(current_load_row.get('ACWR_EWMA_last'), _professional_load_quality_gate(state, effective_athlete)[1] or current_load_row.get('ACWR_reason_last'), forming=current_load_row.get('rpe_coverage_forming'), stable_from=current_load_row.get('rpe_stable_from'), value_date=current_load_row.get('ACWR_date_last'), reference_date=app_now())}"
+                if _coerce_float(current_load_row.get("ACWR_EWMA_last")) is not None or str(current_load_row.get("ACWR_reason_last") or "").startswith("Registrá")
+                else None,
                 completion_snapshot["value"] if completion_snapshot["numeric"] is not None else None,
             ]
         )
@@ -8711,6 +8774,8 @@ def _build_professional_load_tolerance_payload(
 
     acwr_gated, acwr_gate_reason = _professional_load_quality_gate(state, athlete)
     gate_text = f"No calculable ({acwr_gate_reason})" if acwr_gated else None
+    acwr_coverage = _athlete_acwr_coverage(state, athlete)
+    registration = athlete_registration_coverage(state, athlete)
 
     # Monotonia/strain: el modelo ya las anula en semanas con sesiones sin
     # sRPE (Monotony_Status "incomplete_log"). Ademas, con menos de
@@ -8719,6 +8784,10 @@ def _build_professional_load_tolerance_payload(
     # 1/sqrt(6) = 0.408 sea cual sea la carga): no describe homogeneidad.
     sessions_this_week = _coerce_float(internal_load.get("sessions_registered"))
     monotony_log_gated = mono_row is not None and str(mono_row.get("Monotony_Status") or "") == "incomplete_log"
+    week_coverage = _coerce_float(mono_row.get("Cobertura_RPE_semana")) if mono_row is not None else None
+    monotony_coverage_gated = (
+        monotony_log_gated and week_coverage is not None and week_coverage < COVERAGE_MIN - 1e-9
+    )
     monotony_sessions_gated = (
         mono_row is not None
         and not monotony_log_gated
@@ -8727,7 +8796,10 @@ def _build_professional_load_tolerance_payload(
     )
     monotony_gated = monotony_log_gated or monotony_sessions_gated
     monotony_gate_text = None
-    if monotony_log_gated:
+    if monotony_coverage_gated:
+        projected = registration.register_text if registration is not None else ""
+        monotony_gate_text = f"No calculable ({week_gate_text(week_coverage, projected)})"
+    elif monotony_log_gated:
         missing_week = int(_coerce_float(mono_row.get("Sesiones_sin_registro")) or 0)
         monotony_gate_text = f"No calculable ({missing_week} sesión(es) de la semana sin sRPE)"
     elif monotony_sessions_gated:
@@ -8739,9 +8811,14 @@ def _build_professional_load_tolerance_payload(
     # ninguno, la lectura interpretativa de la carga.
     risk_line: str | None = None
     if acwr_gated:
+        coverage_pct = (
+            f"RPE en {registration.pct:.0f}% de las sesiones de 28 días (mínimo 70%). "
+            if registration is not None and registration.pct is not None
+            else ""
+        )
         risk_line = (
-            f"ACWR no calculable: {acwr_gate_reason}. Con sesiones entrenadas sin sRPE, el ACWR depende de los "
-            "huecos y no de la carga; no usarlo para decidir carga hasta completar el registro."
+            f"ACWR no calculable: {coverage_pct}{acwr_gate_reason}. Con cobertura baja, ACWR, monotonía y strain "
+            "describen el registro y no la carga; no usarlos para decidir carga hasta completar el registro."
         )
     elif monotony_log_gated:
         risk_line = (
@@ -8791,7 +8868,23 @@ def _build_professional_load_tolerance_payload(
         ("sRPE semanal", weekly_total_text),
         ("Cambio vs semana previa", gate_text if acwr_gated else change_text),
         ("Sesiones con sRPE (semana)", safe_value(internal_load.get("sessions_registered"))),
-        ("ACWR EWMA", gate_text if acwr_gated else _professional_number_text(acwr_value, digits=2)),
+        (
+            "RPE registrado (28 d)",
+            f"{registration.pct:.0f}% de las sesiones ({registration.logged}/{registration.sessions})"
+            if registration is not None and registration.pct is not None
+            else PDF_MISSING_TEXT,
+        ),
+        (
+            "ACWR EWMA",
+            gate_text
+            if acwr_gated
+            else _acwr_dated_text(acwr_value, acwr_row)
+            + (
+                f" · {acwr_coverage.formation_text}"
+                if acwr_value is not None and acwr_coverage is not None and acwr_coverage.forming
+                else ""
+            ),
+        ),
         (
             "Zona ACWR",
             PROFESSIONAL_ACWR_GATED_ZONE_TEXT
@@ -9730,7 +9823,7 @@ def _build_professional_executive_payload(
         signals.append(_clip_signal(" ".join(change_parts)))
     acwr_gated, acwr_gate_reason = _professional_load_quality_gate(state, athlete)
     if acwr_gated and load_rows:
-        signals.append(_clip_signal(f"ACWR no calculable: {acwr_gate_reason}."))
+        signals.append(_clip_signal(f"ACWR no se muestra: {acwr_gate_reason}."))
     elif load_rows and load_payload.get("load_evaluable") is False:
         signals.append(_clip_signal(f"Carga: {str(load_payload.get('risk_line') or LOAD_NOT_EVALUABLE_TEXT)}"))
     elif load_rows:
@@ -11891,11 +11984,18 @@ def _generate_professional_profile_pdf_reportlab(
         latest_row = latest_training_day_row(acwr_frame)
         latest_reason = acwr_unavailable_reason(latest_row.iloc[0]) if not latest_row.empty else ""
         latest_acwr = _coerce_float(latest_row.iloc[0].get("ACWR_EWMA")) if not latest_row.empty else None
-        interpretation = (
-            f"Interpretación: ACWR actual no calculable ({latest_reason})."
-            if latest_reason
-            else f"Interpretación: zona actual = {_acwr_zone_label(latest_acwr)}."
+        latest_coverage = (
+            coverage_from_acwr_frame(acwr_frame, latest_row.iloc[0].get("Date")) if not latest_row.empty else None
         )
+        if latest_reason:
+            interpretation = (
+                f"Interpretación: ACWR actual oculto. {latest_reason}. Con RPE en menos del 70% de las "
+                "sesiones de 28 días el ACWR describe el registro, no la carga."
+            )
+        else:
+            interpretation = f"Interpretación: zona actual = {_acwr_zone_label(latest_acwr)}."
+            if latest_coverage is not None and latest_coverage.forming:
+                interpretation += f" ACWR con {latest_coverage.formation_text}."
         caption = (
             "ACWR EWMA: rango operativo habitual 0.80–1.30. Valores >1.50 sugieren exposición aguda relativamente alta y requieren revisar contexto, calendario y tolerancia individual "
             "(Gabbett, 2016, BJSM; Hulin et al., 2016, BJSM). "
@@ -11915,12 +12015,22 @@ def _generate_professional_profile_pdf_reportlab(
             target.append(_collapsed_box("No se pudo renderizar el gráfico de monotonía y strain para este reporte."))
             return
         target.append(monotony_image)
+        hidden_weeks = 0
+        if "Cobertura_RPE_semana" in monotony_frame.columns:
+            week_coverage = pd.to_numeric(monotony_frame["Cobertura_RPE_semana"], errors="coerce")
+            hidden_weeks = int((week_coverage < COVERAGE_MIN - 1e-9).sum())
+        coverage_note = (
+            f" {hidden_weeks} semana(s) sin monotonía ni strain: RPE en menos del 70% de las sesiones de esa semana."
+            if hidden_weeks
+            else ""
+        )
         target.append(
             _box(
                 [
                     _p(
                         "Monotonía >2.0 sugiere distribución homogénea de la carga y menor variabilidad semanal. "
-                        "Strain alto sugiere acumulación de estrés semanal y conviene leerlo junto con volumen total, calendario y wellness.",
+                        "Strain alto sugiere acumulación de estrés semanal y conviene leerlo junto con volumen total, calendario y wellness."
+                        + coverage_note,
                         "ProfMuted",
                     )
                 ],
@@ -12950,7 +13060,11 @@ def _generate_professional_profile_pdf_reportlab(
             flow.append(load_image)
             flow.append(_p(SUMMARY_LOAD_NOTE, "ProfMuted"))
         load_lines = psum.weekly_load_lines(
-            weekly, _individual_history_frame(state, "rpe_history_df", "rpe_df"), report_athlete
+            weekly,
+            _individual_history_frame(state, "rpe_history_df", "rpe_df"),
+            report_athlete,
+            coverage=athlete_registration_coverage(state, report_athlete, summary_today),
+            acwr_coverage=_athlete_acwr_coverage(state, report_athlete),
         )
         if load_lines:
             flow.append(_box([_p(line, "ProfBody") for line in load_lines], padding=5))
@@ -13211,9 +13325,13 @@ def build_individual_report_payload(
     focus_row = summary_df.iloc[0] if not summary_df.empty else pd.Series(dtype=object)
     internal_load = _build_professional_internal_load_context(state, athlete)
     load_evaluable = bool(_load_evaluability(state, athlete, internal_load)[0])
+    # PR S: con RPE en menos del 70% de las sesiones de 28 dias la carga
+    # describe el registro: la seccion no se muestra y pasa a Proximos pasos.
+    registration = athlete_registration_coverage(state, athlete, today)
+    rpe_low = registration is not None and not registration.meets
     load = ar.load_reading(
         internal_load,
-        evaluable=load_evaluable,
+        evaluable=load_evaluable and not rpe_low,
         zone=focus_row.get("Zona"),
         acwr=focus_row.get("ACWR EWMA"),
         client_trend=(
@@ -13229,6 +13347,7 @@ def build_individual_report_payload(
         _individual_history_frame(state, "rpe_history_df", "rpe_df"),
         athlete,
         today=today,
+        raw_df=_individual_raw_history(state),
     )
 
     imtp_value = None
@@ -13270,6 +13389,7 @@ def build_individual_report_payload(
         wellness_available=tolerance is not None and tolerance["mode"] == ar.TOLERANCE_MODE_FULL,
         audience=audience,
         imtp_step=imtp_step,
+        rpe_step=registration.register_text if rpe_low else None,
     )
     next_evaluation = ar.next_evaluation_line(evaluation_dates[-1], today) if evaluation_dates else None
     if next_evaluation and next_evaluation.startswith("Ya corresponde") and has_evaluation and (not has_comparison or staleness):
@@ -13934,10 +14054,8 @@ def _generate_visual_report_pdf_reportlab(
                 )
             if tolerance_image is not None:
                 block.append(tolerance_image)
-                if tolerance and tolerance.get("few_records"):
-                    block.append(_tp(TOLERANCE_FEW_RECORDS_CAPTION, "ReportMuted"))
-                elif tolerance:
-                    block.append(_tp(TOLERANCE_BAND_CAPTION, "ReportMuted"))
+                if tolerance:
+                    block.append(_tp(tolerance_caption(tolerance), "ReportMuted"))
             # Titulo, frase, grafico y leyenda juntos: la frase describe el grafico.
             story.append(KeepTogether(block))
             # PR H: sin tablas de "ultima semana completa" (carga y bienestar):
@@ -14245,6 +14363,17 @@ TOLERANCE_BAND_CAPTION = (
 TOLERANCE_FEW_RECORDS_CAPTION = (
     "Pocos registros en estas 6 semanas: se muestran los puntos sin tu rango habitual."
 )
+TOLERANCE_BARS_SENTENCE = " Barras: tu carga semanal (sRPE)."
+
+
+def tolerance_caption(tolerance: dict[str, object] | None) -> str:
+    """Leyenda de "Como venis aguantando"; sin barras de carga no las nombra (PR S)."""
+    if tolerance and tolerance.get("few_records"):
+        return TOLERANCE_FEW_RECORDS_CAPTION
+    weekly = (tolerance or {}).get("weekly_load")
+    if isinstance(weekly, pd.DataFrame) and weekly.empty:
+        return TOLERANCE_BAND_CAPTION.replace(TOLERANCE_BARS_SENTENCE, "")
+    return TOLERANCE_BAND_CAPTION
 EVOLUTION_BAND_CAPTION = (
     "Banda gris: cambio menor al error de medición (max(TE, SWC)) desde tu primera toma. "
     "Un punto por evaluación."

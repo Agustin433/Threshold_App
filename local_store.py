@@ -27,11 +27,13 @@ from modules.jump_analysis import (
 from modules.load_monitoring import (
     DAY_STATUS_MISSING,
     MONOTONY_MAX_MISSING_FRAC,
+    acwr_unavailable_reason,
     athlete_match_key,
     calc_acwr,
     calc_monotony_strain,
     training_dates_by_athlete,
 )
+from modules.rpe_coverage import COVERAGE_MIN, acwr_frame_week_coverage
 from modules.metrics import calculate_monotony
 
 RECENT_WEEKS = 6
@@ -171,6 +173,15 @@ WEEKLY_LOAD_COLUMNS = [
     "sessions_done",
     "sessions_missing",
     "weekly_sRPE_model",
+    # PR S: cobertura de sRPE (modules.rpe_coverage) y motivo del ACWR oculto.
+    "ACWR_reason_last",
+    "ACWR_date_last",
+    "rpe_sessions_week",
+    "rpe_logged_week",
+    "rpe_coverage_week",
+    "rpe_coverage_28d",
+    "rpe_coverage_forming",
+    "rpe_stable_from",
 ]
 WEEKLY_WELLNESS_COLUMNS = [
     "Athlete",
@@ -843,6 +854,20 @@ def _empty_weekly_frame(columns: list[str]) -> pd.DataFrame:
     return pd.DataFrame(columns=columns)
 
 
+def _monotony_log_incomplete(weekly: pd.DataFrame, missing_frac: pd.Series) -> pd.Series:
+    """Semanas cuya monotonia/strain no se muestran por registro incompleto.
+
+    PR S: con registro de sesiones, cobertura de sRPE de la semana < 70%
+    (modules.rpe_coverage). Sin registro, la regla anterior (mas de un tercio
+    de sesiones sin sRPE).
+    """
+    legacy = missing_frac.fillna(0.0) > MONOTONY_MAX_MISSING_FRAC
+    if "rpe_coverage_week" not in weekly.columns:
+        return legacy
+    coverage = pd.to_numeric(weekly["rpe_coverage_week"], errors="coerce")
+    return (coverage.notna() & (coverage < COVERAGE_MIN - 1e-9)) | (coverage.isna() & legacy)
+
+
 def _week_start(series: pd.Series) -> pd.Series:
     dates = pd.to_datetime(series, errors="coerce").dt.normalize()
     return dates - pd.to_timedelta(dates.dt.weekday, unit="D")
@@ -992,13 +1017,12 @@ def _build_weekly_load_summary(
                 _sd_daily=("sRPE_diario", lambda s: float(pd.Series(s).std(ddof=0))),
             )
         )
-        last_acwr = (
-            athlete_df.sort_values("Date")
-            .groupby("week_start", as_index=False)
-            .tail(1)[["week_start", "ACWR_EWMA"]]
-            .rename(columns={"ACWR_EWMA": "ACWR_EWMA_last"})
-        )
+        last_rows = athlete_df.sort_values("Date").groupby("week_start", as_index=False).tail(1)
+        last_acwr = last_rows[["week_start", "ACWR_EWMA"]].rename(columns={"ACWR_EWMA": "ACWR_EWMA_last"})
+        last_acwr["ACWR_reason_last"] = [acwr_unavailable_reason(row) for _, row in last_rows.iterrows()]
+        last_acwr["ACWR_date_last"] = last_rows["Date"].to_numpy()
         weekly = weekly.merge(last_acwr, on="week_start", how="left")
+        weekly = weekly.merge(acwr_frame_week_coverage(acwr_df), on="week_start", how="left")
         monotony_rows = []
         for week_start, week_df in athlete_df.groupby("week_start"):
             calendar_loads = _calendar_load_series(week_df.set_index("Date")["sRPE_diario"], week_start)
@@ -1021,7 +1045,7 @@ def _build_weekly_load_summary(
         # dias sin reporte entrarian como carga 0 y la monotonia mediria los
         # huecos, no la distribucion real de la carga.
         missing_frac = weekly["sessions_missing"] / weekly["sessions_done"].where(weekly["sessions_done"] > 0)
-        incomplete = missing_frac.fillna(0.0) > MONOTONY_MAX_MISSING_FRAC
+        incomplete = _monotony_log_incomplete(weekly, missing_frac)
         weekly.loc[incomplete, "monotony"] = np.nan
         weekly.loc[incomplete, "monotony_status"] = "incomplete_log"
         weekly.loc[incomplete, "monotony_warning"] = "sesiones_sin_registro"
@@ -1267,6 +1291,8 @@ def _ensure_current_week_load(
                 "Athlete": athlete,
                 "week_start": current_week,
                 "ACWR_EWMA_last": pd.to_numeric(scoped.iloc[-1].get("ACWR_EWMA"), errors="coerce"),
+                "ACWR_reason_last": acwr_unavailable_reason(scoped.iloc[-1]),
+                "ACWR_date_last": scoped.iloc[-1]["Date"],
                 "sessions_done": logged_days + missing_days,
                 "sessions_missing": missing_days,
                 "weekly_sRPE_model": model_load,
@@ -1275,7 +1301,10 @@ def _ensure_current_week_load(
     current_rows = current_rows.merge(
         pd.DataFrame(
             acwr_last_rows,
-            columns=["Athlete", "week_start", "ACWR_EWMA_last", "sessions_done", "sessions_missing", "weekly_sRPE_model"],
+            columns=[
+                "Athlete", "week_start", "ACWR_EWMA_last", "ACWR_reason_last", "ACWR_date_last",
+                "sessions_done", "sessions_missing", "weekly_sRPE_model",
+            ],
         ),
         on=["Athlete", "week_start"],
         how="left",
@@ -1306,8 +1335,18 @@ def _ensure_current_week_load(
         how="left",
     )
     current_rows["monotony"] = pd.to_numeric(current_rows["monotony"], errors="coerce")
+    current_coverage = [
+        acwr_frame_week_coverage(frame).assign(Athlete=athlete)
+        for athlete, frame in acwr_models.items()
+        if frame is not None and not frame.empty
+    ]
+    current_coverage = [frame for frame in current_coverage if not frame.empty]
+    if current_coverage:
+        current_rows = current_rows.merge(
+            pd.concat(current_coverage, ignore_index=True), on=["Athlete", "week_start"], how="left"
+        )
     current_missing_frac = current_rows["sessions_missing"] / current_rows["sessions_done"].where(current_rows["sessions_done"] > 0)
-    current_incomplete = current_missing_frac.fillna(0.0) > MONOTONY_MAX_MISSING_FRAC
+    current_incomplete = _monotony_log_incomplete(current_rows, current_missing_frac)
     current_rows.loc[current_incomplete, "monotony"] = np.nan
     current_rows.loc[current_incomplete, "monotony_status"] = "incomplete_log"
     current_rows.loc[current_incomplete, "monotony_warning"] = "sesiones_sin_registro"
@@ -1317,7 +1356,7 @@ def _ensure_current_week_load(
         np.nan,
     )
     current_rows["is_current_week"] = True
-    current_rows = current_rows[WEEKLY_LOAD_COLUMNS]
+    current_rows = current_rows.reindex(columns=WEEKLY_LOAD_COLUMNS)
     if not result.empty:
         result = result[~result["week_start"].eq(current_week)].copy()
     result = _append_missing_week_rows(result, current_rows, key_cols=["Athlete", "week_start"])

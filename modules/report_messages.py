@@ -67,12 +67,28 @@ NEXT_STEP_PRIORITY = (
 )
 
 
-def next_step_lines(keys: list[str] | tuple[str, ...], audience: str) -> list[str]:
-    """Hasta NEXT_STEPS_MAX textos, en orden de prioridad y sin repetir."""
+def next_step_lines(
+    keys: list[str] | tuple[str, ...],
+    audience: str,
+    *,
+    rpe_step: str | None = None,
+) -> list[str]:
+    """Hasta NEXT_STEPS_MAX textos, en orden de prioridad y sin repetir.
+
+    `rpe_step`: texto del paso de RPE cuando la cobertura de 28 dias es < 70%
+    (el de modules.rpe_coverage, con la proyeccion hacia adelante).
+    """
     audience_key = "cliente" if str(audience).strip().lower() == "cliente" else "atleta"
     wanted = set(keys)
     ordered = [key for key in NEXT_STEP_PRIORITY if key in wanted]
-    return [NEXT_STEP_TEXT[key][audience_key] for key in ordered][:NEXT_STEPS_MAX]
+
+    def text(key: str) -> str:
+        if key == NEXT_STEP_RPE and rpe_step:
+            text = str(rpe_step).strip()
+            return text if text.endswith(".") else f"{text}."
+        return NEXT_STEP_TEXT[key][audience_key]
+
+    return [text(key) for key in ordered][:NEXT_STEPS_MAX]
 
 
 # ── Frases que no van en el PDF atleta/cliente ───────────────────────────

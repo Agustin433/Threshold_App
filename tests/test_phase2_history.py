@@ -387,7 +387,11 @@ class Phase2HistoryTest(unittest.TestCase):
             )
 
             recent_state = local_store.load_recent_state(weeks=local_store.RECENT_WEEKS)
-            expected_acwr_dict, expected_mono_dict = local_store.build_load_models(recent_state["rpe_df"])
+            # La app arma el modelo con el registro de sesiones (Raw Workouts):
+            # desde el PR S eso agrega las columnas de cobertura de sRPE.
+            expected_acwr_dict, expected_mono_dict = local_store.build_load_models(
+                recent_state["rpe_df"], raw_df=recent_state["raw_df"]
+            )
             expected_weekly_summaries = local_store.build_weekly_summaries(
                 recent_state["rpe_df"],
                 recent_state["wellness_df"],
